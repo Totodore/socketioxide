@@ -1,6 +1,8 @@
 use crate::{
-    body::ResponseBody, futures::ResponseFuture, packet::TransportType,
-    websocket::{upgrade_ws_connection}, engine::{EngineIo, EngineIoConfig},
+    body::ResponseBody,
+    engine::{EngineIo, EngineIoConfig},
+    futures::ResponseFuture,
+    websocket::upgrade_ws_connection,
 };
 use http::{Method, Request};
 use http_body::Body;
@@ -13,15 +15,24 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct EngineIoService<S> {
     inner: S,
-	engine: EngineIo,
+    engine: EngineIo,
 }
 
 impl<S> EngineIoService<S> {
-	pub fn from_config(inner: S, config: EngineIoConfig) -> Self {
-		EngineIoService { inner, engine: EngineIo::from_config(config) }
-	}
+    pub fn from_config(inner: S, config: EngineIoConfig) -> Self {
+        EngineIoService {
+            inner,
+            engine: EngineIo::from_config(config),
+        }
+    }
 }
 
+// let (sender, body) = hyper::Body::channel();
+            // let res = Response::builder()
+            //         .status(200)
+            //         .body(body)
+            //         .unwrap();
+            // ResponseFuture::new(res);
 impl<ReqBody, ResBody, S> Service<Request<ReqBody>> for EngineIoService<S>
 where
     ResBody: Body,
@@ -38,58 +49,49 @@ where
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with("/engine.io") {
-            if !is_valid_engineio_req(&req) {
-                return ResponseFuture::empty_response(400);
+            match RequestType::parse(&req) {
+                RequestType::Invalid => ResponseFuture::empty_response(400),
+                RequestType::HttpOpen => todo!(),
+                RequestType::HttpPoll => todo!(),
+                RequestType::WebsocketUpgrade => upgrade_ws_connection(req),
             }
-            handle_engineio_request(req)
         } else {
             ResponseFuture::new(self.inner.call(req))
         }
     }
 }
 
-fn handle_engineio_request<T, V>(req: Request<T>) -> ResponseFuture<V>
-where
-    T: Send + 'static,
-{
-    let query = req.uri().query().unwrap_or_default();
-    if !query.contains("EIO=4")
-        || (!query.contains("transport=polling") && !query.contains("transport=websocket"))
-    {
-        return ResponseFuture::empty_response(400);
-    }
+enum RequestType {
+    Invalid,
+    HttpOpen,
+    HttpPoll,
+    WebsocketUpgrade,
+}
 
-    if let Some(transport_type) = get_transport_type(&req) {
-        if transport_type == TransportType::Websocket {
-            upgrade_ws_connection(req)
+impl RequestType {
+    fn parse<B>(req: &Request<B>) -> Self {
+        if let Some(query) = req.uri().query() {
+            if !query.contains("EIO=4")
+                || req.method() != Method::GET && req.method() != Method::POST
+            {
+                return RequestType::Invalid;
+            }
+
+            if query.contains("transport=polling") {
+                if query.contains("sid=") {
+                    RequestType::HttpPoll
+                } else if req.method() == Method::GET {
+                    RequestType::HttpOpen
+                } else {
+					RequestType::Invalid
+				}
+            } else if query.contains("transport=websocket") && req.method() == Method::GET {
+                RequestType::WebsocketUpgrade
+            } else {
+                RequestType::Invalid
+            }
         } else {
-			// let (sender, body) = hyper::Body::channel();
-			// let res = Response::builder()
-            //         .status(200)
-            //         .body(body)
-            //         .unwrap();
-			// ResponseFuture::new(res);
-
-            ResponseFuture::open_response(transport_type)
+            RequestType::Invalid
         }
-    } else {
-        ResponseFuture::empty_response(400)
-    }
-}
-
-fn is_valid_engineio_req<T>(req: &Request<T>) -> bool {
-    let query = req.uri().query().unwrap_or_default();
-    req.method() == Method::GET
-        && query.contains("EIO=4")
-        && (query.contains("transport=polling") || query.contains("transport=websocket"))
-}
-fn get_transport_type<T>(req: &Request<T>) -> Option<TransportType> {
-    let query = req.uri().query().unwrap_or_default();
-    if query.contains("transport=websocket") {
-        Some(TransportType::Websocket)
-    } else if query.contains("transport=polling") {
-        Some(TransportType::Polling)
-    } else {
-        None
     }
 }

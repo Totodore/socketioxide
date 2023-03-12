@@ -75,9 +75,3 @@ async fn handle_packet(packet: Packet) {
         Packet::Noop => todo!(),
     }
 }
-async fn send_pong(tx: &mut WebSocketStream<Upgraded>) {
-    let msg: String = Packet::Pong.try_into().unwrap();
-    tx.send(Message::text(msg + &"probe".to_string()))
-        .await
-        .unwrap();
-}

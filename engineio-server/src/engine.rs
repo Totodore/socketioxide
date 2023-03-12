@@ -50,6 +50,5 @@ impl EngineIo {
 	}
 
 	pub async fn on_polling_req<B>(&self, req: Request<B>) {
-
 	}
 }
