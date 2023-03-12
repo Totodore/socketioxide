@@ -24,7 +24,6 @@ impl<B> ResponseBody<B> {
         }
     }
 
-
     pub(crate) fn new(body: B) -> Self {
         Self {
             inner: ResponseBodyInner::Body { body },
@@ -83,7 +82,12 @@ where
 
     fn size_hint(&self) -> SizeHint {
         match &self.inner {
-            ResponseBodyInner::EmptyResponse => SizeHint::default(),
+            ResponseBodyInner::EmptyResponse => {
+                let mut size_hint = SizeHint::default();
+                size_hint.set_lower(0);
+                size_hint.set_upper(0);
+                size_hint
+            }
             ResponseBodyInner::Body { body } => body.size_hint(),
             ResponseBodyInner::CustomBody { body } => body.size_hint(),
         }
