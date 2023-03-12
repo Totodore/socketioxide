@@ -1,0 +1,2 @@
+[workspace]
+members = ["engineio-server", "socketio-server", "examples"]
