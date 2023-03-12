@@ -86,12 +86,12 @@ where
             ResFutProj::UpgradeResponse { req_headers } => {
                 let key = req_headers.get(SEC_WEBSOCKET_KEY);
                 let derived = key.map(|k| derive_accept_key(k.as_bytes()));
-				let sec = derived.unwrap().parse::<HeaderValue>().unwrap();
+                let sec = derived.unwrap().parse::<HeaderValue>().unwrap();
                 Response::builder()
                     .status(StatusCode::SWITCHING_PROTOCOLS)
                     .header(UPGRADE, HeaderValue::from_static("websocket"))
                     .header(CONNECTION, HeaderValue::from_static("Upgrade"))
-					.header(SEC_WEBSOCKET_ACCEPT, sec)
+                    .header(SEC_WEBSOCKET_ACCEPT, sec)
                     .body(ResponseBody::empty_response())
                     .unwrap()
             }

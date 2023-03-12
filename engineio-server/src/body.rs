@@ -30,9 +30,10 @@ impl<B> ResponseBody<B> {
         }
     }
 }
+
 #[pin_project(project = BodyProj)]
 enum ResponseBodyInner<B> {
-	EmptyResponse,
+    EmptyResponse,
     CustomBody {
         #[pin]
         body: Full<Bytes>,
@@ -46,6 +47,7 @@ enum ResponseBodyInner<B> {
 impl<B> Body for ResponseBody<B>
 where
     B: Body<Data = Bytes>,
+    B::Error: std::error::Error,
 {
     type Data = Bytes;
     type Error = B::Error;
@@ -83,10 +85,9 @@ where
     fn size_hint(&self) -> SizeHint {
         match &self.inner {
             ResponseBodyInner::EmptyResponse => {
-                let mut size_hint = SizeHint::default();
-                size_hint.set_lower(0);
-                size_hint.set_upper(0);
-                size_hint
+                let mut hint = SizeHint::default();
+                hint.set_upper(0);
+                hint
             }
             ResponseBodyInner::Body { body } => body.size_hint(),
             ResponseBodyInner::CustomBody { body } => body.size_hint(),
