@@ -7,6 +7,7 @@ use http_body::{Body, Full};
 use pin_project::pin_project;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tungstenite::handshake::derive_accept_key;
 
@@ -17,9 +18,9 @@ pub struct ResponseFuture<F> {
 }
 
 impl<F> ResponseFuture<F> {
-    pub fn open_response(transport_type: TransportType) -> Self {
+    pub fn open_response() -> Self {
         Self {
-            inner: ResponseFutureInner::OpenResponse { transport_type },
+            inner: ResponseFutureInner::OpenResponse,
         }
     }
     pub fn empty_response(code: u16) -> Self {
@@ -27,9 +28,16 @@ impl<F> ResponseFuture<F> {
             inner: ResponseFutureInner::EmptyResponse { code },
         }
     }
-    pub fn upgrade_response(req_headers: HeaderMap) -> Self {
+    pub fn upgrade_response(ws_key: HeaderValue) -> Self {
         Self {
-            inner: ResponseFutureInner::UpgradeResponse { req_headers },
+            inner: ResponseFutureInner::UpgradeResponse { ws_key },
+        }
+    }
+    pub fn streaming_response(body: hyper::Body) -> Self {
+        Self {
+            inner: ResponseFutureInner::StreamingResponse {
+                body: Arc::new(Mutex::new(body)),
+            },
         }
     }
 
@@ -41,14 +49,15 @@ impl<F> ResponseFuture<F> {
 }
 #[pin_project(project = ResFutProj)]
 enum ResponseFutureInner<F> {
-    OpenResponse {
-        transport_type: TransportType,
-    },
+    OpenResponse,
     UpgradeResponse {
-        req_headers: HeaderMap,
+        ws_key: HeaderValue,
     },
     EmptyResponse {
         code: u16,
+    },
+    StreamingResponse {
+        body: Arc<Mutex<hyper::Body>>,
     },
     Future {
         #[pin]
@@ -66,27 +75,22 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let res = match self.project().inner.project() {
             ResFutProj::Future { future } => ready!(future.poll(cx))?.map(ResponseBody::new),
-            ResFutProj::OpenResponse { transport_type } => {
-                //TODO: avoid cloning response
+            ResFutProj::OpenResponse => {
                 let body: String = Packet::Open(OpenPacket::new()).try_into().unwrap();
-                let code = if *transport_type == TransportType::Websocket {
-                    101
-                } else {
-                    200
-                };
                 Response::builder()
-                    .status(code)
+                    .status(200)
                     .body(ResponseBody::custom_response(Full::from(body)))
                     .unwrap()
             }
+
             ResFutProj::EmptyResponse { code } => Response::builder()
                 .status(*code)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-            ResFutProj::UpgradeResponse { req_headers } => {
-                let key = req_headers.get(SEC_WEBSOCKET_KEY);
-                let derived = key.map(|k| derive_accept_key(k.as_bytes()));
-                let sec = derived.unwrap().parse::<HeaderValue>().unwrap();
+
+            ResFutProj::UpgradeResponse { ws_key } => {
+                let derived = derive_accept_key(ws_key.as_bytes());
+                let sec = derived.parse::<HeaderValue>().unwrap();
                 Response::builder()
                     .status(StatusCode::SWITCHING_PROTOCOLS)
                     .header(UPGRADE, HeaderValue::from_static("websocket"))
@@ -95,6 +99,11 @@ where
                     .body(ResponseBody::empty_response())
                     .unwrap()
             }
+
+            ResFutProj::StreamingResponse { body } => Response::builder()
+                .status(200)
+                .body(ResponseBody::streaming_response(body.clone()))
+                .unwrap(),
         };
         Poll::Ready(Ok(res))
     }

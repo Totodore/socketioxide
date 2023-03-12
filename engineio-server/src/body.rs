@@ -1,10 +1,11 @@
 use bytes::Bytes;
+use futures::StreamExt;
 use http::HeaderMap;
 use http_body::{Body, Full, SizeHint};
 use pin_project::pin_project;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-
 #[pin_project]
 pub struct ResponseBody<B> {
     #[pin]
@@ -24,6 +25,13 @@ impl<B> ResponseBody<B> {
         }
     }
 
+	//TODO: Find better solution than Arc<Mutex<hyper::Body>>
+    pub fn streaming_response(body: Arc<Mutex<hyper::Body>>) -> Self {
+        Self {
+            inner: ResponseBodyInner::StreamingResponse { body },
+        }
+    }
+
     pub(crate) fn new(body: B) -> Self {
         Self {
             inner: ResponseBodyInner::Body { body },
@@ -38,6 +46,9 @@ enum ResponseBodyInner<B> {
         #[pin]
         body: Full<Bytes>,
     },
+    StreamingResponse {
+        body: Arc<Mutex<hyper::Body>>,
+    },
     Body {
         #[pin]
         body: B,
@@ -47,7 +58,7 @@ enum ResponseBodyInner<B> {
 impl<B> Body for ResponseBody<B>
 where
     B: Body<Data = Bytes>,
-    B::Error: std::error::Error,
+    B::Error: std::error::Error + 'static,
 {
     type Data = Bytes;
     type Error = B::Error;
@@ -60,6 +71,13 @@ where
             BodyProj::EmptyResponse => std::task::Poll::Ready(None),
             BodyProj::Body { body } => body.poll_data(cx),
             BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
+            BodyProj::StreamingResponse { body } => {
+                //TODO: Fix this ugly hack
+                body.lock()
+                    .unwrap()
+                    .poll_next_unpin(cx)
+                    .map(|d| d.map(|d| Ok(d.unwrap())))
+            }
         }
     }
 
@@ -71,6 +89,7 @@ where
             BodyProj::EmptyResponse => std::task::Poll::Ready(Ok(None)),
             BodyProj::Body { body } => body.poll_trailers(cx),
             BodyProj::CustomBody { body } => body.poll_trailers(cx).map_err(|err| match err {}),
+            BodyProj::StreamingResponse { body } => std::task::Poll::Ready(Ok(None)),
         }
     }
 
@@ -79,6 +98,7 @@ where
             ResponseBodyInner::EmptyResponse => true,
             ResponseBodyInner::Body { body } => body.is_end_stream(),
             ResponseBodyInner::CustomBody { body } => body.is_end_stream(),
+            ResponseBodyInner::StreamingResponse { body } => body.lock().unwrap().is_end_stream(),
         }
     }
 
@@ -91,6 +111,7 @@ where
             }
             ResponseBodyInner::Body { body } => body.size_hint(),
             ResponseBodyInner::CustomBody { body } => body.size_hint(),
+            ResponseBodyInner::StreamingResponse { body } => body.lock().unwrap().size_hint(),
         }
     }
 }

@@ -2,7 +2,6 @@ use crate::{
     body::ResponseBody,
     engine::{EngineIo, EngineIoConfig},
     futures::ResponseFuture,
-    websocket::upgrade_ws_connection,
 };
 use http::{Method, Request};
 use http_body::Body;
@@ -27,12 +26,7 @@ impl<S> EngineIoService<S> {
     }
 }
 
-// let (sender, body) = hyper::Body::channel();
-            // let res = Response::builder()
-            //         .status(200)
-            //         .body(body)
-            //         .unwrap();
-            // ResponseFuture::new(res);
+//
 impl<ReqBody, ResBody, S> Service<Request<ReqBody>> for EngineIoService<S>
 where
     ResBody: Body,
@@ -51,9 +45,10 @@ where
         if req.uri().path().starts_with("/engine.io") {
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
-                RequestType::HttpOpen => todo!(),
-                RequestType::HttpPoll => todo!(),
-                RequestType::WebsocketUpgrade => upgrade_ws_connection(req),
+                RequestType::HttpOpen => ResponseFuture::open_response(),
+                RequestType::HttpPoll => self.engine.on_polling_req(req),
+                RequestType::HttpSendPacket => self.engine.on_send_packet_req(req),
+                RequestType::WebsocketUpgrade => self.engine.upgrade_ws_req(req),
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
@@ -65,6 +60,7 @@ enum RequestType {
     Invalid,
     HttpOpen,
     HttpPoll,
+    HttpSendPacket,
     WebsocketUpgrade,
 }
 
@@ -79,12 +75,18 @@ impl RequestType {
 
             if query.contains("transport=polling") {
                 if query.contains("sid=") {
-                    RequestType::HttpPoll
+                    if req.method() == Method::GET {
+                        RequestType::HttpPoll
+                    } else if req.method() == Method::POST {
+                        RequestType::HttpSendPacket
+                    } else {
+						RequestType::Invalid
+					}
                 } else if req.method() == Method::GET {
                     RequestType::HttpOpen
                 } else {
-					RequestType::Invalid
-				}
+                    RequestType::Invalid
+                }
             } else if query.contains("transport=websocket") && req.method() == Method::GET {
                 RequestType::WebsocketUpgrade
             } else {
