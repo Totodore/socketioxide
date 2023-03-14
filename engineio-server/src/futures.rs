@@ -1,15 +1,16 @@
 use crate::body::ResponseBody;
 use crate::packet::{OpenPacket, Packet, TransportType};
+use crate::utils::generate_sid;
 use futures_core::ready;
 use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
 use http::{HeaderMap, HeaderValue, Response, StatusCode};
 use http_body::{Body, Full};
 use pin_project::pin_project;
-use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 
 #[pin_project]
 pub struct ResponseFuture<F> {
@@ -76,7 +77,9 @@ where
         let res = match self.project().inner.project() {
             ResFutProj::Future { future } => ready!(future.poll(cx))?.map(ResponseBody::new),
             ResFutProj::OpenResponse => {
-                let body: String = Packet::Open(OpenPacket::new()).try_into().unwrap();
+                let body: String = Packet::Open(OpenPacket::new(TransportType::Polling, generate_sid()))
+                    .try_into()
+                    .unwrap();
                 Response::builder()
                     .status(200)
                     .body(ResponseBody::custom_response(Full::from(body)))

@@ -4,3 +4,5 @@ mod futures;
 mod body;
 mod packet;
 mod engine;
+mod utils;
+mod errors;

@@ -8,20 +8,20 @@ use http_body::Body;
 use hyper::{service::Service, Response};
 use std::{
     fmt::Debug,
-    task::{Context, Poll},
+    task::{Context, Poll}, sync::Arc,
 };
 
 #[derive(Debug, Clone)]
 pub struct EngineIoService<S> {
     inner: S,
-    engine: EngineIo,
+    engine: Arc<EngineIo>,
 }
 
 impl<S> EngineIoService<S> {
     pub fn from_config(inner: S, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
-            engine: EngineIo::from_config(config),
+            engine: EngineIo::from_config(config).into(),
         }
     }
 }
@@ -43,12 +43,13 @@ where
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with("/engine.io") {
+			let engine = self.engine.clone();
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
                 RequestType::HttpOpen => ResponseFuture::open_response(),
-                RequestType::HttpPoll => self.engine.on_polling_req(req),
-                RequestType::HttpSendPacket => self.engine.on_send_packet_req(req),
-                RequestType::WebsocketUpgrade => self.engine.upgrade_ws_req(req),
+                RequestType::HttpPoll => engine.on_polling_req(req),
+                RequestType::HttpSendPacket => engine.on_send_packet_req(req),
+                RequestType::WebsocketUpgrade => engine.upgrade_ws_req(req),
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
