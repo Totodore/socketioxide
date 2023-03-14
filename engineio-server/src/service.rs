@@ -8,7 +8,8 @@ use http_body::Body;
 use hyper::{service::Service, Response};
 use std::{
     fmt::Debug,
-    task::{Context, Poll}, sync::Arc,
+    sync::Arc,
+    task::{Context, Poll},
 };
 
 #[derive(Debug, Clone)]
@@ -29,7 +30,9 @@ impl<S> EngineIoService<S> {
 impl<ReqBody, ResBody, S> Service<Request<ReqBody>> for EngineIoService<S>
 where
     ResBody: Body,
-    ReqBody: Send + 'static + Debug,
+    ReqBody: http_body::Body + Send + 'static + Debug,
+    <ReqBody as http_body::Body>::Error: Debug,
+    <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
 {
     type Response = Response<ResponseBody<ResBody>>;
@@ -42,10 +45,10 @@ where
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with("/engine.io") {
-			let engine = self.engine.clone();
+            let engine = self.engine.clone();
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
-				//TODO: Avoid cloning ?
+                //TODO: Avoid cloning ?
                 RequestType::HttpOpen => ResponseFuture::open_response(self.engine.config.clone()),
                 RequestType::HttpPoll => engine.on_polling_req(req),
                 RequestType::HttpSendPacket => engine.on_send_packet_req(req),
@@ -81,8 +84,8 @@ impl RequestType {
                     } else if req.method() == Method::POST {
                         RequestType::HttpSendPacket
                     } else {
-						RequestType::Invalid
-					}
+                        RequestType::Invalid
+                    }
                 } else if req.method() == Method::GET {
                     RequestType::HttpOpen
                 } else {

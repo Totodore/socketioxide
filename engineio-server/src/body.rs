@@ -76,7 +76,13 @@ where
                 body.lock()
                     .unwrap()
                     .poll_next_unpin(cx)
-                    .map(|d| d.map(|d| Ok(d.unwrap())))
+                    .map(|d| d.map(|d| {
+                        match d {
+                            Ok(d) => return Ok(d),
+                            Err(e) => println!("Error: {}", e),
+                        };
+                        Ok(Bytes::new())
+                    }))
             }
         }
     }

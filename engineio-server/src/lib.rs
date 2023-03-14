@@ -6,3 +6,4 @@ mod packet;
 mod engine;
 mod utils;
 mod errors;
+mod socket;

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
-use futures::{stream::SplitSink, SinkExt, StreamExt, TryStreamExt};
+use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use http::{request::Parts, Request};
 use hyper::upgrade::Upgraded;
 use tokio::sync::RwLock;
@@ -8,11 +8,12 @@ use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
-
+use std::fmt::Debug;
 use crate::{
     errors::Error,
     futures::ResponseFuture,
     packet::{OpenPacket, Packet, TransportType},
+    socket::Socket,
     utils::generate_sid,
 };
 
@@ -34,22 +35,17 @@ impl Default for EngineIoConfig {
 }
 
 type SocketMap<T> = RwLock<HashMap<i64, T>>;
-type Websocket = SplitSink<WebSocketStream<Upgraded>, Message>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 #[derive(Debug)]
 pub struct EngineIo {
-    ws_sockets: SocketMap<Websocket>,
-    polling_sockets: SocketMap<hyper::body::Sender>,
-    last_pong: RwLock<HashMap<i64, std::time::Instant>>,
+    sockets: SocketMap<Socket>,
     pub config: EngineIoConfig,
 }
 
 impl EngineIo {
     pub fn from_config(config: EngineIoConfig) -> Self {
         Self {
-            ws_sockets: RwLock::new(HashMap::new()),
-            polling_sockets: RwLock::new(HashMap::new()),
-            last_pong: RwLock::new(HashMap::new()),
+            sockets: RwLock::new(HashMap::new()),
             config,
         }
     }
@@ -57,23 +53,43 @@ impl EngineIo {
 
 impl EngineIo {
     pub fn on_polling_req<F, B>(self: Arc<Self>, req: Request<B>) -> ResponseFuture<F> {
-        // let sid = extract_sid(&req);
-        // if sid.is_none() {
-        // return ResponseFuture::empty_response(400);
-        // }
-        let (mut tx, body) = hyper::Body::channel();
-        tokio::task::spawn(async move {});
-        // let mut sockets = self.polling_sockets.lock().unwrap();
-        // sockets.insert(sid.unwrap(), sender);
+        let (parts, _) = req.into_parts();
+        let sid = extract_sid(&parts);
+        if sid.is_none() {
+            return ResponseFuture::empty_response(400);
+        }
+        let (tx, body) = hyper::Body::channel();
+        tokio::task::spawn(async move {
+            let mut sockets = self.sockets.write().await;
+            if let Some(socket) = sockets.remove(&sid.unwrap()) {
+                socket.close().await.unwrap();
+            } else {
+                sockets.insert(sid.unwrap(), Socket::new_http(sid.unwrap(), tx));
+            }
+        });
+
         ResponseFuture::streaming_response(body)
     }
 
-    pub fn on_send_packet_req<B, F>(self: Arc<Self>, req: Request<B>) -> ResponseFuture<F> {
-        // let sid = extract_sid(&req);
-        // if sid.is_none() {
-        // return ResponseFuture::empty_response(400);
-        // }
-
+    pub fn on_send_packet_req<B, F>(self: Arc<Self>, req: Request<B>) -> ResponseFuture<F>
+    where
+        B: http_body::Body + std::marker::Send + 'static,
+        <B as http_body::Body>::Error: Debug,
+        <B as http_body::Body>::Data: std::marker::Send,
+    {
+        let (parts, body) = req.into_parts();
+        let sid = extract_sid(&parts);
+        if sid.is_none() {
+            return ResponseFuture::empty_response(400);
+        }
+        tokio::task::spawn(async move {
+            if let Some(socket) = self.sockets.write().await.get_mut(&sid.unwrap()) {
+                // let body = hyper::Body::wrap_stream(body);
+                let body = hyper::body::to_bytes(body).await.unwrap();
+                let packet = Packet::try_from(body).unwrap();
+                socket.handle_packet(packet).await;
+            }
+        });
         // let mut sockets = self.ws_sockets.lock().unwrap;
         // if let tx = sockets.get_mut(&sid.unwrap()) {
         // let packet = Packet::from_request(req);
@@ -100,18 +116,7 @@ impl EngineIo {
         };
 
         tokio::task::spawn(async move {
-            let sid = {
-                let mut polling_sockets = self.polling_sockets.write().await;
-
-                extract_sid(&parts).and_then(|sid| {
-                    if polling_sockets.remove(&sid).is_some() {
-                        Some(sid)
-                    } else {
-                        None
-                    }
-                })
-            };
-
+            let sid = extract_sid(&parts);
             let req = Request::from_parts(parts, ());
             match hyper::upgrade::on(req).await {
                 Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
@@ -132,7 +137,7 @@ impl EngineIo {
 
         let (mut tx, mut rx) = ws.split();
 
-        if sid.is_none() {
+        let sid = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
             let sid = generate_sid();
             let msg: String =
                 Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config))
@@ -142,19 +147,37 @@ impl EngineIo {
                 println!("Error sending open packet: {}", e);
                 return;
             }
-        }
-
-        let sid = sid.unwrap_or(generate_sid());
-        {
-            self.ws_sockets.write().await.insert(sid, tx);
-        }
+            self.sockets
+                .write()
+                .await
+                .insert(sid, Socket::new_ws(sid, tx));
+            sid
+        } else {
+            let sid = sid.unwrap();
+            self.sockets
+                .write()
+                .await
+                .get_mut(&sid)
+                .unwrap()
+                .upgrade_from_http(tx);
+            sid
+        };
 
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             let res = match msg {
                 Message::Text(msg) => match Packet::try_from(msg) {
-                    Ok(packet) => self.clone().handle_packet(packet, sid).await,
-                    Err(err) => ControlFlow::Break(Err(Error::SerializeError(err))),
+                    Ok(packet) => {
+                        self.clone()
+                            .sockets
+                            .write()
+                            .await
+                            .get_mut(&sid)
+                            .unwrap()
+                            .handle_packet(packet)
+                            .await
+                    }
+                    Err(err) => ControlFlow::Break(Err(err)),
                 },
                 Message::Binary(msg) => self.clone().handle_binary(msg).await,
                 Message::Ping(_) => unreachable!(),
@@ -167,47 +190,24 @@ impl EngineIo {
                 ControlFlow::Break(Err(e)) => {
                     println!("Error handling websocket message, closing conn: {:?}", e);
                     break;
-                },
+                }
                 ControlFlow::Continue(Ok(())) => continue,
                 ControlFlow::Continue(Err(e)) => {
                     println!("Error handling websocket message: {:?}", e);
                 }
             }
         }
-        if let Some(mut tx) = self.ws_sockets.write().await.remove(&sid) {
-            if let Err(e) = tx.close().await {
-                println!("Error closing websocket: {}", e);
+        if let Some(socket) = self.sockets.write().await.remove(&sid) {
+            if let Err(e) = socket.close().await {
+                println!("Error closing websocket: {:?}", e);
             }
         }
     }
 
-    async fn handle_packet(
+    async fn handle_binary(
         self: Arc<Self>,
-        packet: Packet,
-        sid: i64,
+        msg: Vec<u8>,
     ) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
-        println!("Received packet: {:?}", packet);
-        match packet {
-            Packet::Open(_) => ControlFlow::Continue(Err(Error::BadPacket(
-                "Unexpected Open packet, it should be only used in upgrade process",
-            ))),
-            Packet::Close => ControlFlow::Break(Ok(())),
-            Packet::Ping => todo!(),
-            Packet::Pong => todo!(),
-            Packet::Message(msg) => {
-                println!("Received message: {}", msg);
-                ControlFlow::Continue(Ok(()))
-            }
-            Packet::Upgrade => ControlFlow::Continue(Err(Error::BadPacket(
-                "Unexpected Upgrade packet, upgrade from ws connection not supported",
-            ))),
-            Packet::Noop => ControlFlow::Continue(Err(Error::BadPacket(
-                "Unexpected Noop packet, it should be only used in upgrade process",
-            ))),
-        }
-    }
-
-    async fn handle_binary(self: Arc<Self>, msg: Vec<u8>) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
         println!("Received binary payload: {:?}", msg);
         ControlFlow::Continue(Ok(()))
     }

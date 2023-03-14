@@ -1,6 +1,7 @@
-use serde::{de::Error, Deserialize, Serialize};
+use bytes::Bytes;
+use serde::{Deserialize, Serialize, de::Error};
 
-use crate::engine::EngineIoConfig;
+use crate::{engine::EngineIoConfig};
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Packet {
@@ -17,10 +18,12 @@ pub enum Packet {
  * Serialize a Packet to a String according to Engine.IO protocol
  */
 impl TryInto<String> for Packet {
-    type Error = serde_json::Error;
+    type Error = crate::errors::Error;
     fn try_into(self) -> Result<String, Self::Error> {
         let res = match self {
-            Packet::Open(open) => "0".to_string() + &serde_json::to_string(&open)?,
+            Packet::Open(open) => {
+                "0".to_string() + &serde_json::to_string(&open).map_err(Self::Error::from)?
+            }
             Packet::Close => "1".to_string(),
             Packet::Ping => "2".to_string(),
             Packet::Pong => "3".to_string(),
@@ -33,12 +36,12 @@ impl TryInto<String> for Packet {
 }
 
 impl TryFrom<String> for Packet {
-    type Error = serde_json::Error;
+    type Error = crate::errors::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
-        let packet_type = chars.next().ok_or(serde_json::Error::custom(
+        let packet_type = chars.next().ok_or(Self::Error::DeserializeError(serde_json::Error::custom(
             "Packet type not found in packet string",
-        ))?;
+        )))?;
         let packet_data = chars.as_str();
         match packet_type {
             '0' => Ok(Packet::Open(serde_json::from_str(packet_data)?)),
@@ -48,11 +51,18 @@ impl TryFrom<String> for Packet {
             '4' => Ok(Packet::Message(serde_json::from_str(packet_data)?)),
             '5' => Ok(Packet::Upgrade),
             '6' => Ok(Packet::Noop),
-            _ => Err(serde_json::Error::custom("Invalid packet type")),
+            _ => Err(Self::Error::DeserializeError(serde_json::Error::custom("Invalid packet type"))),
         }
     }
 }
 
+impl TryFrom<Bytes> for Packet {
+    type Error = crate::errors::Error;
+    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
+        let value = String::from_utf8(value.to_vec()).map_err(Self::Error::from)?;
+        Packet::try_from(value)
+    }
+}
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
