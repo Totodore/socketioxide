@@ -169,7 +169,6 @@ dependencies = [
  "tokio-tungstenite",
  "tower",
  "tower-http",
- "tungstenite",
 ]
 
 [[package]]

@@ -5,11 +5,11 @@ use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE}
 use http::{HeaderMap, HeaderValue, Response, StatusCode};
 use http_body::{Body, Full};
 use pin_project::pin_project;
+use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use tungstenite::handshake::derive_accept_key;
 
 #[pin_project]
 pub struct ResponseFuture<F> {
