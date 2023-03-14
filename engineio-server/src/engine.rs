@@ -1,9 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use futures::{stream::SplitSink, SinkExt, StreamExt, TryStreamExt};
 use http::{request::Parts, Request};
 use hyper::upgrade::Upgraded;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
@@ -40,6 +40,7 @@ type Websocket = SplitSink<WebSocketStream<Upgraded>, Message>;
 pub struct EngineIo {
     ws_sockets: SocketMap<Websocket>,
     polling_sockets: SocketMap<hyper::body::Sender>,
+    last_pong: RwLock<HashMap<i64, std::time::Instant>>,
     pub config: EngineIoConfig,
 }
 
@@ -48,6 +49,7 @@ impl EngineIo {
         Self {
             ws_sockets: RwLock::new(HashMap::new()),
             polling_sockets: RwLock::new(HashMap::new()),
+            last_pong: RwLock::new(HashMap::new()),
             config,
         }
     }
@@ -148,21 +150,27 @@ impl EngineIo {
         }
 
         while let Ok(msg) = rx.try_next().await {
-            if let Some(msg) = msg {
-                let result = match msg {
-                    Message::Text(msg) => match Packet::try_from(msg) {
-                        Ok(packet) => self.clone().handle_packet(packet, sid).await,
-                        Err(err) => Err(Error::SerializeError(err)),
-                    },
-                    Message::Binary(msg) => self.clone().handle_binary(msg).await,
-                    Message::Ping(_) => unreachable!(),
-                    Message::Pong(_) => unreachable!(),
-                    Message::Close(_) => break,
-                    Message::Frame(_) => unreachable!(),
-                };
-                if let Err(e) = result {
-                    println!("Error handling websocket message: {:?}", e);
+            let Some(msg) = msg else { continue };
+            let res = match msg {
+                Message::Text(msg) => match Packet::try_from(msg) {
+                    Ok(packet) => self.clone().handle_packet(packet, sid).await,
+                    Err(err) => ControlFlow::Break(Err(Error::SerializeError(err))),
+                },
+                Message::Binary(msg) => self.clone().handle_binary(msg).await,
+                Message::Ping(_) => unreachable!(),
+                Message::Pong(_) => unreachable!(),
+                Message::Close(_) => break,
+                Message::Frame(_) => unreachable!(),
+            };
+            match res {
+                ControlFlow::Break(Ok(())) => break,
+                ControlFlow::Break(Err(e)) => {
+                    println!("Error handling websocket message, closing conn: {:?}", e);
                     break;
+                },
+                ControlFlow::Continue(Ok(())) => continue,
+                ControlFlow::Continue(Err(e)) => {
+                    println!("Error handling websocket message: {:?}", e);
                 }
             }
         }
@@ -173,14 +181,35 @@ impl EngineIo {
         }
     }
 
-    async fn handle_packet(self: Arc<Self>, packet: Packet, sid: i64) -> Result<(), Error> {
+    async fn handle_packet(
+        self: Arc<Self>,
+        packet: Packet,
+        sid: i64,
+    ) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
         println!("Received packet: {:?}", packet);
-        Ok(())
+        match packet {
+            Packet::Open(_) => ControlFlow::Continue(Err(Error::BadPacket(
+                "Unexpected Open packet, it should be only used in upgrade process",
+            ))),
+            Packet::Close => ControlFlow::Break(Ok(())),
+            Packet::Ping => todo!(),
+            Packet::Pong => todo!(),
+            Packet::Message(msg) => {
+                println!("Received message: {}", msg);
+                ControlFlow::Continue(Ok(()))
+            }
+            Packet::Upgrade => ControlFlow::Continue(Err(Error::BadPacket(
+                "Unexpected Upgrade packet, upgrade from ws connection not supported",
+            ))),
+            Packet::Noop => ControlFlow::Continue(Err(Error::BadPacket(
+                "Unexpected Noop packet, it should be only used in upgrade process",
+            ))),
+        }
     }
 
-    async fn handle_binary(self: Arc<Self>, msg: Vec<u8>) -> Result<(), Error> {
+    async fn handle_binary(self: Arc<Self>, msg: Vec<u8>) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
         println!("Received binary payload: {:?}", msg);
-        Ok(())
+        ControlFlow::Continue(Ok(()))
     }
 }
 

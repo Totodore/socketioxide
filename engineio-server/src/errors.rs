@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub enum Error {
 	SerializeError(serde_json::Error),
+    BadPacket(&'static str),
 }
 
 impl From<serde_json::Error> for Error {
