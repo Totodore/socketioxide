@@ -26,7 +26,6 @@ impl<S> EngineIoService<S> {
     }
 }
 
-//
 impl<ReqBody, ResBody, S> Service<Request<ReqBody>> for EngineIoService<S>
 where
     ResBody: Body,
@@ -46,7 +45,8 @@ where
 			let engine = self.engine.clone();
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
-                RequestType::HttpOpen => ResponseFuture::open_response(),
+				//TODO: Avoid cloning ?
+                RequestType::HttpOpen => ResponseFuture::open_response(self.engine.config.clone()),
                 RequestType::HttpPoll => engine.on_polling_req(req),
                 RequestType::HttpSendPacket => engine.on_send_packet_req(req),
                 RequestType::WebsocketUpgrade => engine.upgrade_ws_req(req),

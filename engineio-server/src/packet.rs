@@ -1,5 +1,7 @@
 use serde::{de::Error, Deserialize, Serialize};
 
+use crate::engine::EngineIoConfig;
+
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Packet {
     Open(OpenPacket),
@@ -55,23 +57,24 @@ impl TryFrom<String> for Packet {
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
     sid: String,
-    upgrades: Vec<String>, // Only websocket upgrade is supported
-    ping_interval: u64,
-    ping_timeout: u64,
+    upgrades: Vec<String>,
+    ping_interval: u32,
+    ping_timeout: u32,
     max_payload: u64,
 }
 
 impl OpenPacket {
-    pub fn new(transport: TransportType, sid: i64) -> Self {
+    pub fn new(transport: TransportType, sid: i64, config: &EngineIoConfig) -> Self {
+        let upgrades = if transport == TransportType::Polling {
+            vec!["websocket".to_string()]
+        } else {
+            vec![]
+        };
         OpenPacket {
             sid: sid.to_string(),
-            upgrades: if transport == TransportType::Polling {
-                vec!["websocket".to_string()]
-            } else {
-                vec![]
-            },
-            ping_interval: 300,
-            ping_timeout: 200,
+            upgrades,
+            ping_interval: config.ping_interval,
+            ping_timeout: config.ping_timeout,
             max_payload: 1000000,
         }
     }

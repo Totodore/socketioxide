@@ -1,11 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use futures::{future, stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
+use futures::{stream::SplitSink, SinkExt, StreamExt, TryStreamExt};
 use http::{request::Parts, Request};
 use hyper::upgrade::Upgraded;
 use tokio::sync::Mutex;
 use tokio_tungstenite::{
-    tungstenite::{self, protocol::Role, Message},
+    tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
 
@@ -19,12 +19,16 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
     pub req_path: String,
+	pub ping_interval: u32,
+	pub ping_timeout: u32,
 }
 
 impl Default for EngineIoConfig {
     fn default() -> Self {
         Self {
             req_path: "/engine.io".to_string(),
+			ping_interval: 300,
+            ping_timeout: 200,
         }
     }
 }
@@ -36,7 +40,7 @@ type WebsocketMap = SocketMap<SplitSink<WebSocketStream<Upgraded>, Message>>;
 pub struct EngineIo {
     ws_sockets: WebsocketMap,
     polling_sockets: SocketMap<hyper::body::Sender>,
-    config: EngineIoConfig,
+    pub config: EngineIoConfig,
 }
 
 impl EngineIo {
@@ -128,7 +132,7 @@ impl EngineIo {
 
         if sid.is_none() {
             let sid = generate_sid();
-            let msg: String = Packet::Open(OpenPacket::new(TransportType::Websocket, sid))
+            let msg: String = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config))
                 .try_into()
                 .expect("Failed to serialize open packet");
             if let Err(e) = tx.send(Message::Text(msg)).await {

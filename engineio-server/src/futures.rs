@@ -1,9 +1,10 @@
 use crate::body::ResponseBody;
+use crate::engine::EngineIoConfig;
 use crate::packet::{OpenPacket, Packet, TransportType};
 use crate::utils::generate_sid;
 use futures_core::ready;
-use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
-use http::{HeaderMap, HeaderValue, Response, StatusCode};
+use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
+use http::{HeaderValue, Response, StatusCode};
 use http_body::{Body, Full};
 use pin_project::pin_project;
 use std::future::Future;
@@ -19,9 +20,9 @@ pub struct ResponseFuture<F> {
 }
 
 impl<F> ResponseFuture<F> {
-    pub fn open_response() -> Self {
+    pub fn open_response(engine_config: EngineIoConfig) -> Self {
         Self {
-            inner: ResponseFutureInner::OpenResponse,
+            inner: ResponseFutureInner::OpenResponse { engine_config },
         }
     }
     pub fn empty_response(code: u16) -> Self {
@@ -50,7 +51,9 @@ impl<F> ResponseFuture<F> {
 }
 #[pin_project(project = ResFutProj)]
 enum ResponseFutureInner<F> {
-    OpenResponse,
+    OpenResponse {
+		engine_config: EngineIoConfig,
+	},
     UpgradeResponse {
         ws_key: HeaderValue,
     },
@@ -76,8 +79,8 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let res = match self.project().inner.project() {
             ResFutProj::Future { future } => ready!(future.poll(cx))?.map(ResponseBody::new),
-            ResFutProj::OpenResponse => {
-                let body: String = Packet::Open(OpenPacket::new(TransportType::Polling, generate_sid()))
+            ResFutProj::OpenResponse { engine_config } => {
+                let body: String = Packet::Open(OpenPacket::new(TransportType::Polling, generate_sid(), engine_config))
                     .try_into()
                     .unwrap();
                 Response::builder()
