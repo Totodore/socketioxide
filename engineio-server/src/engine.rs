@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use futures::{stream::SplitSink, SinkExt, StreamExt, TryStreamExt};
 use http::{request::Parts, Request};
 use hyper::upgrade::Upgraded;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
@@ -19,26 +19,26 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
     pub req_path: String,
-	pub ping_interval: u32,
-	pub ping_timeout: u32,
+    pub ping_interval: u32,
+    pub ping_timeout: u32,
 }
 
 impl Default for EngineIoConfig {
     fn default() -> Self {
         Self {
             req_path: "/engine.io".to_string(),
-			ping_interval: 300,
+            ping_interval: 300,
             ping_timeout: 200,
         }
     }
 }
 
-type SocketMap<T> = Mutex<HashMap<i64, T>>;
-type WebsocketMap = SocketMap<SplitSink<WebSocketStream<Upgraded>, Message>>;
+type SocketMap<T> = RwLock<HashMap<i64, T>>;
+type Websocket = SplitSink<WebSocketStream<Upgraded>, Message>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 #[derive(Debug)]
 pub struct EngineIo {
-    ws_sockets: WebsocketMap,
+    ws_sockets: SocketMap<Websocket>,
     polling_sockets: SocketMap<hyper::body::Sender>,
     pub config: EngineIoConfig,
 }
@@ -46,8 +46,8 @@ pub struct EngineIo {
 impl EngineIo {
     pub fn from_config(config: EngineIoConfig) -> Self {
         Self {
-            ws_sockets: Mutex::new(HashMap::new()),
-            polling_sockets: Mutex::new(HashMap::new()),
+            ws_sockets: RwLock::new(HashMap::new()),
+            polling_sockets: RwLock::new(HashMap::new()),
             config,
         }
     }
@@ -59,7 +59,7 @@ impl EngineIo {
         // if sid.is_none() {
         // return ResponseFuture::empty_response(400);
         // }
-        let (mut sender, body) = hyper::Body::channel();
+        let (mut tx, body) = hyper::Body::channel();
         tokio::task::spawn(async move {});
         // let mut sockets = self.polling_sockets.lock().unwrap();
         // sockets.insert(sid.unwrap(), sender);
@@ -99,7 +99,7 @@ impl EngineIo {
 
         tokio::task::spawn(async move {
             let sid = {
-                let mut polling_sockets = self.polling_sockets.lock().await;
+                let mut polling_sockets = self.polling_sockets.write().await;
 
                 extract_sid(&parts).and_then(|sid| {
                     if polling_sockets.remove(&sid).is_some() {
@@ -132,32 +132,28 @@ impl EngineIo {
 
         if sid.is_none() {
             let sid = generate_sid();
-            let msg: String = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config))
-                .try_into()
-                .expect("Failed to serialize open packet");
+            let msg: String =
+                Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config))
+                    .try_into()
+                    .expect("Failed to serialize open packet");
             if let Err(e) = tx.send(Message::Text(msg)).await {
-				println!("Error sending open packet: {}", e);
-				return;
-			}
+                println!("Error sending open packet: {}", e);
+                return;
+            }
         }
 
         let sid = sid.unwrap_or(generate_sid());
         {
-            let mut sockets = self.ws_sockets.lock().await;
-            sockets.insert(sid, tx);
+            self.ws_sockets.write().await.insert(sid, tx);
         }
 
         while let Ok(msg) = rx.try_next().await {
             if let Some(msg) = msg {
                 let result = match msg {
-                    Message::Text(msg) => {
-                        println!("Received raw msg {:?}", msg);
-
-                        match Packet::try_from(msg) {
-                            Ok(packet) => self.clone().handle_packet(packet, sid).await,
-                            Err(err) => Err(Error::SerializeError(err)),
-                        }
-                    }
+                    Message::Text(msg) => match Packet::try_from(msg) {
+                        Ok(packet) => self.clone().handle_packet(packet, sid).await,
+                        Err(err) => Err(Error::SerializeError(err)),
+                    },
                     Message::Binary(msg) => self.clone().handle_binary(msg).await,
                     Message::Ping(_) => unreachable!(),
                     Message::Pong(_) => unreachable!(),
@@ -170,8 +166,11 @@ impl EngineIo {
                 }
             }
         }
-        let mut sockets = self.ws_sockets.lock().await;
-        sockets.remove(&sid);
+        if let Some(mut tx) = self.ws_sockets.write().await.remove(&sid) {
+            if let Err(e) = tx.close().await {
+                println!("Error closing websocket: {}", e);
+            }
+        }
     }
 
     async fn handle_packet(self: Arc<Self>, packet: Packet, sid: i64) -> Result<(), Error> {
