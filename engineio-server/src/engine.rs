@@ -88,7 +88,10 @@ impl EngineIo {
         println!("WS Upgrade req {:?}", req.uri());
 
         let (parts, _) = req.into_parts();
-        let ws_key = parts.headers.get("Sec-WebSocket-Key").unwrap().clone();
+        let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
+            Some(key) => key.clone(),
+            None => return ResponseFuture::empty_response(500),
+        };
 
         tokio::task::spawn(async move {
             let sid = {
@@ -114,6 +117,9 @@ impl EngineIo {
 
     /// Handle a websocket connection upgrade
     ///
+    /// Sends an open packet if it is not an upgrade from a polling request
+    ///
+    /// Read packets from the websocket and handle them
     async fn on_ws_conn_upgrade(self: Arc<Self>, conn: Upgraded, sid: Option<i64>) {
         let ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
         println!("WS upgrade comming from polling: {}", sid.is_some());
@@ -124,8 +130,11 @@ impl EngineIo {
             let sid = generate_sid();
             let msg: String = Packet::Open(OpenPacket::new(TransportType::Websocket, sid))
                 .try_into()
-                .unwrap();
-            tx.send(Message::Text(msg)).await.unwrap();
+                .expect("Failed to serialize open packet");
+            if let Err(e) = tx.send(Message::Text(msg)).await {
+				println!("Error sending open packet: {}", e);
+				return;
+			}
         }
 
         let sid = sid.unwrap_or(generate_sid());
