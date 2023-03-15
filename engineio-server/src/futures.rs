@@ -1,8 +1,6 @@
 use crate::body::ResponseBody;
 use crate::engine::EngineIoConfig;
-use crate::errors::Error;
 use crate::packet::{OpenPacket, Packet, TransportType};
-use bytes::Bytes;
 use futures_core::ready;
 use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
 use http::{HeaderValue, Response, StatusCode};
@@ -120,6 +118,7 @@ where
                 .status(200)
                 .body(ResponseBody::custom_response(Full::from(body.clone())))
                 .unwrap(),
+            //TODO: handle error
             ResFutProj::AsyncResponse { future } => ready!(future.poll(cx)).unwrap(),
         };
         Poll::Ready(Ok(res))

@@ -3,22 +3,21 @@ use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 use crate::{
     body::ResponseBody,
     errors::Error,
-    futures::ResponseFuture,
     layer::EngineIoHandler,
     packet::{OpenPacket, Packet, TransportType},
     socket::Socket,
     utils::generate_sid,
 };
-use futures::{Future, SinkExt, StreamExt, TryStreamExt};
-use http::{request::Parts, Request, Response};
+use futures::{SinkExt, StreamExt, TryStreamExt};
+use http::{Request, Response};
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
-use tokio::{sync::RwLock, task::JoinHandle};
+use tokio::{sync::RwLock};
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
-use tracing::{debug, log::error};
+use tracing::{debug};
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -66,112 +65,106 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler,
 {
-    pub fn on_open_http_req<B>(self: Arc<Self>) -> JoinHandle<Response<ResponseBody<B>>>
+    pub async fn on_open_http_req<B>(self: Arc<Self>) -> Response<ResponseBody<B>>
     where
         B: Send + 'static,
     {
-        tokio::spawn(async move {
-            let sid = generate_sid();
-            let config = self.config.clone();
-            tokio::task::spawn(async move {
-                self.sockets
-                    .write()
-                    .await
-                    .insert(sid, Socket::new_http(sid));
-            });
-            // ResponseBody::empty_response()
-            Response::builder()
-                .status(200)
-                .header("Content-Type", "text/plain; charset=UTF-8")
-                .body(ResponseBody::empty_response())
-                .unwrap()
-        })
+        let sid = generate_sid();
+        let config = self.config.clone();
+        tokio::task::spawn(async move {
+            self.sockets
+                .write()
+                .await
+                .insert(sid, Socket::new_http(sid));
+        });
+        // ResponseBody::empty_response()
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/plain; charset=UTF-8")
+            .body(ResponseBody::empty_response())
+            .unwrap()
         // ResponseFuture::open_response(config, sid)
     }
 
-    pub fn on_polling_req<B>(self: Arc<Self>, sid: i64) -> JoinHandle<Response<ResponseBody<B>>>
+    pub async fn on_polling_req<B>(self: Arc<Self>, sid: i64) -> Response<ResponseBody<B>>
     where
         B: Send + 'static,
     {
         let (tx, body) = hyper::Body::channel();
-        tokio::spawn(async move {
-            let mut sockets = self.sockets.write().await;
-            let socket = sockets.get_mut(&sid);
-            if socket.is_none() {
-                debug!("Socket with sid {} not found", sid);
-                tx.abort();
-                return Response::builder()
-                    .status(400)
-                    .header("Content-Type", "text/plain; charset=UTF-8")
-                    .body(ResponseBody::empty_response())
-                    .unwrap();
-            }
-            let socket = socket.unwrap();
-            debug!("Polling request for socket with sid {}", sid);
-            match socket.http_polling_conn(tx).await {
-                Ok(d) => debug!("{:?}", d),
-                Err(Error::MultiplePollingRequests(e) | Error::HttpBuferSyncError(e)) => {
-                    debug!("{}", e);
-                    socket.close().await.unwrap();
-                }
-                Err(e) => debug!("{:?}", e),
-            };
-            Response::builder()
-                .status(200)
+        let mut sockets = self.sockets.write().await;
+        let socket = sockets.get_mut(&sid);
+        if socket.is_none() {
+            debug!("Socket with sid {} not found", sid);
+            tx.abort();
+            return Response::builder()
+                .status(400)
                 .header("Content-Type", "text/plain; charset=UTF-8")
                 .body(ResponseBody::empty_response())
-                .unwrap()
-        })
+                .unwrap();
+        }
+        let socket = socket.unwrap();
+        debug!("Polling request for socket with sid {}", sid);
+        match socket.http_polling_conn(tx).await {
+            Ok(d) => debug!("{:?}", d),
+            Err(Error::MultiplePollingRequests(e) | Error::HttpBuferSyncError(e)) => {
+                debug!("{}", e);
+                socket.close().await.unwrap();
+            }
+            Err(e) => debug!("{:?}", e),
+        };
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/plain; charset=UTF-8")
+            .body(ResponseBody::empty_response())
+            .unwrap()
         // socket
         //     .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
         //     .await
         //     .unwrap();
     }
 
-    pub fn on_send_packet_req<R, B>(
+    pub async fn on_send_packet_req<R, B>(
         self: Arc<Self>,
         sid: i64,
         body: Request<R>,
-    ) -> JoinHandle<Response<ResponseBody<B>>>
+    ) -> Response<ResponseBody<B>>
     where
         R: http_body::Body + std::marker::Send + 'static,
         <R as http_body::Body>::Error: Debug,
         <R as http_body::Body>::Data: std::marker::Send,
         B: Send + 'static,
     {
-        tokio::task::spawn(async move {
-            if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
-                let body = hyper::body::to_bytes(body).await.unwrap();
-                let packet = match Packet::try_from(body) {
-                    Ok(packet) => packet,
-                    Err(e) => {
-                        tracing::debug!("Error parsing packet: {:?}", e);
-                        socket.close().await.unwrap();
-                        return Response::builder()
-                            .status(200)
-                            .header("Content-Type", "text/plain; charset=UTF-8")
-                            .body(ResponseBody::empty_response())
-                            .unwrap();
-                    }
-                };
-                match socket.handle_packet(packet, &self.handler).await {
-                    ControlFlow::Continue(Err(e)) => {
-                        tracing::debug!("Error handling packet: {:?}", e)
-                    }
-                    ControlFlow::Continue(Ok(_)) => (),
-                    ControlFlow::Break(Ok(_)) => self.close_socket(sid).await,
-                    ControlFlow::Break(Err(e)) => {
-                        tracing::debug!("Error handling packet, closing session: {:?}", e);
-                        self.close_socket(sid).await;
-                    }
+        if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
+            let body = hyper::body::to_bytes(body).await.unwrap();
+            let packet = match Packet::try_from(body) {
+                Ok(packet) => packet,
+                Err(e) => {
+                    tracing::debug!("Error parsing packet: {:?}", e);
+                    socket.close().await.unwrap();
+                    return Response::builder()
+                        .status(200)
+                        .header("Content-Type", "text/plain; charset=UTF-8")
+                        .body(ResponseBody::empty_response())
+                        .unwrap();
+                }
+            };
+            match socket.handle_packet(packet, &self.handler).await {
+                ControlFlow::Continue(Err(e)) => {
+                    tracing::debug!("Error handling packet: {:?}", e)
+                }
+                ControlFlow::Continue(Ok(_)) => (),
+                ControlFlow::Break(Ok(_)) => self.close_socket(sid).await,
+                ControlFlow::Break(Err(e)) => {
+                    tracing::debug!("Error handling packet, closing session: {:?}", e);
+                    self.close_socket(sid).await;
                 }
             }
-            Response::builder()
-                .status(200)
-                .header("Content-Type", "text/plain; charset=UTF-8")
-                .body(ResponseBody::empty_response())
-                .unwrap()
-        })
+        }
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/plain; charset=UTF-8")
+            .body(ResponseBody::empty_response())
+            .unwrap()
         // let mut sockets = self.ws_sockets.lock().unwrap;
         // if let tx = sockets.get_mut(&sid.unwrap()) {
         // let packet = Packet::from_request(req);
@@ -186,41 +179,39 @@ where
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
     /// the http polling request is closed and the SID is kept for the websocket
-    pub fn upgrade_ws_req<R, B>(
+    pub async fn upgrade_ws_req<R, B>(
         self: Arc<Self>,
         sid: Option<i64>,
         req: Request<R>,
-    ) -> JoinHandle<Response<ResponseBody<B>>>
+    ) -> Response<ResponseBody<B>>
     where
         R: Send + 'static,
         B: Send + 'static,
     {
         tracing::debug!("WS Upgrade req {:?}", req.uri());
 
-        tokio::task::spawn(async move {
-            let (parts, _) = req.into_parts();
-            let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
-                Some(key) => key.clone(),
-                None => {
-                    return Response::builder()
-                        .status(400)
-                        .body(ResponseBody::empty_response())
-                        .unwrap()
-                }
-            };
-
-            let req = Request::from_parts(parts, ());
-            match hyper::upgrade::on(req).await {
-                Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
-                Err(e) => tracing::debug!("WS upgrade error: {}", e),
+        let (parts, _) = req.into_parts();
+        let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
+            Some(key) => key.clone(),
+            None => {
+                return Response::builder()
+                    .status(400)
+                    .body(ResponseBody::empty_response())
+                    .unwrap()
             }
+        };
 
-            Response::builder()
-                .status(101)
-                .header("Sec-WebSocket-Accept", ws_key)
-                .body(ResponseBody::empty_response())
-                .unwrap()
-        })
+        let req = Request::from_parts(parts, ());
+        match hyper::upgrade::on(req).await {
+            Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
+            Err(e) => tracing::debug!("WS upgrade error: {}", e),
+        }
+
+        Response::builder()
+            .status(101)
+            .header("Sec-WebSocket-Accept", ws_key)
+            .body(ResponseBody::empty_response())
+            .unwrap()
 
         // ResponseFuture::upgrade_response(ws_key)
     }
@@ -333,14 +324,4 @@ where
             }
         }
     }
-}
-
-fn extract_sid(req: &Parts) -> Option<i64> {
-    let uri = req.uri.query()?;
-    let sid = uri
-        .split("&")
-        .find(|s| s.starts_with("sid="))?
-        .split("=")
-        .nth(1)?;
-    Some(sid.parse().ok()?)
 }

@@ -5,8 +5,8 @@ use engineio_server::{
     layer::{EngineIoHandler, EngineIoLayer},
     socket::Socket,
 };
-use tracing::{debug, info, Level};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
 
 #[derive(Clone)]
 struct MyHandler;

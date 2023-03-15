@@ -1,7 +1,8 @@
 use crate::{
     body::ResponseBody,
     engine::{EngineIo, EngineIoConfig},
-    futures::ResponseFuture, layer::EngineIoHandler,
+    futures::ResponseFuture,
+    layer::EngineIoHandler,
 };
 use http::{Method, Request};
 use http_body::Body;
@@ -13,12 +14,18 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub struct EngineIoService<S, H> where H: EngineIoHandler {
+pub struct EngineIoService<S, H>
+where
+    H: EngineIoHandler,
+{
     inner: S,
     engine: Arc<EngineIo<H>>,
 }
 
-impl<S, H> EngineIoService<S, H> where H: EngineIoHandler {
+impl<S, H> EngineIoService<S, H>
+where
+    H: EngineIoHandler,
+{
     pub fn from_config(inner: S, handler: H, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
@@ -34,7 +41,7 @@ where
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    H: EngineIoHandler
+    H: EngineIoHandler,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
@@ -49,10 +56,18 @@ where
             let engine = self.engine.clone();
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
-                RequestType::HttpOpen => ResponseFuture::async_response(engine.on_open_http_req()),
-                RequestType::HttpPoll(sid) => ResponseFuture::async_response(engine.on_polling_req(sid)),
-                RequestType::HttpSendPacket(sid) => ResponseFuture::async_response(engine.on_send_packet_req(sid, req)),
-                RequestType::WebsocketUpgrade(sid) => ResponseFuture::async_response(engine.upgrade_ws_req(sid, req)),
+                RequestType::HttpOpen => {
+                    ResponseFuture::async_response(tokio::spawn(engine.on_open_http_req()))
+                }
+                RequestType::HttpPoll(sid) => {
+                    ResponseFuture::async_response(tokio::spawn(engine.on_polling_req(sid)))
+                }
+                RequestType::HttpSendPacket(sid) => ResponseFuture::async_response(tokio::spawn(
+                    engine.on_send_packet_req(sid, req),
+                )),
+                RequestType::WebsocketUpgrade(sid) => {
+                    ResponseFuture::async_response(tokio::spawn(engine.upgrade_ws_req(sid, req)))
+                }
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
