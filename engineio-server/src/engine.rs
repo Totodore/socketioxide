@@ -96,6 +96,7 @@ where
         if sid.is_none() {
             return ResponseFuture::empty_response(400);
         }
+        //TODO: In case of non existing socket we should respond with a 400 bad request
         tokio::task::spawn(async move {
             if let Some(socket) = self.sockets.write().await.get_mut(&sid.unwrap()) {
                 let body = hyper::body::to_bytes(body).await.unwrap();

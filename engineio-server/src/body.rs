@@ -72,7 +72,7 @@ where
             BodyProj::Body { body } => body.poll_data(cx),
             BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
             BodyProj::StreamingResponse { body } => {
-                //TODO: Fix this ugly hack
+                //TODO: Fix this ugly hack, closing body should be handled
                 body.lock()
                     .unwrap()
                     .poll_next_unpin(cx)
