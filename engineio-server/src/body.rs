@@ -79,7 +79,7 @@ where
                     .map(|d| d.map(|d| {
                         match d {
                             Ok(d) => return Ok(d),
-                            Err(e) => println!("Error: {}", e),
+                            Err(e) => tracing::debug!("Error: {}", e),
                         };
                         Ok(Bytes::new())
                     }))

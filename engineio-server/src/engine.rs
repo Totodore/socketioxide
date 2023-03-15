@@ -83,7 +83,8 @@ where
                     .get_mut(&sid.unwrap())
                     .unwrap()
                     .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
-                    .await.unwrap();
+                    .await
+                    .unwrap();
             }
         });
 
@@ -108,11 +109,13 @@ where
                 let body = hyper::body::to_bytes(body).await.unwrap();
                 let packet = Packet::try_from(body).unwrap();
                 match socket.handle_packet(packet, &self.handler).await {
-                    ControlFlow::Continue(Err(e)) => println!("Error handling packet: {:?}", e),
+                    ControlFlow::Continue(Err(e)) => {
+                        tracing::debug!("Error handling packet: {:?}", e)
+                    }
                     ControlFlow::Continue(Ok(_)) => (),
                     ControlFlow::Break(Ok(_)) => self.close_socket(sid).await,
                     ControlFlow::Break(Err(e)) => {
-                        println!("Error handling packet: {:?}", e);
+                        tracing::debug!("Error handling packet: {:?}", e);
                         self.close_socket(sid).await;
                     }
                 }
@@ -135,7 +138,7 @@ where
     where
         B: std::marker::Send,
     {
-        println!("WS Upgrade req {:?}", req.uri());
+        tracing::debug!("WS Upgrade req {:?}", req.uri());
 
         let (parts, _) = req.into_parts();
         let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
@@ -148,7 +151,7 @@ where
             let req = Request::from_parts(parts, ());
             match hyper::upgrade::on(req).await {
                 Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
-                Err(e) => println!("WS upgrade error: {}", e),
+                Err(e) => tracing::debug!("WS upgrade error: {}", e),
             }
         });
         ResponseFuture::upgrade_response(ws_key)
@@ -161,7 +164,7 @@ where
     /// Read packets from the websocket and handle them
     async fn on_ws_conn_upgrade(self: Arc<Self>, conn: Upgraded, sid: Option<i64>) {
         let ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
-        println!("WS upgrade comming from polling: {}", sid.is_some());
+        tracing::debug!("WS upgrade comming from polling: {}", sid.is_some());
 
         let (mut tx, mut rx) = ws.split();
 
@@ -172,7 +175,7 @@ where
                     .try_into()
                     .expect("Failed to serialize open packet");
             if let Err(e) = tx.send(Message::Text(msg)).await {
-                println!("Error sending open packet: {}", e);
+                tracing::debug!("Error sending open packet: {}", e);
                 return;
             }
             self.sockets
@@ -194,9 +197,12 @@ where
         let engine = self.clone();
         tokio::spawn(async move {
             if let Some(tx) = engine.sockets.write().await.get_mut(&sid) {
-                tx.spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout)
+                if let Err(e) = tx
+                    .spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout)
                     .await
-                    .unwrap();
+                {
+                    tracing::debug!("Heartbeat error: {:?}", e);
+                }
             }
         });
 
@@ -239,12 +245,12 @@ where
             match res {
                 ControlFlow::Break(Ok(())) => break,
                 ControlFlow::Break(Err(e)) => {
-                    println!("Error handling websocket message, closing conn: {:?}", e);
+                    tracing::debug!("Error handling websocket message, closing conn: {:?}", e);
                     break;
                 }
                 ControlFlow::Continue(Ok(())) => continue,
                 ControlFlow::Continue(Err(e)) => {
-                    println!("Error handling websocket message: {:?}", e);
+                    tracing::debug!("Error handling websocket message: {:?}", e);
                 }
             }
         }
@@ -252,10 +258,10 @@ where
     }
 
     async fn close_socket(&self, sid: i64) {
-        println!("Closing socket {}", sid);
+        tracing::debug!("Closing socket {}", sid);
         if let Some(socket) = self.sockets.write().await.remove(&sid) {
             if let Err(e) = socket.close().await {
-                println!("Error closing websocket: {:?}", e);
+                tracing::debug!("Error closing websocket: {:?}", e);
             }
         }
     }

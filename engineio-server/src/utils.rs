@@ -9,6 +9,6 @@ pub fn generate_sid() -> i64 {
             Mutex::new(SnowflakeIdGenerator::new(1, 1));
     }
     let id = ID_GENERATOR.lock().unwrap().real_time_generate();
-	println!("Generating new sid: {}", id);
+	tracing::debug!("Generating new sid: {}", id);
 	id
 }

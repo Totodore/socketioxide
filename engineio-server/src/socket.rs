@@ -4,6 +4,7 @@ use futures::{stream::SplitSink, FutureExt, SinkExt};
 use hyper::upgrade::Upgraded;
 use tokio::time::{self, Instant, Timeout};
 use tokio_tungstenite::{tungstenite, WebSocketStream};
+use tracing::debug;
 
 use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
 
@@ -63,7 +64,7 @@ impl Socket {
     where
         H: EngineIoHandler,
     {
-        println!(
+        tracing::debug!(
             "Received packet from conn http({}) ws({}): {:?}",
             self.is_http(),
             self.is_ws(),
@@ -80,7 +81,7 @@ impl Socket {
                 ControlFlow::Continue(Ok(()))
             }
             Packet::Message(msg) => {
-                println!("Received message: {}", msg);
+                tracing::debug!("Received message: {}", msg);
                 match handler.handle::<H>(msg, self).await {
                     Ok(_) => ControlFlow::Continue(Ok(())),
                     Err(e) => ControlFlow::Continue(Err(e)),
@@ -116,6 +117,7 @@ impl Socket {
 
     pub(crate) async fn send(&mut self, packet: Packet) -> Result<(), Error> {
         let msg = packet.try_into().map_err(Error::from)?;
+        debug!("Sending packet: {:?}", msg);
         if let Some(tx) = &mut self.http_tx {
             tx.send_data(hyper::body::Bytes::from(msg))
                 .await
@@ -145,6 +147,7 @@ impl Socket {
     async fn send_heartbeat(&mut self, timeout: u64) -> Result<bool, Error> {
         let instant = Instant::now();
         self.send(Packet::Ping).await?;
+        debug!("Sending ping packet for sid={}, waiting for pong (timeout: {})", self.sid, timeout);
         tokio::time::sleep(Duration::from_millis(timeout)).await;
         Ok(self.last_pong.elapsed().as_millis() > instant.elapsed().as_millis()
             && self.last_pong.elapsed().as_millis() < timeout.into())

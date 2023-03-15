@@ -9,7 +9,9 @@ edition = "2021"
 engineio-server = { path = "../engineio-server" }
 axum = { version = "0.6.10" }
 tokio = { version = "1.13.0", features = ["full"] }
-tower ={ version = "0.4.13" }
+tower = { version = "0.4.13" }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tracing = "0.1.37"
 
 [[bin]]
 name = "axum"

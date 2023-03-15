@@ -1,7 +1,12 @@
 use axum::routing::get;
 use axum::Server;
-use engineio_server::{layer::{EngineIoLayer, EngineIoHandler}, socket::Socket, errors::Error};
-
+use engineio_server::{
+    errors::Error,
+    layer::{EngineIoHandler, EngineIoLayer},
+    socket::Socket,
+};
+use tracing::{debug, info, Level};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[derive(Clone)]
 struct MyHandler;
@@ -23,6 +28,13 @@ impl EngineIoHandler for MyHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let subscriber = FmtSubscriber::builder()
+        .with_line_number(true)
+        .with_max_level(Level::DEBUG)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    info!("Starting server");
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .layer(EngineIoLayer::new(MyHandler));
