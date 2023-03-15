@@ -1,7 +1,6 @@
 use crate::body::ResponseBody;
 use crate::engine::EngineIoConfig;
 use crate::packet::{OpenPacket, Packet, TransportType};
-use crate::utils::generate_sid;
 use futures_core::ready;
 use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
 use http::{HeaderValue, Response, StatusCode};
@@ -35,6 +34,11 @@ impl<F> ResponseFuture<F> {
             inner: ResponseFutureInner::UpgradeResponse { ws_key },
         }
     }
+    pub fn custom_response(body: String) -> Self {
+        Self {
+            inner: ResponseFutureInner::CustomRespose { body },
+        }
+    }
     pub fn streaming_response(body: hyper::Body) -> Self {
         Self {
             inner: ResponseFutureInner::StreamingResponse {
@@ -52,11 +56,14 @@ impl<F> ResponseFuture<F> {
 #[pin_project(project = ResFutProj)]
 enum ResponseFutureInner<F> {
     OpenResponse {
-		engine_config: EngineIoConfig,
+        engine_config: EngineIoConfig,
         sid: i64,
-	},
+    },
     UpgradeResponse {
         ws_key: HeaderValue,
+    },
+    CustomRespose {
+        body: String,
     },
     EmptyResponse {
         code: u16,
@@ -81,9 +88,10 @@ where
         let res = match self.project().inner.project() {
             ResFutProj::Future { future } => ready!(future.poll(cx))?.map(ResponseBody::new),
             ResFutProj::OpenResponse { engine_config, sid } => {
-                let body: String = Packet::Open(OpenPacket::new(TransportType::Polling, *sid, engine_config))
-                    .try_into()
-                    .unwrap();
+                let body: String =
+                    Packet::Open(OpenPacket::new(TransportType::Polling, *sid, engine_config))
+                        .try_into()
+                        .unwrap();
                 Response::builder()
                     .status(200)
                     .body(ResponseBody::custom_response(Full::from(body)))
@@ -110,6 +118,10 @@ where
             ResFutProj::StreamingResponse { body } => Response::builder()
                 .status(200)
                 .body(ResponseBody::streaming_response(body.clone()))
+                .unwrap(),
+            ResFutProj::CustomRespose { body } => Response::builder()
+                .status(200)
+                .body(ResponseBody::custom_response(Full::from(body.clone())))
                 .unwrap(),
         };
         Poll::Ready(Ok(res))

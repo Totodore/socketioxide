@@ -78,7 +78,6 @@ where
     }
 
     pub fn on_polling_req<F>(self: Arc<Self>, sid: i64) -> ResponseFuture<F> {
-        debug!("test");
         let (tx, body) = hyper::Body::channel();
 
         tokio::task::spawn(async move {
@@ -90,35 +89,45 @@ where
                 return;
             }
             let socket = socket.unwrap();
-            // If a socket with this SID already exists we close the connection
+            debug!("Polling request for socket with sid {}", sid);
             match socket.http_polling_conn(tx).await {
-                Ok(_) => (),
+                Ok(d) => debug!("{:?}", d),
                 Err(Error::MultiplePollingRequests(e) | Error::HttpBuferSyncError(e)) => {
-                    error!("{}", e);
+                    debug!("{}", e);
                     socket.close().await.unwrap();
                 }
                 Err(e) => debug!("{:?}", e),
             };
             // socket
-            // .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
-            // .await
-            // .unwrap();
+            //     .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
+            //     .await
+            //     .unwrap();
         });
 
         ResponseFuture::streaming_response(body)
     }
 
-    pub fn on_send_packet_req<B, F>(self: Arc<Self>, sid: i64, body: Request<B>) -> ResponseFuture<F>
+    pub fn on_send_packet_req<B, F>(
+        self: Arc<Self>,
+        sid: i64,
+        body: Request<B>,
+    ) -> ResponseFuture<F>
     where
         B: http_body::Body + std::marker::Send + 'static,
         <B as http_body::Body>::Error: Debug,
         <B as http_body::Body>::Data: std::marker::Send,
     {
-        //TODO: In case of non existing socket we should respond with a 400 bad request
         tokio::task::spawn(async move {
             if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
                 let body = hyper::body::to_bytes(body).await.unwrap();
-                let packet = Packet::try_from(body).unwrap();
+                let packet = match Packet::try_from(body) {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        tracing::debug!("Error parsing packet: {:?}", e);
+                        socket.close().await.unwrap();
+                        return;
+                    },
+                };
                 match socket.handle_packet(packet, &self.handler).await {
                     ControlFlow::Continue(Err(e)) => {
                         tracing::debug!("Error handling packet: {:?}", e)
@@ -126,7 +135,7 @@ where
                     ControlFlow::Continue(Ok(_)) => (),
                     ControlFlow::Break(Ok(_)) => self.close_socket(sid).await,
                     ControlFlow::Break(Err(e)) => {
-                        tracing::debug!("Error handling packet: {:?}", e);
+                        tracing::debug!("Error handling packet, closing session: {:?}", e);
                         self.close_socket(sid).await;
                     }
                 }
@@ -138,14 +147,18 @@ where
         // } else {
         // return ResponseFuture::empty_response(400);
         // }
-        ResponseFuture::empty_response(200)
+        ResponseFuture::custom_response("ok".to_string())
     }
 
     /// Upgrade a websocket request to create a websocket connection.
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
     /// the http polling request is closed and the SID is kept for the websocket
-    pub fn upgrade_ws_req<B, F>(self: Arc<Self>, sid: Option<i64>, req: Request<B>) -> ResponseFuture<F>
+    pub fn upgrade_ws_req<B, F>(
+        self: Arc<Self>,
+        sid: Option<i64>,
+        req: Request<B>,
+    ) -> ResponseFuture<F>
     where
         B: std::marker::Send,
     {
@@ -204,7 +217,7 @@ where
             sid
         };
 
-        let engine = self.clone();
+        // let engine = self.clone();
         // tokio::spawn(async move {
         //     if let Some(tx) = engine.sockets.write().await.get_mut(&sid) {
         //         if let Err(e) = tx

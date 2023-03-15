@@ -1,9 +1,9 @@
 use std::{ops::ControlFlow, time::Duration};
 
 use bytes::BufMut;
-use futures::{stream::SplitSink, FutureExt, SinkExt};
+use futures::{stream::SplitSink, SinkExt};
 use hyper::upgrade::Upgraded;
-use tokio::time::{self, Instant, Timeout};
+use tokio::time::{self, Instant};
 use tokio_tungstenite::{tungstenite, WebSocketStream};
 use tracing::debug;
 
@@ -24,33 +24,43 @@ impl HttpSocket {
     }
     pub async fn set_socket(&mut self, mut tx: hyper::body::Sender) -> Result<(), Error> {
         if self.polling_buffer.len() > 0 {
+            debug!("New connection, sending {} buffered messages", self.polling_buffer.len());
             tx.send_data(hyper::body::Bytes::from(self.polling_buffer.clone()))
                 .await.map_err(Error::from)?;
             self.polling_buffer.clear();
+        } else {
+            self.tx = Some(tx);
         }
-        self.tx = Some(tx);
         Ok(())
     }
     pub fn is_connected(&self) -> bool {
         self.tx.is_some()
     }
     pub async fn send(&mut self, msg: String) -> Result<(), Error> {
-        if let Some(tx) = self.tx.as_mut() {
+        if let Some(mut tx) = self.tx.take() {
+            debug!("Connection ready, sending message: {:?}", msg);
             tx.send_data(hyper::body::Bytes::from(msg))
                 .await
                 .map_err(Error::from)?;
         } else {
+            debug!("Connection not ready, buffering message: {:?}", msg);
+            if self.polling_buffer.len() > 0 {
+                self.polling_buffer.push(0x1e);
+            }
             self.polling_buffer.put_slice(&msg.into_bytes());
         }
         Ok(())
     }
 
-    pub async fn send_binary(&mut self, msg: Vec<u8>) -> Result<(), Error> {
+    pub async fn send_binary(&mut self, mut msg: Vec<u8>) -> Result<(), Error> {
         if let Some(tx) = self.tx.as_mut() {
             tx.send_data(hyper::body::Bytes::from(msg))
                 .await
                 .map_err(Error::from)?;
         } else {
+            if self.polling_buffer.len() > 0 {
+                self.polling_buffer.push(0x1e);
+            }
             self.polling_buffer.put_slice(&msg);
         }
         Ok(())
@@ -74,7 +84,7 @@ impl Socket {
     pub(crate) fn new_http(sid: i64) -> Self {
         Self {
             sid,
-            http_tx: None,
+            http_tx: Some(HttpSocket::new()),
             ws_tx: None,
             last_pong: time::Instant::now(),
         }
@@ -173,8 +183,10 @@ impl Socket {
     }
 
     pub(crate) async fn close(&mut self) -> Result<(), Error> {
+        self.send(Packet::Close).await;
         if let Some(http) = &mut self.http_tx {
             http.close();
+            self.http_tx = None;
         }
         if let Some(mut tx) = self.ws_tx.take() {
             self.ws_tx = None;
@@ -189,7 +201,7 @@ impl Socket {
         if let Some(http) = &mut self.http_tx {
             http.send(msg).await?;
         } else if let Some(tx) = &mut self.ws_tx {
-            tx.send(tungstenite::Message::Text(msg + "\x1e"))
+            tx.send(tungstenite::Message::Text(msg))
                 .await
                 .map_err(Error::from)?;
         }
@@ -233,6 +245,7 @@ impl Socket {
     }
 
     pub async fn emit_binary(&mut self, data: Vec<u8>) -> Result<(), Error> {
+        debug!("Sending packet for sid={}, ws={}, http={}: {:?}", self.sid, self.is_ws(), self.is_http(), data);
         if let Some(http) = &mut self.http_tx {
             http.send_binary(data).await?;
         } else if let Some(tx) = &mut self.ws_tx {
