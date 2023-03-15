@@ -20,9 +20,9 @@ pub struct ResponseFuture<F> {
 }
 
 impl<F> ResponseFuture<F> {
-    pub fn open_response(engine_config: EngineIoConfig) -> Self {
+    pub fn open_response(engine_config: EngineIoConfig, sid: i64) -> Self {
         Self {
-            inner: ResponseFutureInner::OpenResponse { engine_config },
+            inner: ResponseFutureInner::OpenResponse { engine_config, sid },
         }
     }
     pub fn empty_response(code: u16) -> Self {
@@ -53,6 +53,7 @@ impl<F> ResponseFuture<F> {
 enum ResponseFutureInner<F> {
     OpenResponse {
 		engine_config: EngineIoConfig,
+        sid: i64,
 	},
     UpgradeResponse {
         ws_key: HeaderValue,
@@ -79,8 +80,8 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let res = match self.project().inner.project() {
             ResFutProj::Future { future } => ready!(future.poll(cx))?.map(ResponseBody::new),
-            ResFutProj::OpenResponse { engine_config } => {
-                let body: String = Packet::Open(OpenPacket::new(TransportType::Polling, generate_sid(), engine_config))
+            ResFutProj::OpenResponse { engine_config, sid } => {
+                let body: String = Packet::Open(OpenPacket::new(TransportType::Polling, *sid, engine_config))
                     .try_into()
                     .unwrap();
                 Response::builder()

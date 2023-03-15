@@ -49,11 +49,10 @@ where
             let engine = self.engine.clone();
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
-                //TODO: Avoid cloning ?
-                RequestType::HttpOpen => ResponseFuture::open_response(self.engine.config.clone()),
-                RequestType::HttpPoll => engine.on_polling_req(req),
-                RequestType::HttpSendPacket => engine.on_send_packet_req(req),
-                RequestType::WebsocketUpgrade => engine.upgrade_ws_req(req),
+                RequestType::HttpOpen => engine.on_open_http_req(),
+                RequestType::HttpPoll(sid) => engine.on_polling_req(sid),
+                RequestType::HttpSendPacket(sid) => engine.on_send_packet_req(sid, req),
+                RequestType::WebsocketUpgrade(sid) => engine.upgrade_ws_req(sid, req),
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
@@ -64,9 +63,9 @@ where
 enum RequestType {
     Invalid,
     HttpOpen,
-    HttpPoll,
-    HttpSendPacket,
-    WebsocketUpgrade,
+    HttpPoll(i64),
+    HttpSendPacket(i64),
+    WebsocketUpgrade(Option<i64>),
 }
 
 impl RequestType {
@@ -77,13 +76,13 @@ impl RequestType {
             {
                 return RequestType::Invalid;
             }
-
+            let sid = extract_sid(req);
             if query.contains("transport=polling") {
-                if query.contains("sid=") {
+                if sid.is_some() {
                     if req.method() == Method::GET {
-                        RequestType::HttpPoll
+                        RequestType::HttpPoll(sid.unwrap())
                     } else if req.method() == Method::POST {
-                        RequestType::HttpSendPacket
+                        RequestType::HttpSendPacket(sid.unwrap())
                     } else {
                         RequestType::Invalid
                     }
@@ -93,7 +92,7 @@ impl RequestType {
                     RequestType::Invalid
                 }
             } else if query.contains("transport=websocket") && req.method() == Method::GET {
-                RequestType::WebsocketUpgrade
+                RequestType::WebsocketUpgrade(sid)
             } else {
                 RequestType::Invalid
             }
@@ -101,4 +100,14 @@ impl RequestType {
             RequestType::Invalid
         }
     }
+}
+
+fn extract_sid<B>(req: &Request<B>) -> Option<i64> {
+    let uri = req.uri().query()?;
+    let sid = uri
+        .split("&")
+        .find(|s| s.starts_with("sid="))?
+        .split("=")
+        .nth(1)?;
+    Some(sid.parse().ok()?)
 }

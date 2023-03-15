@@ -17,6 +17,7 @@ use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
+use tracing::{debug, log::error};
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -64,45 +65,55 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler,
 {
-    pub fn on_polling_req<F, B>(self: Arc<Self>, req: Request<B>) -> ResponseFuture<F> {
-        let (parts, _) = req.into_parts();
-        let sid = extract_sid(&parts);
-        if sid.is_none() {
-            return ResponseFuture::empty_response(400);
-        }
+    pub fn on_open_http_req<F>(self: Arc<Self>) -> ResponseFuture<F> {
+        let sid = generate_sid();
+        let config = self.config.clone();
+        tokio::task::spawn(async move {
+            self.sockets
+                .write()
+                .await
+                .insert(sid, Socket::new_http(sid));
+        });
+        ResponseFuture::open_response(config, sid)
+    }
+
+    pub fn on_polling_req<F>(self: Arc<Self>, sid: i64) -> ResponseFuture<F> {
+        debug!("test");
         let (tx, body) = hyper::Body::channel();
+
         tokio::task::spawn(async move {
             let mut sockets = self.sockets.write().await;
-            // If a socket with this SID already exists we close the connection
-            if let Some(socket) = sockets.remove(&sid.unwrap()) {
-                socket.close().await.unwrap();
+            let socket = sockets.get_mut(&sid);
+            if socket.is_none() {
+                debug!("Socket with sid {} not found", sid);
                 tx.abort();
-            } else {
-                sockets.insert(sid.unwrap(), Socket::new_http(sid.unwrap(), tx));
-                sockets
-                    .get_mut(&sid.unwrap())
-                    .unwrap()
-                    .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
-                    .await
-                    .unwrap();
+                return;
             }
+            let socket = socket.unwrap();
+            // If a socket with this SID already exists we close the connection
+            match socket.http_polling_conn(tx).await {
+                Ok(_) => (),
+                Err(Error::MultiplePollingRequests(e) | Error::HttpBuferSyncError(e)) => {
+                    error!("{}", e);
+                    socket.close().await.unwrap();
+                }
+                Err(e) => debug!("{:?}", e),
+            };
+            // socket
+            // .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
+            // .await
+            // .unwrap();
         });
 
         ResponseFuture::streaming_response(body)
     }
 
-    pub fn on_send_packet_req<B, F>(self: Arc<Self>, req: Request<B>) -> ResponseFuture<F>
+    pub fn on_send_packet_req<B, F>(self: Arc<Self>, sid: i64, body: Request<B>) -> ResponseFuture<F>
     where
         B: http_body::Body + std::marker::Send + 'static,
         <B as http_body::Body>::Error: Debug,
         <B as http_body::Body>::Data: std::marker::Send,
     {
-        let (parts, body) = req.into_parts();
-        let sid = extract_sid(&parts);
-        if sid.is_none() {
-            return ResponseFuture::empty_response(400);
-        }
-        let sid = sid.unwrap();
         //TODO: In case of non existing socket we should respond with a 400 bad request
         tokio::task::spawn(async move {
             if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
@@ -134,7 +145,7 @@ where
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
     /// the http polling request is closed and the SID is kept for the websocket
-    pub fn upgrade_ws_req<B, F>(self: Arc<Self>, req: Request<B>) -> ResponseFuture<F>
+    pub fn upgrade_ws_req<B, F>(self: Arc<Self>, sid: Option<i64>, req: Request<B>) -> ResponseFuture<F>
     where
         B: std::marker::Send,
     {
@@ -147,7 +158,6 @@ where
         };
 
         tokio::task::spawn(async move {
-            let sid = extract_sid(&parts);
             let req = Request::from_parts(parts, ());
             match hyper::upgrade::on(req).await {
                 Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
@@ -195,16 +205,16 @@ where
         };
 
         let engine = self.clone();
-        tokio::spawn(async move {
-            if let Some(tx) = engine.sockets.write().await.get_mut(&sid) {
-                if let Err(e) = tx
-                    .spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout)
-                    .await
-                {
-                    tracing::debug!("Heartbeat error: {:?}", e);
-                }
-            }
-        });
+        // tokio::spawn(async move {
+        //     if let Some(tx) = engine.sockets.write().await.get_mut(&sid) {
+        //         if let Err(e) = tx
+        //             .spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout)
+        //             .await
+        //         {
+        //             tracing::debug!("Heartbeat error: {:?}", e);
+        //         }
+        //     }
+        // });
 
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
@@ -259,7 +269,7 @@ where
 
     async fn close_socket(&self, sid: i64) {
         tracing::debug!("Closing socket {}", sid);
-        if let Some(socket) = self.sockets.write().await.remove(&sid) {
+        if let Some(mut socket) = self.sockets.write().await.remove(&sid) {
             if let Err(e) = socket.close().await {
                 tracing::debug!("Error closing websocket: {:?}", e);
             }
