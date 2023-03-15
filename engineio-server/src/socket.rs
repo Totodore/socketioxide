@@ -67,7 +67,6 @@ pub struct Socket {
     sid: i64,
     http_tx: Option<HttpSocket>,
     ws_tx: Option<SplitSink<WebSocketStream<Upgraded>, tungstenite::Message>>,
-    ping_timeout: Option<Timeout<()>>,
     last_pong: Instant,
 }
 
@@ -77,7 +76,6 @@ impl Socket {
             sid,
             http_tx: None,
             ws_tx: None,
-            ping_timeout: None,
             last_pong: time::Instant::now(),
         }
     }
@@ -89,7 +87,6 @@ impl Socket {
             sid,
             http_tx: None,
             ws_tx: Some(sender),
-            ping_timeout: None,
             last_pong: time::Instant::now(),
         };
         socket
