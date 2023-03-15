@@ -88,6 +88,14 @@ impl Socket {
             ))),
         }
     }
+
+    pub(crate) async fn handle_binary<H>(&mut self, data: Vec<u8>, handler: &H) -> Result<(), Error>
+    where
+        H: EngineIoHandler,
+    {
+        handler.handle_binary::<H>(data, self).await
+    }
+
     pub(crate) async fn close(mut self) -> Result<(), Error> {
         if let Some(tx) = self.http_tx {
             self.http_tx = None;
@@ -116,5 +124,18 @@ impl Socket {
 
     pub async fn emit(&mut self, msg: String) -> Result<(), Error> {
         self.send(Packet::Message(msg)).await
+    }
+
+    pub async fn emit_binary(&mut self, data: Vec<u8>) -> Result<(), Error> {
+        if let Some(tx) = &mut self.http_tx {
+            tx.send_data(hyper::body::Bytes::from(data))
+                .await
+                .map_err(Error::from)?;
+        } else if let Some(tx) = &mut self.ws_tx {
+            tx.send(tungstenite::Message::Binary(data))
+                .await
+                .map_err(Error::from)?;
+        }
+        Ok(())
     }
 }

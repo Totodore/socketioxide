@@ -8,6 +8,10 @@ pub trait EngineIoHandler: Send + Sync + 'static {
     async fn handle<H>(&self, msg: String, socket: &mut Socket) -> Result<(), Error>
     where
         H: EngineIoHandler;
+
+    async fn handle_binary<H>(&self, data: Vec<u8>, socket: &mut Socket) -> Result<(), Error>
+    where
+        H: EngineIoHandler { Ok(()) }
 }
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H>

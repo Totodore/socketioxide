@@ -190,7 +190,21 @@ where
                     }
                     Err(err) => ControlFlow::Break(Err(err)),
                 },
-                Message::Binary(msg) => self.clone().handle_binary(msg).await,
+                Message::Binary(msg) => {
+                    match self
+                        .clone()
+                        .sockets
+                        .write()
+                        .await
+                        .get_mut(&sid)
+                        .unwrap()
+                        .handle_binary(msg, &self.handler)
+                        .await
+                    {
+                        Ok(_) => ControlFlow::Continue(Ok(())),
+                        Err(e) => ControlFlow::Continue(Err(e)),
+                    }
+                }
                 Message::Ping(_) => unreachable!(),
                 Message::Pong(_) => unreachable!(),
                 Message::Close(_) => break,
@@ -213,14 +227,6 @@ where
                 println!("Error closing websocket: {:?}", e);
             }
         }
-    }
-
-    async fn handle_binary(
-        self: Arc<Self>,
-        msg: Vec<u8>,
-    ) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
-        println!("Received binary payload: {:?}", msg);
-        ControlFlow::Continue(Ok(()))
     }
 }
 

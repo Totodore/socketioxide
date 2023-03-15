@@ -1,6 +1,6 @@
 use axum::routing::get;
 use axum::Server;
-use engineio_server::{layer::{EngineIoLayer, EngineIoHandler}, socket::Socket};
+use engineio_server::{layer::{EngineIoLayer, EngineIoHandler}, socket::Socket, errors::Error};
 
 
 #[derive(Clone)]
@@ -9,10 +9,15 @@ struct MyHandler;
 #[engineio_server::async_trait]
 impl EngineIoHandler for MyHandler {
     //TODO: Fix this generic
-    async fn handle<EngineIoHandler>(&self, msg: String, socket: &mut Socket) -> Result<(), engineio_server::errors::Error> {
+    async fn handle<EngineIoHandler>(&self, msg: String, socket: &mut Socket) -> Result<(), Error> {
         //Ping pong message
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).await
+    }
+
+    async fn handle_binary<H>(&self, data: Vec<u8>, socket: &mut Socket) -> Result<(), Error> {
+        println!("Ping pong binary message {:?}", data);
+        socket.emit_binary(data).await
     }
 }
 
