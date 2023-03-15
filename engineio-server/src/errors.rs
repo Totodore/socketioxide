@@ -9,6 +9,7 @@ pub enum Error {
     BadPacket(&'static str),
     WsTransportError(tungstenite::Error),
     HttpTransportError(hyper::Error),
+    CustomError(String)
 }
 
 impl From<serde_json::Error> for Error {

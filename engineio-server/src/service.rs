@@ -1,7 +1,7 @@
 use crate::{
     body::ResponseBody,
     engine::{EngineIo, EngineIoConfig},
-    futures::ResponseFuture,
+    futures::ResponseFuture, layer::EngineIoHandler,
 };
 use http::{Method, Request};
 use http_body::Body;
@@ -13,27 +13,28 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub struct EngineIoService<S> {
+pub struct EngineIoService<S, H> where H: EngineIoHandler {
     inner: S,
-    engine: Arc<EngineIo>,
+    engine: Arc<EngineIo<H>>,
 }
 
-impl<S> EngineIoService<S> {
-    pub fn from_config(inner: S, config: EngineIoConfig) -> Self {
+impl<S, H> EngineIoService<S, H> where H: EngineIoHandler {
+    pub fn from_config(inner: S, handler: H, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
-            engine: EngineIo::from_config(config).into(),
+            engine: EngineIo::from_config(handler, config).into(),
         }
     }
 }
 
-impl<ReqBody, ResBody, S> Service<Request<ReqBody>> for EngineIoService<S>
+impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<S, H>
 where
     ResBody: Body,
     ReqBody: http_body::Body + Send + 'static + Debug,
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+    H: EngineIoHandler
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;

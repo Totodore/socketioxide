@@ -5,7 +5,7 @@ use hyper::upgrade::Upgraded;
 use tokio::time::Timeout;
 use tokio_tungstenite::{tungstenite, WebSocketStream};
 
-use crate::{errors::Error, packet::Packet};
+use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
 
 #[derive(Debug)]
 pub struct Socket {
@@ -16,7 +16,7 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub fn new_http(sid: i64, sender: hyper::body::Sender) -> Self {
+    pub(crate) fn new_http(sid: i64, sender: hyper::body::Sender) -> Self {
         Self {
             sid,
             http_tx: Some(sender),
@@ -24,7 +24,7 @@ impl Socket {
             ping_timeout: None,
         }
     }
-    pub fn new_ws(
+    pub(crate) fn new_ws(
         sid: i64,
         sender: SplitSink<WebSocketStream<Upgraded>, tungstenite::Message>,
     ) -> Self {
@@ -37,7 +37,7 @@ impl Socket {
         socket
     }
 
-    pub fn upgrade_from_http(
+    pub(crate) fn upgrade_from_http(
         &mut self,
         tx: SplitSink<WebSocketStream<Upgraded>, tungstenite::Message>,
     ) {
@@ -45,18 +45,27 @@ impl Socket {
         self.ws_tx = Some(tx);
     }
 
-    pub fn is_http(&self) -> bool {
+    pub(crate) fn is_http(&self) -> bool {
         self.http_tx.is_some()
     }
-    pub fn is_ws(&self) -> bool {
+    pub(crate) fn is_ws(&self) -> bool {
         self.ws_tx.is_some()
     }
 
-    pub async fn handle_packet(
+    pub(crate) async fn handle_packet<H>(
         &mut self,
         packet: Packet,
-    ) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
-        println!("Received packet from conn http({}): {:?}", self.is_http(), packet);
+        handler: &H,
+    ) -> ControlFlow<Result<(), Error>, Result<(), Error>>
+    where
+        H: EngineIoHandler,
+    {
+        println!(
+            "Received packet from conn http({}) ws({}): {:?}",
+            self.is_http(),
+            self.is_ws(),
+            packet
+        );
         match packet {
             Packet::Open(_) => ControlFlow::Continue(Err(Error::BadPacket(
                 "Unexpected Open packet, it should be only used in upgrade process",
@@ -66,7 +75,10 @@ impl Socket {
             Packet::Pong => todo!(),
             Packet::Message(msg) => {
                 println!("Received message: {}", msg);
-                ControlFlow::Continue(Ok(()))
+                match handler.handle::<H>(msg, self).await {
+                    Ok(_) => ControlFlow::Continue(Ok(())),
+                    Err(e) => ControlFlow::Continue(Err(e)),
+                }
             }
             Packet::Upgrade => ControlFlow::Continue(Err(Error::BadPacket(
                 "Unexpected Upgrade packet, upgrade from ws connection not supported",
@@ -76,7 +88,7 @@ impl Socket {
             ))),
         }
     }
-    pub async fn close(mut self) -> Result<(), Error> {
+    pub(crate) async fn close(mut self) -> Result<(), Error> {
         if let Some(tx) = self.http_tx {
             self.http_tx = None;
             tx.abort();
@@ -88,7 +100,7 @@ impl Socket {
         Ok(())
     }
 
-    pub async fn send(&mut self, packet: Packet) -> Result<(), Error> {
+    pub(crate) async fn send(&mut self, packet: Packet) -> Result<(), Error> {
         let msg = packet.try_into().map_err(Error::from)?;
         if let Some(tx) = &mut self.http_tx {
             tx.send_data(hyper::body::Bytes::from(msg))
@@ -100,5 +112,9 @@ impl Socket {
                 .map_err(Error::from)?;
         }
         Ok(())
+    }
+
+    pub async fn emit(&mut self, msg: String) -> Result<(), Error> {
+        self.send(Packet::Message(msg)).await
     }
 }

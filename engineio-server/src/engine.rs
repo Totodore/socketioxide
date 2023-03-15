@@ -1,20 +1,21 @@
 use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
-use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
+use crate::{
+    errors::Error,
+    futures::ResponseFuture,
+    layer::EngineIoHandler,
+    packet::{OpenPacket, Packet, TransportType},
+    socket::Socket,
+    utils::generate_sid,
+};
+use futures::{SinkExt, StreamExt, TryStreamExt};
 use http::{request::Parts, Request};
 use hyper::upgrade::Upgraded;
+use std::fmt::Debug;
 use tokio::sync::RwLock;
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
-};
-use std::fmt::Debug;
-use crate::{
-    errors::Error,
-    futures::ResponseFuture,
-    packet::{OpenPacket, Packet, TransportType},
-    socket::Socket,
-    utils::generate_sid,
 };
 
 #[derive(Debug, Clone)]
@@ -37,21 +38,32 @@ impl Default for EngineIoConfig {
 type SocketMap<T> = RwLock<HashMap<i64, T>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 #[derive(Debug)]
-pub struct EngineIo {
+pub struct EngineIo<H>
+where
+    H: EngineIoHandler,
+{
     sockets: SocketMap<Socket>,
+    handler: H,
     pub config: EngineIoConfig,
 }
 
-impl EngineIo {
-    pub fn from_config(config: EngineIoConfig) -> Self {
+impl<H> EngineIo<H>
+where
+    H: EngineIoHandler,
+{
+    pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
+            handler,
         }
     }
 }
 
-impl EngineIo {
+impl<H> EngineIo<H>
+where
+    H: EngineIoHandler,
+{
     pub fn on_polling_req<F, B>(self: Arc<Self>, req: Request<B>) -> ResponseFuture<F> {
         let (parts, _) = req.into_parts();
         let sid = extract_sid(&parts);
@@ -84,10 +96,9 @@ impl EngineIo {
         }
         tokio::task::spawn(async move {
             if let Some(socket) = self.sockets.write().await.get_mut(&sid.unwrap()) {
-                // let body = hyper::Body::wrap_stream(body);
                 let body = hyper::body::to_bytes(body).await.unwrap();
                 let packet = Packet::try_from(body).unwrap();
-                socket.handle_packet(packet).await;
+                socket.handle_packet(packet, &self.handler).await;
             }
         });
         // let mut sockets = self.ws_sockets.lock().unwrap;
@@ -174,7 +185,7 @@ impl EngineIo {
                             .await
                             .get_mut(&sid)
                             .unwrap()
-                            .handle_packet(packet)
+                            .handle_packet(packet, &self.handler)
                             .await
                     }
                     Err(err) => ControlFlow::Break(Err(err)),
