@@ -1,6 +1,8 @@
 use crate::body::ResponseBody;
 use crate::engine::EngineIoConfig;
+use crate::errors::Error;
 use crate::packet::{OpenPacket, Packet, TransportType};
+use bytes::Bytes;
 use futures_core::ready;
 use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
 use http::{HeaderValue, Response, StatusCode};
@@ -8,17 +10,17 @@ use http_body::{Body, Full};
 use pin_project::pin_project;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 
 #[pin_project]
-pub struct ResponseFuture<F> {
+pub struct ResponseFuture<F, B> {
     #[pin]
-    inner: ResponseFutureInner<F>,
+    inner: ResponseFutureInner<F, B>,
 }
 
-impl<F> ResponseFuture<F> {
+impl<F, B> ResponseFuture<F, B> {
     pub fn open_response(engine_config: EngineIoConfig, sid: i64) -> Self {
         Self {
             inner: ResponseFutureInner::OpenResponse { engine_config, sid },
@@ -39,11 +41,9 @@ impl<F> ResponseFuture<F> {
             inner: ResponseFutureInner::CustomRespose { body },
         }
     }
-    pub fn streaming_response(body: hyper::Body) -> Self {
+    pub fn async_response(future: JoinHandle<Response<ResponseBody<B>>>) -> Self {
         Self {
-            inner: ResponseFutureInner::StreamingResponse {
-                body: Arc::new(Mutex::new(body)),
-            },
+            inner: ResponseFutureInner::AsyncResponse { future },
         }
     }
 
@@ -54,7 +54,7 @@ impl<F> ResponseFuture<F> {
     }
 }
 #[pin_project(project = ResFutProj)]
-enum ResponseFutureInner<F> {
+enum ResponseFutureInner<F, B> {
     OpenResponse {
         engine_config: EngineIoConfig,
         sid: i64,
@@ -68,8 +68,9 @@ enum ResponseFutureInner<F> {
     EmptyResponse {
         code: u16,
     },
-    StreamingResponse {
-        body: Arc<Mutex<hyper::Body>>,
+    AsyncResponse {
+        #[pin]
+        future: JoinHandle<Response<ResponseBody<B>>>,
     },
     Future {
         #[pin]
@@ -77,7 +78,7 @@ enum ResponseFutureInner<F> {
     },
 }
 
-impl<ResBody, F, E> Future for ResponseFuture<F>
+impl<ResBody, F, E> Future for ResponseFuture<F, ResBody>
 where
     ResBody: Body,
     F: Future<Output = Result<Response<ResBody>, E>>,
@@ -115,14 +116,11 @@ where
                     .unwrap()
             }
 
-            ResFutProj::StreamingResponse { body } => Response::builder()
-                .status(200)
-                .body(ResponseBody::streaming_response(body.clone()))
-                .unwrap(),
             ResFutProj::CustomRespose { body } => Response::builder()
                 .status(200)
                 .body(ResponseBody::custom_response(Full::from(body.clone())))
                 .unwrap(),
+            ResFutProj::AsyncResponse { future } => ready!(future.poll(cx)).unwrap(),
         };
         Poll::Ready(Ok(res))
     }

@@ -29,7 +29,7 @@ impl<S, H> EngineIoService<S, H> where H: EngineIoHandler {
 
 impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<S, H>
 where
-    ResBody: Body,
+    ResBody: Body + Send + 'static,
     ReqBody: http_body::Body + Send + 'static + Debug,
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
@@ -38,7 +38,7 @@ where
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
-    type Future = ResponseFuture<S::Future>;
+    type Future = ResponseFuture<S::Future, ResBody>;
 
     fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -49,10 +49,10 @@ where
             let engine = self.engine.clone();
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
-                RequestType::HttpOpen => engine.on_open_http_req(),
-                RequestType::HttpPoll(sid) => engine.on_polling_req(sid),
-                RequestType::HttpSendPacket(sid) => engine.on_send_packet_req(sid, req),
-                RequestType::WebsocketUpgrade(sid) => engine.upgrade_ws_req(sid, req),
+                RequestType::HttpOpen => ResponseFuture::async_response(engine.on_open_http_req()),
+                RequestType::HttpPoll(sid) => ResponseFuture::async_response(engine.on_polling_req(sid)),
+                RequestType::HttpSendPacket(sid) => ResponseFuture::async_response(engine.on_send_packet_req(sid, req)),
+                RequestType::WebsocketUpgrade(sid) => ResponseFuture::async_response(engine.upgrade_ws_req(sid, req)),
             }
         } else {
             ResponseFuture::new(self.inner.call(req))

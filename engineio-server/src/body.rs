@@ -1,10 +1,8 @@
 use bytes::Bytes;
-use futures::StreamExt;
 use http::HeaderMap;
 use http_body::{Body, Full, SizeHint};
 use pin_project::pin_project;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 #[pin_project]
 pub struct ResponseBody<B> {
@@ -25,13 +23,6 @@ impl<B> ResponseBody<B> {
         }
     }
 
-	//TODO: Find better solution than Arc<Mutex<hyper::Body>>
-    pub fn streaming_response(body: Arc<Mutex<hyper::Body>>) -> Self {
-        Self {
-            inner: ResponseBodyInner::StreamingResponse { body },
-        }
-    }
-
     pub(crate) fn new(body: B) -> Self {
         Self {
             inner: ResponseBodyInner::Body { body },
@@ -45,9 +36,6 @@ enum ResponseBodyInner<B> {
     CustomBody {
         #[pin]
         body: Full<Bytes>,
-    },
-    StreamingResponse {
-        body: Arc<Mutex<hyper::Body>>,
     },
     Body {
         #[pin]
@@ -71,19 +59,6 @@ where
             BodyProj::EmptyResponse => std::task::Poll::Ready(None),
             BodyProj::Body { body } => body.poll_data(cx),
             BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
-            BodyProj::StreamingResponse { body } => {
-                //TODO: Fix this ugly hack, closing body should be handled
-                body.lock()
-                    .unwrap()
-                    .poll_next_unpin(cx)
-                    .map(|d| d.map(|d| {
-                        match d {
-                            Ok(d) => return Ok(d),
-                            Err(e) => tracing::debug!("Error: {}", e),
-                        };
-                        Ok(Bytes::new())
-                    }))
-            }
         }
     }
 
@@ -95,7 +70,6 @@ where
             BodyProj::EmptyResponse => std::task::Poll::Ready(Ok(None)),
             BodyProj::Body { body } => body.poll_trailers(cx),
             BodyProj::CustomBody { body } => body.poll_trailers(cx).map_err(|err| match err {}),
-            BodyProj::StreamingResponse { body } => std::task::Poll::Ready(Ok(None)),
         }
     }
 
@@ -104,7 +78,6 @@ where
             ResponseBodyInner::EmptyResponse => true,
             ResponseBodyInner::Body { body } => body.is_end_stream(),
             ResponseBodyInner::CustomBody { body } => body.is_end_stream(),
-            ResponseBodyInner::StreamingResponse { body } => body.lock().unwrap().is_end_stream(),
         }
     }
 
@@ -117,7 +90,6 @@ where
             }
             ResponseBodyInner::Body { body } => body.size_hint(),
             ResponseBodyInner::CustomBody { body } => body.size_hint(),
-            ResponseBodyInner::StreamingResponse { body } => body.lock().unwrap().size_hint(),
         }
     }
 }

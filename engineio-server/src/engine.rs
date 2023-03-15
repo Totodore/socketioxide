@@ -1,6 +1,7 @@
 use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use crate::{
+    body::ResponseBody,
     errors::Error,
     futures::ResponseFuture,
     layer::EngineIoHandler,
@@ -8,11 +9,11 @@ use crate::{
     socket::Socket,
     utils::generate_sid,
 };
-use futures::{SinkExt, StreamExt, TryStreamExt};
-use http::{request::Parts, Request};
+use futures::{Future, SinkExt, StreamExt, TryStreamExt};
+use http::{request::Parts, Request, Response};
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
@@ -65,28 +66,45 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler,
 {
-    pub fn on_open_http_req<F>(self: Arc<Self>) -> ResponseFuture<F> {
-        let sid = generate_sid();
-        let config = self.config.clone();
-        tokio::task::spawn(async move {
-            self.sockets
-                .write()
-                .await
-                .insert(sid, Socket::new_http(sid));
-        });
-        ResponseFuture::open_response(config, sid)
+    pub fn on_open_http_req<B>(self: Arc<Self>) -> JoinHandle<Response<ResponseBody<B>>>
+    where
+        B: Send + 'static,
+    {
+        tokio::spawn(async move {
+            let sid = generate_sid();
+            let config = self.config.clone();
+            tokio::task::spawn(async move {
+                self.sockets
+                    .write()
+                    .await
+                    .insert(sid, Socket::new_http(sid));
+            });
+            // ResponseBody::empty_response()
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "text/plain; charset=UTF-8")
+                .body(ResponseBody::empty_response())
+                .unwrap()
+        })
+        // ResponseFuture::open_response(config, sid)
     }
 
-    pub fn on_polling_req<F>(self: Arc<Self>, sid: i64) -> ResponseFuture<F> {
+    pub fn on_polling_req<B>(self: Arc<Self>, sid: i64) -> JoinHandle<Response<ResponseBody<B>>>
+    where
+        B: Send + 'static,
+    {
         let (tx, body) = hyper::Body::channel();
-
-        tokio::task::spawn(async move {
+        tokio::spawn(async move {
             let mut sockets = self.sockets.write().await;
             let socket = sockets.get_mut(&sid);
             if socket.is_none() {
                 debug!("Socket with sid {} not found", sid);
                 tx.abort();
-                return;
+                return Response::builder()
+                    .status(400)
+                    .header("Content-Type", "text/plain; charset=UTF-8")
+                    .body(ResponseBody::empty_response())
+                    .unwrap();
             }
             let socket = socket.unwrap();
             debug!("Polling request for socket with sid {}", sid);
@@ -98,24 +116,28 @@ where
                 }
                 Err(e) => debug!("{:?}", e),
             };
-            // socket
-            //     .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
-            //     .await
-            //     .unwrap();
-        });
-
-        ResponseFuture::streaming_response(body)
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "text/plain; charset=UTF-8")
+                .body(ResponseBody::empty_response())
+                .unwrap()
+        })
+        // socket
+        //     .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
+        //     .await
+        //     .unwrap();
     }
 
-    pub fn on_send_packet_req<B, F>(
+    pub fn on_send_packet_req<R, B>(
         self: Arc<Self>,
         sid: i64,
-        body: Request<B>,
-    ) -> ResponseFuture<F>
+        body: Request<R>,
+    ) -> JoinHandle<Response<ResponseBody<B>>>
     where
-        B: http_body::Body + std::marker::Send + 'static,
-        <B as http_body::Body>::Error: Debug,
-        <B as http_body::Body>::Data: std::marker::Send,
+        R: http_body::Body + std::marker::Send + 'static,
+        <R as http_body::Body>::Error: Debug,
+        <R as http_body::Body>::Data: std::marker::Send,
+        B: Send + 'static,
     {
         tokio::task::spawn(async move {
             if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
@@ -125,8 +147,12 @@ where
                     Err(e) => {
                         tracing::debug!("Error parsing packet: {:?}", e);
                         socket.close().await.unwrap();
-                        return;
-                    },
+                        return Response::builder()
+                            .status(200)
+                            .header("Content-Type", "text/plain; charset=UTF-8")
+                            .body(ResponseBody::empty_response())
+                            .unwrap();
+                    }
                 };
                 match socket.handle_packet(packet, &self.handler).await {
                     ControlFlow::Continue(Err(e)) => {
@@ -140,44 +166,63 @@ where
                     }
                 }
             }
-        });
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "text/plain; charset=UTF-8")
+                .body(ResponseBody::empty_response())
+                .unwrap()
+        })
         // let mut sockets = self.ws_sockets.lock().unwrap;
         // if let tx = sockets.get_mut(&sid.unwrap()) {
         // let packet = Packet::from_request(req);
         // } else {
         // return ResponseFuture::empty_response(400);
         // }
-        ResponseFuture::custom_response("ok".to_string())
+
+        // ResponseFuture::custom_response("ok".to_string())
     }
 
     /// Upgrade a websocket request to create a websocket connection.
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
     /// the http polling request is closed and the SID is kept for the websocket
-    pub fn upgrade_ws_req<B, F>(
+    pub fn upgrade_ws_req<R, B>(
         self: Arc<Self>,
         sid: Option<i64>,
-        req: Request<B>,
-    ) -> ResponseFuture<F>
+        req: Request<R>,
+    ) -> JoinHandle<Response<ResponseBody<B>>>
     where
-        B: std::marker::Send,
+        R: Send + 'static,
+        B: Send + 'static,
     {
         tracing::debug!("WS Upgrade req {:?}", req.uri());
 
-        let (parts, _) = req.into_parts();
-        let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
-            Some(key) => key.clone(),
-            None => return ResponseFuture::empty_response(500),
-        };
-
         tokio::task::spawn(async move {
+            let (parts, _) = req.into_parts();
+            let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
+                Some(key) => key.clone(),
+                None => {
+                    return Response::builder()
+                        .status(400)
+                        .body(ResponseBody::empty_response())
+                        .unwrap()
+                }
+            };
+
             let req = Request::from_parts(parts, ());
             match hyper::upgrade::on(req).await {
                 Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
                 Err(e) => tracing::debug!("WS upgrade error: {}", e),
             }
-        });
-        ResponseFuture::upgrade_response(ws_key)
+
+            Response::builder()
+                .status(101)
+                .header("Sec-WebSocket-Accept", ws_key)
+                .body(ResponseBody::empty_response())
+                .unwrap()
+        })
+
+        // ResponseFuture::upgrade_response(ws_key)
     }
 
     /// Handle a websocket connection upgrade
