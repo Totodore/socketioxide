@@ -73,8 +73,10 @@ where
         let (tx, body) = hyper::Body::channel();
         tokio::task::spawn(async move {
             let mut sockets = self.sockets.write().await;
+            // If a socket with this SID already exists we close the connection
             if let Some(socket) = sockets.remove(&sid.unwrap()) {
                 socket.close().await.unwrap();
+                tx.abort();
             } else {
                 sockets.insert(sid.unwrap(), Socket::new_http(sid.unwrap(), tx));
             }
