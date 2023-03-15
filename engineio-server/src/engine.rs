@@ -21,8 +21,8 @@ use tokio_tungstenite::{
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
     pub req_path: String,
-    pub ping_interval: u32,
-    pub ping_timeout: u32,
+    pub ping_interval: u64,
+    pub ping_timeout: u64,
 }
 
 impl Default for EngineIoConfig {
@@ -79,6 +79,11 @@ where
                 tx.abort();
             } else {
                 sockets.insert(sid.unwrap(), Socket::new_http(sid.unwrap(), tx));
+                sockets
+                    .get_mut(&sid.unwrap())
+                    .unwrap()
+                    .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
+                    .await.unwrap();
             }
         });
 
@@ -96,12 +101,21 @@ where
         if sid.is_none() {
             return ResponseFuture::empty_response(400);
         }
+        let sid = sid.unwrap();
         //TODO: In case of non existing socket we should respond with a 400 bad request
         tokio::task::spawn(async move {
-            if let Some(socket) = self.sockets.write().await.get_mut(&sid.unwrap()) {
+            if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
                 let body = hyper::body::to_bytes(body).await.unwrap();
                 let packet = Packet::try_from(body).unwrap();
-                socket.handle_packet(packet, &self.handler).await;
+                match socket.handle_packet(packet, &self.handler).await {
+                    ControlFlow::Continue(Err(e)) => println!("Error handling packet: {:?}", e),
+                    ControlFlow::Continue(Ok(_)) => (),
+                    ControlFlow::Break(Ok(_)) => self.close_socket(sid).await,
+                    ControlFlow::Break(Err(e)) => {
+                        println!("Error handling packet: {:?}", e);
+                        self.close_socket(sid).await;
+                    }
+                }
             }
         });
         // let mut sockets = self.ws_sockets.lock().unwrap;
@@ -177,6 +191,15 @@ where
             sid
         };
 
+        let engine = self.clone();
+        tokio::spawn(async move {
+            if let Some(tx) = engine.sockets.write().await.get_mut(&sid) {
+                tx.spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout)
+                    .await
+                    .unwrap();
+            }
+        });
+
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             let res = match msg {
@@ -225,6 +248,11 @@ where
                 }
             }
         }
+        self.close_socket(sid).await;
+    }
+
+    async fn close_socket(&self, sid: i64) {
+        println!("Closing socket {}", sid);
         if let Some(socket) = self.sockets.write().await.remove(&sid) {
             if let Err(e) = socket.close().await {
                 println!("Error closing websocket: {:?}", e);

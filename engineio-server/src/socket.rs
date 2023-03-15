@@ -1,8 +1,8 @@
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, time::Duration};
 
-use futures::{stream::SplitSink, SinkExt};
+use futures::{stream::SplitSink, FutureExt, SinkExt};
 use hyper::upgrade::Upgraded;
-use tokio::time::Timeout;
+use tokio::time::{self, Instant, Timeout};
 use tokio_tungstenite::{tungstenite, WebSocketStream};
 
 use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
@@ -13,6 +13,7 @@ pub struct Socket {
     http_tx: Option<hyper::body::Sender>,
     ws_tx: Option<SplitSink<WebSocketStream<Upgraded>, tungstenite::Message>>,
     ping_timeout: Option<Timeout<()>>,
+    last_pong: Instant,
 }
 
 impl Socket {
@@ -22,6 +23,7 @@ impl Socket {
             http_tx: Some(sender),
             ws_tx: None,
             ping_timeout: None,
+            last_pong: time::Instant::now(),
         }
     }
     pub(crate) fn new_ws(
@@ -33,6 +35,7 @@ impl Socket {
             http_tx: None,
             ws_tx: Some(sender),
             ping_timeout: None,
+            last_pong: time::Instant::now(),
         };
         socket
     }
@@ -72,7 +75,10 @@ impl Socket {
             ))),
             Packet::Close => ControlFlow::Break(Ok(())),
             Packet::Ping => ControlFlow::Continue(Err(Error::BadPacket("Unexpected Ping packet"))),
-            Packet::Pong => todo!(),
+            Packet::Pong => {
+                self.last_pong = Instant::now();
+                ControlFlow::Continue(Ok(()))
+            }
             Packet::Message(msg) => {
                 println!("Received message: {}", msg);
                 match handler.handle::<H>(msg, self).await {
@@ -120,6 +126,28 @@ impl Socket {
                 .map_err(Error::from)?;
         }
         Ok(())
+    }
+
+    pub(crate) async fn spawn_heartbeat(&mut self, interval: u64, timeout: u64) -> Result<(), Error> {
+        // let timeout = self.ping_timeout;
+        tokio::time::sleep(Duration::from_millis(interval * 2)).await;
+        let mut interval = tokio::time::interval(Duration::from_millis(interval - timeout));
+        loop {
+            if !self.send_heartbeat(timeout).await? {
+                //TODO: handle heartbeat failure
+                break;
+            }
+            interval.tick().await;
+        }
+        Ok(())
+    }
+
+    async fn send_heartbeat(&mut self, timeout: u64) -> Result<bool, Error> {
+        let instant = Instant::now();
+        self.send(Packet::Ping).await?;
+        tokio::time::sleep(Duration::from_millis(timeout)).await;
+        Ok(self.last_pong.elapsed().as_millis() > instant.elapsed().as_millis()
+            && self.last_pong.elapsed().as_millis() < timeout.into())
     }
 
     pub async fn emit(&mut self, msg: String) -> Result<(), Error> {

@@ -68,8 +68,8 @@ impl TryFrom<Bytes> for Packet {
 pub struct OpenPacket {
     sid: String,
     upgrades: Vec<String>,
-    ping_interval: u32,
-    ping_timeout: u32,
+    ping_interval: u64,
+    ping_timeout: u64,
     max_payload: u64,
 }
 
