@@ -48,7 +48,7 @@ impl TryFrom<String> for Packet {
             '1' => Ok(Packet::Close),
             '2' => Ok(Packet::Ping),
             '3' => Ok(Packet::Pong),
-            '4' => Ok(Packet::Message(serde_json::from_str(packet_data)?)),
+            '4' => Ok(Packet::Message(packet_data.to_string())),
             '5' => Ok(Packet::Upgrade),
             '6' => Ok(Packet::Noop),
             _ => Err(Self::Error::DeserializeError(serde_json::Error::custom("Invalid packet type"))),
