@@ -1,7 +1,9 @@
 use std::string::FromUtf8Error;
 
-use tokio::sync::oneshot::error::RecvError;
+use tokio::sync::{oneshot::error::RecvError, mpsc};
 use tokio_tungstenite::tungstenite;
+
+use crate::packet::Packet;
 
 #[derive(Debug)]
 pub enum Error {
@@ -16,6 +18,8 @@ pub enum Error {
     HttpBufferSendError(),
     HttpBufferRecvError(RecvError),
     HttpError(http::Error),
+    SendChannelError(mpsc::error::SendError<Packet>),
+    RecvChannelError(mpsc::error::TryRecvError)
 }
 
 impl From<serde_json::Error> for Error {
@@ -43,6 +47,11 @@ impl From<FromUtf8Error> for Error {
 impl From<RecvError> for Error {
     fn from(err: RecvError) -> Self {
         Error::HttpBufferRecvError(err)
+    }
+}
+impl From<mpsc::error::SendError<Packet>> for Error {
+    fn from(err: mpsc::error::SendError<Packet>) -> Self {
+        Error::SendChannelError(err)
     }
 }
 

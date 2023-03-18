@@ -1,8 +1,11 @@
-use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::ControlFlow,
+    sync::Arc,
+};
 
 use crate::{
     body::ResponseBody,
-    errors::Error,
     futures::{http_empty_response, http_response, ws_response},
     layer::EngineIoHandler,
     packet::{OpenPacket, Packet, TransportType},
@@ -13,7 +16,7 @@ use futures::{SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock};
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
@@ -71,10 +74,7 @@ where
         B: Send + 'static,
     {
         let sid = generate_sid();
-        self.sockets
-            .write()
-            .await
-            .insert(sid, Socket::new_http(sid));
+        self.sockets.write().await.insert(sid, Socket::new(sid));
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config))
                 .try_into()
@@ -88,22 +88,38 @@ where
     {
         let mut sockets = self.sockets.write().await;
         let socket = sockets.get_mut(&sid);
+        // If the socket is not found or the rx channel is currently being used
         if socket.is_none() {
-            debug!("Socket with sid {} not found", sid);
             return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
         }
         let socket = socket.unwrap();
-        debug!("Polling request for socket with sid {}", sid);
-        match socket.http_polling_conn().await {
-            Ok(d) => http_response(StatusCode::OK, d).unwrap(),
-            Err(Error::MultiplePollingRequests() | Error::BadTransport()) => {
-                http_empty_response(StatusCode::BAD_REQUEST).unwrap()
-            }
-            Err(e) => {
-                debug!("internal error: {:?}", e);
-                http_empty_response(StatusCode::INTERNAL_SERVER_ERROR).unwrap()
-            }
+        let rx = socket.rx.take();
+        if rx.is_none() {
+            return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
         }
+        let mut rx = rx.unwrap();
+
+        debug!("Polling request for socket with sid {}", sid);
+        let mut data = String::new();
+        while let Ok(packet) = rx.try_recv() {
+            let packet: String = packet.try_into().unwrap();
+            data.push_str(&packet);
+        }
+        
+        if data.is_empty() {
+            match rx.recv().await {
+                Some(packet) => {
+                    let packet: String = packet.try_into().unwrap();
+                    data.push_str(&packet);
+                }
+                None => {
+                    //TODO: Handle socket disconnection
+                    return http_empty_response(StatusCode::INTERNAL_SERVER_ERROR).unwrap()
+                },
+            };
+        }
+        socket.rx = Some(rx);
+        http_response(StatusCode::OK, data).unwrap()
     }
 
     pub async fn on_send_packet_req<R, B>(
@@ -186,7 +202,7 @@ where
         tracing::debug!("WS upgrade comming from polling: {}", sid.is_some());
 
         let (mut tx, mut rx) = ws.split();
-
+        
         let sid = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
             let sid = generate_sid();
             let msg: String =
@@ -200,31 +216,30 @@ where
             self.sockets
                 .write()
                 .await
-                .insert(sid, Socket::new_ws(sid, tx));
+                .insert(sid, Socket::new(sid));
             sid
         } else {
             let sid = sid.unwrap();
-            self.sockets
-                .write()
-                .await
-                .get_mut(&sid)
-                .unwrap()
-                .upgrade_from_http(tx);
+            // self.sockets
+            //     .write()
+            //     .await
+            //     .get_mut(&sid)
+            //     .unwrap()
+            //     .upgrade_from_http(tx);
+            //TODO: upgrade from http
             sid
         };
 
-        // let engine = self.clone();
-        // tokio::spawn(async move {
-        //     if let Some(tx) = engine.sockets.write().await.get_mut(&sid) {
-        //         if let Err(e) = tx
-        //             .spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout)
-        //             .await
-        //         {
-        //             tracing::debug!("Heartbeat error: {:?}", e);
-        //         }
-        //     }
-        // });
-
+        let mut socket_rx = self.sockets.write().await.get_mut(&sid).unwrap().rx.take().unwrap();
+        tokio::spawn(async move {
+            while let Some(item) = socket_rx.recv().await {
+                let packet: String = item.try_into().unwrap();
+                if let Err(e) = tx.send(Message::Text(packet)).await {
+                    tracing::debug!("Error sending packet: {}", e);
+                    return;
+                }
+            }
+        });
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             let res = match msg {

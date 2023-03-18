@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize, de::Error};
-
+use base64::{engine::general_purpose, Engine};
 use crate::{engine::EngineIoConfig};
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -12,6 +12,8 @@ pub enum Packet {
     Message(String),
     Upgrade,
     Noop,
+
+    Binary(Vec<u8>) // Not part of the protocol, used internally
 }
 
 /**
@@ -30,6 +32,7 @@ impl TryInto<String> for Packet {
             Packet::Message(msg) => "4".to_string() + &msg,
             Packet::Upgrade => "5".to_string(),
             Packet::Noop => "6".to_string(),
+            Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(&data),
         };
         Ok(res)
     }
