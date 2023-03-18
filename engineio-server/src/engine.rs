@@ -184,10 +184,12 @@ where
         };
 
         let req = Request::from_parts(parts, ());
-        match hyper::upgrade::on(req).await {
-            Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
-            Err(e) => tracing::debug!("WS upgrade error: {}", e),
-        }
+        tokio::spawn(async move {
+            match hyper::upgrade::on(req).await {
+                Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
+                Err(e) => tracing::debug!("WS upgrade error: {}", e),
+            }
+        });
 
         ws_response(&ws_key)
     }
