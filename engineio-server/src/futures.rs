@@ -1,6 +1,7 @@
 use crate::body::ResponseBody;
 use crate::engine::EngineIoConfig;
 use crate::packet::{OpenPacket, Packet, TransportType};
+use bytes::Bytes;
 use futures_core::ready;
 use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
 use http::{HeaderValue, Response, StatusCode};
@@ -12,6 +13,23 @@ use std::task::{Context, Poll};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 
+pub fn http_response<B, D>(
+    code: StatusCode,
+    data: D,
+) -> Result<Response<ResponseBody<B>>, http::Error>
+where
+    D: Into<Full<Bytes>>,
+{
+    Response::builder()
+        .status(code)
+        .body(ResponseBody::custom_response(data.into()))
+}
+
+pub fn http_empty_response<B>(code: StatusCode) -> Result<Response<ResponseBody<B>>, http::Error> {
+    Response::builder()
+        .status(code)
+        .body(ResponseBody::empty_response())
+}
 #[pin_project]
 pub struct ResponseFuture<F, B> {
     #[pin]

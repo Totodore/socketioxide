@@ -1,5 +1,6 @@
 use std::string::FromUtf8Error;
 
+use tokio::sync::oneshot::error::RecvError;
 use tokio_tungstenite::tungstenite;
 
 #[derive(Debug)]
@@ -7,11 +8,13 @@ pub enum Error {
 	SerializeError(serde_json::Error),
 	DeserializeError(serde_json::Error),
     BadPacket(&'static str),
+    BadTransport(),
     WsTransportError(tungstenite::Error),
     HttpTransportError(hyper::Error),
     CustomError(String),
-    MultiplePollingRequests(&'static str),
-    HttpBuferSyncError(&'static str),
+    MultiplePollingRequests(),
+    HttpBufferSendError(),
+    HttpBufferRecvError(RecvError)
 }
 
 impl From<serde_json::Error> for Error {
@@ -34,5 +37,10 @@ impl From<FromUtf8Error> for Error {
     fn from(err: FromUtf8Error) -> Self {
         use serde::de::Error;
         Self::DeserializeError(serde_json::Error::custom(err))
+    }
+}
+impl From<RecvError> for Error {
+    fn from(err: RecvError) -> Self {
+        Error::HttpBufferRecvError(err)
     }
 }

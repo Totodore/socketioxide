@@ -3,21 +3,22 @@ use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 use crate::{
     body::ResponseBody,
     errors::Error,
+    futures::{http_empty_response, http_response},
     layer::EngineIoHandler,
     packet::{OpenPacket, Packet, TransportType},
     socket::Socket,
     utils::generate_sid,
 };
 use futures::{SinkExt, StreamExt, TryStreamExt};
-use http::{Request, Response};
+use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
-use tokio::{sync::RwLock};
+use tokio::sync::RwLock;
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
-use tracing::{debug};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -70,57 +71,39 @@ where
         B: Send + 'static,
     {
         let sid = generate_sid();
-        let config = self.config.clone();
-        tokio::task::spawn(async move {
-            self.sockets
-                .write()
-                .await
-                .insert(sid, Socket::new_http(sid));
-        });
-        // ResponseBody::empty_response()
-        Response::builder()
-            .status(200)
-            .header("Content-Type", "text/plain; charset=UTF-8")
-            .body(ResponseBody::empty_response())
-            .unwrap()
-        // ResponseFuture::open_response(config, sid)
+        self.sockets
+            .write()
+            .await
+            .insert(sid, Socket::new_http(sid));
+        let packet: String =
+            Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config))
+                .try_into()
+                .unwrap();
+        http_response(StatusCode::OK, packet).unwrap()
     }
 
     pub async fn on_polling_req<B>(self: Arc<Self>, sid: i64) -> Response<ResponseBody<B>>
     where
         B: Send + 'static,
     {
-        let (tx, body) = hyper::Body::channel();
         let mut sockets = self.sockets.write().await;
         let socket = sockets.get_mut(&sid);
         if socket.is_none() {
             debug!("Socket with sid {} not found", sid);
-            tx.abort();
-            return Response::builder()
-                .status(400)
-                .header("Content-Type", "text/plain; charset=UTF-8")
-                .body(ResponseBody::empty_response())
-                .unwrap();
+            return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
         }
         let socket = socket.unwrap();
         debug!("Polling request for socket with sid {}", sid);
-        match socket.http_polling_conn(tx).await {
-            Ok(d) => debug!("{:?}", d),
-            Err(Error::MultiplePollingRequests(e) | Error::HttpBuferSyncError(e)) => {
-                debug!("{}", e);
-                socket.close().await.unwrap();
+        match socket.http_polling_conn().await {
+            Ok(d) => http_response(StatusCode::OK, d).unwrap(),
+            Err(Error::MultiplePollingRequests() | Error::BadTransport()) => {
+                http_empty_response(StatusCode::BAD_REQUEST).unwrap()
             }
-            Err(e) => debug!("{:?}", e),
-        };
-        Response::builder()
-            .status(200)
-            .header("Content-Type", "text/plain; charset=UTF-8")
-            .body(ResponseBody::empty_response())
-            .unwrap()
-        // socket
-        //     .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
-        //     .await
-        //     .unwrap();
+            Err(e) => {
+                debug!("internal error: {:?}", e);
+                http_empty_response(StatusCode::INTERNAL_SERVER_ERROR).unwrap()
+            }
+        }
     }
 
     pub async fn on_send_packet_req<R, B>(

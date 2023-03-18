@@ -23,7 +23,7 @@ impl<B> ResponseBody<B> {
         }
     }
 
-    pub(crate) fn new(body: B) -> Self {
+    pub fn new(body: B) -> Self {
         Self {
             inner: ResponseBodyInner::Body { body },
         }
@@ -58,7 +58,7 @@ where
         match self.project().inner.project() {
             BodyProj::EmptyResponse => std::task::Poll::Ready(None),
             BodyProj::Body { body } => body.poll_data(cx),
-            BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
+            BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {})
         }
     }
 
