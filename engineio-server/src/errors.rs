@@ -14,7 +14,8 @@ pub enum Error {
     CustomError(String),
     MultiplePollingRequests(),
     HttpBufferSendError(),
-    HttpBufferRecvError(RecvError)
+    HttpBufferRecvError(RecvError),
+    HttpError(http::Error),
 }
 
 impl From<serde_json::Error> for Error {
@@ -42,5 +43,11 @@ impl From<FromUtf8Error> for Error {
 impl From<RecvError> for Error {
     fn from(err: RecvError) -> Self {
         Error::HttpBufferRecvError(err)
+    }
+}
+
+impl From<http::Error> for Error {
+    fn from(err: http::Error) -> Self {
+        Error::HttpError(err)
     }
 }

@@ -57,16 +57,16 @@ where
             match RequestType::parse(&req) {
                 RequestType::Invalid => ResponseFuture::empty_response(400),
                 RequestType::HttpOpen => {
-                    ResponseFuture::async_response(tokio::spawn(engine.on_open_http_req()))
+                    ResponseFuture::async_response(Box::pin(engine.on_open_http_req()))
                 }
                 RequestType::HttpPoll(sid) => {
-                    ResponseFuture::async_response(tokio::spawn(engine.on_polling_req(sid)))
+                    ResponseFuture::async_response(Box::pin(engine.on_polling_req(sid)))
                 }
-                RequestType::HttpSendPacket(sid) => ResponseFuture::async_response(tokio::spawn(
-                    engine.on_send_packet_req(sid, req),
-                )),
+                RequestType::HttpSendPacket(sid) => {
+                    ResponseFuture::async_response(Box::pin(engine.on_send_packet_req(sid, req)))
+                }
                 RequestType::WebsocketUpgrade(sid) => {
-                    ResponseFuture::async_response(tokio::spawn(engine.upgrade_ws_req(sid, req)))
+                    ResponseFuture::async_response(Box::pin(engine.upgrade_ws_req(sid, req)))
                 }
             }
         } else {

@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 use crate::{
     body::ResponseBody,
     errors::Error,
-    futures::{http_empty_response, http_response},
+    futures::{http_empty_response, http_response, ws_response},
     layer::EngineIoHandler,
     packet::{OpenPacket, Packet, TransportType},
     socket::Socket,
@@ -119,16 +119,13 @@ where
     {
         if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
             let body = hyper::body::to_bytes(body).await.unwrap();
+            debug!("Send packet request for socket with sid {}", sid);
             let packet = match Packet::try_from(body) {
                 Ok(packet) => packet,
                 Err(e) => {
                     tracing::debug!("Error parsing packet: {:?}", e);
                     socket.close().await.unwrap();
-                    return Response::builder()
-                        .status(200)
-                        .header("Content-Type", "text/plain; charset=UTF-8")
-                        .body(ResponseBody::empty_response())
-                        .unwrap();
+                    return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
                 }
             };
             match socket.handle_packet(packet, &self.handler).await {
@@ -141,21 +138,11 @@ where
                     tracing::debug!("Error handling packet, closing session: {:?}", e);
                     self.close_socket(sid).await;
                 }
-            }
+            };
+            http_response(StatusCode::OK, "ok").unwrap()
+        } else {
+            http_empty_response(StatusCode::BAD_REQUEST).unwrap()
         }
-        Response::builder()
-            .status(200)
-            .header("Content-Type", "text/plain; charset=UTF-8")
-            .body(ResponseBody::empty_response())
-            .unwrap()
-        // let mut sockets = self.ws_sockets.lock().unwrap;
-        // if let tx = sockets.get_mut(&sid.unwrap()) {
-        // let packet = Packet::from_request(req);
-        // } else {
-        // return ResponseFuture::empty_response(400);
-        // }
-
-        // ResponseFuture::custom_response("ok".to_string())
     }
 
     /// Upgrade a websocket request to create a websocket connection.
@@ -166,11 +153,7 @@ where
         self: Arc<Self>,
         sid: Option<i64>,
         req: Request<R>,
-    ) -> Response<ResponseBody<B>>
-    where
-        R: Send + 'static,
-        B: Send + 'static,
-    {
+    ) -> Response<ResponseBody<B>> {
         tracing::debug!("WS Upgrade req {:?}", req.uri());
 
         let (parts, _) = req.into_parts();
@@ -190,13 +173,7 @@ where
             Err(e) => tracing::debug!("WS upgrade error: {}", e),
         }
 
-        Response::builder()
-            .status(101)
-            .header("Sec-WebSocket-Accept", ws_key)
-            .body(ResponseBody::empty_response())
-            .unwrap()
-
-        // ResponseFuture::upgrade_response(ws_key)
+        ws_response(&ws_key)
     }
 
     /// Handle a websocket connection upgrade
@@ -253,8 +230,7 @@ where
             let res = match msg {
                 Message::Text(msg) => match Packet::try_from(msg) {
                     Ok(packet) => {
-                        self.clone()
-                            .sockets
+                        self.sockets
                             .write()
                             .await
                             .get_mut(&sid)
@@ -266,7 +242,6 @@ where
                 },
                 Message::Binary(msg) => {
                     match self
-                        .clone()
                         .sockets
                         .write()
                         .await
