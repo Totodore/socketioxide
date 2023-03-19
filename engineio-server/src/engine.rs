@@ -92,9 +92,13 @@ where
             Some(s) => s,
             None => return http_empty_response(StatusCode::BAD_REQUEST).unwrap(),
         };
+
+        // If the socket is already locked, it means that the socket is being used by another request
+        // and we should close the session (bad request)
         let mut rx = match socket.rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
+                socket.send(Packet::Close).await.ok();
                 self.close_session(sid).await;
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
@@ -309,7 +313,6 @@ where
         sid: i64,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
-        // let (mut tx, mut rx) = ws.split();
         let socket = self.get_socket(sid).await.unwrap();
         socket.send(Packet::Noop).await?;
         // wait for any polling connection to finish by waiting for the socket to be unlocked
