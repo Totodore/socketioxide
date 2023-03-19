@@ -239,7 +239,7 @@ where
                             tracing::debug!("Error sending binary packet: {}", e);
                             return;
                         }
-                    },
+                    }
                     Packet::Close => {
                         if let Err(e) = tx.send(Message::Close(None)).await {
                             tracing::debug!("Error sending close packet: {}", e);
@@ -273,7 +273,10 @@ where
             match res {
                 ControlFlow::Break(Ok(())) => break,
                 ControlFlow::Break(Err(e)) => {
-                    tracing::debug!("Error handling websocket message, closing conn & session: {:?}", e);
+                    tracing::debug!(
+                        "Error handling websocket message, closing conn & session: {:?}",
+                        e
+                    );
                     break;
                 }
                 ControlFlow::Continue(Ok(())) => continue,
@@ -315,8 +318,7 @@ where
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).await.unwrap();
         socket.send(Packet::Noop).await?;
-        // wait for any polling connection to finish by waiting for the socket to be unlocked
-        let _lock = socket.rx.lock().await;
+
         // Get the next ws message
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
@@ -341,6 +343,9 @@ where
             Ok(_) => Err(Error::BadPacket())?,
             Err(e) => Err(e)?,
         };
+
+        // wait for any polling connection to finish by waiting for the socket to be unlocked
+        let _lock = socket.rx.lock().await;
         Ok(())
     }
     async fn ws_init_handshake(
