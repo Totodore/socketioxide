@@ -72,7 +72,7 @@ impl Socket {
         handler.handle_binary::<H>(data, self).await
     }
 
-    pub(crate) async fn close(&self) -> Result<(), Error> {
+    pub async fn close(&self) -> Result<(), Error> {
         self.send(Packet::Close).await
     }
 

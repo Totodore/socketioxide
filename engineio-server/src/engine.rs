@@ -243,6 +243,12 @@ where
                             tracing::debug!("Error sending binary packet: {}", e);
                             return;
                         }
+                    },
+                    Packet::Close => {
+                        if let Err(e) = tx.send(Message::Close(None)).await {
+                            tracing::debug!("Error sending close packet: {}", e);
+                            return;
+                        }
                     }
                     _ => {
                         let packet: String = item.try_into().unwrap();
@@ -286,11 +292,7 @@ where
 
     async fn close_session(&self, sid: i64) {
         tracing::debug!("Closing socket {}", sid);
-        if let Some(socket) = self.sockets.write().await.remove(&sid) {
-            if let Err(e) = socket.close().await {
-                tracing::debug!("Error closing websocket: {:?}", e);
-            }
-        }
+        self.sockets.write().await.remove(&sid);
     }
 
     /**
