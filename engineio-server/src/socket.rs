@@ -104,10 +104,6 @@ impl Socket {
     async fn send_heartbeat(&mut self, timeout: u64) -> Result<bool, Error> {
         let instant = Instant::now();
         self.send(Packet::Ping).await?;
-        debug!(
-            "Sending ping packet for sid={}, waiting for pong (timeout: {})",
-            self.sid, timeout
-        );
         tokio::time::sleep(Duration::from_millis(timeout)).await;
         Ok(
             self.last_pong.elapsed().as_millis() > instant.elapsed().as_millis()
@@ -120,7 +116,6 @@ impl Socket {
     }
 
     pub async fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
-        debug!("Sending packet for sid={}: {:?}", self.sid, data);
         self.send(Packet::Binary(data)).await?;
         Ok(())
     }

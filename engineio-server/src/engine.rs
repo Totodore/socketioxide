@@ -234,13 +234,23 @@ where
         };
         let rx_socket = self.get_socket(sid).await.unwrap();
         let socket = rx_socket.clone();
-        tokio::spawn(async move {
+        let rx_handle = tokio::spawn(async move {
             let mut socket_rx = rx_socket.rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
-                let packet: String = item.try_into().unwrap();
-                if let Err(e) = tx.send(Message::Text(packet)).await {
-                    tracing::debug!("Error sending packet: {}", e);
-                    return;
+                match item {
+                    Packet::Binary(bin) => {
+                        if let Err(e) = tx.send(Message::Binary(bin)).await {
+                            tracing::debug!("Error sending binary packet: {}", e);
+                            return;
+                        }
+                    }
+                    _ => {
+                        let packet: String = item.try_into().unwrap();
+                        if let Err(e) = tx.send(Message::Text(packet)).await {
+                            tracing::debug!("Error sending packet: {}", e);
+                            return;
+                        }
+                    }
                 }
             }
         });
@@ -261,7 +271,7 @@ where
             match res {
                 ControlFlow::Break(Ok(())) => break,
                 ControlFlow::Break(Err(e)) => {
-                    tracing::debug!("Error handling websocket message, closing conn: {:?}", e);
+                    tracing::debug!("Error handling websocket message, closing conn & session: {:?}", e);
                     break;
                 }
                 ControlFlow::Continue(Ok(())) => continue,
@@ -271,6 +281,7 @@ where
             }
         }
         self.close_session(sid).await;
+        rx_handle.abort();
     }
 
     async fn close_session(&self, sid: i64) {
