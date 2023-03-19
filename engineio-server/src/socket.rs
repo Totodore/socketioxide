@@ -41,7 +41,10 @@ impl Socket {
     {
         tracing::debug!("Received packet from conn : {:?}", packet);
         match packet {
-            Packet::Close => ControlFlow::Break(Ok(())),
+            Packet::Close => {
+                let res = self.send(Packet::Noop).await;
+                ControlFlow::Break(res)
+            },
             Packet::Pong => ControlFlow::Continue(Ok(())),
             Packet::Message(msg) => {
                 tracing::debug!("Received message: {}", msg);
