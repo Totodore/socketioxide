@@ -2,6 +2,7 @@ use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use crate::{
     body::ResponseBody,
+    errors::Error,
     futures::{http_empty_response, http_response, ws_response},
     layer::EngineIoHandler,
     packet::{OpenPacket, Packet, TransportType},
@@ -186,7 +187,10 @@ where
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
-                Ok(conn) => self.on_ws_conn_upgrade(conn, sid).await,
+                Ok(conn) => match self.on_ws_conn_upgrade(conn, sid).await {
+                    Ok(_) => tracing::debug!("ws closed successfully"),
+                    Err(e) => tracing::debug!("ws closed with error: {:?}", e),
+                },
                 Err(e) => tracing::debug!("WS upgrade error: {}", e),
             }
         });
@@ -199,41 +203,29 @@ where
     /// Sends an open packet if it is not an upgrade from a polling request
     ///
     /// Read packets from the websocket and handle them
-    async fn on_ws_conn_upgrade(self: Arc<Self>, conn: Upgraded, sid: Option<i64>) {
-        let ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
+    async fn on_ws_conn_upgrade(
+        self: Arc<Self>,
+        conn: Upgraded,
+        sid: Option<i64>,
+    ) -> Result<(), Error> {
+        let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
         tracing::debug!("WS upgrade comming from polling: {}", sid.is_some());
 
-        let (mut tx, mut rx) = ws.split();
-        let sid = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
+        let socket = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
             let sid = generate_sid();
-            let msg: String =
-                Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config))
-                    .try_into()
-                    .expect("Failed to serialize open packet");
-            if let Err(e) = tx.send(Message::Text(msg)).await {
-                tracing::debug!("Error sending open packet: {}", e);
-                return;
-            }
+            let socket: Arc<Socket> = Socket::new(sid).into();
             {
-                self.sockets
-                    .write()
-                    .await
-                    .insert(sid, Socket::new(sid).into());
+                self.sockets.write().await.insert(sid, socket.clone());
             }
-            sid
+            self.ws_init_handshake(sid, &mut ws).await?;
+            socket
         } else {
             let sid = sid.unwrap();
-            // self.sockets
-            //     .write()
-            //     .await
-            //     .get_mut(&sid)
-            //     .unwrap()
-            //     .upgrade_from_http(tx);
-            //TODO: upgrade from http
-            sid
+            self.ws_upgrade_handshake(sid, &mut ws).await?;
+            self.get_socket(sid).await.unwrap()
         };
-        let rx_socket = self.get_socket(sid).await.unwrap();
-        let socket = rx_socket.clone();
+        let (mut tx, mut rx) = ws.split();
+        let rx_socket = socket.clone();
         let rx_handle = tokio::spawn(async move {
             let mut socket_rx = rx_socket.rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
@@ -286,10 +278,80 @@ where
                 }
             }
         }
-        self.close_session(sid).await;
+        self.close_session(socket.sid).await;
         rx_handle.abort();
+        Ok(())
     }
 
+    /// Upgrade a session from a polling request to a websocket request.
+    ///
+    /// Before upgrading the session the server should send a NOOP packet to any pending polling request.
+    /// ```text
+    /// CLIENT                                                 SERVER
+    ///│                                                      │
+    ///│   GET /engine.io/?EIO=4&transport=websocket&sid=...  │
+    ///│ ───────────────────────────────────────────────────► │
+    ///│  ◄─────────────────────────────────────────────────┘ │
+    ///│            HTTP 101 (WebSocket handshake)            │
+    ///│                                                      │
+    ///│            -----  WebSocket frames -----             │
+    ///│  ─────────────────────────────────────────────────►  │
+    ///│                         2probe                       │ (ping packet)
+    ///│  ◄─────────────────────────────────────────────────  │
+    ///│                         3probe                       │ (pong packet)
+    ///│  ─────────────────────────────────────────────────►  │
+    ///│                         5                            │ (upgrade packet)
+    ///│                                                      │
+    ///│            -----  WebSocket frames -----             │
+    /// ```
+    async fn ws_upgrade_handshake(
+        &self,
+        sid: i64,
+        ws: &mut WebSocketStream<Upgraded>,
+    ) -> Result<(), Error> {
+        // let (mut tx, mut rx) = ws.split();
+        let socket = self.get_socket(sid).await.unwrap();
+        socket.send(Packet::Noop).await?;
+        // wait for any polling connection to finish by waiting for the socket to be unlocked
+        let _lock = socket.rx.lock().await;
+        // Get the next ws message
+        let msg = match ws.next().await {
+            Some(Ok(Message::Text(d))) => d,
+            _ => Err(Error::BadPacket())?,
+        };
+        // Check it is a ping with probe string
+        match Packet::try_from(msg) {
+            Ok(Packet::PingUpgrade) => {
+                ws.send(Message::Text(Packet::PongUpgrade.try_into().unwrap()))
+                    .await?;
+            }
+            Ok(_) => Err(Error::BadPacket())?,
+            Err(e) => Err(e)?,
+        };
+
+        let msg = match ws.next().await {
+            Some(Ok(Message::Text(d))) => d,
+            _ => todo!(),
+        };
+        match Packet::try_from(msg) {
+            Ok(Packet::Upgrade) => debug!("Upgrade successful"),
+            Ok(_) => Err(Error::BadPacket())?,
+            Err(e) => Err(e)?,
+        };
+        Ok(())
+    }
+    async fn ws_init_handshake(
+        &self,
+        sid: i64,
+        ws: &mut WebSocketStream<Upgraded>,
+    ) -> Result<(), Error> {
+        let msg: String =
+            Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config))
+                .try_into()?;
+        ws.send(Message::Text(msg)).await?;
+
+        Ok(())
+    }
     async fn close_session(&self, sid: i64) {
         tracing::debug!("Closing socket {}", sid);
         self.sockets.write().await.remove(&sid);

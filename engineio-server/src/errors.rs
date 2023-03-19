@@ -9,7 +9,7 @@ use crate::packet::Packet;
 pub enum Error {
 	SerializeError(serde_json::Error),
 	DeserializeError(serde_json::Error),
-    BadPacket(&'static str),
+    BadPacket(),
     BadTransport(),
     WsTransportError(tungstenite::Error),
     HttpTransportError(hyper::Error),

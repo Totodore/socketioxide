@@ -1,7 +1,7 @@
-use bytes::Bytes;
-use serde::{Deserialize, Serialize, de::Error};
+use crate::engine::EngineIoConfig;
 use base64::{engine::general_purpose, Engine};
-use crate::{engine::EngineIoConfig};
+use bytes::Bytes;
+use serde::{de::Error, Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Packet {
@@ -9,11 +9,13 @@ pub enum Packet {
     Close,
     Ping,
     Pong,
+    PingUpgrade,
+    PongUpgrade,
     Message(String),
     Upgrade,
     Noop,
 
-    Binary(Vec<u8>) // Not part of the protocol, used internally
+    Binary(Vec<u8>), // Not part of the protocol, used internally
 }
 
 /**
@@ -29,6 +31,8 @@ impl TryInto<String> for Packet {
             Packet::Close => "1".to_string(),
             Packet::Ping => "2".to_string(),
             Packet::Pong => "3".to_string(),
+            Packet::PingUpgrade => "2probe".to_string(),
+            Packet::PongUpgrade => "3probe".to_string(),
             Packet::Message(msg) => "4".to_string() + &msg,
             Packet::Upgrade => "5".to_string(),
             Packet::Noop => "6".to_string(),
@@ -42,19 +46,33 @@ impl TryFrom<String> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
-        let packet_type = chars.next().ok_or(Self::Error::DeserializeError(serde_json::Error::custom(
-            "Packet type not found in packet string",
-        )))?;
+        let packet_type =
+            chars
+                .next()
+                .ok_or(Self::Error::DeserializeError(serde_json::Error::custom(
+                    "Packet type not found in packet string",
+                )))?;
         let packet_data = chars.as_str();
+        let is_upgrade = packet_data.starts_with("probe");
         match packet_type {
             '0' => Ok(Packet::Open(serde_json::from_str(packet_data)?)),
             '1' => Ok(Packet::Close),
-            '2' => Ok(Packet::Ping),
-            '3' => Ok(Packet::Pong),
+            '2' => Ok(if is_upgrade {
+                Packet::PingUpgrade
+            } else {
+                Packet::Ping
+            }),
+            '3' => Ok(if is_upgrade {
+                Packet::PongUpgrade
+            } else {
+                Packet::Pong
+            }),
             '4' => Ok(Packet::Message(packet_data.to_string())),
             '5' => Ok(Packet::Upgrade),
             '6' => Ok(Packet::Noop),
-            _ => Err(Self::Error::DeserializeError(serde_json::Error::custom("Invalid packet type"))),
+            _ => Err(Self::Error::DeserializeError(serde_json::Error::custom(
+                "Invalid packet type",
+            ))),
         }
     }
 }

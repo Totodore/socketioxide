@@ -1,7 +1,10 @@
 use std::{ops::ControlFlow, time::Duration};
 
 use tokio::{
-    sync::{mpsc::{self, Receiver}, Mutex},
+    sync::{
+        mpsc::{self, Receiver},
+        Mutex,
+    },
     time::{self, Instant},
 };
 use tracing::debug;
@@ -10,10 +13,10 @@ use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
 
 #[derive(Debug)]
 pub struct Socket {
-    sid: i64,
-    tx: mpsc::Sender<Packet>, // Sender for sending packets to the socket
+    pub sid: i64,
     // Only one receiver is allowed for each socket
     pub rx: Mutex<Receiver<Packet>>,
+    tx: mpsc::Sender<Packet>, // Sender for sending packets to the socket
     last_pong: Instant,
 }
 
@@ -38,30 +41,16 @@ impl Socket {
     {
         tracing::debug!("Received packet from conn : {:?}", packet);
         match packet {
-            Packet::Open(_) => ControlFlow::Continue(Err(Error::BadPacket(
-                "Unexpected Open packet, it should be only used in upgrade process",
-            ))),
             Packet::Close => ControlFlow::Break(Ok(())),
-            Packet::Ping => ControlFlow::Continue(Err(Error::BadPacket("Unexpected Ping packet"))),
-            Packet::Pong => {
-                ControlFlow::Continue(Ok(()))
-            }
+            Packet::Pong => ControlFlow::Continue(Ok(())),
             Packet::Message(msg) => {
                 tracing::debug!("Received message: {}", msg);
                 match handler.handle::<H>(msg, self).await {
                     Ok(_) => ControlFlow::Continue(Ok(())),
                     Err(e) => ControlFlow::Continue(Err(e)),
                 }
-            }
-            Packet::Upgrade => ControlFlow::Continue(Err(Error::BadPacket(
-                "Unexpected Upgrade packet, upgrade from ws connection not supported",
-            ))),
-            Packet::Noop => ControlFlow::Continue(Err(Error::BadPacket(
-                "Unexpected Noop packet, it should be only used in upgrade process",
-            ))),
-            Packet::Binary(_) => ControlFlow::Break(Err(Error::BadPacket(
-                "Unexpected Binary packet, it should be only used internally",
-            ))),
+            },
+            _ => ControlFlow::Continue(Err(Error::BadPacket())),
         }
     }
 
