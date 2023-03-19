@@ -3,7 +3,7 @@ use std::{ops::ControlFlow, time::Duration};
 use tokio::{
     sync::{
         mpsc::{self, Receiver},
-        Mutex,
+        Mutex, RwLock,
     },
     time::{self, Instant},
 };
@@ -11,23 +11,30 @@ use tracing::debug;
 
 use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ConnectionType {
+    Http,
+    WebSocket,
+}
 #[derive(Debug)]
 pub struct Socket {
     pub sid: i64,
     // Only one receiver is allowed for each socket
     pub rx: Mutex<Receiver<Packet>>,
+    conn: RwLock<ConnectionType>,
     tx: mpsc::Sender<Packet>, // Sender for sending packets to the socket
     last_pong: Instant,
 }
 
 impl Socket {
-    pub(crate) fn new(sid: i64) -> Self {
+    pub(crate) fn new(sid: i64, conn: ConnectionType) -> Self {
         let (tx, rx) = mpsc::channel(100);
         Self {
             sid,
             last_pong: time::Instant::now(),
             tx,
             rx: Mutex::new(rx),
+            conn: conn.into(),
         }
     }
 
@@ -44,7 +51,7 @@ impl Socket {
             Packet::Close => {
                 let res = self.send(Packet::Noop).await;
                 ControlFlow::Break(res)
-            },
+            }
             Packet::Pong => ControlFlow::Continue(Ok(())),
             Packet::Message(msg) => {
                 tracing::debug!("Received message: {}", msg);
@@ -52,8 +59,8 @@ impl Socket {
                     Ok(_) => ControlFlow::Continue(Ok(())),
                     Err(e) => ControlFlow::Continue(Err(e)),
                 }
-            },
-            _ => ControlFlow::Continue(Err(Error::BadPacket())),
+            }
+            _ => ControlFlow::Continue(Err(Error::BadPacket)),
         }
     }
 
@@ -91,6 +98,16 @@ impl Socket {
             interval.tick().await;
         }
         Ok(())
+    }
+    pub(crate) async fn is_ws(&self) -> bool {
+        self.conn.read().await.eq(&ConnectionType::WebSocket)
+    }
+    pub(crate) async fn is_http(&self) -> bool {
+        self.conn.read().await.eq(&ConnectionType::Http)
+    }
+    pub(crate) async fn upgrade_to_websocket(&self) {
+        let mut conn = self.conn.write().await;
+        *conn = ConnectionType::WebSocket;
     }
 
     async fn send_heartbeat(&mut self, timeout: u64) -> Result<bool, Error> {

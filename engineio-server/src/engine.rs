@@ -6,7 +6,7 @@ use crate::{
     futures::{http_empty_response, http_response, ws_response},
     layer::EngineIoHandler,
     packet::{OpenPacket, Packet, TransportType},
-    socket::Socket,
+    socket::{ConnectionType, Socket},
     utils::generate_sid,
 };
 use futures::{SinkExt, StreamExt, TryStreamExt};
@@ -75,7 +75,7 @@ where
             self.sockets
                 .write()
                 .await
-                .insert(sid, Socket::new(sid).into());
+                .insert(sid, Socket::new(sid, ConnectionType::Http).into());
         }
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config))
@@ -92,6 +92,9 @@ where
             Some(s) => s,
             None => return http_empty_response(StatusCode::BAD_REQUEST).unwrap(),
         };
+        if socket.is_ws().await {
+            return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+        }
 
         // If the socket is already locked, it means that the socket is being used by another request
         // and we should close the session (bad request)
@@ -148,6 +151,9 @@ where
         };
 
         if let Some(socket) = self.get_socket(sid).await {
+            if socket.is_ws().await {
+                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+            }
             debug!("Send packet request for socket with sid {}", sid);
             match socket.handle_packet(packet, &self.handler).await {
                 ControlFlow::Continue(Err(e)) => {
@@ -217,7 +223,7 @@ where
 
         let socket = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
             let sid = generate_sid();
-            let socket: Arc<Socket> = Socket::new(sid).into();
+            let socket: Arc<Socket> = Socket::new(sid, ConnectionType::WebSocket).into();
             {
                 self.sockets.write().await.insert(sid, socket.clone());
             }
@@ -317,12 +323,18 @@ where
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).await.unwrap();
-        socket.send(Packet::Noop).await?;
+        if socket.is_ws().await {
+            Err(Error::BadTransport)?;
+        }
+        // If there is a pending polling request, send a NOOP packet to it
+        if socket.rx.try_lock().is_err() {
+            socket.send(Packet::Noop).await?;
+        }
 
         // Get the next ws message
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
-            _ => Err(Error::BadPacket())?,
+            _ => Err(Error::BadPacket)?,
         };
         // Check it is a ping with probe string
         match Packet::try_from(msg) {
@@ -330,7 +342,7 @@ where
                 ws.send(Message::Text(Packet::PongUpgrade.try_into().unwrap()))
                     .await?;
             }
-            Ok(_) => Err(Error::BadPacket())?,
+            Ok(_) => Err(Error::BadPacket)?,
             Err(e) => Err(e)?,
         };
 
@@ -340,12 +352,13 @@ where
         };
         match Packet::try_from(msg) {
             Ok(Packet::Upgrade) => debug!("Upgrade successful"),
-            Ok(_) => Err(Error::BadPacket())?,
+            Ok(_) => Err(Error::BadPacket)?,
             Err(e) => Err(e)?,
         };
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
         let _lock = socket.rx.lock().await;
+        socket.upgrade_to_websocket().await;
         Ok(())
     }
     async fn ws_init_handshake(
