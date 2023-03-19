@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    ops::ControlFlow,
-    sync::Arc,
-};
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
 
 use crate::{
     body::ResponseBody,
@@ -16,7 +12,7 @@ use futures::{SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
-use tokio::sync::{RwLock};
+use tokio::sync::RwLock;
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
@@ -40,7 +36,7 @@ impl Default for EngineIoConfig {
     }
 }
 
-type SocketMap<T> = RwLock<HashMap<i64, T>>;
+type SocketMap<T> = RwLock<HashMap<i64, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 #[derive(Debug)]
 pub struct EngineIo<H>
@@ -74,7 +70,12 @@ where
         B: Send + 'static,
     {
         let sid = generate_sid();
-        self.sockets.write().await.insert(sid, Socket::new(sid));
+        {
+            self.sockets
+                .write()
+                .await
+                .insert(sid, Socket::new(sid).into());
+        }
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config))
                 .try_into()
@@ -86,10 +87,16 @@ where
     where
         B: Send + 'static,
     {
-        let sockets = self.sockets.read().await;
-        let mut rx = match sockets.get(&sid).map(|s| s.rx.try_lock()) {
-            Some(Ok(s)) => s,
-            None | Some(Err(_)) => return http_empty_response(StatusCode::BAD_REQUEST).unwrap(),
+        let socket = match self.get_socket(sid).await.map(|s| s.clone()) {
+            Some(s) => s,
+            None => return http_empty_response(StatusCode::BAD_REQUEST).unwrap(),
+        };
+        let mut rx = match socket.rx.try_lock() {
+            Ok(s) => s,
+            Err(_) => {
+                self.close_session(sid).await;
+                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+            }
         };
 
         debug!("Polling request for socket with sid {}", sid);
@@ -98,7 +105,7 @@ where
             let packet: String = packet.try_into().unwrap();
             data.push_str(&packet);
         }
-        
+
         if data.is_empty() {
             match rx.recv().await {
                 Some(packet) => {
@@ -107,8 +114,8 @@ where
                 }
                 None => {
                     //TODO: Handle socket disconnection
-                    return http_empty_response(StatusCode::INTERNAL_SERVER_ERROR).unwrap()
-                },
+                    return http_empty_response(StatusCode::INTERNAL_SERVER_ERROR).unwrap();
+                }
             };
         }
         http_response(StatusCode::OK, data).unwrap()
@@ -130,24 +137,22 @@ where
             Ok(packet) => packet,
             Err(e) => {
                 tracing::debug!("Error parsing packet: {:?}", e);
-                if let Some(socket) = self.sockets.write().await.remove(&sid) {
-                    socket.close().await.unwrap();
-                }
+                self.close_session(sid).await;
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
         };
-        
-        if let Some(socket) = self.sockets.read().await.get(&sid) {
+
+        if let Some(socket) = self.get_socket(sid).await {
             debug!("Send packet request for socket with sid {}", sid);
             match socket.handle_packet(packet, &self.handler).await {
                 ControlFlow::Continue(Err(e)) => {
                     tracing::debug!("Error handling packet: {:?}", e)
                 }
                 ControlFlow::Continue(Ok(_)) => (),
-                ControlFlow::Break(Ok(_)) => self.close_socket(sid).await,
+                ControlFlow::Break(Ok(_)) => self.close_session(sid).await,
                 ControlFlow::Break(Err(e)) => {
                     tracing::debug!("Error handling packet, closing session: {:?}", e);
-                    self.close_socket(sid).await;
+                    self.close_session(sid).await;
                 }
             };
             http_response(StatusCode::OK, "ok").unwrap()
@@ -199,7 +204,6 @@ where
         tracing::debug!("WS upgrade comming from polling: {}", sid.is_some());
 
         let (mut tx, mut rx) = ws.split();
-        
         let sid = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
             let sid = generate_sid();
             let msg: String =
@@ -210,10 +214,12 @@ where
                 tracing::debug!("Error sending open packet: {}", e);
                 return;
             }
-            self.sockets
-                .write()
-                .await
-                .insert(sid, Socket::new(sid));
+            {
+                self.sockets
+                    .write()
+                    .await
+                    .insert(sid, Socket::new(sid).into());
+            }
             sid
         } else {
             let sid = sid.unwrap();
@@ -226,51 +232,31 @@ where
             //TODO: upgrade from http
             sid
         };
-
-        // let sockets = self.sockets.read().await;
-        // let mut socket_rx = sockets.get(&sid).unwrap().rx.try_lock().unwrap();
-        // tokio::spawn(async move {
-        //     while let Some(item) = socket_rx.recv().await {
-        //         let packet: String = item.try_into().unwrap();
-        //         if let Err(e) = tx.send(Message::Text(packet)).await {
-        //             tracing::debug!("Error sending packet: {}", e);
-        //             return;
-        //         }
-        //     }
-        // });
+        let rx_socket = self.get_socket(sid).await.unwrap();
+        let socket = rx_socket.clone();
+        tokio::spawn(async move {
+            let mut socket_rx = rx_socket.rx.try_lock().unwrap();
+            while let Some(item) = socket_rx.recv().await {
+                let packet: String = item.try_into().unwrap();
+                if let Err(e) = tx.send(Message::Text(packet)).await {
+                    tracing::debug!("Error sending packet: {}", e);
+                    return;
+                }
+            }
+        });
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             let res = match msg {
                 Message::Text(msg) => match Packet::try_from(msg) {
-                    Ok(packet) => {
-                        self.sockets
-                            .read()
-                            .await
-                            .get(&sid)
-                            .unwrap()
-                            .handle_packet(packet, &self.handler)
-                            .await
-                    }
+                    Ok(packet) => socket.handle_packet(packet, &self.handler).await,
                     Err(err) => ControlFlow::Break(Err(err)),
                 },
-                Message::Binary(msg) => {
-                    match self
-                        .sockets
-                        .read()
-                        .await
-                        .get(&sid)
-                        .unwrap()
-                        .handle_binary(msg, &self.handler)
-                        .await
-                    {
-                        Ok(_) => ControlFlow::Continue(Ok(())),
-                        Err(e) => ControlFlow::Continue(Err(e)),
-                    }
-                }
-                Message::Ping(_) => unreachable!(),
-                Message::Pong(_) => unreachable!(),
+                Message::Binary(msg) => match socket.handle_binary(msg, &self.handler).await {
+                    Ok(_) => ControlFlow::Continue(Ok(())),
+                    Err(e) => ControlFlow::Continue(Err(e)),
+                },
                 Message::Close(_) => break,
-                Message::Frame(_) => unreachable!(),
+                _ => panic!("Unexpected websocket message"),
             };
             match res {
                 ControlFlow::Break(Ok(())) => break,
@@ -284,15 +270,23 @@ where
                 }
             }
         }
-        self.close_socket(sid).await;
+        self.close_session(sid).await;
     }
 
-    async fn close_socket(&self, sid: i64) {
+    async fn close_session(&self, sid: i64) {
         tracing::debug!("Closing socket {}", sid);
         if let Some(socket) = self.sockets.write().await.remove(&sid) {
             if let Err(e) = socket.close().await {
                 tracing::debug!("Error closing websocket: {:?}", e);
             }
         }
+    }
+
+    /**
+     * Get a socket by its sid
+     * Clones the socket ref to avoid holding the lock
+     */
+    async fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
+        self.sockets.read().await.get(&sid).cloned()
     }
 }

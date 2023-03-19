@@ -12,7 +12,8 @@ use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
 pub struct Socket {
     sid: i64,
     tx: mpsc::Sender<Packet>, // Sender for sending packets to the socket
-    pub rx: Mutex<Receiver<Packet>>, // Receiver used by the socket take ownership when used and return it back when done
+    // Only one receiver is allowed for each socket
+    pub rx: Mutex<Receiver<Packet>>,
     last_pong: Instant,
 }
 
