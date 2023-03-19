@@ -5,11 +5,11 @@ use crate::{engine::EngineIoConfig, errors::Error, service::EngineIoService, soc
 
 #[async_trait]
 pub trait EngineIoHandler: Send + Sync + 'static {
-    async fn handle<H>(&self, msg: String, socket: &mut Socket) -> Result<(), Error>
+    async fn handle<H>(&self, msg: String, socket: &Socket) -> Result<(), Error>
     where
         H: EngineIoHandler;
 
-    async fn handle_binary<H>(&self, _data: Vec<u8>, _socket: &mut Socket) -> Result<(), Error>
+    async fn handle_binary<H>(&self, _data: Vec<u8>, _socket: &Socket) -> Result<(), Error>
     where
         H: EngineIoHandler { Ok(()) }
 }

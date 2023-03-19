@@ -14,13 +14,13 @@ struct MyHandler;
 #[engineio_server::async_trait]
 impl EngineIoHandler for MyHandler {
     //TODO: Fix this generic
-    async fn handle<EngineIoHandler>(&self, msg: String, socket: &mut Socket) -> Result<(), Error> {
+    async fn handle<EngineIoHandler>(&self, msg: String, socket: &Socket) -> Result<(), Error> {
         //Ping pong message
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).await
     }
 
-    async fn handle_binary<H>(&self, data: Vec<u8>, socket: &mut Socket) -> Result<(), Error> {
+    async fn handle_binary<H>(&self, data: Vec<u8>, socket: &Socket) -> Result<(), Error> {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).await
     }

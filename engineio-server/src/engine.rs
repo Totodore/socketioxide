@@ -86,18 +86,11 @@ where
     where
         B: Send + 'static,
     {
-        let mut sockets = self.sockets.write().await;
-        let socket = sockets.get_mut(&sid);
-        // If the socket is not found or the rx channel is currently being used
-        if socket.is_none() {
-            return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
-        }
-        let socket = socket.unwrap();
-        let rx = socket.rx.take();
-        if rx.is_none() {
-            return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
-        }
-        let mut rx = rx.unwrap();
+        let sockets = self.sockets.read().await;
+        let mut rx = match sockets.get(&sid).map(|s| s.rx.try_lock()) {
+            Some(Ok(s)) => s,
+            None | Some(Err(_)) => return http_empty_response(StatusCode::BAD_REQUEST).unwrap(),
+        };
 
         debug!("Polling request for socket with sid {}", sid);
         let mut data = String::new();
@@ -118,7 +111,6 @@ where
                 },
             };
         }
-        socket.rx = Some(rx);
         http_response(StatusCode::OK, data).unwrap()
     }
 
@@ -133,17 +125,20 @@ where
         <R as http_body::Body>::Data: std::marker::Send,
         B: Send + 'static,
     {
-        if let Some(socket) = self.sockets.write().await.get_mut(&sid) {
-            let body = hyper::body::to_bytes(body).await.unwrap();
-            debug!("Send packet request for socket with sid {}", sid);
-            let packet = match Packet::try_from(body) {
-                Ok(packet) => packet,
-                Err(e) => {
-                    tracing::debug!("Error parsing packet: {:?}", e);
+        let body = hyper::body::to_bytes(body).await.unwrap();
+        let packet = match Packet::try_from(body) {
+            Ok(packet) => packet,
+            Err(e) => {
+                tracing::debug!("Error parsing packet: {:?}", e);
+                if let Some(socket) = self.sockets.write().await.remove(&sid) {
                     socket.close().await.unwrap();
-                    return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
                 }
-            };
+                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+            }
+        };
+        
+        if let Some(socket) = self.sockets.read().await.get(&sid) {
+            debug!("Send packet request for socket with sid {}", sid);
             match socket.handle_packet(packet, &self.handler).await {
                 ControlFlow::Continue(Err(e)) => {
                     tracing::debug!("Error handling packet: {:?}", e)
@@ -232,25 +227,26 @@ where
             sid
         };
 
-        let mut socket_rx = self.sockets.write().await.get_mut(&sid).unwrap().rx.take().unwrap();
-        tokio::spawn(async move {
-            while let Some(item) = socket_rx.recv().await {
-                let packet: String = item.try_into().unwrap();
-                if let Err(e) = tx.send(Message::Text(packet)).await {
-                    tracing::debug!("Error sending packet: {}", e);
-                    return;
-                }
-            }
-        });
+        // let sockets = self.sockets.read().await;
+        // let mut socket_rx = sockets.get(&sid).unwrap().rx.try_lock().unwrap();
+        // tokio::spawn(async move {
+        //     while let Some(item) = socket_rx.recv().await {
+        //         let packet: String = item.try_into().unwrap();
+        //         if let Err(e) = tx.send(Message::Text(packet)).await {
+        //             tracing::debug!("Error sending packet: {}", e);
+        //             return;
+        //         }
+        //     }
+        // });
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             let res = match msg {
                 Message::Text(msg) => match Packet::try_from(msg) {
                     Ok(packet) => {
                         self.sockets
-                            .write()
+                            .read()
                             .await
-                            .get_mut(&sid)
+                            .get(&sid)
                             .unwrap()
                             .handle_packet(packet, &self.handler)
                             .await
@@ -260,9 +256,9 @@ where
                 Message::Binary(msg) => {
                     match self
                         .sockets
-                        .write()
+                        .read()
                         .await
-                        .get_mut(&sid)
+                        .get(&sid)
                         .unwrap()
                         .handle_binary(msg, &self.handler)
                         .await
@@ -293,7 +289,7 @@ where
 
     async fn close_socket(&self, sid: i64) {
         tracing::debug!("Closing socket {}", sid);
-        if let Some(mut socket) = self.sockets.write().await.remove(&sid) {
+        if let Some(socket) = self.sockets.write().await.remove(&sid) {
             if let Err(e) = socket.close().await {
                 tracing::debug!("Error closing websocket: {:?}", e);
             }

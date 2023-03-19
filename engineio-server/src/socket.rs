@@ -1,7 +1,7 @@
 use std::{ops::ControlFlow, time::Duration};
 
 use tokio::{
-    sync::mpsc::{self, Receiver},
+    sync::{mpsc::{self, Receiver}, Mutex},
     time::{self, Instant},
 };
 use tracing::debug;
@@ -12,7 +12,7 @@ use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
 pub struct Socket {
     sid: i64,
     tx: mpsc::Sender<Packet>, // Sender for sending packets to the socket
-    pub rx: Option<Receiver<Packet>>, // Receiver used by the socket take ownership when used and return it back when done
+    pub rx: Mutex<Receiver<Packet>>, // Receiver used by the socket take ownership when used and return it back when done
     last_pong: Instant,
 }
 
@@ -23,12 +23,12 @@ impl Socket {
             sid,
             last_pong: time::Instant::now(),
             tx,
-            rx: Some(rx),
+            rx: Mutex::new(rx),
         }
     }
 
     pub(crate) async fn handle_packet<H>(
-        &mut self,
+        &self,
         packet: Packet,
         handler: &H,
     ) -> ControlFlow<Result<(), Error>, Result<(), Error>>
@@ -43,7 +43,6 @@ impl Socket {
             Packet::Close => ControlFlow::Break(Ok(())),
             Packet::Ping => ControlFlow::Continue(Err(Error::BadPacket("Unexpected Ping packet"))),
             Packet::Pong => {
-                self.last_pong = Instant::now();
                 ControlFlow::Continue(Ok(()))
             }
             Packet::Message(msg) => {
@@ -65,14 +64,14 @@ impl Socket {
         }
     }
 
-    pub(crate) async fn handle_binary<H>(&mut self, data: Vec<u8>, handler: &H) -> Result<(), Error>
+    pub(crate) async fn handle_binary<H>(&self, data: Vec<u8>, handler: &H) -> Result<(), Error>
     where
         H: EngineIoHandler,
     {
         handler.handle_binary::<H>(data, self).await
     }
 
-    pub(crate) async fn close(&mut self) -> Result<(), Error> {
+    pub(crate) async fn close(&self) -> Result<(), Error> {
         self.send(Packet::Close).await
     }
 
@@ -115,11 +114,11 @@ impl Socket {
         )
     }
 
-    pub async fn emit(&mut self, msg: String) -> Result<(), Error> {
+    pub async fn emit(&self, msg: String) -> Result<(), Error> {
         self.send(Packet::Message(msg)).await
     }
 
-    pub async fn emit_binary(&mut self, data: Vec<u8>) -> Result<(), Error> {
+    pub async fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
         debug!("Sending packet for sid={}: {:?}", self.sid, data);
         self.send(Packet::Binary(data)).await?;
         Ok(())
