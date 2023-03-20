@@ -77,6 +77,7 @@ where
                 .await
                 .insert(sid, Socket::new(sid, ConnectionType::Http).into());
         }
+        self.clone().start_heartbeat_routine(sid);
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config))
                 .try_into()
@@ -109,7 +110,7 @@ where
             }
         };
 
-        debug!("Polling request for socket with sid {}", sid);
+        debug!("[sid={sid}] polling request");
         let mut data = String::new();
         while let Ok(packet) = rx.try_recv() {
             let packet: String = packet.try_into().unwrap();
@@ -146,7 +147,7 @@ where
         let packet = match Packet::try_from(body) {
             Ok(packet) => packet,
             Err(e) => {
-                tracing::debug!("Error parsing packet: {:?}", e);
+                debug!("[sid={sid}] error parsing packet: {:?}", e);
                 self.close_session(sid).await;
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
@@ -156,15 +157,17 @@ where
             if socket.is_ws().await {
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
-            debug!("Send packet request for socket with sid {}", sid);
             match socket.handle_packet(packet, &self.handler).await {
                 ControlFlow::Continue(Err(e)) => {
-                    tracing::debug!("Error handling packet: {:?}", e)
+                    debug!("[sid={sid}] error handling packet: {:?}", e)
                 }
                 ControlFlow::Continue(Ok(_)) => (),
                 ControlFlow::Break(Ok(_)) => self.close_session(sid).await,
                 ControlFlow::Break(Err(e)) => {
-                    tracing::debug!("Error handling packet, closing session: {:?}", e);
+                    debug!(
+                        "[sid={sid}] error handling packet, closing session: {:?}",
+                        e
+                    );
                     self.close_session(sid).await;
                 }
             };
@@ -183,8 +186,6 @@ where
         sid: Option<i64>,
         req: Request<R>,
     ) -> Response<ResponseBody<B>> {
-        tracing::debug!("WS Upgrade req {:?}", req.uri());
-
         let (parts, _) = req.into_parts();
         let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
             Some(key) => key.clone(),
@@ -203,12 +204,10 @@ where
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(conn) => match self.on_ws_conn_upgrade(conn, sid).await {
-                    Ok(_) => tracing::debug!("ws closed successfully"),
-                    Err(e) => {
-                        tracing::debug!("ws closed with error: {:?}", e)
-                    }
+                    Ok(_) => debug!("ws closed"),
+                    Err(e) => debug!("ws closed with error: {:?}", e),
                 },
-                Err(e) => tracing::debug!("WS upgrade error: {}", e),
+                Err(e) => debug!("ws upgrade error: {}", e),
             }
         });
 
@@ -226,7 +225,6 @@ where
         sid: Option<i64>,
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
-        tracing::debug!("WS upgrade comming from polling: {}", sid.is_some());
 
         let socket = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
             let sid = generate_sid();
@@ -235,7 +233,7 @@ where
                 self.sockets.write().await.insert(sid, socket.clone());
             }
             self.ws_init_handshake(sid, &mut ws).await?;
-            // self.clone().start_heartbeat_routine(sid);
+            self.clone().start_heartbeat_routine(sid);
             socket
         } else {
             let sid = sid.unwrap();
@@ -243,32 +241,23 @@ where
             self.get_socket(sid).await.unwrap()
         };
         let (mut tx, mut rx) = ws.split();
-        let rx_socket = socket.clone();
 
         // Pipe between websocket and socket channel
+        let rx_socket = socket.clone();
         let rx_handle = tokio::spawn(async move {
             let mut socket_rx = rx_socket.rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
-                match item {
-                    Packet::Binary(bin) => {
-                        if let Err(e) = tx.send(Message::Binary(bin)).await {
-                            tracing::debug!("Error sending binary packet: {}", e);
-                            return;
-                        }
-                    }
-                    Packet::Close => {
-                        if let Err(e) = tx.send(Message::Close(None)).await {
-                            tracing::debug!("Error sending close packet: {}", e);
-                            return;
-                        }
-                    }
+                let res = match item {
+                    Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
+                    Packet::Close => tx.send(Message::Close(None)).await,
                     _ => {
                         let packet: String = item.try_into().unwrap();
-                        if let Err(e) = tx.send(Message::Text(packet)).await {
-                            tracing::debug!("Error sending packet: {}", e);
-                            return;
-                        }
+                        tx.send(Message::Text(packet)).await
                     }
+                };
+                if let Err(e) = res {
+                    debug!("[sid={}] error sending packet: {}", rx_socket.sid, e);
+                    break;
                 }
             }
         });
@@ -284,20 +273,20 @@ where
                     Err(e) => ControlFlow::Continue(Err(e)),
                 },
                 Message::Close(_) => break,
-                _ => panic!("Unexpected websocket message"),
+                _ => panic!("[sid={}] unexpected ws message", socket.sid),
             };
             match res {
                 ControlFlow::Break(Ok(())) => break,
                 ControlFlow::Break(Err(e)) => {
-                    tracing::debug!(
-                        "Error handling websocket message, closing conn & session: {:?}",
-                        e
+                    debug!(
+                        "[sid={}] error handling ws message, closing session: {:?}",
+                        socket.sid, e
                     );
                     break;
                 }
                 ControlFlow::Continue(Ok(())) => continue,
                 ControlFlow::Continue(Err(e)) => {
-                    tracing::debug!("Error handling websocket message: {:?}", e);
+                    debug!("[sid={}] error handling ws message: {:?}", socket.sid, e);
                 }
             }
         }
@@ -313,8 +302,9 @@ where
                 .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
                 .await
             {
-                tracing::debug!("heartbeat error [sid={sid}]: {:?}", e);
+                socket.send_blocking(Packet::Close).await.ok();
                 self.close_session(sid).await;
+                debug!("[sid={sid}] heartbeat error: {:?}", e);
             }
         });
     }
@@ -368,7 +358,7 @@ where
             _ => Err(Error::BadPacket)?,
         };
         match Packet::try_from(msg)? {
-            Packet::Upgrade => debug!("ws [sid={sid}] upgraded successful"),
+            Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),
             _ => Err(Error::BadPacket)?,
         };
 
@@ -390,8 +380,8 @@ where
         Ok(())
     }
     async fn close_session(&self, sid: i64) {
-        tracing::debug!("Closing socket {}", sid);
         self.sockets.write().await.remove(&sid);
+        debug!("[sid={sid}] socket closed");
     }
 
     /**
