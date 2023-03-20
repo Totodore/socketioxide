@@ -23,7 +23,7 @@ pub struct Socket {
     pub rx: Mutex<Receiver<Packet>>,
     conn: RwLock<ConnectionType>,
     tx: mpsc::Sender<Packet>, // Sender for sending packets to the socket
-    last_pong: Instant,
+    last_pong: Mutex<Instant>,
 }
 
 impl Socket {
@@ -31,7 +31,7 @@ impl Socket {
         let (tx, rx) = mpsc::channel(100);
         Self {
             sid,
-            last_pong: time::Instant::now(),
+            last_pong: Mutex::new(time::Instant::now()),
             tx,
             rx: Mutex::new(rx),
             conn: conn.into(),
@@ -82,22 +82,12 @@ impl Socket {
         Ok(())
     }
 
-    pub(crate) async fn spawn_heartbeat(
-        &mut self,
-        interval: u64,
-        timeout: u64,
-    ) -> Result<(), Error> {
-        // let timeout = self.ping_timeout;
-        tokio::time::sleep(Duration::from_millis(interval * 2)).await;
+    pub(crate) async fn spawn_heartbeat(&self, interval: u64, timeout: u64) -> Result<(), Error> {
         let mut interval = tokio::time::interval(Duration::from_millis(interval - timeout));
         loop {
-            if !self.send_heartbeat(timeout).await? {
-                //TODO: handle heartbeat failure
-                break;
-            }
+            self.send_heartbeat(timeout).await?;
             interval.tick().await;
         }
-        Ok(())
     }
     pub(crate) async fn is_ws(&self) -> bool {
         self.conn.read().await.eq(&ConnectionType::WebSocket)
@@ -105,19 +95,25 @@ impl Socket {
     pub(crate) async fn is_http(&self) -> bool {
         self.conn.read().await.eq(&ConnectionType::Http)
     }
+
+    /// Sets the connection type to WebSocket
     pub(crate) async fn upgrade_to_websocket(&self) {
         let mut conn = self.conn.write().await;
         *conn = ConnectionType::WebSocket;
     }
+    pub(crate) async fn received_pong(&self) {
+        let mut last_pong = self.last_pong.lock().await;
+        *last_pong = Instant::now();
+    }
 
-    async fn send_heartbeat(&mut self, timeout: u64) -> Result<bool, Error> {
+    async fn send_heartbeat(&self, timeout: u64) -> Result<(), Error> {
         let instant = Instant::now();
         self.send(Packet::Ping).await?;
         tokio::time::sleep(Duration::from_millis(timeout)).await;
-        Ok(
-            self.last_pong.elapsed().as_millis() > instant.elapsed().as_millis()
-                && self.last_pong.elapsed().as_millis() < timeout.into(),
-        )
+        let pong = self.last_pong.lock().await;
+        let valid = pong.elapsed().as_millis() > instant.elapsed().as_millis()
+            && pong.elapsed().as_millis() < timeout.into();
+        valid.then_some(()).ok_or(Error::HeartbeatTimeout)
     }
 
     pub async fn emit(&self, msg: String) -> Result<(), Error> {

@@ -97,12 +97,14 @@ where
         }
 
         // If the socket is already locked, it means that the socket is being used by another request
-        // and we should close the session (bad request)
+        // In case of multiple http polling, session should be closed
         let mut rx = match socket.rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                socket.send(Packet::Close).await.ok();
-                self.close_session(sid).await;
+                if socket.is_http().await {
+                    socket.send(Packet::Close).await.ok();
+                    self.close_session(sid).await;
+                }
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
         };
@@ -187,19 +189,24 @@ where
         let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
             Some(key) => key.clone(),
             None => {
-                return Response::builder()
-                    .status(400)
-                    .body(ResponseBody::empty_response())
-                    .unwrap()
+                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
         };
-
+        if sid.is_some() {
+            if let Some(s) = self.get_socket(sid.unwrap()).await {
+                if s.is_ws().await {
+                    return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+                }
+            }
+        }
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(conn) => match self.on_ws_conn_upgrade(conn, sid).await {
                     Ok(_) => tracing::debug!("ws closed successfully"),
-                    Err(e) => tracing::debug!("ws closed with error: {:?}", e),
+                    Err(e) => {
+                        tracing::debug!("ws closed with error: {:?}", e)
+                    }
                 },
                 Err(e) => tracing::debug!("WS upgrade error: {}", e),
             }
@@ -228,6 +235,7 @@ where
                 self.sockets.write().await.insert(sid, socket.clone());
             }
             self.ws_init_handshake(sid, &mut ws).await?;
+            // self.clone().start_heartbeat_routine(sid);
             socket
         } else {
             let sid = sid.unwrap();
@@ -236,6 +244,8 @@ where
         };
         let (mut tx, mut rx) = ws.split();
         let rx_socket = socket.clone();
+
+        // Pipe between websocket and socket channel
         let rx_handle = tokio::spawn(async move {
             let mut socket_rx = rx_socket.rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
@@ -296,9 +306,24 @@ where
         Ok(())
     }
 
+    fn start_heartbeat_routine(self: Arc<Self>, sid: i64) {
+        tokio::spawn(async move {
+            let socket = self.get_socket(sid).await.unwrap();
+            if let Err(e) = socket
+                .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
+                .await
+            {
+                tracing::debug!("heartbeat error [sid={sid}]: {:?}", e);
+                self.close_session(sid).await;
+            }
+        });
+    }
+
     /// Upgrade a session from a polling request to a websocket request.
     ///
     /// Before upgrading the session the server should send a NOOP packet to any pending polling request.
+    ///
+    /// ## Handshake :
     /// ```text
     /// CLIENT                                                 SERVER
     ///│                                                      │
@@ -323,37 +348,28 @@ where
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).await.unwrap();
-        if socket.is_ws().await {
-            Err(Error::BadTransport)?;
-        }
-        // If there is a pending polling request, send a NOOP packet to it
-        if socket.rx.try_lock().is_err() {
-            socket.send(Packet::Noop).await?;
-        }
+        // send a NOOP packet to any pending polling request
+        socket.send(Packet::Noop).await?;
 
-        // Get the next ws message
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
             _ => Err(Error::BadPacket)?,
         };
-        // Check it is a ping with probe string
-        match Packet::try_from(msg) {
-            Ok(Packet::PingUpgrade) => {
-                ws.send(Message::Text(Packet::PongUpgrade.try_into().unwrap()))
+        match Packet::try_from(msg)? {
+            Packet::PingUpgrade => {
+                ws.send(Message::Text(Packet::PongUpgrade.try_into()?))
                     .await?;
             }
-            Ok(_) => Err(Error::BadPacket)?,
-            Err(e) => Err(e)?,
+            _ => Err(Error::BadPacket)?,
         };
 
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
-            _ => todo!(),
+            _ => Err(Error::BadPacket)?,
         };
-        match Packet::try_from(msg) {
-            Ok(Packet::Upgrade) => debug!("Upgrade successful"),
-            Ok(_) => Err(Error::BadPacket)?,
-            Err(e) => Err(e)?,
+        match Packet::try_from(msg)? {
+            Packet::Upgrade => debug!("ws [sid={sid}] upgraded successful"),
+            _ => Err(Error::BadPacket)?,
         };
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked

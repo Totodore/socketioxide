@@ -1,6 +1,6 @@
 use std::string::FromUtf8Error;
 
-use tokio::sync::{oneshot::error::RecvError, mpsc};
+use tokio::sync::{mpsc};
 use tokio_tungstenite::tungstenite;
 
 use crate::packet::Packet;
@@ -11,15 +11,13 @@ pub enum Error {
 	DeserializeError(serde_json::Error),
     BadPacket,
     BadTransport,
+    AlreadyUpgraded,
     WsTransportError(tungstenite::Error),
     HttpTransportError(hyper::Error),
-    CustomError(String),
-    MultiplePollingRequests,
-    HttpBufferSendError,
-    HttpBufferRecvError(RecvError),
     HttpError(http::Error),
     SendChannelError(mpsc::error::SendError<Packet>),
-    RecvChannelError(mpsc::error::TryRecvError)
+    RecvChannelError(mpsc::error::TryRecvError),
+    HeartbeatTimeout,
 }
 
 impl From<serde_json::Error> for Error {
@@ -44,11 +42,11 @@ impl From<FromUtf8Error> for Error {
         Self::DeserializeError(serde_json::Error::custom(err))
     }
 }
-impl From<RecvError> for Error {
-    fn from(err: RecvError) -> Self {
-        Error::HttpBufferRecvError(err)
-    }
-}
+// impl From<RecvError> for Error {
+//     fn from(err: RecvError) -> Self {
+//         Error::HttpBufferRecvError(err)
+//     }
+// }
 impl From<mpsc::error::SendError<Packet>> for Error {
     fn from(err: mpsc::error::SendError<Packet>) -> Self {
         Error::SendChannelError(err)
