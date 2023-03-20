@@ -16,6 +16,7 @@ pub enum Packet {
     Noop,
 
     Binary(Vec<u8>), // Not part of the protocol, used internally
+    Abort,           // Not part of the protocol, used internally
 }
 
 /**
@@ -37,6 +38,7 @@ impl TryInto<String> for Packet {
             Packet::Upgrade => "5".to_string(),
             Packet::Noop => "6".to_string(),
             Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(&data),
+            _ => return Err(Self::Error::SerializeError(serde_json::Error::custom("invalid packet type"))),
         };
         Ok(res)
     }
@@ -104,8 +106,8 @@ impl OpenPacket {
         OpenPacket {
             sid: sid.to_string(),
             upgrades,
-            ping_interval: config.ping_interval,
-            ping_timeout: config.ping_timeout,
+            ping_interval: config.ping_interval.as_millis() as u64,
+            ping_timeout: config.ping_timeout.as_millis() as u64,
             max_payload: 1000000,
         }
     }

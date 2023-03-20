@@ -1,4 +1,10 @@
-use std::{collections::HashMap, ops::ControlFlow, sync::Arc};
+#![deny(clippy::await_holding_lock)]
+use std::{
+    collections::HashMap,
+    ops::ControlFlow,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use crate::{
     body::ResponseBody,
@@ -13,7 +19,6 @@ use futures::{SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
-use tokio::sync::RwLock;
 use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
@@ -23,16 +28,16 @@ use tracing::debug;
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
     pub req_path: String,
-    pub ping_interval: u64,
-    pub ping_timeout: u64,
+    pub ping_interval: Duration,
+    pub ping_timeout: Duration,
 }
 
 impl Default for EngineIoConfig {
     fn default() -> Self {
         Self {
             req_path: "/engine.io".to_string(),
-            ping_interval: 300,
-            ping_timeout: 200,
+            ping_interval: Duration::from_millis(300),
+            ping_timeout: Duration::from_millis(200),
         }
     }
 }
@@ -74,7 +79,7 @@ where
         {
             self.sockets
                 .write()
-                .await
+                .unwrap()
                 .insert(sid, Socket::new(sid, ConnectionType::Http).into());
         }
         self.clone().start_heartbeat_routine(sid);
@@ -89,7 +94,7 @@ where
     where
         B: Send + 'static,
     {
-        let socket = match self.get_socket(sid).await.map(|s| s.clone()) {
+        let socket = match self.get_socket(sid).map(|s| s.clone()) {
             Some(s) => s,
             None => return http_empty_response(StatusCode::BAD_REQUEST).unwrap(),
         };
@@ -104,7 +109,7 @@ where
             Err(_) => {
                 if socket.is_http().await {
                     socket.send(Packet::Close).await.ok();
-                    self.close_session(sid).await;
+                    self.close_session(sid);
                 }
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
@@ -113,18 +118,27 @@ where
         debug!("[sid={sid}] polling request");
         let mut data = String::new();
         while let Ok(packet) = rx.try_recv() {
+            if packet == Packet::Abort {
+                debug!("aborting immediate polling request");
+                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+            }
+            debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
             data.push_str(&packet);
         }
 
         if data.is_empty() {
             match rx.recv().await {
+                Some(Packet::Abort) => {
+                    debug!("aborting waiting polling request");
+                    return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+                }
                 Some(packet) => {
                     let packet: String = packet.try_into().unwrap();
                     data.push_str(&packet);
                 }
                 None => {
-                    //TODO: Handle socket disconnection
+                    self.close_session(sid);
                     return http_empty_response(StatusCode::INTERNAL_SERVER_ERROR).unwrap();
                 }
             };
@@ -148,12 +162,12 @@ where
             Ok(packet) => packet,
             Err(e) => {
                 debug!("[sid={sid}] error parsing packet: {:?}", e);
-                self.close_session(sid).await;
+                self.close_session(sid);
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
         };
 
-        if let Some(socket) = self.get_socket(sid).await {
+        if let Some(socket) = self.get_socket(sid) {
             if socket.is_ws().await {
                 return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
             }
@@ -162,13 +176,13 @@ where
                     debug!("[sid={sid}] error handling packet: {:?}", e)
                 }
                 ControlFlow::Continue(Ok(_)) => (),
-                ControlFlow::Break(Ok(_)) => self.close_session(sid).await,
+                ControlFlow::Break(Ok(_)) => self.close_session(sid),
                 ControlFlow::Break(Err(e)) => {
                     debug!(
                         "[sid={sid}] error handling packet, closing session: {:?}",
                         e
                     );
-                    self.close_session(sid).await;
+                    self.close_session(sid);
                 }
             };
             http_response(StatusCode::OK, "ok").unwrap()
@@ -194,7 +208,7 @@ where
             }
         };
         if sid.is_some() {
-            if let Some(s) = self.get_socket(sid.unwrap()).await {
+            if let Some(s) = self.get_socket(sid.unwrap()) {
                 if s.is_ws().await {
                     return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
                 }
@@ -226,11 +240,11 @@ where
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
 
-        let socket = if sid.is_none() || !self.sockets.read().await.contains_key(&sid.unwrap()) {
+        let socket = if sid.is_none() || !self.get_socket(sid.unwrap()).is_some() {
             let sid = generate_sid();
             let socket: Arc<Socket> = Socket::new(sid, ConnectionType::WebSocket).into();
             {
-                self.sockets.write().await.insert(sid, socket.clone());
+                self.sockets.write().unwrap().insert(sid, socket.clone());
             }
             self.ws_init_handshake(sid, &mut ws).await?;
             self.clone().start_heartbeat_routine(sid);
@@ -238,7 +252,7 @@ where
         } else {
             let sid = sid.unwrap();
             self.ws_upgrade_handshake(sid, &mut ws).await?;
-            self.get_socket(sid).await.unwrap()
+            self.get_socket(sid).unwrap()
         };
         let (mut tx, mut rx) = ws.split();
 
@@ -250,6 +264,7 @@ where
                 let res = match item {
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
+                    Packet::Abort => tx.close().await,
                     _ => {
                         let packet: String = item.try_into().unwrap();
                         tx.send(Message::Text(packet)).await
@@ -290,20 +305,24 @@ where
                 }
             }
         }
-        self.close_session(socket.sid).await;
+        self.close_session(socket.sid);
         rx_handle.abort();
         Ok(())
     }
 
     fn start_heartbeat_routine(self: Arc<Self>, sid: i64) {
         tokio::spawn(async move {
-            let socket = self.get_socket(sid).await.unwrap();
+            let socket = self.get_socket(sid).unwrap();
             if let Err(e) = socket
                 .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
                 .await
             {
-                socket.send_blocking(Packet::Close).await.ok();
-                self.close_session(sid).await;
+                if socket.rx.try_lock().is_err() {
+                    debug!("[sid={sid}] sending abort to existing connection");
+                    socket.send(Packet::Abort).await.ok();
+                }
+                debug!("[sid={sid}] trying to close session");
+                self.close_session(sid);
                 debug!("[sid={sid}] heartbeat error: {:?}", e);
             }
         });
@@ -337,7 +356,7 @@ where
         sid: i64,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
-        let socket = self.get_socket(sid).await.unwrap();
+        let socket = self.get_socket(sid).unwrap();
         // send a NOOP packet to any pending polling request
         socket.send(Packet::Noop).await?;
 
@@ -379,8 +398,8 @@ where
 
         Ok(())
     }
-    async fn close_session(&self, sid: i64) {
-        self.sockets.write().await.remove(&sid);
+    fn close_session(&self, sid: i64) {
+        self.sockets.write().unwrap().remove(&sid);
         debug!("[sid={sid}] socket closed");
     }
 
@@ -388,7 +407,7 @@ where
      * Get a socket by its sid
      * Clones the socket ref to avoid holding the lock
      */
-    async fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
-        self.sockets.read().await.get(&sid).cloned()
+    fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
+        self.sockets.read().unwrap().get(&sid).cloned()
     }
 }

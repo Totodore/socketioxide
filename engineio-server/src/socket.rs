@@ -53,15 +53,13 @@ impl Socket {
                 ControlFlow::Break(res)
             }
             Packet::Pong => {
-                self.pong_tx.send(()).await.unwrap();
+                self.pong_tx.try_send(()).ok();
                 ControlFlow::Continue(Ok(()))
             }
-            Packet::Message(msg) => {
-                match handler.handle::<H>(msg, self).await {
-                    Ok(_) => ControlFlow::Continue(Ok(())),
-                    Err(e) => ControlFlow::Continue(Err(e)),
-                }
-            }
+            Packet::Message(msg) => match handler.handle::<H>(msg, self).await {
+                Ok(_) => ControlFlow::Continue(Ok(())),
+                Err(e) => ControlFlow::Continue(Err(e)),
+            },
             _ => ControlFlow::Continue(Err(Error::BadPacket)),
         }
     }
@@ -97,23 +95,34 @@ impl Socket {
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
-    pub(crate) async fn spawn_heartbeat(&self, interval: u64, timeout: u64) -> Result<(), Error> {
+    pub(crate) async fn spawn_heartbeat(
+        &self,
+        interval: Duration,
+        timeout: Duration,
+    ) -> Result<(), Error> {
         let mut pong_rx = self
             .pong_rx
             .try_lock()
             .expect("Pong rx should be locked only once");
-        tokio::time::sleep(Duration::from_millis(interval)).await;
-        let mut interval = tokio::time::interval(Duration::from_millis(interval));
+        let instant = tokio::time::Instant::now();
+        let mut interval_tick = tokio::time::interval(interval);
+        interval_tick.tick().await;
+        // Sleep for an interval minus the time it took to get here
+        tokio::time::sleep(interval.saturating_sub(Duration::from_millis(
+            15 + instant.elapsed().as_millis() as u64,
+        )))
+        .await;
         loop {
-            interval.tick().await;
-            self.send(Packet::Ping)
-                .await
+            self.tx
+                .try_send(Packet::Ping)
                 .map_err(|_| Error::HeartbeatTimeout)?;
-            tokio::time::timeout(Duration::from_millis(timeout), async {
-                pong_rx.recv().await.ok_or(Error::HeartbeatTimeout)
-            })
-            .await
-            .map_err(|_| Error::HeartbeatTimeout)??;
+            tokio::time::timeout(timeout, pong_rx.recv())
+                .await
+                .map_err(|_| Error::HeartbeatTimeout)?
+                .ok_or(Error::HeartbeatTimeout)?;
+            let instant = tokio::time::Instant::now();
+            interval_tick.tick().await;
+            debug!("tick {:?}", instant.elapsed());
         }
     }
     pub(crate) async fn is_ws(&self) -> bool {
