@@ -1,6 +1,7 @@
 #![deny(clippy::await_holding_lock)]
 use std::{
     collections::HashMap,
+    io::BufRead,
     ops::ControlFlow,
     sync::{Arc, RwLock},
     time::Duration,
@@ -9,12 +10,13 @@ use std::{
 use crate::{
     body::ResponseBody,
     errors::Error,
-    futures::{http_empty_response, http_response, ws_response},
+    futures::{http_response, ws_response},
     layer::EngineIoHandler,
     packet::{OpenPacket, Packet, TransportType},
     socket::{ConnectionType, Socket},
     utils::generate_sid,
 };
+use bytes::Buf;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
@@ -71,7 +73,7 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler,
 {
-    pub async fn on_open_http_req<B>(self: Arc<Self>) -> Response<ResponseBody<B>>
+    pub async fn on_open_http_req<B>(self: Arc<Self>) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
     {
@@ -84,22 +86,23 @@ where
         }
         self.clone().start_heartbeat_routine(sid);
         let packet: String =
-            Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config))
-                .try_into()
-                .unwrap();
-        http_response(StatusCode::OK, packet).unwrap()
+            Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config)).try_into()?;
+        http_response(StatusCode::OK, packet).map_err(Error::HttpError)
     }
 
-    pub async fn on_polling_req<B>(self: Arc<Self>, sid: i64) -> Response<ResponseBody<B>>
+    pub async fn on_polling_req<B>(
+        self: Arc<Self>,
+        sid: i64,
+    ) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
     {
-        let socket = match self.get_socket(sid).map(|s| s.clone()) {
-            Some(s) => s,
-            None => return http_empty_response(StatusCode::BAD_REQUEST).unwrap(),
-        };
+        let socket = self
+            .get_socket(sid)
+            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
+
         if socket.is_ws().await {
-            return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+            return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
         }
 
         // If the socket is already locked, it means that the socket is being used by another request
@@ -108,10 +111,10 @@ where
             Ok(s) => s,
             Err(_) => {
                 if socket.is_http().await {
-                    socket.send(Packet::Close).await.ok();
+                    socket.send(Packet::Close).await?;
                     self.close_session(sid);
                 }
-                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+                return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         };
 
@@ -120,57 +123,65 @@ where
         while let Ok(packet) = rx.try_recv() {
             if packet == Packet::Abort {
                 debug!("aborting immediate polling request");
-                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+                return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
             debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
+            if !data.is_empty() {
+                data.push('\x1e');
+            }
             data.push_str(&packet);
         }
 
         if data.is_empty() {
             match rx.recv().await {
-                Some(Packet::Abort) => {
+                Some(Packet::Abort) | None => {
                     debug!("aborting waiting polling request");
-                    return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
+                    return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
                 }
                 Some(packet) => {
                     let packet: String = packet.try_into().unwrap();
                     data.push_str(&packet);
                 }
-                None => {
-                    self.close_session(sid);
-                    return http_empty_response(StatusCode::INTERNAL_SERVER_ERROR).unwrap();
-                }
             };
         }
-        http_response(StatusCode::OK, data).unwrap()
+        Ok(http_response(StatusCode::OK, data)?)
     }
 
     pub async fn on_send_packet_req<R, B>(
         self: Arc<Self>,
         sid: i64,
         body: Request<R>,
-    ) -> Response<ResponseBody<B>>
+    ) -> Result<Response<ResponseBody<B>>, Error>
     where
         R: http_body::Body + std::marker::Send + 'static,
         <R as http_body::Body>::Error: Debug,
         <R as http_body::Body>::Data: std::marker::Send,
         B: Send + 'static,
     {
-        let body = hyper::body::to_bytes(body).await.unwrap();
-        let packet = match Packet::try_from(body) {
-            Ok(packet) => packet,
-            Err(e) => {
-                debug!("[sid={sid}] error parsing packet: {:?}", e);
-                self.close_session(sid);
-                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
-            }
-        };
+        let body = hyper::body::aggregate(body).await.map_err(|e| {
+            debug!("error aggregating body: {:?}", e);
+            Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
+        })?;
+        let packets = body.reader().split(b'\x1e');
 
-        if let Some(socket) = self.get_socket(sid) {
-            if socket.is_ws().await {
-                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
-            }
+        let socket = self
+            .get_socket(sid)
+            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
+
+        if socket.is_ws().await {
+            return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
+        }
+
+        for packet in packets {
+            let packet = match Packet::try_from(packet?) {
+                Ok(p) => p,
+                Err(e) => {
+                    debug!("[sid={sid}] error parsing packet: {:?}", e);
+                    self.close_session(sid);
+                    return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));    
+                },
+            };
             match socket.handle_packet(packet, &self.handler).await {
                 ControlFlow::Continue(Err(e)) => {
                     debug!("[sid={sid}] error handling packet: {:?}", e)
@@ -185,10 +196,8 @@ where
                     self.close_session(sid);
                 }
             };
-            http_response(StatusCode::OK, "ok").unwrap()
-        } else {
-            http_empty_response(StatusCode::BAD_REQUEST).unwrap()
         }
+        Ok(http_response(StatusCode::OK, "ok")?)
     }
 
     /// Upgrade a websocket request to create a websocket connection.
@@ -199,19 +208,17 @@ where
         self: Arc<Self>,
         sid: Option<i64>,
         req: Request<R>,
-    ) -> Response<ResponseBody<B>> {
+    ) -> Result<Response<ResponseBody<B>>, Error> {
         let (parts, _) = req.into_parts();
-        let ws_key = match parts.headers.get("Sec-WebSocket-Key") {
-            Some(key) => key.clone(),
-            None => {
-                return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
-            }
-        };
-        if sid.is_some() {
-            if let Some(s) = self.get_socket(sid.unwrap()) {
-                if s.is_ws().await {
-                    return http_empty_response(StatusCode::BAD_REQUEST).unwrap();
-                }
+        let ws_key = parts
+            .headers
+            .get("Sec-WebSocket-Key")
+            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
+            .clone();
+
+        if let Some(socket) = sid.and_then(|sid| self.get_socket(sid)) {
+            if socket.is_ws().await {
+                return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         }
         let req = Request::from_parts(parts, ());
@@ -225,7 +232,7 @@ where
             }
         });
 
-        ws_response(&ws_key)
+        Ok(ws_response(&ws_key)?)
     }
 
     /// Handle a websocket connection upgrade
@@ -283,10 +290,11 @@ where
                     Ok(packet) => socket.handle_packet(packet, &self.handler).await,
                     Err(err) => ControlFlow::Break(Err(err)),
                 },
-                Message::Binary(msg) => match socket.handle_binary(msg, &self.handler).await {
-                    Ok(_) => ControlFlow::Continue(Ok(())),
-                    Err(e) => ControlFlow::Continue(Err(e)),
-                },
+                Message::Binary(msg) => {
+                    socket
+                        .handle_packet(Packet::Binary(msg), &self.handler)
+                        .await
+                }
                 Message::Close(_) => break,
                 _ => panic!("[sid={}] unexpected ws message", socket.sid),
             };

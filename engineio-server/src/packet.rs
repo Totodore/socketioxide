@@ -38,7 +38,11 @@ impl TryInto<String> for Packet {
             Packet::Upgrade => "5".to_string(),
             Packet::Noop => "6".to_string(),
             Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(&data),
-            _ => return Err(Self::Error::SerializeError(serde_json::Error::custom("invalid packet type"))),
+            _ => {
+                return Err(Self::Error::SerializeError(serde_json::Error::custom(
+                    "invalid packet type",
+                )))
+            }
         };
         Ok(res)
     }
@@ -72,10 +76,21 @@ impl TryFrom<String> for Packet {
             '4' => Ok(Packet::Message(packet_data.to_string())),
             '5' => Ok(Packet::Upgrade),
             '6' => Ok(Packet::Noop),
-            _ => Err(Self::Error::DeserializeError(serde_json::Error::custom(
-                "Invalid packet type",
+            'b' => Ok(Packet::Binary(
+                general_purpose::STANDARD.decode(packet_data.as_bytes())?,
+            )),
+            c => Err(Self::Error::DeserializeError(serde_json::Error::custom(
+                "Invalid packet type ".to_string() + &c.to_string(),
             ))),
         }
+    }
+}
+
+impl TryFrom<Vec<u8>> for Packet {
+    type Error = crate::errors::Error;
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let value = String::from_utf8(value).map_err(Self::Error::from)?;
+        Packet::try_from(value)
     }
 }
 

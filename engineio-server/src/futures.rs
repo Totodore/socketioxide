@@ -10,7 +10,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 
-pub(crate) type BoxFuture<B> = Pin<Box<dyn Future<Output = Response<ResponseBody<B>>> + Send>>;
+pub(crate) type BoxFuture<B> =
+    Pin<Box<dyn Future<Output = Result<Response<ResponseBody<B>>, crate::errors::Error>> + Send>>;
 
 pub fn http_response<B, D>(
     code: StatusCode,
@@ -24,12 +25,7 @@ where
         .body(ResponseBody::custom_response(data.into()))
 }
 
-pub fn http_empty_response<B>(code: StatusCode) -> Result<Response<ResponseBody<B>>, http::Error> {
-    Response::builder()
-        .status(code)
-        .body(ResponseBody::empty_response())
-}
-pub fn ws_response<B>(ws_key: &HeaderValue) -> Response<ResponseBody<B>> {
+pub fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
     let derived = derive_accept_key(ws_key.as_bytes());
     let sec = derived.parse::<HeaderValue>().unwrap();
     Response::builder()
@@ -38,7 +34,6 @@ pub fn ws_response<B>(ws_key: &HeaderValue) -> Response<ResponseBody<B>> {
         .header(CONNECTION, HeaderValue::from_static("Upgrade"))
         .header(SEC_WEBSOCKET_ACCEPT, sec)
         .body(ResponseBody::empty_response())
-        .unwrap()
 }
 #[pin_project]
 pub struct ResponseFuture<F, B> {
@@ -107,7 +102,10 @@ where
                 .status(200)
                 .body(ResponseBody::custom_response(Full::from(body.clone())))
                 .unwrap(),
-            ResFutProj::AsyncResponse { future } => ready!(future.as_mut().poll(cx)),
+            ResFutProj::AsyncResponse { future } => ready!(future
+                .as_mut()
+                .poll(cx)
+                .map(|r| r.unwrap_or_else(|e| e.into()))),
         };
         Poll::Ready(Ok(res))
     }

@@ -1,14 +1,19 @@
 use std::string::FromUtf8Error;
 
+use base64::DecodeError;
+use http::{StatusCode, Response};
 use tokio::sync::{mpsc};
 use tokio_tungstenite::tungstenite;
+use tracing::debug;
 
-use crate::packet::Packet;
+use crate::{packet::Packet, body::ResponseBody};
 
 #[derive(Debug)]
 pub enum Error {
 	SerializeError(serde_json::Error),
 	DeserializeError(serde_json::Error),
+    Base64Error(base64::DecodeError),
+    IoError(std::io::Error),
     BadPacket,
     BadTransport,
     AlreadyUpgraded,
@@ -18,6 +23,8 @@ pub enum Error {
     SendChannelError(mpsc::error::SendError<Packet>),
     RecvChannelError(mpsc::error::TryRecvError),
     HeartbeatTimeout,
+
+    HttpErrorResponse(StatusCode)
 }
 
 impl From<serde_json::Error> for Error {
@@ -42,11 +49,11 @@ impl From<FromUtf8Error> for Error {
         Self::DeserializeError(serde_json::Error::custom(err))
     }
 }
-// impl From<RecvError> for Error {
-//     fn from(err: RecvError) -> Self {
-//         Error::HttpBufferRecvError(err)
-//     }
-// }
+impl From<DecodeError> for Error {
+    fn from(err: DecodeError) -> Self {
+        Error::Base64Error(err)
+    }
+}
 impl From<mpsc::error::SendError<Packet>> for Error {
     fn from(err: mpsc::error::SendError<Packet>) -> Self {
         Error::SendChannelError(err)
@@ -56,5 +63,31 @@ impl From<mpsc::error::SendError<Packet>> for Error {
 impl From<http::Error> for Error {
     fn from(err: http::Error) -> Self {
         Error::HttpError(err)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::IoError(err)
+    }
+}
+
+impl<B> Into<Response<ResponseBody<B>>> for Error {
+    fn into(self) -> Response<ResponseBody<B>> {
+        match self {
+            Error::HttpErrorResponse(code) => {
+                Response::builder()
+                    .status(code)
+                    .body(ResponseBody::empty_response())
+                    .unwrap()
+            }
+            e => {
+                debug!("uncaught error {e:?}");
+                Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(ResponseBody::empty_response())
+                    .unwrap()
+            }
+        }
     }
 }

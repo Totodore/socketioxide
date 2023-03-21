@@ -1,7 +1,7 @@
 use std::{ops::ControlFlow, time::Duration};
 
 use tokio::sync::{mpsc, Mutex, RwLock};
-use tracing::debug;
+use tracing::{debug};
 
 use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
 
@@ -56,19 +56,16 @@ impl Socket {
                 self.pong_tx.try_send(()).ok();
                 ControlFlow::Continue(Ok(()))
             }
+            Packet::Binary(data) => match handler.handle_binary::<H>(data, self).await {
+                Err(e) => ControlFlow::Continue(Err(e)),
+                Ok(_) => ControlFlow::Continue(Ok(())),
+            },
             Packet::Message(msg) => match handler.handle::<H>(msg, self).await {
                 Ok(_) => ControlFlow::Continue(Ok(())),
                 Err(e) => ControlFlow::Continue(Err(e)),
             },
             _ => ControlFlow::Continue(Err(Error::BadPacket)),
         }
-    }
-
-    pub(crate) async fn handle_binary<H>(&self, data: Vec<u8>, handler: &H) -> Result<(), Error>
-    where
-        H: EngineIoHandler,
-    {
-        handler.handle_binary::<H>(data, self).await
     }
 
     pub async fn close(&self) -> Result<(), Error> {
