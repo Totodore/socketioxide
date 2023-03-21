@@ -1,18 +1,86 @@
 use async_trait::async_trait;
 use tower::Layer;
 
-use crate::{engine::EngineIoConfig, errors::Error, service::EngineIoService, socket::Socket};
+use crate::{errors::Error, service::EngineIoService, socket::Socket};
 
 #[async_trait]
 pub trait EngineIoHandler: Send + Sync + 'static {
-    async fn handle<H>(&self, msg: String, socket: &Socket) -> Result<(), Error>
-    where
-        H: EngineIoHandler;
+    async fn on_connect(&self, _socket: &Socket) -> Result<(), Error> {
+        Ok(())
+    }
+    async fn on_disconnect(&self, _socket: &Socket) -> Result<(), Error> {
+        Ok(())
+    }
 
-    async fn handle_binary<H>(&self, _data: Vec<u8>, _socket: &Socket) -> Result<(), Error>
-    where
-        H: EngineIoHandler { Ok(()) }
+    async fn on_message(&self, _msg: String, _socket: &Socket) -> Result<(), Error>
+    {
+        Ok(())
+    }
+
+    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket) -> Result<(), Error>
+    {
+        Ok(())
+    }
 }
+
+use std::time::Duration;
+
+
+#[derive(Debug, Clone)]
+pub struct EngineIoConfig {
+    pub req_path: String,
+    pub ping_interval: Duration,
+    pub ping_timeout: Duration,
+    pub max_buffer_size: usize,
+}
+
+impl Default for EngineIoConfig {
+    fn default() -> Self {
+        Self {
+            req_path: "/engine.io".to_string(),
+            ping_interval: Duration::from_millis(300),
+            ping_timeout: Duration::from_millis(200),
+            max_buffer_size: 128
+        }
+    }
+}
+
+impl EngineIoConfig {
+    pub fn builder() -> EngineIoConfigBuilder {
+        EngineIoConfigBuilder::new()
+    }
+}
+pub struct EngineIoConfigBuilder {
+    config: EngineIoConfig,
+}
+
+impl EngineIoConfigBuilder {
+    pub fn new() -> Self {
+        Self {
+            config: EngineIoConfig::default(),
+        }
+    }
+    pub fn req_path(mut self, req_path: String) -> Self {
+        self.config.req_path = req_path;
+        self
+    }
+    pub fn ping_interval(mut self, ping_interval: Duration) -> Self {
+        self.config.ping_interval = ping_interval;
+        self
+    }
+    pub fn ping_timeout(mut self, ping_timeout: Duration) -> Self {
+        self.config.ping_timeout = ping_timeout;
+        self
+    }
+    pub fn max_buffer_size(mut self, max_buffer_size: usize) -> Self {
+        self.config.max_buffer_size = max_buffer_size;
+        self
+    }
+    pub fn build(self) -> EngineIoConfig {
+        self.config
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H>
 where

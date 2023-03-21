@@ -1,7 +1,8 @@
-use crate::engine::EngineIoConfig;
 use base64::{engine::general_purpose, Engine};
 use bytes::Bytes;
 use serde::{de::Error, Deserialize, Serialize};
+
+use crate::layer::EngineIoConfig;
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Packet {

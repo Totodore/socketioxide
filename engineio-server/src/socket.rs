@@ -1,9 +1,9 @@
 use std::{ops::ControlFlow, time::Duration};
 
 use tokio::sync::{mpsc, Mutex, RwLock};
-use tracing::{debug};
+use tracing::debug;
 
-use crate::{errors::Error, layer::EngineIoHandler, packet::Packet};
+use crate::{errors::Error, layer::{EngineIoHandler, EngineIoConfig}, packet::Packet};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -25,8 +25,8 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub(crate) fn new(sid: i64, conn: ConnectionType) -> Self {
-        let (tx, rx) = mpsc::channel(100);
+    pub(crate) fn new(sid: i64, conn: ConnectionType, config: &EngineIoConfig) -> Self {
+        let (tx, rx) = mpsc::channel(config.max_buffer_size);
         let (pong_tx, pong_rx) = mpsc::channel(1);
         Self {
             sid,
@@ -56,11 +56,11 @@ impl Socket {
                 self.pong_tx.try_send(()).ok();
                 ControlFlow::Continue(Ok(()))
             }
-            Packet::Binary(data) => match handler.handle_binary::<H>(data, self).await {
+            Packet::Binary(data) => match handler.on_binary(data, self).await {
                 Err(e) => ControlFlow::Continue(Err(e)),
                 Ok(_) => ControlFlow::Continue(Ok(())),
             },
-            Packet::Message(msg) => match handler.handle::<H>(msg, self).await {
+            Packet::Message(msg) => match handler.on_message(msg, self).await {
                 Ok(_) => ControlFlow::Continue(Ok(())),
                 Err(e) => ControlFlow::Continue(Err(e)),
             },
@@ -106,9 +106,7 @@ impl Socket {
                 .await
                 .map_err(|_| Error::HeartbeatTimeout)?
                 .ok_or(Error::HeartbeatTimeout)?;
-            let instant = tokio::time::Instant::now();
             interval_tick.tick().await;
-            debug!("tick {:?}", instant.elapsed());
         }
     }
     pub(crate) async fn is_ws(&self) -> bool {

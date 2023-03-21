@@ -3,15 +3,14 @@ use std::{
     collections::HashMap,
     io::BufRead,
     ops::ControlFlow,
-    sync::{Arc, RwLock},
-    time::Duration,
+    sync::{Arc, RwLock}
 };
 
 use crate::{
     body::ResponseBody,
     errors::Error,
     futures::{http_response, ws_response},
-    layer::EngineIoHandler,
+    layer::{EngineIoHandler, EngineIoConfig},
     packet::{OpenPacket, Packet, TransportType},
     socket::{ConnectionType, Socket},
     utils::generate_sid,
@@ -27,22 +26,6 @@ use tokio_tungstenite::{
 };
 use tracing::debug;
 
-#[derive(Debug, Clone)]
-pub struct EngineIoConfig {
-    pub req_path: String,
-    pub ping_interval: Duration,
-    pub ping_timeout: Duration,
-}
-
-impl Default for EngineIoConfig {
-    fn default() -> Self {
-        Self {
-            req_path: "/engine.io".to_string(),
-            ping_interval: Duration::from_millis(300),
-            ping_timeout: Duration::from_millis(200),
-        }
-    }
-}
 
 type SocketMap<T> = RwLock<HashMap<i64, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
@@ -82,7 +65,7 @@ where
             self.sockets
                 .write()
                 .unwrap()
-                .insert(sid, Socket::new(sid, ConnectionType::Http).into());
+                .insert(sid, Socket::new(sid, ConnectionType::Http, &self.config).into());
         }
         self.clone().start_heartbeat_routine(sid);
         let packet: String =
@@ -249,7 +232,7 @@ where
 
         let socket = if sid.is_none() || !self.get_socket(sid.unwrap()).is_some() {
             let sid = generate_sid();
-            let socket: Arc<Socket> = Socket::new(sid, ConnectionType::WebSocket).into();
+            let socket: Arc<Socket> = Socket::new(sid, ConnectionType::WebSocket, &self.config).into();
             {
                 self.sockets.write().unwrap().insert(sid, socket.clone());
             }
@@ -326,10 +309,8 @@ where
                 .await
             {
                 if socket.rx.try_lock().is_err() {
-                    debug!("[sid={sid}] sending abort to existing connection");
                     socket.send(Packet::Abort).await.ok();
                 }
-                debug!("[sid={sid}] trying to close session");
                 self.close_session(sid);
                 debug!("[sid={sid}] heartbeat error: {:?}", e);
             }
