@@ -76,19 +76,8 @@ impl Socket {
     }
 
     pub(crate) async fn send(&self, packet: Packet) -> Result<(), Error> {
-        // let msg: String = packet.try_into().map_err(Error::from)?;
         debug!("[sid={}] sending packet: {:?}", self.sid, packet);
         self.tx.send(packet).await?;
-        Ok(())
-    }
-
-    /// If the connection is HTTP, this method blocks until the packet is sent.
-    /// Otherwise, it returns immediately.
-    pub(crate) async fn send_blocking(&self, packet: Packet) -> Result<(), Error> {
-        self.send(packet).await?;
-        if self.conn.read().await.eq(&ConnectionType::Http) {
-            let _ = self.rx.lock().await;
-        }
         Ok(())
     }
 
