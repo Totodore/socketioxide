@@ -37,7 +37,7 @@ jobs:
           node-version: 18
       - name: Install deps & run tests 
         run: |
-          cd engine.io-protocol/test-suite && npm install && cd ..
+          cd engine.io-protocol/test-suite && npm install && cd ../..
           cargo build --bin axum-echo --release
           cargo run --bin axum-echo --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
