@@ -19,7 +19,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - run: cargo test --release --all-features
+      - run: cargo test
   e2e:
     runs-on: ubuntu-latest
 
@@ -30,7 +30,7 @@ jobs:
           toolchain: stable
       - uses: actions/checkout@v2
         with:
-          repository: engine.io-protocol
+          repository: socketio/engine.io-protocol
           path: engineio
       - uses: actions/setup-node@v1
         with:
@@ -38,12 +38,13 @@ jobs:
       - run: |
           npm --cwd engineio/test-suite install
           cargo build --bin axum-echo --release
-          cargo run --bin axum-echo --release > output.txt & npm --cwd engineio/test-suite test > test.txt
-      - name: Print outputs
+          cargo run --bin axum-echo --release > server.txt & npm --cwd engineio/test-suite test > client.txt
+      - name: Server output
         if: always()
-        run: |
-          cat output.txt
-          cat test.txt
+        run: cat server.txt
+      - name: Client output
+        if: always()
+        run:  cat client.txt
 
   # publish:
   #   runs-on: ubuntu-latest
