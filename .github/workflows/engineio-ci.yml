@@ -34,7 +34,7 @@ jobs:
           path: engine.io-protocol
       - uses: actions/setup-node@v1
         with:
-          node-version: 18
+          node-version: 16
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
