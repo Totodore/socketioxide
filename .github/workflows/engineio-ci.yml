@@ -31,12 +31,11 @@ jobs:
       - uses: actions/checkout@v2
         with:
           repository: socketio/engine.io-protocol
-          path: engineio
       - uses: actions/setup-node@v1
         with:
           node-version: 18
       - run: |
-          npm --cwd engineio/test-suite install
+          npm --cwd engine.io-protocol/test-suite install
           cargo build --bin axum-echo --release
           cargo run --bin axum-echo --release > server.txt & npm --cwd engineio/test-suite test > client.txt
       - name: Server output
