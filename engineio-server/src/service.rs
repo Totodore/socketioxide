@@ -9,6 +9,7 @@ use http_body::Body;
 use hyper::{service::Service, Response};
 use std::{
     fmt::Debug,
+    str::FromStr,
     sync::Arc,
     task::{Context, Poll},
 };
@@ -52,22 +53,34 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        if req.uri().path().starts_with("/engine.io") {
+        if req.uri().path().starts_with(&self.engine.config.req_path) {
             let engine = self.engine.clone();
-            match RequestType::parse(&req) {
-                RequestType::Invalid => ResponseFuture::empty_response(400),
-                RequestType::HttpOpen => {
-                    ResponseFuture::async_response(Box::pin(engine.on_open_http_req()))
-                }
-                RequestType::HttpPoll(sid) => {
-                    ResponseFuture::async_response(Box::pin(engine.on_polling_req(sid)))
-                }
-                RequestType::HttpSendPacket(sid) => {
-                    ResponseFuture::async_response(Box::pin(engine.on_send_packet_req(sid, req)))
-                }
-                RequestType::WebsocketUpgrade(sid) => {
-                    ResponseFuture::async_response(Box::pin(engine.upgrade_ws_req(sid, req)))
-                }
+            match RequestInfo::parse(&req) {
+                Some(RequestInfo {
+                    sid: None,
+                    transport: TransportType::Polling,
+                    method: Method::GET,
+                    ..
+                }) => ResponseFuture::async_response(Box::pin(engine.on_open_http_req())),
+                Some(RequestInfo {
+                    sid: Some(sid),
+                    transport: TransportType::Polling,
+                    method: Method::GET,
+                    ..
+                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_req(sid))),
+                Some(RequestInfo {
+                    sid: Some(sid),
+                    transport: TransportType::Polling,
+                    method: Method::POST,
+                    ..
+                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_post_req(sid, req))),
+                Some(RequestInfo {
+                    sid,
+                    transport: TransportType::Websocket,
+                    method: Method::GET,
+                    ..
+                }) => ResponseFuture::async_response(Box::pin(engine.upgrade_ws_req(sid, req))),
+                _ => ResponseFuture::empty_response(400),
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
@@ -75,54 +88,101 @@ where
     }
 }
 
-enum RequestType {
-    Invalid,
-    HttpOpen,
-    HttpPoll(i64),
-    HttpSendPacket(i64),
-    WebsocketUpgrade(Option<i64>),
+#[derive(Debug, PartialEq)]
+pub enum TransportType {
+    Websocket,
+    Polling,
 }
 
-impl RequestType {
-    fn parse<B>(req: &Request<B>) -> Self {
-        if let Some(query) = req.uri().query() {
-            if !query.contains("EIO=4")
-                || req.method() != Method::GET && req.method() != Method::POST
-            {
-                return RequestType::Invalid;
-            }
-            let sid = extract_sid(req);
-            if query.contains("transport=polling") {
-                if sid.is_some() {
-                    if req.method() == Method::GET {
-                        RequestType::HttpPoll(sid.unwrap())
-                    } else if req.method() == Method::POST {
-                        RequestType::HttpSendPacket(sid.unwrap())
-                    } else {
-                        RequestType::Invalid
-                    }
-                } else if req.method() == Method::GET {
-                    RequestType::HttpOpen
-                } else {
-                    RequestType::Invalid
-                }
-            } else if query.contains("transport=websocket") && req.method() == Method::GET {
-                RequestType::WebsocketUpgrade(sid)
-            } else {
-                RequestType::Invalid
-            }
-        } else {
-            RequestType::Invalid
+impl FromStr for TransportType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "websocket" => Ok(TransportType::Websocket),
+            "polling" => Ok(TransportType::Polling),
+            _ => Err(()),
         }
     }
 }
 
-fn extract_sid<B>(req: &Request<B>) -> Option<i64> {
-    let uri = req.uri().query()?;
-    let sid = uri
-        .split("&")
-        .find(|s| s.starts_with("sid="))?
-        .split("=")
-        .nth(1)?;
-    Some(sid.parse().ok()?)
+struct RequestInfo {
+    sid: Option<i64>,
+    transport: TransportType,
+    method: Method,
+}
+
+impl RequestInfo {
+    fn parse<B>(req: &Request<B>) -> Option<Self> {
+        let query = req.uri().query()?;
+        if !query.contains("EIO=4") {
+            return None;
+        }
+
+        let sid = query
+            .split("&")
+            .find(|s| s.starts_with("sid="))
+            .map(|s| s.split("=").nth(1).map(|s1| s1.parse().ok()))
+            .flatten()
+            .flatten();
+
+        let transport: TransportType = query
+            .split("&")
+            .find(|s| s.starts_with("transport="))?
+            .split("=")
+            .nth(1)?
+            .parse()
+            .ok()?;
+
+        Some(RequestInfo {
+            sid,
+            transport,
+            method: req.method().clone(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_request(path: &str) -> Request<()> {
+        Request::get(path).body(()).unwrap()
+    }
+
+    #[test]
+    fn request_info_polling() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling");
+        let info = RequestInfo::parse(&req).unwrap();
+        assert_eq!(info.sid, None);
+        assert_eq!(info.transport, TransportType::Polling);
+        assert_eq!(info.method, Method::GET);
+    }
+
+    #[test]
+    fn request_info_websocket() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket");
+        let info = RequestInfo::parse(&req).unwrap();
+        assert_eq!(info.sid, None);
+        assert_eq!(info.transport, TransportType::Websocket);
+        assert_eq!(info.method, Method::GET);
+    }
+
+    #[test]
+    fn request_info_polling_with_sid() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling&sid=123");
+        let info = RequestInfo::parse(&req).unwrap();
+        assert_eq!(info.sid, Some(123));
+        assert_eq!(info.transport, TransportType::Polling);
+        assert_eq!(info.method, Method::GET);
+    }
+
+    #[test]
+    fn request_info_websocket_with_sid() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=123");
+        let info = RequestInfo::parse(&req).unwrap();
+        assert_eq!(info.sid, Some(123));
+        assert_eq!(info.transport, TransportType::Websocket);
+        assert_eq!(info.method, Method::GET);
+    }
 }

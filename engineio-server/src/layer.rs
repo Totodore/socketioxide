@@ -5,13 +5,19 @@ use crate::{errors::Error, service::EngineIoService, socket::Socket};
 
 #[async_trait]
 pub trait EngineIoHandler: Send + Sync + Clone + 'static {
+
+    /// Called when a new socket is connected.
     fn on_connect(&self, _socket: &Socket<Self>) {}
+
+    /// Called when a socket is disconnected.
     fn on_disconnect(&self, _socket: &Socket<Self>) {}
 
+    /// Called when a message is received from the client.
     async fn on_message(&self, _msg: String, _socket: &Socket<Self>) -> Result<(), Error> {
         Ok(())
     }
 
+    /// Called when a binary message is received from the client.
     async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket<Self>) -> Result<(), Error> {
         Ok(())
     }
@@ -21,19 +27,65 @@ use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
+    /// The path to listen for engine.io requests on.
+    /// Defaults to "/engine.io".
     pub req_path: String,
+
+    /// The interval at which the server will send a ping packet to the client.
+    /// Defaults to 25 seconds.
     pub ping_interval: Duration,
+
+    /// The amount of time the server will wait for a ping response from the client before closing the connection.
+    /// Defaults to 20 seconds.
     pub ping_timeout: Duration,
+
+    /// The maximum number of packets that can be buffered per socket before being emitted to the client.
+    /// 
+    /// If the buffer if full the `emit()` method will wait until the buffer is drained:
+    /// ```
+    /// use engineio_server::{
+    ///     errors::Error,
+    ///     layer::{EngineIoHandler, EngineIoLayer},
+    ///     socket::Socket,
+    /// };
+    /// #[derive(Clone)]
+    /// struct MyHandler;
+    /// 
+    /// #[engineio_server::async_trait]
+    /// impl EngineIoHandler for MyHandler {
+    ///     fn on_connect(&self, socket: &Socket<Self>) {
+    ///         println!("socket connect {}", socket.sid);
+    ///     }
+    ///     fn on_disconnect(&self, socket: &Socket<Self>) {
+    ///         println!("socket disconnect {}", socket.sid);
+    ///     }
+    /// 
+    ///     async fn on_message(&self, msg: String, socket: &Socket<Self>) -> Result<(), Error> {
+    ///         println!("Ping pong message {:?}", msg);
+    ///         socket.emit(msg).await  // This will wait until the buffer is drained
+    ///     }
+    /// 
+    ///     async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) -> Result<(), Error> {
+    ///         println!("Ping pong binary message {:?}", data);
+    ///         socket.emit_binary(data).await  // This will wait until the buffer is drained
+    ///     }
+    /// }
+    /// ```
     pub max_buffer_size: usize,
+
+    /// The maximum number of bytes that can be received per http request.
+    /// Defaults to 100kb.
+    pub max_payload: u64,
 }
 
 impl Default for EngineIoConfig {
     fn default() -> Self {
         Self {
             req_path: "/engine.io".to_string(),
-            ping_interval: Duration::from_millis(300),
-            ping_timeout: Duration::from_millis(200),
+            ping_interval: Duration::from_millis(25000),
+            ping_timeout: Duration::from_millis(20000),
             max_buffer_size: 128,
+            max_payload: 1e5 as u64, // 100kb
         }
     }
 }
@@ -67,6 +119,10 @@ impl EngineIoConfigBuilder {
     }
     pub fn max_buffer_size(mut self, max_buffer_size: usize) -> Self {
         self.config.max_buffer_size = max_buffer_size;
+        self
+    }
+    pub fn max_payload(mut self, max_payload: u64) -> Self {
+        self.config.max_payload = max_payload;
         self
     }
     pub fn build(self) -> EngineIoConfig {

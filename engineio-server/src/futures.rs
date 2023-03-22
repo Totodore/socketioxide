@@ -13,6 +13,7 @@ use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 pub(crate) type BoxFuture<B> =
     Pin<Box<dyn Future<Output = Result<Response<ResponseBody<B>>, crate::errors::Error>> + Send>>;
 
+/// Create a response for http request
 pub fn http_response<B, D>(
     code: StatusCode,
     data: D,
@@ -25,6 +26,7 @@ where
         .body(ResponseBody::custom_response(data.into()))
 }
 
+/// Create a response for websocket upgrade
 pub fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
     let derived = derive_accept_key(ws_key.as_bytes());
     let sec = derived.parse::<HeaderValue>().unwrap();
@@ -35,6 +37,7 @@ pub fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>,
         .header(SEC_WEBSOCKET_ACCEPT, sec)
         .body(ResponseBody::empty_response())
 }
+
 #[pin_project]
 pub struct ResponseFuture<F, B> {
     #[pin]
@@ -48,11 +51,6 @@ impl<F, B> ResponseFuture<F, B> {
         }
     }
 
-    pub fn custom_response(body: String) -> Self {
-        Self {
-            inner: ResponseFutureInner::CustomRespose { body },
-        }
-    }
 
     pub fn new(future: F) -> Self {
         Self {
@@ -67,9 +65,6 @@ impl<F, B> ResponseFuture<F, B> {
 }
 #[pin_project(project = ResFutProj)]
 enum ResponseFutureInner<F, B> {
-    CustomRespose {
-        body: String,
-    },
     EmptyResponse {
         code: u16,
     },
@@ -98,10 +93,6 @@ where
                 .body(ResponseBody::empty_response())
                 .unwrap(),
 
-            ResFutProj::CustomRespose { body } => Response::builder()
-                .status(200)
-                .body(ResponseBody::custom_response(Full::from(body.clone())))
-                .unwrap(),
             ResFutProj::AsyncResponse { future } => ready!(future
                 .as_mut()
                 .poll(cx)

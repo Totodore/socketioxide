@@ -15,8 +15,6 @@ pub enum Error {
     Base64Error(base64::DecodeError),
     IoError(std::io::Error),
     BadPacket,
-    BadTransport,
-    AlreadyUpgraded,
     WsTransportError(tungstenite::Error),
     HttpTransportError(hyper::Error),
     HttpError(http::Error),
@@ -72,6 +70,9 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// Convert an error into an http response
+/// If it is a known error, return the appropriate http status code
+/// Otherwise, return a 500
 impl<B> Into<Response<ResponseBody<B>>> for Error {
     fn into(self) -> Response<ResponseBody<B>> {
         match self {

@@ -2,7 +2,7 @@ use base64::{engine::general_purpose, Engine};
 use bytes::Bytes;
 use serde::{de::Error, Deserialize, Serialize};
 
-use crate::layer::EngineIoConfig;
+use crate::{layer::EngineIoConfig, service::TransportType};
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Packet {
@@ -124,13 +124,64 @@ impl OpenPacket {
             upgrades,
             ping_interval: config.ping_interval.as_millis() as u64,
             ping_timeout: config.ping_timeout.as_millis() as u64,
-            max_payload: 1000000,
+            max_payload: config.max_payload,
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum TransportType {
-    Websocket,
-    Polling,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::convert::TryInto;
+
+    #[test]
+    fn test_open_packet() {
+        let packet = Packet::Open(OpenPacket::new(TransportType::Polling, 1, &EngineIoConfig::default()));
+        let packet_str: String = packet.try_into().unwrap();
+        assert_eq!(packet_str, "0{\"sid\":\"1\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}");
+    }
+
+    #[test]
+    fn test_open_packet_deserialize() {
+        let packet_str = "0{\"sid\":\"1\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}";
+        let packet = Packet::try_from(packet_str.to_string()).unwrap();
+        assert_eq!(
+            packet,
+            Packet::Open(OpenPacket {
+                sid: "1".to_string(),
+                upgrades: vec!["websocket".to_string()],
+                ping_interval: 25000,
+                ping_timeout: 20000,
+                max_payload: 1e5 as u64,
+            })
+        );
+    }
+
+    #[test]
+    fn test_message_packet() {
+        let packet = Packet::Message("hello".to_string());
+        let packet_str: String = packet.try_into().unwrap();
+        assert_eq!(packet_str, "4hello");
+    }
+
+    #[test]
+    fn test_message_packet_deserialize() {
+        let packet_str = "4hello".to_string();
+        let packet: Packet = packet_str.try_into().unwrap();
+        assert_eq!(packet, Packet::Message("hello".to_string()));
+    }
+
+    #[test]
+    fn test_binary_packet() {
+        let packet = Packet::Binary(vec![1, 2, 3]);
+        let packet_str: String = packet.try_into().unwrap();
+        assert_eq!(packet_str, "bAQID");
+    }
+
+    #[test]
+    fn test_binary_packet_deserialize() {
+        let packet_str = "bAQID".to_string();
+        let packet: Packet = packet_str.try_into().unwrap();
+        assert_eq!(packet, Packet::Binary(vec![1, 2, 3]));
+    }
 }

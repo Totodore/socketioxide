@@ -44,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
+        .max_payload(1e6 as u64)
         .build();
     info!("Starting server");
     let app = axum::Router::new()

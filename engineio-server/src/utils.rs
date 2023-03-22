@@ -12,3 +12,10 @@ pub fn generate_sid() -> i64 {
 	tracing::debug!("Generating new sid: {}", id);
 	id
 }
+
+#[test]
+fn test_generate_sid() {
+    let id = generate_sid();
+    let id2 = generate_sid();
+    assert!(id != id2);
+}

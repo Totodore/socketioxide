@@ -11,9 +11,9 @@ use crate::{
     errors::Error,
     futures::{http_response, ws_response},
     layer::{EngineIoConfig, EngineIoHandler},
-    packet::{OpenPacket, Packet, TransportType},
+    packet::{OpenPacket, Packet},
     socket::{ConnectionType, Socket},
-    utils::generate_sid,
+    utils::generate_sid, service::TransportType,
 };
 use bytes::Buf;
 use futures::{SinkExt, StreamExt, TryStreamExt};
@@ -72,6 +72,10 @@ where
         http_response(StatusCode::OK, packet).map_err(Error::HttpError)
     }
 
+    /// Handle http polling request
+    /// 
+    /// If there is packet in the socket buffer, it will be sent immediately
+    /// Otherwise it will wait for the next packet to be sent from the socket
     pub async fn on_polling_req<B>(
         self: Arc<Self>,
         sid: i64,
@@ -81,18 +85,16 @@ where
     {
         let socket = self
             .get_socket(sid)
+            .map(|s| s.is_http().then(|| s))
+            .flatten()
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
-
-        if socket.is_ws().await {
-            return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
-        }
 
         // If the socket is already locked, it means that the socket is being used by another request
         // In case of multiple http polling, session should be closed
         let mut rx = match socket.rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                if socket.is_http().await {
+                if socket.is_http() {
                     socket.send(Packet::Close).await?;
                     self.close_session(sid);
                 }
@@ -130,7 +132,10 @@ where
         Ok(http_response(StatusCode::OK, data)?)
     }
 
-    pub async fn on_send_packet_req<R, B>(
+    /// Handle http polling post request
+    /// 
+    /// Split the body into packets and send them to the socket
+    pub async fn on_polling_post_req<R, B>(
         self: Arc<Self>,
         sid: i64,
         body: Request<R>,
@@ -149,11 +154,9 @@ where
 
         let socket = self
             .get_socket(sid)
+            .map(|s| s.is_http().then(|| s))
+            .flatten()
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
-
-        if socket.is_ws().await {
-            return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
-        }
 
         for packet in packets {
             let packet = match Packet::try_from(packet?) {
@@ -199,7 +202,7 @@ where
             .clone();
 
         if let Some(socket) = sid.and_then(|sid| self.get_socket(sid)) {
-            if socket.is_ws().await {
+            if socket.is_ws() {
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         }
@@ -372,7 +375,7 @@ where
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
         let _lock = socket.rx.lock().await;
-        socket.upgrade_to_websocket().await;
+        socket.upgrade_to_websocket();
         Ok(())
     }
     async fn ws_init_handshake(
