@@ -6,6 +6,10 @@ on:
       - main
     tags:
       - v*
+    paths:
+      - engineio-server/**
+      - examples/src/axum_echo.rs
+      - examples/Cargo.toml
   pull_request:
     branches:
       - main
