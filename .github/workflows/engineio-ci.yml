@@ -1,0 +1,59 @@
+name: EngineIO CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: cargo test --release --all-features
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/checkout@v2
+        with:
+          repository: engine.io-protocol
+          path: engineio
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 18
+      - run: |
+          npm --cwd engineio/test-suite install
+          cargo build --bin axum-echo --release
+          cargo run --bin axum-echo --release > output.txt & npm --cwd engineio/test-suite test > test.txt
+      - name: Print outputs
+        if: always()
+        run: |
+          cat output.txt
+          cat test.txt
+
+  # publish:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #     - run: cargo build --release --all-features
+  #     - uses: actions-rs/cargo@v1
+  #       with:
+  #         command: publish
+  #         args: --token ${{ secrets.CARGO_TOKEN }} --all-features

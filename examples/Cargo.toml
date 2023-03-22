@@ -14,5 +14,5 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 tracing = "0.1.37"
 
 [[bin]]
-name = "axum"
-path = "src/axum/main.rs"
+name = "axum-echo"
+path = "src/axum_echo.rs"
