@@ -13,6 +13,6 @@ tower = { version = "0.4.13" }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 tracing = "0.1.37"
 
-[[bin]]
+[[example]]
 name = "axum-echo"
 path = "src/axum_echo.rs"

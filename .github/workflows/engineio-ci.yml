@@ -10,6 +10,7 @@ on:
       - engineio-server/**
       - examples/src/axum_echo.rs
       - examples/Cargo.toml
+      - .github/workflows/engineio-ci.yml
   pull_request:
     branches:
       - main
@@ -42,8 +43,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin axum-echo --release
-          cargo run --bin axum-echo --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --example axum-echo --release
+          cargo run --example axum-echo --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
