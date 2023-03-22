@@ -16,7 +16,7 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct EngineIoService<S, H>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler + ?Sized,
 {
     inner: S,
     engine: Arc<EngineIo<H>>,
@@ -24,12 +24,12 @@ where
 
 impl<S, H> EngineIoService<S, H>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler + ?Sized,
 {
     pub fn from_config(inner: S, handler: H, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
-            engine: EngineIo::from_config(handler, config).into(),
+            engine: EngineIo::from_config(handler.into(), config).into(),
         }
     }
 }
@@ -41,7 +41,7 @@ where
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    H: EngineIoHandler,
+    H: EngineIoHandler + ?Sized,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;

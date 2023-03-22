@@ -1,9 +1,13 @@
-use std::{ops::ControlFlow, time::Duration};
+use std::{ops::ControlFlow, time::Duration, sync::Arc};
 
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::debug;
 
-use crate::{errors::Error, layer::{EngineIoHandler, EngineIoConfig}, packet::Packet};
+use crate::{
+    errors::Error,
+    layer::{EngineIoConfig, EngineIoHandler},
+    packet::Packet,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -11,41 +15,61 @@ pub(crate) enum ConnectionType {
     WebSocket,
 }
 #[derive(Debug)]
-pub struct Socket {
+pub struct Socket<H>
+where
+    H: EngineIoHandler + ?Sized,
+{
     pub sid: i64,
     conn: RwLock<ConnectionType>,
 
     // Channel to send packets to the connection
     pub rx: Mutex<mpsc::Receiver<Packet>>,
     tx: mpsc::Sender<Packet>,
+    handler: Arc<H>,
 
     // Channel to receive pong packets from the connection
     pong_rx: Mutex<mpsc::Receiver<()>>,
     pong_tx: mpsc::Sender<()>,
 }
 
-impl Socket {
-    pub(crate) fn new(sid: i64, conn: ConnectionType, config: &EngineIoConfig) -> Self {
+impl<H> Drop for Socket<H>
+where
+    H: EngineIoHandler + ?Sized,
+{
+    fn drop(&mut self) {
+        self.handler.on_disconnect(&self);
+    }
+}
+
+impl<H> Socket<H>
+where
+    H: EngineIoHandler + ?Sized,
+{
+    pub(crate) fn new(
+        sid: i64,
+        conn: ConnectionType,
+        config: &EngineIoConfig,
+        handler: Arc<H>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
         let (pong_tx, pong_rx) = mpsc::channel(1);
-        Self {
+        let socket = Self {
             sid,
             tx,
             rx: Mutex::new(rx),
             conn: conn.into(),
             pong_rx: Mutex::new(pong_rx),
             pong_tx,
-        }
+            handler,
+        };
+        socket.handler.on_connect(&socket);
+        socket
     }
 
-    pub(crate) async fn handle_packet<H>(
+    pub(crate) async fn handle_packet(
         &self,
         packet: Packet,
-        handler: &H,
-    ) -> ControlFlow<Result<(), Error>, Result<(), Error>>
-    where
-        H: EngineIoHandler,
-    {
+    ) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
         debug!("[sid={}] received packet: {:?}", self.sid, packet);
         match packet {
             Packet::Close => {
@@ -56,11 +80,11 @@ impl Socket {
                 self.pong_tx.try_send(()).ok();
                 ControlFlow::Continue(Ok(()))
             }
-            Packet::Binary(data) => match handler.on_binary(data, self).await {
+            Packet::Binary(data) => match self.handler.on_binary(data, self).await {
                 Err(e) => ControlFlow::Continue(Err(e)),
                 Ok(_) => ControlFlow::Continue(Ok(())),
             },
-            Packet::Message(msg) => match handler.on_message(msg, self).await {
+            Packet::Message(msg) => match self.handler.on_message(msg, self).await {
                 Ok(_) => ControlFlow::Continue(Ok(())),
                 Err(e) => ControlFlow::Continue(Err(e)),
             },

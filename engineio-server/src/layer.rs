@@ -4,27 +4,20 @@ use tower::Layer;
 use crate::{errors::Error, service::EngineIoService, socket::Socket};
 
 #[async_trait]
-pub trait EngineIoHandler: Send + Sync + 'static {
-    async fn on_connect(&self, _socket: &Socket) -> Result<(), Error> {
-        Ok(())
-    }
-    async fn on_disconnect(&self, _socket: &Socket) -> Result<(), Error> {
+pub trait EngineIoHandler: Send + Sync + Clone + 'static {
+    fn on_connect(&self, _socket: &Socket<Self>) {}
+    fn on_disconnect(&self, _socket: &Socket<Self>) {}
+
+    async fn on_message(&self, _msg: String, _socket: &Socket<Self>) -> Result<(), Error> {
         Ok(())
     }
 
-    async fn on_message(&self, _msg: String, _socket: &Socket) -> Result<(), Error>
-    {
-        Ok(())
-    }
-
-    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket) -> Result<(), Error>
-    {
+    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket<Self>) -> Result<(), Error> {
         Ok(())
     }
 }
 
 use std::time::Duration;
-
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -40,7 +33,7 @@ impl Default for EngineIoConfig {
             req_path: "/engine.io".to_string(),
             ping_interval: Duration::from_millis(300),
             ping_timeout: Duration::from_millis(200),
-            max_buffer_size: 128
+            max_buffer_size: 128,
         }
     }
 }
@@ -84,7 +77,7 @@ impl EngineIoConfigBuilder {
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H>
 where
-    H: EngineIoHandler + Clone,
+    H: EngineIoHandler + ?Sized + Clone,
 {
     config: EngineIoConfig,
     handler: H,
@@ -92,7 +85,7 @@ where
 
 impl<H> EngineIoLayer<H>
 where
-    H: EngineIoHandler + Clone,
+    H: EngineIoHandler + ?Sized + Clone,
 {
     pub fn new(handler: H) -> Self {
         Self {
@@ -107,7 +100,7 @@ where
 
 impl<S, H> Layer<S> for EngineIoLayer<H>
 where
-    H: EngineIoHandler + Clone,
+    H: EngineIoHandler + ?Sized + Clone,
 {
     type Service = EngineIoService<S, H>;
 

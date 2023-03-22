@@ -15,12 +15,19 @@ struct MyHandler;
 
 #[engineio_server::async_trait]
 impl EngineIoHandler for MyHandler {
-    async fn on_message(&self, msg: String, socket: &Socket) -> Result<(), Error> {
+    fn on_connect(&self, socket: &Socket<Self>) {
+        println!("socket connect {}", socket.sid);
+    }
+    fn on_disconnect(&self, socket: &Socket<Self>) {
+        println!("socket disconnect {}", socket.sid);
+    }
+
+    async fn on_message(&self, msg: String, socket: &Socket<Self>) -> Result<(), Error> {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).await
     }
 
-    async fn on_binary(&self, data: Vec<u8>, socket: &Socket) -> Result<(), Error> {
+    async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) -> Result<(), Error> {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).await
     }

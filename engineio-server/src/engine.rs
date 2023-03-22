@@ -3,14 +3,14 @@ use std::{
     collections::HashMap,
     io::BufRead,
     ops::ControlFlow,
-    sync::{Arc, RwLock}
+    sync::{Arc, RwLock},
 };
 
 use crate::{
     body::ResponseBody,
     errors::Error,
     futures::{http_response, ws_response},
-    layer::{EngineIoHandler, EngineIoConfig},
+    layer::{EngineIoConfig, EngineIoHandler},
     packet::{OpenPacket, Packet, TransportType},
     socket::{ConnectionType, Socket},
     utils::generate_sid,
@@ -26,35 +26,34 @@ use tokio_tungstenite::{
 };
 use tracing::debug;
 
-
 type SocketMap<T> = RwLock<HashMap<i64, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 #[derive(Debug)]
 pub struct EngineIo<H>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler + ?Sized,
 {
-    sockets: SocketMap<Socket>,
-    handler: H,
+    sockets: SocketMap<Socket<H>>,
+    handler: Arc<H>,
     pub config: EngineIoConfig,
 }
 
 impl<H> EngineIo<H>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler + ?Sized,
 {
-    pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
+    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
-            handler,
+            handler: handler.clone(),
         }
     }
 }
 
 impl<H> EngineIo<H>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler + ?Sized,
 {
     pub async fn on_open_http_req<B>(self: Arc<Self>) -> Result<Response<ResponseBody<B>>, Error>
     where
@@ -62,10 +61,10 @@ where
     {
         let sid = generate_sid();
         {
-            self.sockets
-                .write()
-                .unwrap()
-                .insert(sid, Socket::new(sid, ConnectionType::Http, &self.config).into());
+            self.sockets.write().unwrap().insert(
+                sid,
+                Socket::new(sid, ConnectionType::Http, &self.config, self.handler.clone()).into(),
+            );
         }
         self.clone().start_heartbeat_routine(sid);
         let packet: String =
@@ -162,10 +161,10 @@ where
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
                     self.close_session(sid);
-                    return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));    
-                },
+                    return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
+                }
             };
-            match socket.handle_packet(packet, &self.handler).await {
+            match socket.handle_packet(packet).await {
                 ControlFlow::Continue(Err(e)) => {
                     debug!("[sid={sid}] error handling packet: {:?}", e)
                 }
@@ -232,7 +231,8 @@ where
 
         let socket = if sid.is_none() || !self.get_socket(sid.unwrap()).is_some() {
             let sid = generate_sid();
-            let socket: Arc<Socket> = Socket::new(sid, ConnectionType::WebSocket, &self.config).into();
+            let socket: Arc<Socket<H>> =
+                Socket::new(sid, ConnectionType::WebSocket, &self.config, self.handler.clone()).into();
             {
                 self.sockets.write().unwrap().insert(sid, socket.clone());
             }
@@ -270,12 +270,12 @@ where
             let Some(msg) = msg else { continue };
             let res = match msg {
                 Message::Text(msg) => match Packet::try_from(msg) {
-                    Ok(packet) => socket.handle_packet(packet, &self.handler).await,
+                    Ok(packet) => socket.handle_packet(packet).await,
                     Err(err) => ControlFlow::Break(Err(err)),
                 },
                 Message::Binary(msg) => {
                     socket
-                        .handle_packet(Packet::Binary(msg), &self.handler)
+                        .handle_packet(Packet::Binary(msg))
                         .await
                 }
                 Message::Close(_) => break,
@@ -396,7 +396,7 @@ where
      * Get a socket by its sid
      * Clones the socket ref to avoid holding the lock
      */
-    fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
+    fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 }
