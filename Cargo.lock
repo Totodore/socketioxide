@@ -159,6 +159,7 @@ dependencies = [
  "rs-snowflake",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tokio-tungstenite",
  "tower",

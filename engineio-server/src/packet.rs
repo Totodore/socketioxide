@@ -56,9 +56,9 @@ impl TryFrom<String> for Packet {
         let packet_type =
             chars
                 .next()
-                .ok_or(Self::Error::DeserializeError(serde_json::Error::custom(
+                .ok_or(serde_json::Error::custom(
                     "Packet type not found in packet string",
-                )))?;
+                ))?;
         let packet_data = chars.as_str();
         let is_upgrade = packet_data.starts_with("probe");
         match packet_type {
@@ -80,9 +80,9 @@ impl TryFrom<String> for Packet {
             'b' => Ok(Packet::Binary(
                 general_purpose::STANDARD.decode(packet_data.as_bytes())?,
             )),
-            c => Err(Self::Error::DeserializeError(serde_json::Error::custom(
+            c => Err(serde_json::Error::custom(
                 "Invalid packet type ".to_string() + &c.to_string(),
-            ))),
+            ))?,
         }
     }
 }
@@ -90,7 +90,7 @@ impl TryFrom<String> for Packet {
 impl TryFrom<Vec<u8>> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let value = String::from_utf8(value).map_err(Self::Error::from)?;
+        let value = String::from_utf8(value)?;
         Packet::try_from(value)
     }
 }
@@ -98,7 +98,7 @@ impl TryFrom<Vec<u8>> for Packet {
 impl TryFrom<Bytes> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        let value = String::from_utf8(value.to_vec()).map_err(Self::Error::from)?;
+        let value = String::from_utf8(value.to_vec())?;
         Packet::try_from(value)
     }
 }
@@ -136,7 +136,11 @@ mod tests {
 
     #[test]
     fn test_open_packet() {
-        let packet = Packet::Open(OpenPacket::new(TransportType::Polling, 1, &EngineIoConfig::default()));
+        let packet = Packet::Open(OpenPacket::new(
+            TransportType::Polling,
+            1,
+            &EngineIoConfig::default(),
+        ));
         let packet_str: String = packet.try_into().unwrap();
         assert_eq!(packet_str, "0{\"sid\":\"1\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}");
     }
