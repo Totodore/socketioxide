@@ -1,4 +1,11 @@
-use std::{ops::ControlFlow, sync::{Arc, RwLock}, time::Duration};
+use std::{
+    ops::ControlFlow,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc, RwLock,
+    },
+    time::Duration,
+};
 
 use tokio::sync::{mpsc, Mutex};
 use tracing::debug;
@@ -11,16 +18,19 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
-    Http,
-    WebSocket,
+    Http = 0b000000001,
+    WebSocket = 0b000000010,
 }
+
 #[derive(Debug)]
 pub struct Socket<H>
 where
     H: EngineIoHandler + ?Sized,
 {
     pub sid: i64,
-    conn: RwLock<ConnectionType>,
+
+    // The connection type casted to u8
+    conn: AtomicU8,
 
     // Channel to send packets to the connection
     pub rx: Mutex<mpsc::Receiver<Packet>>,
@@ -57,7 +67,7 @@ where
             sid,
             tx,
             rx: Mutex::new(rx),
-            conn: conn.into(),
+            conn: AtomicU8::new(conn as u8),
             pong_rx: Mutex::new(pong_rx),
             pong_tx,
             handler,
@@ -66,6 +76,8 @@ where
         socket
     }
 
+    /// Handle a packet received from the connection.
+    /// Returns a `ControlFlow` to indicate whether the socket should be closed or not.
     pub(crate) async fn handle_packet(
         &self,
         packet: Packet,
@@ -88,7 +100,7 @@ where
                 Ok(_) => ControlFlow::Continue(Ok(())),
                 Err(e) => ControlFlow::Continue(Err(e)),
             },
-            _ => ControlFlow::Continue(Err(Error::BadPacket)),
+            p => ControlFlow::Continue(Err(Error::BadPacket(p))),
         }
     }
 
@@ -97,6 +109,7 @@ where
         self.send(Packet::Close).await
     }
 
+    /// Sends a packet to the connection.
     pub(crate) async fn send(&self, packet: Packet) -> Result<(), Error> {
         debug!("[sid={}] sending packet: {:?}", self.sid, packet);
         self.tx.send(packet).await?;
@@ -124,6 +137,9 @@ where
         )))
         .await;
         loop {
+            // Some clients send the pong packet in first. If that happens, we should consume it.
+            pong_rx.try_recv().ok();
+
             self.tx
                 .try_send(Packet::Ping)
                 .map_err(|_| Error::HeartbeatTimeout)?;
@@ -135,34 +151,35 @@ where
         }
     }
     pub(crate) fn is_ws(&self) -> bool {
-        self.conn.read().unwrap().eq(&ConnectionType::WebSocket)
+        self.conn.load(Ordering::Relaxed) == ConnectionType::WebSocket as u8
     }
     pub(crate) fn is_http(&self) -> bool {
-        self.conn.read().unwrap().eq(&ConnectionType::Http)
+        self.conn.load(Ordering::Relaxed) == ConnectionType::Http as u8
     }
 
     /// Sets the connection type to WebSocket when the client upgrades the connection.
     pub(crate) fn upgrade_to_websocket(&self) {
-        let mut conn = self.conn.write().unwrap();
-        *conn = ConnectionType::WebSocket;
+        self.conn
+            .store(ConnectionType::WebSocket as u8, Ordering::Relaxed);
     }
 
     /// Emits a message to the client.
+    ///
+    /// If the transport is in websocket mode, the message is directly sent as a text frame.
+    ///
+    /// If the transport is in polling mode, the message is buffered and sent as a text frame to the next polling request.
     /// 
-    /// If the connection is a WebSocket, the message is directly sent as a text frame.
-    /// 
-    /// If the connection is HTTP, the message is buffered and sent as a text frame to the next polling request.
-    /// Note that if the buffer is full the emit will wait until the buffer is emptied.
+    /// ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
     pub async fn emit(&self, msg: String) -> Result<(), Error> {
         self.send(Packet::Message(msg)).await
     }
 
     /// Emits a binary message to the client.
-    /// 
-    /// If the connection is a WebSocket, the message is directly sent as a binary frame.
-    /// 
-    /// If the connection is HTTP, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
-    /// Note that if the buffer is full the emit will wait until the buffer is emptied.
+    ///
+    /// If the transport is in websocket mode, the message is directly sent as a binary frame.
+    ///
+    /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
+    /// > ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
     pub async fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
         self.send(Packet::Binary(data)).await?;
         Ok(())
