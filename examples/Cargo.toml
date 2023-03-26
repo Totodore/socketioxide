@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 engineio-server = { path = "../engineio-server" }
+socketio-server = { path = "../socketio-server" }
 axum = { version = "0.6.10" }
 tokio = { version = "1.13.0", features = ["full"] }
 tower = { version = "0.4.13" }
@@ -14,5 +15,5 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 tracing = "0.1.37"
 
 [[example]]
-name = "axum-echo"
-path = "src/axum_echo.rs"
+name = "engineio-axum-echo"
+path = "src/engineio/axum_echo.rs"

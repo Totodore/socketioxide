@@ -37,13 +37,13 @@ impl EngineIoHandler for MyHandler {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
         .with_line_number(true)
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     let config = EngineIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
+        .ping_interval(Duration::from_millis(3000))
+        .ping_timeout(Duration::from_millis(2000))
         .max_payload(1e6 as u64)
         .build();
     info!("Starting server");

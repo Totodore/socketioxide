@@ -792,6 +792,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "engineio-server",
+ "socketio-server",
  "tokio",
  "tower",
  "tracing",

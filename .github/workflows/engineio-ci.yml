@@ -43,8 +43,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --example axum-echo --release
-          cargo run --example axum-echo --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --example engineio-axum-echo --release
+          cargo run --example engineio-axum-echo --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt

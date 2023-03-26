@@ -3,24 +3,21 @@ use tower::Layer;
 
 use crate::{errors::Error, service::EngineIoService, socket::Socket};
 
+/// An handler for engine.io events for each sockets.
 #[async_trait]
 pub trait EngineIoHandler: Send + Sync + Clone + 'static {
 
     /// Called when a new socket is connected.
-    fn on_connect(&self, _socket: &Socket<Self>) {}
+    fn on_connect(&self, _socket: &Socket<Self>);
 
     /// Called when a socket is disconnected.
-    fn on_disconnect(&self, _socket: &Socket<Self>) {}
+    fn on_disconnect(&self, _socket: &Socket<Self>);
 
     /// Called when a message is received from the client.
-    async fn on_message(&self, _msg: String, _socket: &Socket<Self>) -> Result<(), Error> {
-        Ok(())
-    }
+    async fn on_message(&self, _msg: String, _socket: &Socket<Self>) -> Result<(), Error>;
 
     /// Called when a binary message is received from the client.
-    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket<Self>) -> Result<(), Error> {
-        Ok(())
-    }
+    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket<Self>) -> Result<(), Error>;
 }
 
 use std::time::Duration;
