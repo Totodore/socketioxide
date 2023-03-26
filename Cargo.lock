@@ -812,6 +812,17 @@ dependencies = [
 [[package]]
 name = "socketio-server"
 version = "0.1.0"
+dependencies = [
+ "engineio-server",
+ "futures",
+ "futures-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+]
 
 [[package]]
 name = "syn"

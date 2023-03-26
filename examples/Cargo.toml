@@ -17,3 +17,7 @@ tracing = "0.1.37"
 [[example]]
 name = "engineio-axum-echo"
 path = "src/engineio/axum_echo.rs"
+
+[[example]]
+name = "socketio-axum-echo"
+path = "src/socketio/axum_echo.rs"
