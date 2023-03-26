@@ -16,7 +16,7 @@ pub enum Error {
     #[error("io error: {0:?}")]
     IoError(#[from] std::io::Error),
     #[error("bad packet received")]
-    BadPacket,
+    BadPacket(Packet),
     #[error("ws transport error: {0:?}")]
     WsTransportError(#[from] tungstenite::Error),
     #[error("http transport error: {0:?}")]
@@ -29,6 +29,8 @@ pub enum Error {
     RecvChannelError(#[from] mpsc::error::TryRecvError),
     #[error("heartbeat timeout")]
     HeartbeatTimeout,
+    #[error("upgrade error")]
+    UpgradeError,
 
     #[error("http error response: {0:?}")]
     HttpErrorResponse(StatusCode)

@@ -134,7 +134,7 @@ where
 
     /// Handle http polling post request
     /// 
-    /// Split the body into packets and send them to the socket
+    /// Split the body into packets and send them to the internal socket
     pub async fn on_polling_post_req<R, B>(
         self: Arc<Self>,
         sid: i64,
@@ -239,21 +239,24 @@ where
             {
                 self.sockets.write().unwrap().insert(sid, socket.clone());
             }
+            debug!("[sid={sid}] new websocket connection");
             self.ws_init_handshake(sid, &mut ws).await?;
             self.clone().start_heartbeat_routine(sid);
             socket
         } else {
             let sid = sid.unwrap();
+            debug!("[sid={sid}] websocket connection upgrade");
             self.ws_upgrade_handshake(sid, &mut ws).await?;
             self.get_socket(sid).unwrap()
         };
         let (mut tx, mut rx) = ws.split();
 
-        // Pipe between websocket and socket channel
+        // Pipe between websocket and internal socket channel
         let rx_socket = socket.clone();
         let rx_handle = tokio::spawn(async move {
             let mut socket_rx = rx_socket.rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
+                debug!("item: {:?}", item);
                 let res = match item {
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
@@ -263,6 +266,7 @@ where
                         tx.send(Message::Text(packet)).await
                     }
                 };
+                debug!("[sid={}] sent packet", rx_socket.sid);
                 if let Err(e) = res {
                     debug!("[sid={}] error sending packet: {}", rx_socket.sid, e);
                     break;
@@ -305,6 +309,7 @@ where
     }
 
     fn start_heartbeat_routine(self: Arc<Self>, sid: i64) {
+        debug!("starting heartbeat routine for sid={}", sid);
         tokio::spawn(async move {
             let socket = self.get_socket(sid).unwrap();
             if let Err(e) = socket
@@ -354,23 +359,23 @@ where
 
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
-            _ => Err(Error::BadPacket)?,
+            _ => Err(Error::UpgradeError)?,
         };
         match Packet::try_from(msg)? {
             Packet::PingUpgrade => {
                 ws.send(Message::Text(Packet::PongUpgrade.try_into()?))
                     .await?;
             }
-            _ => Err(Error::BadPacket)?,
+            p => Err(Error::BadPacket(p))?,
         };
 
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
-            _ => Err(Error::BadPacket)?,
+            _ => Err(Error::UpgradeError)?,
         };
         match Packet::try_from(msg)? {
             Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),
-            _ => Err(Error::BadPacket)?,
+            p => Err(Error::BadPacket(p))?,
         };
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
