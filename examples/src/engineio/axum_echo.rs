@@ -3,7 +3,6 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Server;
 use engineio_server::{
-    errors::Error,
     layer::{EngineIoConfig, EngineIoHandler, EngineIoLayer},
     socket::Socket,
 };
@@ -22,14 +21,14 @@ impl EngineIoHandler for MyHandler {
         println!("socket disconnect {}", socket.sid);
     }
 
-    async fn on_message(&self, msg: String, socket: &Socket<Self>) -> Result<(), Error> {
+    async fn on_message(&self, msg: String, socket: &Socket<Self>) {
         println!("Ping pong message {:?}", msg);
-        socket.emit(msg).await
+        socket.emit(msg).await.ok();
     }
 
-    async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) -> Result<(), Error> {
+    async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
         println!("Ping pong binary message {:?}", data);
-        socket.emit_binary(data).await
+        socket.emit_binary(data).await.ok();
     }
 }
 

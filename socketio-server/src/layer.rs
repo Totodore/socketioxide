@@ -1,7 +1,7 @@
 use engineio_server::{service::EngineIoService};
 use tower::Layer;
 
-use crate::{handler::Handler, config::SocketIoConfig};
+use crate::{socket::Socket, config::SocketIoConfig};
 
 #[derive(Debug, Clone)]
 pub struct SocketIoLayer {
@@ -20,9 +20,9 @@ impl SocketIoLayer {
 }
 
 impl<S> Layer<S> for SocketIoLayer {
-    type Service = EngineIoService<S, Handler>;
+    type Service = EngineIoService<S, Socket>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        EngineIoService::from_config(inner, Handler::new(), self.config.engine_config.clone())
+        EngineIoService::from_config(inner, Socket::new(), self.config.engine_config.clone())
     }
 }

@@ -818,6 +818,7 @@ dependencies = [
  "futures-core",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tower",
  "tower-http",
