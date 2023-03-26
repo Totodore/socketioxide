@@ -42,8 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     let config = EngineIoConfig::builder()
-        .ping_interval(Duration::from_millis(3000))
-        .ping_timeout(Duration::from_millis(2000))
+        .ping_interval(Duration::from_millis(300))
+        .ping_timeout(Duration::from_millis(200))
         .max_payload(1e6 as u64)
         .build();
     info!("Starting server");
