@@ -2,12 +2,15 @@ use std::{
     ops::ControlFlow,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     time::Duration,
 };
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::{
+    sync::{mpsc, Mutex},
+    task::JoinHandle,
+};
 use tracing::debug;
 
 use crate::{
@@ -40,6 +43,7 @@ where
     // Channel to receive pong packets from the connection
     pong_rx: Mutex<mpsc::Receiver<()>>,
     pong_tx: mpsc::Sender<()>,
+    heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl<H> Drop for Socket<H>
@@ -65,12 +69,15 @@ where
         let (pong_tx, pong_rx) = mpsc::channel(1);
         let socket = Self {
             sid,
-            tx,
-            rx: Mutex::new(rx),
             conn: AtomicU8::new(conn as u8),
+
+            rx: Mutex::new(rx),
+            tx,
+            handler,
+
             pong_rx: Mutex::new(pong_rx),
             pong_tx,
-            handler,
+            heartbeat_handle: Mutex::new(None),
         };
         socket.handler.on_connect(&socket);
         socket
@@ -104,9 +111,13 @@ where
         }
     }
 
-    /// Gracefully closes the connection.
-    pub async fn close(&self) -> Result<(), Error> {
-        self.send(Packet::Close).await
+    /// Closes the socket
+    /// Abort the heartbeat job if it is running
+    pub fn close(&self) {
+        self.tx.try_send(Packet::Close).ok();
+        if let Some(handle) = self.heartbeat_handle.try_lock().unwrap().take() {
+            handle.abort();
+        }
     }
 
     /// Sends a packet to the connection.
@@ -116,14 +127,26 @@ where
         Ok(())
     }
 
+    /// Spawn the heartbeat job
+    /// Keep a handle to the job so that it can be aborted when the socket is closed
+    pub(crate) fn spawn_heartbeat(self: Arc<Self>, interval: Duration, timeout: Duration) {
+        let socket = self.clone();
+
+        let handle = tokio::spawn(async move {
+            if let Err(e) = socket.heartbeat_job(interval, timeout).await {
+                // if socket.rx.try_lock().is_err() {
+                socket.send(Packet::Abort).await.ok();
+                // }
+                debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
+            }
+        });
+        self.heartbeat_handle.try_lock().unwrap().replace(handle);
+    }
+
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
-    pub(crate) async fn spawn_heartbeat(
-        &self,
-        interval: Duration,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         let mut pong_rx = self
             .pong_rx
             .try_lock()
@@ -136,6 +159,7 @@ where
             15 + instant.elapsed().as_millis() as u64,
         )))
         .await;
+        debug!("[sid={}] heartbeat routine started", self.sid);
         loop {
             // Some clients send the pong packet in first. If that happens, we should consume it.
             pong_rx.try_recv().ok();
@@ -168,7 +192,7 @@ where
     /// If the transport is in websocket mode, the message is directly sent as a text frame.
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame to the next polling request.
-    /// 
+    ///
     /// ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
     pub async fn emit(&self, msg: String) -> Result<(), Error> {
         self.send(Packet::Message(msg)).await

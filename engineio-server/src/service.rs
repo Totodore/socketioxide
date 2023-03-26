@@ -67,19 +67,19 @@ where
                     transport: TransportType::Polling,
                     method: Method::GET,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_req(sid))),
+                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_http_req(sid))),
                 Some(RequestInfo {
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_post_req(sid, req))),
+                }) => ResponseFuture::async_response(Box::pin(engine.on_post_http_req(sid, req))),
                 Some(RequestInfo {
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(engine.upgrade_ws_req(sid, req))),
+                }) => ResponseFuture::async_response(Box::pin(engine.on_ws_req(sid, req))),
                 _ => ResponseFuture::empty_response(400),
             }
         } else {

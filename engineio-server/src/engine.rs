@@ -12,8 +12,9 @@ use crate::{
     futures::{http_response, ws_response},
     layer::{EngineIoConfig, EngineIoHandler},
     packet::{OpenPacket, Packet},
+    service::TransportType,
     socket::{ConnectionType, Socket},
-    utils::generate_sid, service::TransportType,
+    utils::generate_sid,
 };
 use bytes::Buf;
 use futures::{SinkExt, StreamExt, TryStreamExt};
@@ -63,20 +64,27 @@ where
         {
             self.sockets.write().unwrap().insert(
                 sid,
-                Socket::new(sid, ConnectionType::Http, &self.config, self.handler.clone()).into(),
+                Socket::new(
+                    sid,
+                    ConnectionType::Http,
+                    &self.config,
+                    self.handler.clone(),
+                )
+                .into(),
             );
         }
-        self.clone().start_heartbeat_routine(sid);
+        let socket = self.get_socket(sid).unwrap();
+        socket.spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config)).try_into()?;
         http_response(StatusCode::OK, packet).map_err(Error::HttpError)
     }
 
     /// Handle http polling request
-    /// 
+    ///
     /// If there is packet in the socket buffer, it will be sent immediately
     /// Otherwise it will wait for the next packet to be sent from the socket
-    pub async fn on_polling_req<B>(
+    pub async fn on_polling_http_req<B>(
         self: Arc<Self>,
         sid: i64,
     ) -> Result<Response<ResponseBody<B>>, Error>
@@ -133,9 +141,9 @@ where
     }
 
     /// Handle http polling post request
-    /// 
+    ///
     /// Split the body into packets and send them to the internal socket
-    pub async fn on_polling_post_req<R, B>(
+    pub async fn on_post_http_req<R, B>(
         self: Arc<Self>,
         sid: i64,
         body: Request<R>,
@@ -189,7 +197,7 @@ where
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
     /// the http polling request is closed and the SID is kept for the websocket
-    pub async fn upgrade_ws_req<R, B>(
+    pub async fn on_ws_req<R, B>(
         self: Arc<Self>,
         sid: Option<i64>,
         req: Request<R>,
@@ -209,7 +217,7 @@ where
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
-                Ok(conn) => match self.on_ws_conn_upgrade(conn, sid).await {
+                Ok(conn) => match self.on_ws_req_init(conn, sid).await {
                     Ok(_) => debug!("ws closed"),
                     Err(e) => debug!("ws closed with error: {:?}", e),
                 },
@@ -225,7 +233,7 @@ where
     /// Sends an open packet if it is not an upgrade from a polling request
     ///
     /// Read packets from the websocket and handle them
-    async fn on_ws_conn_upgrade(
+    async fn on_ws_req_init(
         self: Arc<Self>,
         conn: Upgraded,
         sid: Option<i64>,
@@ -234,14 +242,21 @@ where
 
         let socket = if sid.is_none() || !self.get_socket(sid.unwrap()).is_some() {
             let sid = generate_sid();
-            let socket: Arc<Socket<H>> =
-                Socket::new(sid, ConnectionType::WebSocket, &self.config, self.handler.clone()).into();
+            let socket: Arc<Socket<H>> = Socket::new(
+                sid,
+                ConnectionType::WebSocket,
+                &self.config,
+                self.handler.clone(),
+            )
+            .into();
             {
                 self.sockets.write().unwrap().insert(sid, socket.clone());
             }
             debug!("[sid={sid}] new websocket connection");
             self.ws_init_handshake(sid, &mut ws).await?;
-            self.clone().start_heartbeat_routine(sid);
+            socket
+                .clone()
+                .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
             socket
         } else {
             let sid = sid.unwrap();
@@ -256,7 +271,6 @@ where
         let rx_handle = tokio::spawn(async move {
             let mut socket_rx = rx_socket.rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
-                debug!("item: {:?}", item);
                 let res = match item {
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
@@ -280,11 +294,7 @@ where
                     Ok(packet) => socket.handle_packet(packet).await,
                     Err(err) => ControlFlow::Break(Err(err)),
                 },
-                Message::Binary(msg) => {
-                    socket
-                        .handle_packet(Packet::Binary(msg))
-                        .await
-                }
+                Message::Binary(msg) => socket.handle_packet(Packet::Binary(msg)).await,
                 Message::Close(_) => break,
                 _ => panic!("[sid={}] unexpected ws message", socket.sid),
             };
@@ -306,23 +316,6 @@ where
         self.close_session(socket.sid);
         rx_handle.abort();
         Ok(())
-    }
-
-    fn start_heartbeat_routine(self: Arc<Self>, sid: i64) {
-        debug!("starting heartbeat routine for sid={}", sid);
-        tokio::spawn(async move {
-            let socket = self.get_socket(sid).unwrap();
-            if let Err(e) = socket
-                .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout)
-                .await
-            {
-                if socket.rx.try_lock().is_err() {
-                    socket.send(Packet::Abort).await.ok();
-                }
-                self.close_session(sid);
-                debug!("[sid={sid}] heartbeat error: {:?}", e);
-            }
-        });
     }
 
     /// Upgrade a session from a polling request to a websocket request.
@@ -396,7 +389,9 @@ where
         Ok(())
     }
     fn close_session(&self, sid: i64) {
-        self.sockets.write().unwrap().remove(&sid);
+        if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
+            socket.close();
+        }
         debug!("[sid={sid}] socket closed");
     }
 
