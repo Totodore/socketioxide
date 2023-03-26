@@ -36,7 +36,7 @@ where
     conn: AtomicU8,
 
     // Channel to send packets to the connection
-    pub rx: Mutex<mpsc::Receiver<Packet>>,
+    pub(crate) rx: Mutex<mpsc::Receiver<Packet>>,
     tx: mpsc::Sender<Packet>,
     handler: Arc<H>,
 
@@ -99,14 +99,15 @@ where
                 self.pong_tx.try_send(()).ok();
                 ControlFlow::Continue(Ok(()))
             }
-            Packet::Binary(data) => match self.handler.on_binary(data, self).await {
-                Err(e) => ControlFlow::Continue(Err(e)),
-                Ok(_) => ControlFlow::Continue(Ok(())),
-            },
-            Packet::Message(msg) => match self.handler.on_message(msg, self).await {
-                Ok(_) => ControlFlow::Continue(Ok(())),
-                Err(e) => ControlFlow::Continue(Err(e)),
-            },
+            Packet::Binary(data) => {
+                self.handler.on_binary(data, self).await;
+                ControlFlow::Continue(Ok(()))
+             },
+            Packet::Message(msg) => {
+                self.handler.on_message(msg, self).await;
+                ControlFlow::Continue(Ok(()))
+                
+            }
             p => ControlFlow::Continue(Err(Error::BadPacket(p))),
         }
     }

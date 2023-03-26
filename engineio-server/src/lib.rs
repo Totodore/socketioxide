@@ -2,7 +2,7 @@ pub use async_trait::async_trait;
 pub mod service;
 pub mod layer;
 pub mod socket;
-pub mod errors;
+mod errors;
 mod futures;
 mod body;
 mod packet;

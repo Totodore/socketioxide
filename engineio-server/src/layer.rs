@@ -14,10 +14,10 @@ pub trait EngineIoHandler: Send + Sync + Clone + 'static {
     fn on_disconnect(&self, _socket: &Socket<Self>);
 
     /// Called when a message is received from the client.
-    async fn on_message(&self, _msg: String, _socket: &Socket<Self>) -> Result<(), Error>;
+    async fn on_message(&self, _msg: String, _socket: &Socket<Self>);
 
     /// Called when a binary message is received from the client.
-    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket<Self>) -> Result<(), Error>;
+    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket<Self>);
 }
 
 use std::time::Duration;
@@ -57,12 +57,12 @@ pub struct EngineIoConfig {
     ///         println!("socket disconnect {}", socket.sid);
     ///     }
     /// 
-    ///     async fn on_message(&self, msg: String, socket: &Socket<Self>) -> Result<(), Error> {
+    ///     async fn on_message(&self, msg: String, socket: &Socket<Self>) {
     ///         println!("Ping pong message {:?}", msg);
     ///         socket.emit(msg).await  // This will wait until the buffer is drained
     ///     }
     /// 
-    ///     async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) -> Result<(), Error> {
+    ///     async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
     ///         println!("Ping pong binary message {:?}", data);
     ///         socket.emit_binary(data).await  // This will wait until the buffer is drained
     ///     }
