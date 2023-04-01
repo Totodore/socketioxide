@@ -1,26 +1,26 @@
 use async_trait::async_trait;
 use tower::Layer;
 
-use crate::{errors::Error, service::EngineIoService, socket::Socket};
+use std::{time::Duration, sync::Arc};
+use crate::{service::EngineIoService, socket::Socket};
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
-pub trait EngineIoHandler: Send + Sync + Clone + 'static {
+pub trait EngineIoHandler: Send + Sync + 'static {
 
     /// Called when a new socket is connected.
-    fn on_connect(&self, _socket: &Socket<Self>);
+    fn on_connect(self: Arc<Self>, socket: &Socket<Self>);
 
     /// Called when a socket is disconnected.
-    fn on_disconnect(&self, _socket: &Socket<Self>);
+    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self>);
 
     /// Called when a message is received from the client.
-    async fn on_message(&self, _msg: String, _socket: &Socket<Self>);
+    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>);
 
     /// Called when a binary message is received from the client.
-    async fn on_binary(&self, _data: Vec<u8>, _socket: &Socket<Self>);
+    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>);
 }
 
-use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -36,7 +36,7 @@ pub struct EngineIoConfig {
     /// Defaults to 20 seconds.
     pub ping_timeout: Duration,
 
-    /// The maximum number of packets that can be buffered per socket before being emitted to the client.
+    /// The maximum number of packets that can be buffered per connection before being emitted to the client.
     /// 
     /// If the buffer if full the `emit()` method will wait until the buffer is drained:
     /// ```
@@ -130,30 +130,30 @@ impl EngineIoConfigBuilder {
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H>
 where
-    H: EngineIoHandler + ?Sized + Clone,
+    H: EngineIoHandler,
 {
     config: EngineIoConfig,
-    handler: H,
+    handler: Arc<H>,
 }
 
 impl<H> EngineIoLayer<H>
 where
-    H: EngineIoHandler + ?Sized + Clone,
+    H: EngineIoHandler,
 {
     pub fn new(handler: H) -> Self {
         Self {
             config: EngineIoConfig::default(),
-            handler,
+            handler: handler.into(),
         }
     }
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
-        Self { config, handler }
+        Self { config, handler: handler.into() }
     }
 }
 
 impl<S, H> Layer<S> for EngineIoLayer<H>
 where
-    H: EngineIoHandler + ?Sized + Clone,
+    H: EngineIoHandler,
 {
     type Service = EngineIoService<S, H>;
 

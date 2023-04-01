@@ -51,7 +51,7 @@ where
     H: EngineIoHandler + ?Sized,
 {
     fn drop(&mut self) {
-        self.handler.on_disconnect(&self);
+        self.handler.clone().on_disconnect(&self);
     }
 }
 
@@ -79,7 +79,7 @@ where
             pong_tx,
             heartbeat_handle: Mutex::new(None),
         };
-        socket.handler.on_connect(&socket);
+        socket.handler.clone().on_connect(&socket);
         socket
     }
 
@@ -100,11 +100,11 @@ where
                 ControlFlow::Continue(Ok(()))
             }
             Packet::Binary(data) => {
-                self.handler.on_binary(data, self).await;
+                self.handler.clone().on_binary(data, self).await;
                 ControlFlow::Continue(Ok(()))
              },
             Packet::Message(msg) => {
-                self.handler.on_message(msg, self).await;
+                self.handler.clone().on_message(msg, self).await;
                 ControlFlow::Continue(Ok(()))
                 
             }

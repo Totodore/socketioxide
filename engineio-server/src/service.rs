@@ -14,7 +14,7 @@ use std::{
     task::{Context, Poll},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct EngineIoService<S, H>
 where
     H: EngineIoHandler + ?Sized,
@@ -27,11 +27,15 @@ impl<S, H> EngineIoService<S, H>
 where
     H: EngineIoHandler + ?Sized,
 {
-    pub fn from_config(inner: S, handler: H, config: EngineIoConfig) -> Self {
+    pub fn from_config(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
-            engine: EngineIo::from_config(handler.into(), config).into(),
+            engine: EngineIo::from_config(handler, config).into(),
         }
+    }
+
+    pub fn from_custom_engine(inner: S, engine: Arc<EngineIo<H>>) -> Self {
+        EngineIoService { inner, engine }
     }
 }
 
@@ -84,6 +88,19 @@ where
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
+        }
+    }
+}
+
+impl<S, H> Clone for EngineIoService<S, H>
+where
+    H: EngineIoHandler + ?Sized,
+    S: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            engine: self.engine.clone(),
         }
     }
 }
@@ -179,7 +196,8 @@ mod tests {
 
     #[test]
     fn request_info_websocket_with_sid() {
-        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=123");
+        let req =
+            build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=123");
         let info = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, Some(123));
         assert_eq!(info.transport, TransportType::Websocket);

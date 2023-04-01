@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use axum::routing::get;
 use axum::Server;
@@ -14,19 +14,19 @@ struct MyHandler;
 
 #[engineio_server::async_trait]
 impl EngineIoHandler for MyHandler {
-    fn on_connect(&self, socket: &Socket<Self>) {
+    fn on_connect(self: Arc<Self>, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
     }
-    fn on_disconnect(&self, socket: &Socket<Self>) {
+    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self>) {
         println!("socket disconnect {}", socket.sid);
     }
 
-    async fn on_message(&self, msg: String, socket: &Socket<Self>) {
+    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).await.ok();
     }
 
-    async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
+    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).await.ok();
     }
