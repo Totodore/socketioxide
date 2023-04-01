@@ -56,7 +56,7 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,
 {
-    pub async fn on_open_http_req<B>(self: Arc<Self>) -> Result<Response<ResponseBody<B>>, Error>
+    pub(crate) async fn on_open_http_req<B>(self: Arc<Self>) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
     {
@@ -84,7 +84,7 @@ where
     ///
     /// If there is packet in the socket buffer, it will be sent immediately
     /// Otherwise it will wait for the next packet to be sent from the socket
-    pub async fn on_polling_http_req<B>(
+    pub(crate) async fn on_polling_http_req<B>(
         self: Arc<Self>,
         sid: i64,
     ) -> Result<Response<ResponseBody<B>>, Error>
@@ -143,7 +143,7 @@ where
     /// Handle http polling post request
     ///
     /// Split the body into packets and send them to the internal socket
-    pub async fn on_post_http_req<R, B>(
+    pub(crate) async fn on_post_http_req<R, B>(
         self: Arc<Self>,
         sid: i64,
         body: Request<R>,
@@ -197,7 +197,7 @@ where
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
     /// the http polling request is closed and the SID is kept for the websocket
-    pub async fn on_ws_req<R, B>(
+    pub(crate) async fn on_ws_req<R, B>(
         self: Arc<Self>,
         sid: Option<i64>,
         req: Request<R>,
@@ -399,7 +399,7 @@ where
      * Get a socket by its sid
      * Clones the socket ref to avoid holding the lock
      */
-    fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
+    pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 }
