@@ -1,58 +1,48 @@
-use engineio_server::layer::EngineIoHandler;
-use engineio_server::socket::Socket as EIoSocket;
-use tracing::debug;
+use std::sync::{Arc, RwLock};
 
-use crate::{packet::{Packet, PacketData}, errors::Error};
+use serde_json::Value;
 
-#[derive(Debug, Clone)]
-enum SocketState {
-    AwaitingConnect,
-    Connected,
-    Closed,
-}
-#[derive(Debug, Clone)]
+use crate::{
+    client::Client,
+    packet::{Packet},
+};
+
+pub type MessageHandlerCallback = Box<dyn Fn(&Socket, String, serde_json::Value) + Send + Sync + 'static>;
+
 pub struct Socket {
-    state: SocketState,
+    client: Arc<Client>,
+    message_handler: RwLock<Option<MessageHandlerCallback>>,
+    pub ns: String,
+    pub sid: i64,
 }
 
 impl Socket {
-    pub fn new() -> Self {
+    pub fn new(client: Arc<Client>, ns: String, sid: i64) -> Self {
         Self {
-            state: SocketState::Closed,
+            client,
+            message_handler: RwLock::new(None),
+            ns,
+            sid,
         }
     }
 
-    async fn emit(&self, socket: &EIoSocket<Self>, packet: Packet<()>) -> Result<(), Error> {
-        debug!("Emitting packet: {:?}", packet);
-        socket.emit(packet.try_into()?).await.unwrap();
-        Ok(())
-    }
-}
-
-#[engineio_server::async_trait]
-impl EngineIoHandler for Socket {
-    fn on_connect(&self, socket: &EIoSocket<Self>) {
-        println!("socket connect {}", socket.sid);
-        // self.state = SocketState::AwaitingConnect;
-    }
-    fn on_disconnect(&self, socket: &EIoSocket<Self>) {
-        println!("socket disconnect {}", socket.sid);
+    pub fn on_message(&self, callback: impl Fn(&Socket, String, serde_json::Value) + Send + Sync + 'static) {
+        self.message_handler.write().unwrap().replace(Box::new(callback));
     }
 
-    async fn on_message(&self, msg: String, socket: &EIoSocket<Self>) {
-        debug!("Received message: {:?}", msg);
-        match Packet::<()>::try_from(msg).unwrap() {
-            Packet {
-                inner: PacketData::Connect(None),
-                ns,
-            } => {
-                self.emit(socket, Packet::connect(ns, socket.sid)).await.unwrap();
-            }
-            _ => {}
-        };
+
+    //TODO: make this async
+    pub async fn emit(&self, event: impl Into<String>, data: impl Into<Value>) {
+        let client = self.client.clone();
+        let sid = self.sid;
+        let ns = self.ns.clone();
+        client
+            .emit(sid, Packet::event(ns, event.into(), data.into()))
+            .await
+            .unwrap();
     }
 
-    async fn on_binary(&self, data: Vec<u8>, socket: &EIoSocket<Self>) {
-        println!("Ping pong binary message {:?}", data);
+    pub(crate) fn recv_event(self: Arc<Self>, e: String, data: Value) {
+        self.message_handler.read().unwrap().as_ref().map(|f| f(&self, e, data));
     }
 }

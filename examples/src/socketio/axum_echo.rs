@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Server;
-use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer};
+use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -21,9 +21,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
     info!("Starting server");
 
+    let ns = Namespace::builder()
+        .add("/", |socket| {
+            info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
+            socket.emit("auth", ());
+            socket.on_message(|socket, e, data| {
+                info!("Received event: {:?} {:?}", e, data);
+                socket.emit(e, data);
+            });
+        })
+        .build();
+
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::from_config(config));
+        .layer(SocketIoLayer::from_config(config, ns));
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
