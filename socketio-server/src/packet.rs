@@ -20,6 +20,12 @@ impl<T> Packet<T> {
             ns,
         }
     }
+    pub fn event(ns: String, e: String, data: T) -> Self {
+        Self {
+            inner: PacketData::Event(e, data),
+            ns
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
