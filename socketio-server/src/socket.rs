@@ -3,12 +3,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use futures::Future;
+use futures::{Future, FutureExt};
 use serde::Serialize;
 use serde_json::Value;
 use tower::BoxError;
 
-use crate::{client::Client, packet::Packet, handshake::Handshake};
+use crate::{client::Client, handshake::Handshake, packet::Packet};
 
 pub type MessageHandlerCallback = Box<
     dyn Fn(
@@ -48,7 +48,6 @@ impl Socket {
         self.message_handler.write().unwrap().replace(handler);
     }
 
-    //TODO: make this async
     pub async fn emit(&self, event: impl Into<String>, data: impl Serialize) {
         let client = self.client.clone();
         let sid = self.sid;

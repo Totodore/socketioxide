@@ -11,6 +11,4 @@ mod errors;
 
 //TODO: Remove (used for testing purposes only)
 #[derive(Serialize)]
-pub struct Empty {
-
-}
+pub struct Empty;

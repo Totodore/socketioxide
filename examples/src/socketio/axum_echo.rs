@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
             socket
-                .emit("auth", socket.handshake.auth.clone().unwrap_or("{}".into()))
+                .emit("auth", socket.handshake.auth.clone())
                 .await;
 
             socket.on_message(|socket, e, data| async move {
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add("/custom", |socket| async move {
             info!("Socket.IO connected on: {:?} {:?}", socket.ns, socket.sid);
             socket
-                .emit("auth", socket.handshake.auth.clone().unwrap_or("{}".into()))
+                .emit("auth", socket.handshake.auth.clone())
                 .await;
             Ok(())
         })

@@ -69,11 +69,11 @@ impl EngineIoHandler for Client {
 
     async fn on_message(self: Arc<Self>, msg: String, socket: &EIoSocket<Self>) {
         debug!("Received message: {:?}", msg);
-        match Packet::<serde_json::Value>::try_from(msg).unwrap() {
-            Packet {
+        match Packet::<serde_json::Value>::try_from(msg) {
+            Ok(Packet {
                 inner: PacketData::Connect(auth),
                 ns: ns_path,
-            } => {
+            }) => {
                 debug!("auth: {:?}", auth);
                 let handshake = Handshake {
                     url: "".to_string(),
@@ -91,14 +91,18 @@ impl EngineIoHandler for Client {
                         .unwrap();
                 }
             }
-            Packet {
+            Ok(Packet {
                 inner: PacketData::Event(msg, d),
                 ns,
-            } => {
+            }) => {
                 if let Some(ns) = self.ns.get(&ns) {
                     ns.recv_event(socket.sid, msg, d);
                 }
-            }
+            },
+            Err(e) => {
+                debug!("socket serialization error: {}", e);
+                socket.emit_close().await;
+            },
             _ => {}
         };
     }
