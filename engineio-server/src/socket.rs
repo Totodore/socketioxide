@@ -114,8 +114,7 @@ where
 
     /// Closes the socket
     /// Abort the heartbeat job if it is running
-    pub fn close(&self) {
-        self.tx.try_send(Packet::Close).ok();
+    pub(crate) fn close(&self) {
         if let Some(handle) = self.heartbeat_handle.try_lock().unwrap().take() {
             handle.abort();
         }
@@ -197,6 +196,10 @@ where
     /// ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
     pub async fn emit(&self, msg: String) -> Result<(), Error> {
         self.send(Packet::Message(msg)).await
+    }
+
+    pub async fn emit_close(&self)  {
+        self.send(Packet::Abort).await.ok();
     }
 
     /// Emits a binary message to the client.
