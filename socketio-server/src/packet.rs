@@ -81,15 +81,16 @@ where
         }
 
         match self.inner {
+            PacketData::Connect(None) => (),
             PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
-            PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
+            PacketData::Disconnect => (),
             PacketData::Event(event, data) => {
                 res.push_str(&serde_json::to_string(&(event, &data))?)
-            }
+            },
             PacketData::Ack(_) => todo!(),
+            PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::BinaryEvent(_, _, _) => todo!(),
             PacketData::BinaryAck(_, _) => todo!(),
-            _ => {}
         };
         Ok(res)
     }
@@ -130,7 +131,7 @@ where
             .parse()
             .unwrap_or(0);
         let mut ns: String = chars
-            .take_while_ref(|c| *c != ',' && *c != '{' && !c.is_digit(10))
+            .take_while_ref(|c| *c != ',' && *c != '{' && *c != '[' && !c.is_digit(10))
             .collect();
 
         // If the namespace is not empty it has a `,` separator after
@@ -150,14 +151,14 @@ where
         let data = chars.as_str();
         let inner = match index {
             '0' => PacketData::Connect(get_packet(&data)?),
-            '1' => PacketData::ConnectError(get_packet(&data)?.ok_or(Error::InvalidPacketType)?),
-            '2' => PacketData::Disconnect,
-            '3' => {
+            '1' => PacketData::Disconnect,
+            '2' => {
                 let (event, payload): (String, T) =
-                    get_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                get_packet(&data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::Event(event, payload)
             }
-            '4' => todo!(),
+            '3' => todo!(),
+            '4' => PacketData::ConnectError(get_packet(&data)?.ok_or(Error::InvalidPacketType)?),
             '5' => todo!(),
             '6' => todo!(),
             _ => return Err(Error::InvalidPacketType),
