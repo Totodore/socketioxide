@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use itertools::Itertools;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::debug;
 
 use crate::errors::Error;
@@ -11,7 +12,7 @@ pub struct Packet<T> {
     pub ns: String,
 }
 
-impl<T> Packet<T> {
+impl Packet<ConnectPacket> {
     pub fn connect(ns: String, sid: i64) -> Self {
         Self {
             inner: PacketData::Connect(Some(ConnectPacket {
@@ -20,17 +21,20 @@ impl<T> Packet<T> {
             ns,
         }
     }
+}
+
+impl<T> Packet<T> {
     pub fn event(ns: String, e: String, data: T) -> Self {
         Self {
             inner: PacketData::Event(e, data),
-            ns
+            ns,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketData<T> {
-    Connect(Option<ConnectPacket>),
+    Connect(Option<T>),
     Disconnect,
     Event(String, T),
     Ack(i64),
@@ -68,7 +72,9 @@ where
         match self.inner {
             PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
-            PacketData::Event(event, data) => res.push_str(&serde_json::to_string(&(event, &data))?),
+            PacketData::Event(event, data) => {
+                res.push_str(&serde_json::to_string(&(event, &data))?)
+            }
             PacketData::Ack(_) => todo!(),
             PacketData::BinaryEvent(_, _, _) => todo!(),
             PacketData::BinaryAck(_, _) => todo!(),
@@ -105,22 +111,27 @@ where
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
-        let index = chars.by_ref().next().ok_or(Error::InvalidPacketType)?;
+        let index = chars.next().ok_or(Error::InvalidPacketType)?;
         //TODO: attachments
         let _attachments: u32 = chars
-            .by_ref()
-            .take_while(|c| *c != '-')
+            .take_while_ref(|c| *c != '-' && c.is_digit(10))
             .collect::<String>()
             .parse()
             .unwrap_or(0);
-        let mut ns: String = chars.by_ref().take_while(|c| *c != ',').collect();
+        let mut ns: String = chars
+            .take_while_ref(|c| *c != ',' && *c != '{' && !c.is_digit(10))
+            .collect();
+
+        // If the namespace is not empty it has a `,` separator after
+        if !ns.is_empty() {
+            chars.next();
+        } 
         if !ns.starts_with("/") {
             ns.insert(0, '/');
         }
         //TODO: ack
         let _ack: Option<i64> = chars
-            .by_ref()
-            .take_while(|c| c.is_digit(10))
+            .take_while_ref(|c| c.is_digit(10))
             .collect::<String>()
             .parse()
             .ok();
@@ -131,9 +142,10 @@ where
             '1' => PacketData::ConnectError(get_packet(&data)?.ok_or(Error::InvalidPacketType)?),
             '2' => PacketData::Disconnect,
             '3' => {
-                let (event, payload): (String, T) = get_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                let (event, payload): (String, T) =
+                    get_packet(&data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::Event(event, payload)
-            },
+            }
             '4' => todo!(),
             '5' => todo!(),
             '6' => todo!(),
@@ -150,6 +162,7 @@ struct Placeholder {
     num: u32,
 }
 
+/// Connect packet sent by the client
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectPacket {
     sid: String,

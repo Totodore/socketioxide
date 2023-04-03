@@ -6,6 +6,7 @@ use engineio_server::{engine::EngineIo, layer::EngineIoHandler};
 use serde::Serialize;
 use tracing::debug;
 
+use crate::handshake::Handshake;
 use crate::{
     config::SocketIoConfig,
     errors::Error,
@@ -70,11 +71,20 @@ impl EngineIoHandler for Client {
         debug!("Received message: {:?}", msg);
         match Packet::<serde_json::Value>::try_from(msg).unwrap() {
             Packet {
-                inner: PacketData::Connect(None),
+                inner: PacketData::Connect(auth),
                 ns,
             } => {
-                self.ns.get(&ns).unwrap().connect(socket.sid, self.clone());
-                self.emit(socket.sid, Packet::<()>::connect(ns, socket.sid))
+                debug!("auth: {:?}", auth);
+                let handshake = Handshake {
+                    url: "".to_string(),
+                    issued: 0,
+                    auth,
+                };
+                self.ns
+                    .get(&ns)
+                    .unwrap()
+                    .connect(socket.sid, self.clone(), handshake);
+                self.emit(socket.sid, Packet::connect(ns, socket.sid))
                     .await
                     .unwrap();
             }

@@ -8,7 +8,11 @@ use futures::Future;
 use serde_json::Value;
 use tower::BoxError;
 
-use crate::{client::Client, socket::Socket};
+use crate::{
+    client::Client,
+    handshake::Handshake,
+    socket::Socket,
+};
 
 pub type EventCallback = Arc<
     dyn Fn(
@@ -41,8 +45,8 @@ impl Namespace {
     }
 
     /// Connects a client to a namespace
-    pub fn connect(&self, sid: i64, client: Arc<Client>) {
-        let socket: Arc<Socket> = Socket::new(client, self.path.clone(), sid).into();
+    pub fn connect(&self, sid: i64, client: Arc<Client>, handshake: Handshake) {
+        let socket: Arc<Socket> = Socket::new(client, handshake, self.path.clone(), sid).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket));
     }

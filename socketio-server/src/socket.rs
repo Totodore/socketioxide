@@ -8,9 +8,9 @@ use serde::Serialize;
 use serde_json::Value;
 use tower::BoxError;
 
-use crate::{client::Client, packet::Packet};
+use crate::{client::Client, packet::Packet, handshake::Handshake};
 
-pub type MessageHandlerCallback<'a> = Box<
+pub type MessageHandlerCallback = Box<
     dyn Fn(
             Arc<Socket>,
             String,
@@ -22,16 +22,18 @@ pub type MessageHandlerCallback<'a> = Box<
 >;
 pub struct Socket {
     client: Arc<Client>,
-    message_handler: RwLock<Option<MessageHandlerCallback<'static>>>,
+    message_handler: RwLock<Option<MessageHandlerCallback>>,
+    pub handshake: Handshake,
     pub ns: String,
     pub sid: i64,
 }
 
 impl Socket {
-    pub fn new(client: Arc<Client>, ns: String, sid: i64) -> Self {
+    pub fn new(client: Arc<Client>, handshake: Handshake, ns: String, sid: i64) -> Self {
         Self {
             client,
             message_handler: RwLock::new(None),
+            handshake,
             ns,
             sid,
         }

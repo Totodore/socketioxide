@@ -24,7 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ns = Namespace::builder()
         .add("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
-            socket.emit("auth", Empty {}).await;
+            socket
+                .emit("auth", socket.handshake.auth.clone().unwrap_or("{}".into()))
+                .await;
 
             socket.on_message(|socket, e, data| async move {
                 info!("Received event: {:?} {:?}", e, data);
@@ -32,6 +34,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(())
             });
 
+            Ok(())
+        })
+        .add("/custom", |socket| async move {
+            info!("Socket.IO connected on: {:?} {:?}", socket.ns, socket.sid);
+            socket
+                .emit("auth", socket.handshake.auth.clone().unwrap_or("{}".into()))
+                .await;
             Ok(())
         })
         .build();
