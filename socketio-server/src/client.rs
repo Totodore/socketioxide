@@ -89,6 +89,18 @@ impl EngineIoHandler for Client {
                 if let Some(ns) = self.ns.get(&ns) {
                     ns.recv_event(socket.sid, msg, d);
                 }
+            },
+            Ok(Packet {
+                inner: PacketData::Disconnect,
+                ns
+            }) => {
+                if let Some(ns) = self.ns.get(&ns) {
+                    ns.disconnect(socket.sid);
+                    // If there is no other namespaces connected, close the underlying socket
+                    // if !self.ns.values().any(|ns| ns.has(socket.sid)) {
+                    //     socket.emit_close().await;
+                    // }
+                }
             }
             Err(e) => {
                 debug!("socket serialization error: {}", e);

@@ -44,11 +44,19 @@ impl Namespace {
         NamespaceBuilder::new()
     }
 
-    /// Connects a client to a namespace
+    /// Connects a socket to a namespace
     pub fn connect(&self, sid: i64, client: Arc<Client>, handshake: Handshake) {
         let socket: Arc<Socket> = Socket::new(client, handshake, self.path.clone(), sid).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket));
+    }
+
+    pub fn disconnect(&self, sid: i64) {
+        self.sockets.write().unwrap().remove(&sid);
+    }
+
+    pub fn has(&self, sid: i64) -> bool {
+        self.sockets.read().unwrap().values().any(|s| s.sid == sid)
     }
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket

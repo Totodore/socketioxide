@@ -26,9 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
             socket.emit("auth", socket.handshake.auth.clone()).await;
 
-            socket.on_message(|socket, e, data| async move {
+            socket.on_event(|socket, e, data| async move {
                 info!("Received event: {:?} {:?}", e, data);
-                socket.emit(e, data).await;
+                socket.emit("message-back", data).await;
             });
         })
         .add("/custom", |socket| async move {

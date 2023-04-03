@@ -38,7 +38,7 @@ impl Socket {
         }
     }
 
-    pub fn on_message<C, F>(&self, callback: C)
+    pub fn on_event<C, F>(&self, callback: C)
     where
         C: Fn(Arc<Socket>, String, serde_json::Value) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + Sync + 'static,
