@@ -1,19 +1,24 @@
 use std::{
     collections::HashMap,
+    pin::Pin,
     sync::{Arc, RwLock},
 };
 
+use futures::Future;
 use serde_json::Value;
+use tower::BoxError;
 
-use crate::{
-    client::Client,
-    packet::{Packet, PacketData},
-    socket::Socket,
-};
+use crate::{client::Client, socket::Socket};
 
-pub type EventCallback = fn(Arc<Socket>);
+pub type EventCallback = Arc<
+    dyn Fn(
+            Arc<Socket>,
+        ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + Sync + 'static>>
+        + Send
+        + Sync
+        + 'static,
+>;
 
-//TODO: Dynamic type
 pub type NsHandlers = HashMap<String, EventCallback>;
 
 pub struct Namespace {
@@ -39,7 +44,7 @@ impl Namespace {
     pub fn connect(&self, sid: i64, client: Arc<Client>) {
         let socket: Arc<Socket> = Socket::new(client, self.path.clone(), sid).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
-        (self.callback)(socket);
+        tokio::spawn((self.callback)(socket));
     }
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket
@@ -65,13 +70,23 @@ impl NamespaceBuilder {
         }
     }
 
-    pub fn add<P: Into<String>>(mut self, path: P, callback: EventCallback) -> Self {
-        self.ns_handlers.insert(path.into(), callback);
+    pub fn add<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
+    where
+        C: Fn(Arc<Socket>) -> F + Send + Sync + 'static,
+        F: Future<Output = Result<(), BoxError>> + Send + Sync + 'static,
+    {
+        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
+        self.ns_handlers.insert(path.into(), handler);
         self
     }
-    pub fn add_many<P: Into<String>>(mut self, paths: Vec<P>, callback: EventCallback) -> Self {
+    pub fn add_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
+    where
+        C: Fn(Arc<Socket>) -> F + Send + Sync + 'static,
+        F: Future<Output = Result<(), BoxError>> + Send + Sync + 'static,
+    {
+        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
         for path in paths {
-            self.ns_handlers.insert(path.into(), callback);
+            self.ns_handlers.insert(path.into(), handler.clone());
         }
         self
     }
