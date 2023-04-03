@@ -14,15 +14,7 @@ use crate::{
     packet::{Packet, PacketData},
 };
 
-#[derive(Debug, Clone)]
-enum ClientState {
-    AwaitingConnect,
-    Connected,
-    Closed,
-}
-
 pub struct Client {
-    state: ClientState,
     config: SocketIoConfig,
     ns: HashMap<String, Namespace>,
     engine: Weak<EngineIo<Self>>,
@@ -35,7 +27,6 @@ impl Client {
         ns_handlers: HashMap<String, EventCallback>,
     ) -> Self {
         let client = Self {
-            state: ClientState::Closed,
             config,
             engine,
             ns: ns_handlers
@@ -98,11 +89,11 @@ impl EngineIoHandler for Client {
                 if let Some(ns) = self.ns.get(&ns) {
                     ns.recv_event(socket.sid, msg, d);
                 }
-            },
+            }
             Err(e) => {
                 debug!("socket serialization error: {}", e);
                 socket.emit_close().await;
-            },
+            }
             _ => {}
         };
     }
