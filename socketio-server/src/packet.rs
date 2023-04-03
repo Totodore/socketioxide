@@ -31,10 +31,10 @@ impl<T> Packet<T> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketData<T> {
     Connect(Option<ConnectPacket>),
-    ConnectError(ConnectErrorPacket),
     Disconnect,
     Event(String, T),
     Ack(i64),
+    ConnectError(ConnectErrorPacket),
     BinaryEvent(String, T, Vec<Vec<u8>>),
     BinaryAck(T, Vec<Vec<u8>>),
 }
@@ -43,10 +43,10 @@ impl<T> PacketData<T> {
     fn index(&self) -> u8 {
         match self {
             PacketData::Connect(_) => 0,
-            PacketData::ConnectError(_) => 1,
-            PacketData::Disconnect => 2,
-            PacketData::Event(_, _) => 3,
-            PacketData::Ack(_) => 4,
+            PacketData::Disconnect => 1,
+            PacketData::Event(_, _) => 2,
+            PacketData::Ack(_) => 3,
+            PacketData::ConnectError(_) => 4,
             PacketData::BinaryEvent(_, _, _) => 5,
             PacketData::BinaryAck(_, _) => 6,
         }
@@ -106,7 +106,8 @@ where
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
         let index = chars.by_ref().next().ok_or(Error::InvalidPacketType)?;
-        let attachments: u32 = chars
+        //TODO: attachments
+        let _attachments: u32 = chars
             .by_ref()
             .take_while(|c| *c != '-')
             .collect::<String>()
@@ -116,7 +117,8 @@ where
         if !ns.starts_with("/") {
             ns.insert(0, '/');
         }
-        let ack: Option<i64> = chars
+        //TODO: ack
+        let _ack: Option<i64> = chars
             .by_ref()
             .take_while(|c| c.is_digit(10))
             .collect::<String>()
@@ -147,14 +149,6 @@ struct Placeholder {
     placeholder: bool,
     num: u32,
 }
-impl Placeholder {
-    fn new(num: u32) -> Self {
-        Self {
-            placeholder: true,
-            num,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectPacket {
@@ -164,12 +158,4 @@ pub struct ConnectPacket {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectErrorPacket {
     message: String,
-}
-
-impl ConnectPacket {
-    fn new(sid: i64) -> Self {
-        Self {
-            sid: sid.to_string(),
-        }
-    }
 }
