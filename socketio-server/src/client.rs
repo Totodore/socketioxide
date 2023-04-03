@@ -72,7 +72,7 @@ impl EngineIoHandler for Client {
         match Packet::<serde_json::Value>::try_from(msg).unwrap() {
             Packet {
                 inner: PacketData::Connect(auth),
-                ns,
+                ns: ns_path,
             } => {
                 debug!("auth: {:?}", auth);
                 let handshake = Handshake {
@@ -80,13 +80,16 @@ impl EngineIoHandler for Client {
                     issued: 0,
                     auth,
                 };
-                self.ns
-                    .get(&ns)
-                    .unwrap()
-                    .connect(socket.sid, self.clone(), handshake);
-                self.emit(socket.sid, Packet::connect(ns, socket.sid))
-                    .await
-                    .unwrap();
+                if let Some(ns) = self.ns.get(&ns_path) {
+                    ns.connect(socket.sid, self.clone(), handshake);
+                    self.emit(socket.sid, Packet::connect(ns_path, socket.sid))
+                        .await
+                        .unwrap();
+                } else {
+                    self.emit(socket.sid, Packet::invalid_namespace(ns_path))
+                        .await
+                        .unwrap();
+                }
             }
             Packet {
                 inner: PacketData::Event(msg, d),

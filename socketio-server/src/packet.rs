@@ -23,6 +23,17 @@ impl Packet<ConnectPacket> {
     }
 }
 
+impl Packet<()> {
+    pub fn invalid_namespace(ns: String) -> Self {
+        Self {
+            inner: PacketData::ConnectError(ConnectErrorPacket {
+                message: "Invalid namespace".to_string(),
+            }),
+            ns,
+        }
+    }
+}
+
 impl<T> Packet<T> {
     pub fn event(ns: String, e: String, data: T) -> Self {
         Self {
@@ -125,7 +136,7 @@ where
         // If the namespace is not empty it has a `,` separator after
         if !ns.is_empty() {
             chars.next();
-        } 
+        }
         if !ns.starts_with("/") {
             ns.insert(0, '/');
         }
