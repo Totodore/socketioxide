@@ -3,10 +3,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use futures::{Future, FutureExt};
+use futures::Future;
 use serde::Serialize;
 use serde_json::Value;
-use tower::BoxError;
 
 use crate::{client::Client, handshake::Handshake, packet::Packet};
 
@@ -15,7 +14,7 @@ pub type MessageHandlerCallback = Box<
             Arc<Socket>,
             String,
             serde_json::Value,
-        ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + Sync + 'static>>
+        ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
         + Send
         + Sync
         + 'static,
@@ -42,7 +41,7 @@ impl Socket {
     pub fn on_message<C, F>(&self, callback: C)
     where
         C: Fn(Arc<Socket>, String, serde_json::Value) -> F + Send + Sync + 'static,
-        F: Future<Output = Result<(), BoxError>> + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + Sync + 'static,
     {
         let handler = Box::new(move |s, e, v| Box::pin(callback(s, e, v)) as _);
         self.message_handler.write().unwrap().replace(handler);
