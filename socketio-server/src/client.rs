@@ -4,6 +4,7 @@ use std::sync::{Arc, Weak};
 use engineio_server::socket::Socket as EIoSocket;
 use engineio_server::{engine::EngineIo, layer::EngineIoHandler};
 use serde::Serialize;
+use serde_json::Value;
 use tracing::debug;
 
 use crate::handshake::Handshake;
@@ -37,10 +38,7 @@ impl Client {
         client
     }
 
-    pub async fn emit<T>(&self, sid: i64, packet: Packet<T>) -> Result<(), Error>
-    where
-        T: Serialize,
-    {
+    pub async fn emit(&self, sid: i64, packet: Packet<impl Serialize>) -> Result<(), Error> {
         // debug!("Emitting packet: {:?}", packet);
         let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
         socket.emit(packet.try_into()?).await.unwrap();
@@ -60,7 +58,7 @@ impl EngineIoHandler for Client {
 
     async fn on_message(self: Arc<Self>, msg: String, socket: &EIoSocket<Self>) {
         debug!("Received message: {:?}", msg);
-        match Packet::<serde_json::Value>::try_from(msg) {
+        match Packet::<Value>::try_from(msg) {
             Ok(Packet {
                 inner: PacketData::Connect(auth),
                 ns: ns_path,
@@ -87,12 +85,14 @@ impl EngineIoHandler for Client {
                 ns,
             }) => {
                 if let Some(ns) = self.ns.get(&ns) {
-                    ns.recv_event(socket.sid, msg, d);
+                    if let Err(e) = ns.recv_event(socket.sid, msg, d) {
+                        debug!("error handling event: {}", e);
+                    }
                 }
-            },
+            }
             Ok(Packet {
                 inner: PacketData::Disconnect,
-                ns
+                ns,
             }) => {
                 if let Some(ns) = self.ns.get(&ns) {
                     ns.disconnect(socket.sid);

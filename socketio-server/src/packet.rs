@@ -44,6 +44,8 @@ impl<T> Packet<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Empty {}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketData<T> {
     Connect(Option<T>),
     Disconnect,
@@ -84,9 +86,7 @@ where
             PacketData::Connect(None) => (),
             PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::Disconnect => (),
-            PacketData::Event(event, data) => {
-                res.push_str(&serde_json::to_string(&(event, &data))?)
-            },
+            PacketData::Event(event, data) => res.push_str(&serde_json::to_string(&(event, data))?),
             PacketData::Ack(_) => todo!(),
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::BinaryEvent(_, _, _) => todo!(),
@@ -96,10 +96,7 @@ where
     }
 }
 
-fn get_packet<T>(data: &str) -> Result<Option<T>, Error>
-where
-    T: DeserializeOwned,
-{
+fn get_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Error> {
     debug!("Deserializing packet: {:?}", data);
     let packet = if data.is_empty() {
         None
@@ -115,10 +112,7 @@ where
 /// <packet type>[<# of binary attachments>-][<namespace>,][<acknowledgment id>][JSON-stringified payload without binary]
 /// + binary attachments extracted
 /// ```
-impl<T> TryFrom<String> for Packet<T>
-where
-    T: DeserializeOwned,
-{
+impl<T: DeserializeOwned> TryFrom<String> for Packet<T> {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -154,7 +148,7 @@ where
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload): (String, T) =
-                get_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                    get_packet(&data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::Event(event, payload)
             }
             '3' => todo!(),

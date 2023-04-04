@@ -2,9 +2,16 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Server;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
+
+#[derive(Serialize, Deserialize)]
+struct TestMessage {
+    test: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,16 +31,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ns = Namespace::builder()
         .add("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
-            socket.emit("auth", socket.handshake.auth.clone()).await;
 
-            socket.on_event(|socket, e, data| async move {
-                info!("Received event: {:?} {:?}", e, data);
-                socket.emit("message-back", data).await;
+            socket
+                .emit("auth", socket.handshake.auth.clone())
+                .await
+                .ok();
+
+            socket.on_event("message", |socket, data: Value| async move {
+                info!("Received event: {:?}", data);
+                socket.emit("message-back", data).await.ok();
             });
+
+            socket.on_event("message-with-ack", |socket, data: Value| async move {
+                info!("Received event: {:?}", data);
+                socket.emit("message-back", data).await.ok();
+            });
+
         })
         .add("/custom", |socket| async move {
             info!("Socket.IO connected on: {:?} {:?}", socket.ns, socket.sid);
-            socket.emit("auth", socket.handshake.auth.clone()).await;
+            socket
+                .emit("auth", socket.handshake.auth.clone())
+                .await
+                .ok();
         })
         .build();
 

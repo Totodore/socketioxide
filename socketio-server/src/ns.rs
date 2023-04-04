@@ -6,12 +6,11 @@ use std::{
 
 use futures::Future;
 use serde_json::Value;
-use tower::BoxError;
 
 use crate::{
     client::Client,
     handshake::Handshake,
-    socket::Socket,
+    socket::Socket, errors::Error,
 };
 
 pub type EventCallback = Arc<
@@ -60,10 +59,11 @@ impl Namespace {
     }
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket
-    pub fn recv_event(&self, sid: i64, e: String, data: Value) {
+    pub fn recv_event(&self, sid: i64, e: String, data: Value) -> Result<(), Error> {
         if let Some(socket) = self.get_socket(sid) {
-            socket.recv_event(e, data);
+            socket.recv_event(e, data)?;
         }
+        Ok(())
     }
 
     fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
