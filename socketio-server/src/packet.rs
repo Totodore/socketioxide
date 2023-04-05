@@ -24,7 +24,7 @@ impl Packet<ConnectPacket> {
     }
 }
 
-impl Packet<()> {
+impl<T> Packet<T> {
     pub fn invalid_namespace(ns: String) -> Self {
         Self {
             inner: PacketData::ConnectError(ConnectErrorPacket {
@@ -33,10 +33,8 @@ impl Packet<()> {
             ns,
         }
     }
-}
 
-impl<T> Packet<T> {
-    pub fn event(ns: String, e: String, data: T) -> Self {
+    pub fn event(ns: String, e: String, data: Value) -> Self {
         Self {
             inner: PacketData::Event(e, data),
             ns,
@@ -48,7 +46,7 @@ impl<T> Packet<T> {
 pub enum PacketData<T> {
     Connect(Option<T>),
     Disconnect,
-    Event(String, T),
+    Event(String, Value),
     Ack(i64),
     ConnectError(ConnectErrorPacket),
     BinaryEvent(String, T, Vec<Vec<u8>>),
@@ -85,7 +83,18 @@ where
             PacketData::Connect(None) => (),
             PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::Disconnect => (),
-            PacketData::Event(event, data) => res.push_str(&serde_json::to_string(&(event, data))?),
+            PacketData::Event(event, data) => {
+
+                // Expand the packet if it is an array -> ["event", ...data]
+                let packet = match data {
+                    Value::Array(mut v) => {
+                        v.insert(0, Value::String(event));
+                        serde_json::to_string(&v)?
+                    },
+                    _ => serde_json::to_string(&(event, data))?
+                };
+                res.push_str(&packet)
+            },
             PacketData::Ack(_) => todo!(),
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::BinaryEvent(_, _, _) => todo!(),

@@ -76,7 +76,7 @@ impl EngineIoHandler for Client {
                         .await
                         .unwrap();
                 } else {
-                    self.emit(socket.sid, Packet::invalid_namespace(ns_path))
+                    self.emit(socket.sid, Packet::<()>::invalid_namespace(ns_path))
                         .await
                         .unwrap();
                 }

@@ -6,7 +6,7 @@ use std::{
 
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value};
 
 use crate::{client::Client, errors::Error, handshake::Handshake, packet::Packet};
 
@@ -91,8 +91,9 @@ impl Socket {
         let client = self.client.clone();
         let sid = self.sid;
         let ns = self.ns.clone();
+        let data = serde_json::to_value(data)?;
         client
-            .emit(sid, Packet::event(ns, event.into(), data))
+            .emit(sid, Packet::<()>::event(ns, event.into(), data))
             .await
     }
 
