@@ -42,12 +42,21 @@ impl<T> Packet<T> {
     }
 }
 
+/// | Type          | ID  | Usage                                                                                 |
+/// |---------------|-----|---------------------------------------------------------------------------------------|
+/// | CONNECT       | 0   | Used during the [connection to a namespace](#connection-to-a-namespace).              |
+/// | DISCONNECT    | 1   | Used when [disconnecting from a namespace](#disconnection-from-a-namespace).          |
+/// | EVENT         | 2   | Used to [send data](#sending-and-receiving-data) to the other side.                   |
+/// | ACK           | 3   | Used to [acknowledge](#acknowledgement) an event.                                     |
+/// | CONNECT_ERROR | 4   | Used during the [connection to a namespace](#connection-to-a-namespace).              |
+/// | BINARY_EVENT  | 5   | Used to [send binary data](#sending-and-receiving-data) to the other side.            |
+/// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketData<T> {
     Connect(Option<T>),
     Disconnect,
     Event(String, Value),
-    Ack(i64),
+    EventAck(String, Value, i64),
     ConnectError(ConnectErrorPacket),
     BinaryEvent(String, T, Vec<Vec<u8>>),
     BinaryAck(T, Vec<Vec<u8>>),
@@ -59,7 +68,7 @@ impl<T> PacketData<T> {
             PacketData::Connect(_) => 0,
             PacketData::Disconnect => 1,
             PacketData::Event(_, _) => 2,
-            PacketData::Ack(_) => 3,
+            PacketData::EventAck(_, _, _) => 3,
             PacketData::ConnectError(_) => 4,
             PacketData::BinaryEvent(_, _, _) => 5,
             PacketData::BinaryAck(_, _) => 6,
@@ -95,7 +104,18 @@ where
                 };
                 res.push_str(&packet)
             },
-            PacketData::Ack(_) => todo!(),
+            PacketData::EventAck(event, data, ack) => {
+                res.push_str(&ack.to_string());
+                // Expand the packet if it is an array -> ["event", ...data]
+                let packet = match data {
+                    Value::Array(mut v) => {
+                        v.insert(0, Value::String(event));
+                        serde_json::to_string(&v)?
+                    },
+                    _ => serde_json::to_string(&(event, data))?
+                };
+                res.push_str(&packet)
+            },
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::BinaryEvent(_, _, _) => todo!(),
             PacketData::BinaryAck(_, _) => todo!(),
@@ -171,7 +191,7 @@ impl TryFrom<String> for Packet<Value> {
             ns.insert(0, '/');
         }
         //TODO: ack
-        let _ack: Option<i64> = chars
+        let ack: Option<i64> = chars
             .take_while_ref(|c| c.is_digit(10))
             .collect::<String>()
             .parse()
@@ -185,7 +205,10 @@ impl TryFrom<String> for Packet<Value> {
                 let (event, payload) = deserialize_event_packet(&data)?;
                 PacketData::Event(event, payload)
             }
-            '3' => todo!(),
+            '3' => {
+                let (event, payload) = deserialize_event_packet(&data)?;
+                PacketData::EventAck(event, payload, ack.ok_or(Error::InvalidPacketType)?)
+            },
             '4' => PacketData::ConnectError(
                 deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?,
             ),
