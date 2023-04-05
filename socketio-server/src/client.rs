@@ -4,8 +4,9 @@ use std::sync::{Arc, Weak};
 use engineio_server::socket::Socket as EIoSocket;
 use engineio_server::{engine::EngineIo, layer::EngineIoHandler};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tracing::debug;
+use tracing::error;
 
 use crate::handshake::Handshake;
 use crate::{
@@ -67,7 +68,7 @@ impl EngineIoHandler for Client {
                 let handshake = Handshake {
                     url: "".to_string(),
                     issued: 0,
-                    auth,
+                    auth: auth.unwrap_or(json!({})),
                 };
                 if let Some(ns) = self.ns.get(&ns_path) {
                     ns.connect(socket.sid, self.clone(), handshake);
@@ -86,7 +87,7 @@ impl EngineIoHandler for Client {
             }) => {
                 if let Some(ns) = self.ns.get(&ns) {
                     if let Err(e) = ns.recv_event(socket.sid, msg, d) {
-                        debug!("error handling event: {}", e);
+                        error!("[sid={}] {e}", socket.sid);
                     }
                 }
             }

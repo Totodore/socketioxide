@@ -6,4 +6,7 @@ pub enum Error {
 
     #[error("invalid packet type")]
     InvalidPacketType,
+
+    #[error("invalid event name")]
+    InvalidEventName,
 }

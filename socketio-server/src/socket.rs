@@ -6,7 +6,7 @@ use std::{
 
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::{client::Client, errors::Error, handshake::Handshake, packet::Packet};
 
@@ -34,6 +34,18 @@ where
         + 'static,
 {
     fn call(&self, s: Arc<Socket>, v: Value) -> Result<(), Error> {
+
+        // Unwrap array if it has only one element
+        let v = match v {
+            Value::Array(v) => {
+                if v.len() == 1 {
+                    v.into_iter().next().unwrap_or(Value::Null)
+                } else {
+                    Value::Array(v)
+                }
+            }
+            v => v,
+        };
         let v: Param = serde_json::from_value(v)?;
         tokio::spawn((self.handler)(s, v));
         Ok(())

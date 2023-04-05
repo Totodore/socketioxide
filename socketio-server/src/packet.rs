@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 use tracing::debug;
 
 use crate::errors::Error;
@@ -43,8 +44,6 @@ impl<T> Packet<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Empty {}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketData<T> {
     Connect(Option<T>),
@@ -96,12 +95,33 @@ where
     }
 }
 
-fn get_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Error> {
+/// Deserialize an event packet from a string, formated as:
+/// ```text
+/// ["<event name>", ...<JSON-stringified payload without binary>]
+/// ```
+fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
+    debug!("Deserializing event packet: {:?}", data);
+    let packet = match serde_json::from_str::<Value>(data)? {
+        Value::Array(packet) => packet,
+        _ => return Err(Error::InvalidEventName),
+    };
+
+    let event = packet
+        .get(0)
+        .ok_or(Error::InvalidEventName)?
+        .as_str()
+        .ok_or(Error::InvalidEventName)?
+        .to_string();
+    let payload = Value::from_iter(packet.into_iter().skip(1));
+    Ok((event, payload))
+}
+
+fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Error> {
     debug!("Deserializing packet: {:?}", data);
     let packet = if data.is_empty() {
         None
     } else {
-        Some(serde_json::from_str(data)?)
+        Some(serde_json::from_str(&data)?)
     };
     Ok(packet)
 }
@@ -112,26 +132,32 @@ fn get_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Error> {
 /// <packet type>[<# of binary attachments>-][<namespace>,][<acknowledgment id>][JSON-stringified payload without binary]
 /// + binary attachments extracted
 /// ```
-impl<T: DeserializeOwned> TryFrom<String> for Packet<T> {
+impl TryFrom<String> for Packet<Value> {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
         let index = chars.next().ok_or(Error::InvalidPacketType)?;
         //TODO: attachments
-        let _attachments: u32 = chars
+        let attachments: u32 = chars
             .take_while_ref(|c| *c != '-' && c.is_digit(10))
             .collect::<String>()
             .parse()
             .unwrap_or(0);
+
+        // If there are attachments, skip the `-` separator
+        if attachments > 0 {
+            chars.next();
+        }
         let mut ns: String = chars
             .take_while_ref(|c| *c != ',' && *c != '{' && *c != '[' && !c.is_digit(10))
             .collect();
 
-        // If the namespace is not empty it has a `,` separator after
+        // If there is a namespace, skip the `,` separator
         if !ns.is_empty() {
             chars.next();
         }
+        //TODO: improve ?
         if !ns.starts_with("/") {
             ns.insert(0, '/');
         }
@@ -144,15 +170,16 @@ impl<T: DeserializeOwned> TryFrom<String> for Packet<T> {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(get_packet(&data)?),
+            '0' => PacketData::Connect(deserialize_packet(&data)?),
             '1' => PacketData::Disconnect,
             '2' => {
-                let (event, payload): (String, T) =
-                    get_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                let (event, payload) = deserialize_event_packet(&data)?;
                 PacketData::Event(event, payload)
             }
             '3' => todo!(),
-            '4' => PacketData::ConnectError(get_packet(&data)?.ok_or(Error::InvalidPacketType)?),
+            '4' => PacketData::ConnectError(
+                deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?,
+            ),
             '5' => todo!(),
             '6' => todo!(),
             _ => return Err(Error::InvalidPacketType),

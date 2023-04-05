@@ -2,7 +2,7 @@
 /// Handshake informations bound to a socket
 pub struct Handshake
 {
-    pub auth: Option<serde_json::Value>,
+    pub auth: serde_json::Value,
     pub url: String,
     // pub headers: HeaderMap<HeaderValue>,
     pub issued: u64,
