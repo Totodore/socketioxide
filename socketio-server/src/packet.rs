@@ -252,3 +252,41 @@ pub struct ConnectPacket {
 pub struct ConnectErrorPacket {
     message: String,
 }
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    /// This test suite is taken from the explanation section here:
+    /// https://github.com/socketio/socket.io-protocol
+    fn test_decode() {
+        let payload = "0{\"token\":\"123\"}".to_string();
+        let packet = Packet::try_from(payload);
+        assert!(packet.is_ok());
+
+        assert_eq!(
+            Packet {
+                ns: "/".to_string(),
+                inner: PacketData::Connect(Some(json!({ "token": "123"})))
+            },
+            packet.unwrap()
+        );
+
+        let payload = "{\"token™\":\"123\"}".to_string();
+        let utf8_payload = format!("0/admin™,{}", payload);
+        let packet = Packet::try_from(utf8_payload);
+        assert!(packet.is_ok());
+
+        assert_eq!(
+            Packet {
+                ns: "/admin™".to_owned(),
+                inner: PacketData::Connect(Some(json!({ "token™": "123" })))
+            },
+            packet.unwrap()
+        );
+    }
+
+}
