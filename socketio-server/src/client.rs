@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub struct Client {
-    config: SocketIoConfig,
+    pub(crate) config: SocketIoConfig,
     ns: HashMap<String, Namespace>,
     engine: Weak<EngineIo<Self>>,
 }
@@ -84,42 +84,19 @@ impl EngineIoHandler for Client {
                 }
             }
             Ok(Packet {
-                inner: PacketData::Event(msg, d, None),
+                inner: packet_data,
                 ns,
             }) => {
                 if let Some(ns) = self.ns.get(&ns) {
-                    if let Err(e) = ns.recv_event(socket.sid, msg, d) {
+                    if let Err(e) = ns.recv(socket.sid, packet_data) {
                         error!("[sid={}] {e}", socket.sid);
                     }
-                }
-            },
-            Ok(Packet {
-                inner: PacketData::Event(event, d, Some(ack_id)),
-                ns
-            }) => {
-                if let Some(ns) = self.ns.get(&ns) {
-                    if let Err(e) = ns.recv_event_ack(socket.sid, event, d, ack_id) {
-                        error!("[sid={}] {e}", socket.sid);
-                    }
-                }
-            },
-            Ok(Packet {
-                inner: PacketData::Disconnect,
-                ns,
-            }) => {
-                if let Some(ns) = self.ns.get(&ns) {
-                    ns.disconnect(socket.sid);
-                    // If there is no other namespaces connected, close the underlying socket
-                    // if !self.ns.values().any(|ns| ns.has(socket.sid)) {
-                    //     socket.emit_close().await;
-                    // }
                 }
             }
             Err(e) => {
                 debug!("socket serialization error: {}", e);
                 socket.emit_close().await;
             }
-            _ => {}
         };
     }
 

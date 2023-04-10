@@ -1,14 +1,24 @@
 use std::{
     collections::HashMap,
     pin::Pin,
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc, RwLock,
+    },
+    time::Duration,
 };
 
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use tokio::sync::oneshot;
 
-use crate::{client::Client, errors::Error, handshake::Handshake, packet::Packet};
+use crate::{
+    client::Client,
+    errors::{AckError, Error},
+    handshake::Handshake,
+    packet::{Packet, PacketData},
+};
 
 type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
 type AckCallback<T> = Box<dyn FnOnce(T) -> BoxAsyncFut<Result<(), Error>> + Send + Sync + 'static>;
@@ -75,7 +85,7 @@ where
         let v: Param = serde_json::from_value(v)?;
         let owned_socket = s.clone();
         let ack = Box::new(move |data: ParamCb| {
-            Box::pin(async move { owned_socket.emit_ack(ack_id, data).await }) as _
+            Box::pin(async move { owned_socket.send_ack(ack_id, data).await }) as _
         });
         tokio::spawn((self.handler)(s, v, ack));
         Ok(())
@@ -86,6 +96,8 @@ pub struct Socket {
     client: Arc<Client>,
     message_handlers: RwLock<HashMap<String, Box<dyn MessageCaller>>>,
     ack_message_handlers: RwLock<HashMap<String, Box<dyn AckMessageCaller>>>,
+    ack_message: RwLock<HashMap<i64, oneshot::Sender<Value>>>,
+    ack_counter: AtomicI64,
     pub handshake: Handshake,
     pub ns: String,
     pub sid: i64,
@@ -97,6 +109,8 @@ impl Socket {
             client,
             message_handlers: RwLock::new(HashMap::new()),
             ack_message_handlers: RwLock::new(HashMap::new()),
+            ack_message: RwLock::new(HashMap::new()),
+            ack_counter: AtomicI64::new(0),
             handshake,
             ns,
             sid,
@@ -142,11 +156,43 @@ impl Socket {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
         self.client
-            .emit(self.sid, Packet::<()>::event(ns, event.into(), data))
+            .emit(self.sid, Packet::<()>::event(ns, event.into(), data, None))
             .await
     }
 
-    pub(crate) async fn emit_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
+    pub async fn emit_with_ack_timeout<V>(
+        &self,
+        event: impl Into<String>,
+        data: impl Serialize,
+        timeout: Duration,
+    ) -> Result<V, AckError>
+    where
+        V: DeserializeOwned + Send + Sync + 'static,
+    {
+        let ns = self.ns.clone();
+        let data = serde_json::to_value(data)?;
+        let (tx, rx) = oneshot::channel();
+        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        self.ack_message.write().unwrap().insert(ack, tx);
+        let packet = Packet::<()>::event(ns, event.into(), data, Some(ack));
+        self.client.emit(self.sid, packet).await?;
+        let v = tokio::time::timeout(timeout, rx).await??;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    pub async fn emit_with_ack<V>(
+        &self,
+        event: impl Into<String>,
+        data: impl Serialize,
+    ) -> Result<V, AckError>
+    where
+        V: DeserializeOwned + Send + Sync + 'static,
+    {
+        self.emit_with_ack_timeout(event, data, self.client.config.ack_timeout)
+            .await
+    }
+
+    pub(crate) async fn send_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(&data)?;
         self.client
@@ -154,21 +200,31 @@ impl Socket {
             .await
     }
 
-    pub(crate) fn recv_event(self: Arc<Self>, e: String, data: Value) -> Result<(), Error> {
-        if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
-            handler.call(self.clone(), data)?;
+
+    pub(crate) fn recv(self: Arc<Self>, packet: PacketData<Value>) -> Result<(), Error> {
+        match packet {
+            PacketData::Event(e, data, ack) => self.recv_event(e, data, ack),
+            PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
+            _ => unreachable!()
+        }
+    }
+    
+    fn recv_event(self: Arc<Self>, e: String, data: Value, ack: Option<i64>) -> Result<(), Error> {
+        if ack.is_some() {
+            if let Some(handler) = self.ack_message_handlers.read().unwrap().get(&e) {
+                handler.call(self.clone(), data, ack.unwrap())?;
+            }
+        } else {
+            if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
+                handler.call(self.clone(), data)?;
+            }
         }
         Ok(())
     }
 
-    pub(crate) fn recv_event_ack(
-        self: Arc<Self>,
-        e: String,
-        data: Value,
-        ack: i64,
-    ) -> Result<(), Error> {
-        if let Some(handler) = self.ack_message_handlers.read().unwrap().get(&e) {
-            handler.call(self.clone(), data, ack)?;
+    pub fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
+        if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
+            tx.send(data).ok();
         }
         Ok(())
     }

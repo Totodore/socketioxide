@@ -32,6 +32,11 @@ impl SocketIoConfigBuilder {
         self.config.engine_config.max_payload = max_payload;
         self
     }
+
+    pub fn ack_timeout(mut self, ack_timeout: Duration) -> Self {
+        self.config.ack_timeout = ack_timeout;
+        self
+    }
     pub fn build(self) -> SocketIoConfig {
         self.config
     }
@@ -40,6 +45,7 @@ impl SocketIoConfigBuilder {
 #[derive(Debug, Clone)]
 pub struct SocketIoConfig {
     pub(crate) engine_config: EngineIoConfig,
+    pub(crate) ack_timeout: Duration,
 }
 
 impl Default for SocketIoConfig {
@@ -49,6 +55,7 @@ impl Default for SocketIoConfig {
                 req_path: "/socket.io".to_string(),
                 ..Default::default()
             },
+            ack_timeout: Duration::from_secs(5),
         }
     }
 }

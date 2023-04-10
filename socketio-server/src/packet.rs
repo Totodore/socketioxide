@@ -34,9 +34,9 @@ impl<T> Packet<T> {
         }
     }
 
-    pub fn event(ns: String, e: String, data: Value) -> Self {
+    pub fn event(ns: String, e: String, data: Value, ack: Option<i64>) -> Self {
         Self {
-            inner: PacketData::Event(e, data, None),
+            inner: PacketData::Event(e, data, ack),
             ns,
         }
     }

@@ -8,15 +8,11 @@ use futures::Future;
 use serde_json::Value;
 
 use crate::{
-    client::Client,
-    handshake::Handshake,
-    socket::Socket, errors::Error,
+    client::Client, errors::Error, handshake::Handshake, packet::PacketData, socket::Socket,
 };
 
 pub type EventCallback = Arc<
-    dyn Fn(
-            Arc<Socket>,
-        ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
+    dyn Fn(Arc<Socket>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
         + Send
         + Sync
         + 'static,
@@ -50,7 +46,7 @@ impl Namespace {
         tokio::spawn((self.callback)(socket));
     }
 
-    pub fn disconnect(&self, sid: i64) {
+    fn disconnect(&self, sid: i64) {
         self.sockets.write().unwrap().remove(&sid);
     }
 
@@ -59,20 +55,24 @@ impl Namespace {
     }
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket
-    pub fn recv_event(&self, sid: i64, e: String, data: Value) -> Result<(), Error> {
+    pub fn socket_recv(&self, sid: i64, packet: PacketData<Value>) -> Result<(), Error> {
         if let Some(socket) = self.get_socket(sid) {
-            socket.recv_event(e, data)?;
+            socket.recv(packet)?;
         }
         Ok(())
     }
 
-    pub fn recv_event_ack(&self, sid: i64, e: String, data: Value, ack: i64) -> Result<(), Error> {
-        if let Some(socket) = self.get_socket(sid) {
-            socket.recv_event_ack(e, data, ack)?;
+    pub fn recv(&self, sid: i64, packet: PacketData<Value>) -> Result<(), Error> {
+        match packet {
+            PacketData::Connect(_) => unreachable!(),
+            PacketData::ConnectError(_) => unreachable!(),
+            PacketData::Disconnect => {
+                self.disconnect(sid);
+                Ok(())
+            }
+            packet => self.socket_recv(sid, packet),
         }
-        Ok(())
     }
-
     fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
