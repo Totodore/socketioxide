@@ -1,4 +1,4 @@
-use itertools::Itertools;
+use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use tracing::debug;
@@ -58,8 +58,8 @@ pub enum PacketData<T> {
     Event(String, Value),
     EventAck(String, Value, i64),
     ConnectError(ConnectErrorPacket),
-    BinaryEvent(String, T, Vec<Vec<u8>>),
-    BinaryAck(T, Vec<Vec<u8>>),
+    BinaryEvent(String, Value, Vec<Vec<u8>>),
+    BinaryAck(String, Value, i64, Vec<Vec<u8>>),
 }
 
 impl<T> PacketData<T> {
@@ -71,7 +71,7 @@ impl<T> PacketData<T> {
             PacketData::EventAck(_, _, _) => 3,
             PacketData::ConnectError(_) => 4,
             PacketData::BinaryEvent(_, _, _) => 5,
-            PacketData::BinaryAck(_, _) => 6,
+            PacketData::BinaryAck(_, _, _, _) => 6,
         }
     }
 }
@@ -93,17 +93,16 @@ where
             PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::Disconnect => (),
             PacketData::Event(event, data) => {
-
                 // Expand the packet if it is an array -> ["event", ...data]
                 let packet = match data {
                     Value::Array(mut v) => {
                         v.insert(0, Value::String(event));
                         serde_json::to_string(&v)?
-                    },
-                    _ => serde_json::to_string(&(event, data))?
+                    }
+                    _ => serde_json::to_string(&(event, data))?,
                 };
                 res.push_str(&packet)
-            },
+            }
             PacketData::EventAck(event, data, ack) => {
                 res.push_str(&ack.to_string());
                 // Expand the packet if it is an array -> ["event", ...data]
@@ -111,14 +110,14 @@ where
                     Value::Array(mut v) => {
                         v.insert(0, Value::String(event));
                         serde_json::to_string(&v)?
-                    },
-                    _ => serde_json::to_string(&(event, data))?
+                    }
+                    _ => serde_json::to_string(&(event, data))?,
                 };
                 res.push_str(&packet)
-            },
+            }
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::BinaryEvent(_, _, _) => todo!(),
-            PacketData::BinaryAck(_, _) => todo!(),
+            PacketData::BinaryAck(_, _, _, _) => todo!(),
         };
         Ok(res)
     }
@@ -167,17 +166,21 @@ impl TryFrom<String> for Packet<Value> {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
         let index = chars.next().ok_or(Error::InvalidPacketType)?;
+
         //TODO: attachments
-        let attachments: u32 = chars
-            .take_while_ref(|c| *c != '-' && c.is_digit(10))
-            .collect::<String>()
-            .parse()
-            .unwrap_or(0);
+        let attachments: u8 = if index == '5' || index == '6' {
+            chars
+                .take_while_ref(|c| *c != '-')
+                .collect::<String>()
+                .parse()
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         // If there are attachments, skip the `-` separator
-        if attachments > 0 {
-            chars.next();
-        }
+        chars.peeking_next(|c| attachments > 0 && !c.is_digit(10));
+
         let mut ns: String = chars
             .take_while_ref(|c| *c != ',' && *c != '{' && *c != '[' && !c.is_digit(10))
             .collect();
@@ -190,7 +193,7 @@ impl TryFrom<String> for Packet<Value> {
         if !ns.starts_with("/") {
             ns.insert(0, '/');
         }
-        //TODO: ack
+
         let ack: Option<i64> = chars
             .take_while_ref(|c| c.is_digit(10))
             .collect::<String>()
@@ -208,12 +211,19 @@ impl TryFrom<String> for Packet<Value> {
             '3' => {
                 let (event, payload) = deserialize_event_packet(&data)?;
                 PacketData::EventAck(event, payload, ack.ok_or(Error::InvalidPacketType)?)
-            },
-            '4' => PacketData::ConnectError(
-                deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?,
-            ),
-            '5' => todo!(),
-            '6' => todo!(),
+            }
+            '4' => {
+                let payload = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                PacketData::ConnectError(payload)
+            }
+            '5' => {
+                let (event, payload) = deserialize_event_packet(&data)?;
+                PacketData::BinaryEvent(event, payload, vec![])
+            }
+            '6' => {
+                let (event, payload) = deserialize_event_packet(&data)?;
+                PacketData::BinaryAck(event, payload, ack.ok_or(Error::InvalidPacketType)?, vec![])
+            }
             _ => return Err(Error::InvalidPacketType),
         };
 

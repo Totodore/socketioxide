@@ -87,6 +87,12 @@ impl Socket {
         );
     }
 
+    pub fn on_event_with_ack<C, F, V>(&self, event: impl Into<String>, callback: C)
+    where
+    {
+
+    }
+
     pub async fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let client = self.client.clone();
         let sid = self.sid;
