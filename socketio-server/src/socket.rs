@@ -10,38 +10,31 @@ use serde_json::Value;
 
 use crate::{client::Client, errors::Error, handshake::Handshake, packet::Packet};
 
+type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
+type AckCallback<T> = Box<dyn FnOnce(T) -> BoxAsyncFut<Result<(), Error>> + Send + Sync + 'static>;
+
 trait MessageCaller: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket>, v: Value) -> Result<(), Error>;
 }
 
 trait AckMessageCaller: Send + Sync + 'static {
-    fn call(
-        &self,
-        s: Arc<Socket>,
-        v: Value,
-        ack: Box<
-            dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + Sync + 'static>>
-                + Send
-                + Sync
-                + 'static,
-        >,
-    ) -> Result<(), Error>;
+    fn call(&self, s: Arc<Socket>, v: Value, ack_id: i64) -> Result<(), Error>;
 }
-struct MessageHandler<Param, F>
+
+struct MessageHandler<Param, ParamCb, F>
 where
     Param: Send + Sync + 'static,
+    ParamCb: Send + Sync + 'static,
 {
     param: std::marker::PhantomData<Param>,
+    param_cb: std::marker::PhantomData<ParamCb>,
     handler: F,
 }
 
-impl<Param, F> MessageCaller for MessageHandler<Param, F>
+impl<Param, F> MessageCaller for MessageHandler<Param, (), F>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(Arc<Socket>, Param) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
-        + Send
-        + Sync
-        + 'static,
+    F: Fn(Arc<Socket>, Param) -> BoxAsyncFut<()> + Send + Sync + 'static,
 {
     fn call(&self, s: Arc<Socket>, v: Value) -> Result<(), Error> {
         // Unwrap array if it has only one element
@@ -61,35 +54,13 @@ where
     }
 }
 
-impl<Param, F> AckMessageCaller for MessageHandler<Param, F>
+impl<Param, ParamCb, F> AckMessageCaller for MessageHandler<Param, ParamCb, F>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(
-            Arc<Socket>,
-            Param,
-            Box<
-                dyn FnOnce() -> Pin<
-                        Box<dyn Future<Output = Result<(), Error>> + Send + Sync + 'static>,
-                    > + Send
-                    + Sync
-                    + 'static,
-            >,
-        ) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
-        + Send
-        + Sync
-        + 'static,
+    ParamCb: Serialize + Send + Sync + 'static,
+    F: Fn(Arc<Socket>, Param, AckCallback<ParamCb>) -> BoxAsyncFut<()> + Send + Sync + 'static,
 {
-    fn call(
-        &self,
-        s: Arc<Socket>,
-        v: Value,
-        ack: Box<
-            dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + Sync + 'static>>
-                + Send
-                + Sync
-                + 'static,
-        >,
-    ) -> Result<(), Error> {
+    fn call(&self, s: Arc<Socket>, v: Value, ack_id: i64) -> Result<(), Error> {
         // Unwrap array if it has only one element
         let v = match v {
             Value::Array(v) => {
@@ -102,6 +73,10 @@ where
             v => v,
         };
         let v: Param = serde_json::from_value(v)?;
+        let owned_socket = s.clone();
+        let ack = Box::new(move |data: ParamCb| {
+            Box::pin(async move { owned_socket.emit_ack(ack_id, data).await }) as _
+        });
         tokio::spawn((self.handler)(s, v, ack));
         Ok(())
     }
@@ -139,47 +114,43 @@ impl Socket {
             event.into(),
             Box::new(MessageHandler {
                 param: std::marker::PhantomData,
+                param_cb: std::marker::PhantomData,
                 handler,
             }),
         );
     }
 
-    pub fn on_event_with_ack<C, F, V>(&self, event: impl Into<String>, callback: C)
+    pub fn on_event_with_ack<C, F, V, AckV>(&self, event: impl Into<String>, callback: C)
     where
-        C: Fn(
-                Arc<Socket>,
-                V,
-                Box<
-                    dyn FnOnce() -> Pin<
-                            Box<dyn Future<Output = Result<(), Error>> + Send + Sync + 'static>,
-                        > + Send
-                        + Sync
-                        + 'static,
-                >,
-            ) -> F
-            + Send
-            + Sync
-            + 'static,
+        C: Fn(Arc<Socket>, V, AckCallback<AckV>) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + Sync + 'static,
         V: DeserializeOwned + Send + Sync + 'static,
+        AckV: Serialize + Send + Sync + 'static,
     {
         let handler = Box::new(move |s, v, ack| Box::pin(callback(s, v, ack)) as _);
         self.ack_message_handlers.write().unwrap().insert(
             event.into(),
             Box::new(MessageHandler {
                 param: std::marker::PhantomData,
+                param_cb: std::marker::PhantomData,
                 handler,
             }),
         );
     }
 
     pub async fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
-        let client = self.client.clone();
-        let sid = self.sid;
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
-        client
-            .emit(sid, Packet::<()>::event(ns, event.into(), data))
+        self.client
+            .emit(self.sid, Packet::<()>::event(ns, event.into(), data))
+            .await
+    }
+
+    pub(crate) async fn emit_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
+        let ns = self.ns.clone();
+        let data = serde_json::to_string(&data)?;
+        self.client
+            .emit(self.sid, Packet::<()>::ack(ns, data, ack_id))
             .await
     }
 
@@ -197,17 +168,7 @@ impl Socket {
         ack: i64,
     ) -> Result<(), Error> {
         if let Some(handler) = self.ack_message_handlers.read().unwrap().get(&e) {
-            let sid = self.sid;
-            let ns = self.ns.clone();
-            let client = self.client.clone();
-            let cb = Box::new(move || {
-                Box::pin(async move {
-                    client
-                        .emit(sid, Packet::<()>::ack(ns, Value::Null, ack))
-                        .await
-                }) as _
-            });
-            handler.call(self.clone(), data, cb)?;
+            handler.call(self.clone(), data, ack)?;
         }
         Ok(())
     }
