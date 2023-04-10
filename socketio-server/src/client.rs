@@ -59,7 +59,9 @@ impl EngineIoHandler for Client {
 
     async fn on_message(self: Arc<Self>, msg: String, socket: &EIoSocket<Self>) {
         debug!("Received message: {:?}", msg);
-        match Packet::<Value>::try_from(msg) {
+        let packet = Packet::<Value>::try_from(msg);
+        debug!("Packet: {:?}", packet);
+        match packet {
             Ok(Packet {
                 inner: PacketData::Connect(auth),
                 ns: ns_path,
@@ -90,7 +92,17 @@ impl EngineIoHandler for Client {
                         error!("[sid={}] {e}", socket.sid);
                     }
                 }
-            }
+            },
+            Ok(Packet {
+                inner: PacketData::EventAck(event, d, ack_id),
+                ns
+            }) => {
+                if let Some(ns) = self.ns.get(&ns) {
+                    if let Err(e) = ns.recv_event_ack(socket.sid, event, d, ack_id) {
+                        error!("[sid={}] {e}", socket.sid);
+                    }
+                }
+            },
             Ok(Packet {
                 inner: PacketData::Disconnect,
                 ns,

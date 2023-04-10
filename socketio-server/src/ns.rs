@@ -66,6 +66,13 @@ impl Namespace {
         Ok(())
     }
 
+    pub fn recv_event_ack(&self, sid: i64, e: String, data: Value, ack: i64) -> Result<(), Error> {
+        if let Some(socket) = self.get_socket(sid) {
+            socket.recv_event_ack(e, data, ack)?;
+        }
+        Ok(())
+    }
+
     fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }

@@ -40,6 +40,12 @@ impl<T> Packet<T> {
             ns,
         }
     }
+    pub fn ack(ns: String, e: String, data: Value, ack: i64) -> Self {
+        Self {
+            inner: PacketData::EventAck(e, data, ack),
+            ns,
+        }
+    }
 }
 
 /// | Type          | ID  | Usage                                                                                 |
@@ -206,7 +212,11 @@ impl TryFrom<String> for Packet<Value> {
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(&data)?;
-                PacketData::Event(event, payload)
+                if ack.is_some() {
+                    PacketData::EventAck(event, payload, ack.unwrap())
+                } else {
+                    PacketData::Event(event, payload)
+                }
             }
             '3' => {
                 let (event, payload) = deserialize_event_packet(&data)?;

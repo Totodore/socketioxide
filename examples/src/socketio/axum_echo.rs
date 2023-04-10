@@ -42,9 +42,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 socket.emit("message-back", data).await.ok();
             });
 
-            socket.on_event("message-with-ack", |socket, data: Value| async move {
-                info!("Received event: {:?}", data);
-                socket.emit("message-back", data).await.ok();
+            socket.on_event_with_ack("message-with-ack", |socket, data: Value, ack| async move {
+                info!("Received event with ack: {:?}", data);
+                ack().await.ok();
             });
 
         })
