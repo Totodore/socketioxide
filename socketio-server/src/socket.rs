@@ -148,7 +148,7 @@ impl Socket {
 
     pub(crate) async fn emit_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.clone();
-        let data = serde_json::to_string(&data)?;
+        let data = serde_json::to_value(&data)?;
         self.client
             .emit(self.sid, Packet::<()>::ack(ns, data, ack_id))
             .await

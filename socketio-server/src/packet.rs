@@ -40,7 +40,7 @@ impl<T> Packet<T> {
             ns,
         }
     }
-    pub fn ack(ns: String, data: String, ack: i64) -> Self {
+    pub fn ack(ns: String, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::EventAck(data, ack),
             ns,
@@ -62,7 +62,7 @@ pub enum PacketData<T> {
     Connect(Option<T>),
     Disconnect,
     Event(String, Value, Option<i64>),
-    EventAck(String, i64),
+    EventAck(Value, i64),
     ConnectError(ConnectErrorPacket),
     BinaryEvent(String, Value, Vec<Vec<u8>>),
     BinaryAck(String, Value, i64, Vec<Vec<u8>>),
@@ -111,7 +111,14 @@ where
             }
             PacketData::EventAck(data, ack) => {
                 res.push_str(&ack.to_string());
-                res.push_str(&data)
+                // Enforce that the packet is an array -> [data]
+                let packet = match data {
+                    Value::Array(_) => data,
+                    Value::Null => Value::Array(vec![]),
+                    _ => Value::Array(vec![data]),
+                };
+                let packet = serde_json::to_string(&packet)?;
+                res.push_str(&packet)
             }
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::BinaryEvent(_, _, _) => todo!(),
@@ -206,9 +213,10 @@ impl TryFrom<String> for Packet<Value> {
                 let (event, payload) = deserialize_event_packet(&data)?;
                 PacketData::Event(event, payload, ack)
             }
-            '3' => {
-                PacketData::EventAck(data.to_string(), ack.ok_or(Error::InvalidPacketType)?)
-            }
+            '3' => PacketData::EventAck(
+                deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?,
+                ack.ok_or(Error::InvalidPacketType)?,
+            ),
             '4' => {
                 let payload = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::ConnectError(payload)
