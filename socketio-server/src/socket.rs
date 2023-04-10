@@ -203,7 +203,7 @@ impl Socket {
             let cb = Box::new(move || {
                 Box::pin(async move {
                     client
-                        .emit(sid, Packet::<()>::ack(ns, e, Value::Null, ack))
+                        .emit(sid, Packet::<()>::ack(ns, Value::Null, ack))
                         .await
                 }) as _
             });

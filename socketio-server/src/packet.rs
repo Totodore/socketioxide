@@ -36,13 +36,13 @@ impl<T> Packet<T> {
 
     pub fn event(ns: String, e: String, data: Value) -> Self {
         Self {
-            inner: PacketData::Event(e, data),
+            inner: PacketData::Event(e, data, None),
             ns,
         }
     }
-    pub fn ack(ns: String, e: String, data: Value, ack: i64) -> Self {
+    pub fn ack(ns: String, data: Value, ack: i64) -> Self {
         Self {
-            inner: PacketData::EventAck(e, data, ack),
+            inner: PacketData::EventAck(data, ack),
             ns,
         }
     }
@@ -61,8 +61,8 @@ impl<T> Packet<T> {
 pub enum PacketData<T> {
     Connect(Option<T>),
     Disconnect,
-    Event(String, Value),
-    EventAck(String, Value, i64),
+    Event(String, Value, Option<i64>),
+    EventAck(Value, i64),
     ConnectError(ConnectErrorPacket),
     BinaryEvent(String, Value, Vec<Vec<u8>>),
     BinaryAck(String, Value, i64, Vec<Vec<u8>>),
@@ -73,8 +73,8 @@ impl<T> PacketData<T> {
         match self {
             PacketData::Connect(_) => 0,
             PacketData::Disconnect => 1,
-            PacketData::Event(_, _) => 2,
-            PacketData::EventAck(_, _, _) => 3,
+            PacketData::Event(_, _, _) => 2,
+            PacketData::EventAck(_, _) => 3,
             PacketData::ConnectError(_) => 4,
             PacketData::BinaryEvent(_, _, _) => 5,
             PacketData::BinaryAck(_, _, _, _) => 6,
@@ -98,7 +98,7 @@ where
             PacketData::Connect(None) => (),
             PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::Disconnect => (),
-            PacketData::Event(event, data) => {
+            PacketData::Event(event, data, _) => {
                 // Expand the packet if it is an array -> ["event", ...data]
                 let packet = match data {
                     Value::Array(mut v) => {
@@ -109,16 +109,9 @@ where
                 };
                 res.push_str(&packet)
             }
-            PacketData::EventAck(event, data, ack) => {
+            PacketData::EventAck(data, ack) => {
                 res.push_str(&ack.to_string());
-                // Expand the packet if it is an array -> ["event", ...data]
-                let packet = match data {
-                    Value::Array(mut v) => {
-                        v.insert(0, Value::String(event));
-                        serde_json::to_string(&v)?
-                    }
-                    _ => serde_json::to_string(&(event, data))?,
-                };
+                let packet = serde_json::to_string(&data)?;
                 res.push_str(&packet)
             }
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
@@ -212,15 +205,11 @@ impl TryFrom<String> for Packet<Value> {
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(&data)?;
-                if ack.is_some() {
-                    PacketData::EventAck(event, payload, ack.unwrap())
-                } else {
-                    PacketData::Event(event, payload)
-                }
+                PacketData::Event(event, payload, ack)
             }
             '3' => {
-                let (event, payload) = deserialize_event_packet(&data)?;
-                PacketData::EventAck(event, payload, ack.ok_or(Error::InvalidPacketType)?)
+                let packet: Value = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
+                PacketData::EventAck(packet, ack.ok_or(Error::InvalidPacketType)?)
             }
             '4' => {
                 let payload = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;

@@ -84,7 +84,7 @@ impl EngineIoHandler for Client {
                 }
             }
             Ok(Packet {
-                inner: PacketData::Event(msg, d),
+                inner: PacketData::Event(msg, d, None),
                 ns,
             }) => {
                 if let Some(ns) = self.ns.get(&ns) {
@@ -94,7 +94,7 @@ impl EngineIoHandler for Client {
                 }
             },
             Ok(Packet {
-                inner: PacketData::EventAck(event, d, ack_id),
+                inner: PacketData::Event(event, d, Some(ack_id)),
                 ns
             }) => {
                 if let Some(ns) = self.ns.get(&ns) {
