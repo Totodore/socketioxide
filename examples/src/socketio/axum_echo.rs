@@ -37,14 +37,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await
                 .ok();
 
-            socket.on_event("message", |socket, data: Value| async move {
+            socket.on_event("message", |socket, data: Value, _| async move {
                 info!("Received event: {:?}", data);
                 socket.emit("message-back", data).await.ok();
+                Ok(())
             });
 
-            socket.on_event_with_ack("message-with-ack", |_socket, data: Value, ack| async move {
+            socket.on_event("message-with-ack", |_, data: Value, _| async move {
                 info!("Received event with ack: {:?}", data);
-                ack(data).await.ok();
+                Ok(data)
             });
         })
         .add("/custom", |socket| async move {
