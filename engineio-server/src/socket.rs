@@ -44,6 +44,8 @@ where
     pong_rx: Mutex<mpsc::Receiver<()>>,
     pong_tx: mpsc::Sender<()>,
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
+
+    pub data: H::Data,
 }
 
 impl<H> Drop for Socket<H>
@@ -78,6 +80,8 @@ where
             pong_rx: Mutex::new(pong_rx),
             pong_tx,
             heartbeat_handle: Mutex::new(None),
+
+            data: H::Data::default(),
         };
         socket.handler.clone().on_connect(&socket);
         socket

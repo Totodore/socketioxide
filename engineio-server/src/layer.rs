@@ -1,12 +1,15 @@
 use async_trait::async_trait;
 use tower::Layer;
 
-use std::{time::Duration, sync::Arc};
 use crate::{service::EngineIoService, socket::Socket};
+use std::{sync::Arc, time::Duration};
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
 pub trait EngineIoHandler: Send + Sync + 'static {
+
+    /// Data associated with the socket.
+    type Data: Default + Send + Sync + 'static;
 
     /// Called when a new socket is connected.
     fn on_connect(self: Arc<Self>, socket: &Socket<Self>);
@@ -20,7 +23,6 @@ pub trait EngineIoHandler: Send + Sync + 'static {
     /// Called when a binary message is received from the client.
     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>);
 }
-
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -37,7 +39,7 @@ pub struct EngineIoConfig {
     pub ping_timeout: Duration,
 
     /// The maximum number of packets that can be buffered per connection before being emitted to the client.
-    /// 
+    ///
     /// If the buffer if full the `emit()` method will wait until the buffer is drained:
     /// ```
     /// use engineio_server::{
@@ -47,23 +49,25 @@ pub struct EngineIoConfig {
     /// use std::sync::Arc;
     /// #[derive(Clone)]
     /// struct MyHandler;
-    /// 
+    ///
     /// #[engineio_server::async_trait]
     /// impl EngineIoHandler for MyHandler {
+    ///
+    ///     type Data = ();
     ///     fn on_connect(self: Arc<Self>, socket: &Socket<Self>) {
     ///         println!("socket connect {}", socket.sid);
     ///     }
     ///     fn on_disconnect(self: Arc<Self>, socket: &Socket<Self>) {
     ///         println!("socket disconnect {}", socket.sid);
     ///     }
-    /// 
+    ///
     ///     async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>) {
     ///         println!("Ping pong message {:?}", msg);
     ///         socket.emit(msg).await;  // This will wait until the buffer is drained
     ///     }
-    /// 
-    ///     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
-    ///         println!("Ping pong binary message {:?}", data);
+    ///
+    ///     async fn on_binary(self: Arc<Self>ata: Vec<u8>, socket: &Socket<Self>) {
+    ///         println!("Ping pong binary message {:?}"ata);
     ///         socket.emit_binary(data).await;  // This will wait until the buffer is drained
     ///     }
     /// }
@@ -147,7 +151,10 @@ where
         }
     }
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
-        Self { config, handler: handler.into() }
+        Self {
+            config,
+            handler: handler.into(),
+        }
     }
 }
 

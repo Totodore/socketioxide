@@ -29,7 +29,6 @@ use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<i64, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
-#[derive(Debug)]
 pub struct EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,

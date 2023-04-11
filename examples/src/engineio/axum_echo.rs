@@ -14,6 +14,8 @@ struct MyHandler;
 
 #[engineio_server::async_trait]
 impl EngineIoHandler for MyHandler {
+    type Data = ();
+    
     fn on_connect(self: Arc<Self>, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
     }

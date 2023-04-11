@@ -14,7 +14,6 @@ use std::{
     task::{Context, Poll},
 };
 
-#[derive(Debug)]
 pub struct EngineIoService<S, H>
 where
     H: EngineIoHandler + ?Sized,
