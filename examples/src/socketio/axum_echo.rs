@@ -37,9 +37,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await
                 .ok();
 
-            socket.on_event("message", |socket, data: Value, _| async move {
-                info!("Received event: {:?}", data);
-                socket.emit("message-back", data).await.ok();
+            socket.on_event("message", |socket, data: Value, bin| async move {
+                if let Some(bin) = bin {
+                    info!("Received event binary: {:?} {:?}", data, bin);
+                    socket.emit_bin("message-back", data, bin).await.ok();
+                } else {
+                    info!("Received event: {:?}", data);
+                    socket.emit("message-back", data).await.ok();
+                }
                 Ok(())
             });
 

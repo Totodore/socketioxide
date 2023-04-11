@@ -7,7 +7,7 @@ use crate::errors::Error;
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Packet<T> {
     pub inner: PacketData<T>,
     pub ns: String,
@@ -41,9 +41,19 @@ impl<T> Packet<T> {
         }
     }
 
-    pub fn bin_event(ns: String, e: String, data: Value, bin: Vec<Vec<u8>>, ack: Option<i64>) -> Self {
+    pub fn bin_event(
+        ns: String,
+        e: String,
+        data: Value,
+        bin: Vec<Vec<u8>>,
+        ack: Option<i64>,
+    ) -> Self {
+        let mut packet = BinaryPacket::new(data);
+        for b in bin {
+            packet.add_payload(b);
+        }
         Self {
-            inner: PacketData::BinaryEvent(e, data, bin, ack),
+            inner: PacketData::BinaryEvent(e, packet, ack),
             ns,
         }
     }
@@ -65,15 +75,22 @@ impl<T> Packet<T> {
 /// | CONNECT_ERROR | 4   | Used during the [connection to a namespace](#connection-to-a-namespace).              |
 /// | BINARY_EVENT  | 5   | Used to [send binary data](#sending-and-receiving-data) to the other side.            |
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PacketData<T> {
     Connect(Option<T>),
     Disconnect,
     Event(String, Value, Option<i64>),
     EventAck(Value, i64),
     ConnectError(ConnectErrorPacket),
-    BinaryEvent(String, Value, Vec<Vec<u8>>, Option<i64>),
-    BinaryAck(Value, Vec<Vec<u8>>, i64),
+    BinaryEvent(String, BinaryPacket, Option<i64>),
+    BinaryAck(BinaryPacket, i64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinaryPacket {
+    pub data: Value,
+    pub bin: Vec<Vec<u8>>,
+    payload_count: usize,
 }
 
 impl<T> PacketData<T> {
@@ -84,9 +101,37 @@ impl<T> PacketData<T> {
             PacketData::Event(_, _, _) => 2,
             PacketData::EventAck(_, _) => 3,
             PacketData::ConnectError(_) => 4,
-            PacketData::BinaryEvent(_, _, _, _) => 5,
-            PacketData::BinaryAck(_, _, _) => 6,
+            PacketData::BinaryEvent(_, _, _) => 5,
+            PacketData::BinaryAck(_, _) => 6,
         }
+    }
+}
+
+impl BinaryPacket {
+    pub fn new(data: Value) -> Self {
+        let payload_count = match &data {
+            Value::Array(v) => v
+                .iter()
+                .filter(|v| match v {
+                    Value::Object(o) => o.get("_placeholder").map_or(false, |v| v == true),
+                    _ => false,
+                })
+                .count(),
+            Value::Object(o) => o.get("_placeholder").map_or(0, |_| 1),
+            _ => 0,
+        };
+
+        Self {
+            data,
+            bin: Vec::new(),
+            payload_count,
+        }
+    }
+    pub fn add_payload(&mut self, payload: Vec<u8>) {
+        self.bin.push(payload);
+    }
+    pub fn is_complete(&self) -> bool {
+        self.payload_count == self.bin.len()
     }
 }
 
@@ -132,27 +177,27 @@ where
                 res.push_str(&packet)
             }
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
-            PacketData::BinaryEvent(event, data, payload, ack) => {
+            PacketData::BinaryEvent(event, bin, ack) => {
                 if let Some(ack) = ack {
                     res.push_str(&ack.to_string());
                 }
                 // Expand the packet if it is an array -> ["event", ...data]
-                let mut array = match data {
+                let mut array = match bin.data {
                     Value::Array(mut v) => {
                         v.insert(0, Value::String(event));
                         v
                     }
-                    _ => vec![Value::String(event), data],
+                    _ => vec![Value::String(event), bin.data],
                 };
 
                 // Add the placeholders at the end of the payload
-                array.extend(payload.iter().enumerate().map(|(i, _)| {
+                array.extend(bin.bin.iter().enumerate().map(|(i, _)| {
                     serde_json::to_value(Placeholder::new(i.try_into().unwrap())).unwrap()
                 }));
                 let packet = serde_json::to_string(&array)?;
                 res.push_str(&packet)
             }
-            PacketData::BinaryAck(_, _, _) => todo!(),
+            PacketData::BinaryAck(_, _) => todo!(),
         };
         Ok(res)
     }
@@ -253,11 +298,11 @@ impl TryFrom<String> for Packet<Value> {
             }
             '5' => {
                 let (event, payload) = deserialize_event_packet(&data)?;
-                PacketData::BinaryEvent(event, payload, vec![], ack)
+                PacketData::BinaryEvent(event, BinaryPacket::new(payload), ack)
             }
             '6' => {
                 let packet = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
-                PacketData::BinaryAck(packet, vec![], ack.ok_or(Error::InvalidPacketType)?)
+                PacketData::BinaryAck(BinaryPacket::new(packet), ack.ok_or(Error::InvalidPacketType)?)
             }
             _ => return Err(Error::InvalidPacketType),
         };

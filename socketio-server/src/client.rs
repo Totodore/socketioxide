@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use engineio_server::socket::Socket as EIoSocket;
 use engineio_server::{engine::EngineIo, layer::EngineIoHandler};
@@ -45,10 +45,38 @@ impl Client {
         socket.emit(packet.try_into()?).await.unwrap();
         Ok(())
     }
+
+    /// Apply an incoming binary payload to a partial binary packet waiting to be filled with all the payloads
+    /// Returns true if the packet is complete and should be processed
+    fn apply_payload_on_packet(&self, data: Vec<u8>, socket: &EIoSocket<Self>) -> bool {
+        debug!("[sid={}] applying payload on packet", socket.sid);
+        if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
+            match packet.inner {
+                PacketData::BinaryEvent(_, ref mut bin, _)
+                | PacketData::BinaryAck(ref mut bin, _) => {
+                    bin.add_payload(data);
+                    return bin.is_complete();
+                }
+                _ => unreachable!("partial_bin_packet should only be set for binary packets"),
+            }
+        } else {
+            debug!("[sid={}] socket received unexpected bin data", socket.sid);
+            return false;
+        };
+    }
+}
+
+#[derive(Default)]
+pub struct SocketData {
+    /// Partial binary packet that is being received
+    /// Stored here until all the binary payloads are received
+    pub partial_bin_packet: Mutex<Option<Packet<Value>>>,
 }
 
 #[engineio_server::async_trait]
 impl EngineIoHandler for Client {
+    type Data = SocketData;
+
     fn on_connect(self: Arc<Self>, socket: &EIoSocket<Self>) {
         println!("socket connect {}", socket.sid);
         // self.state = SocketState::AwaitingConnect;
@@ -84,6 +112,28 @@ impl EngineIoHandler for Client {
                 }
             }
             Ok(Packet {
+                inner: PacketData::BinaryEvent(e, p, a),
+                ns,
+            }) => {
+                socket
+                    .data
+                    .partial_bin_packet
+                    .lock()
+                    .unwrap()
+                    .replace(Packet { inner: PacketData::BinaryEvent(e, p, a), ns });
+            },
+            Ok(Packet {
+                inner: PacketData::BinaryAck(p, a),
+                ns,
+            }) => {
+                socket
+                    .data
+                    .partial_bin_packet
+                    .lock()
+                    .unwrap()
+                    .replace(Packet { inner: PacketData::BinaryAck(p, a), ns });
+            }
+            Ok(Packet {
                 inner: packet_data,
                 ns,
             }) => {
@@ -101,6 +151,14 @@ impl EngineIoHandler for Client {
     }
 
     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &EIoSocket<Self>) {
-        println!("Ping pong binary message {:?}", data);
+        if self.apply_payload_on_packet(data, socket) {
+            if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
+                if let Some(ns) = self.ns.get(&packet.ns) {
+                    if let Err(e) = ns.recv(socket.sid, packet.inner) {
+                        error!("[sid={}] {e}", socket.sid);
+                    }
+                }
+            }
+        }
     }
 }

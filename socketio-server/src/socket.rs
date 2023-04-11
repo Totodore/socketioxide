@@ -17,7 +17,7 @@ use crate::{
     client::Client,
     errors::{AckError, Error},
     handshake::Handshake,
-    packet::{Packet, PacketData},
+    packet::{BinaryPacket, Packet, PacketData},
 };
 
 type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
@@ -194,10 +194,8 @@ impl Socket {
         match packet {
             PacketData::Event(e, data, ack) => self.recv_event(e, data, ack),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
-            PacketData::BinaryEvent(e, data, payload, ack) => {
-                self.recv_bin_event(e, data, payload, ack)
-            }
-            PacketData::BinaryAck(data, payload, ack) => self.recv_bin_ack(data, payload, ack),
+            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(e, packet, ack),
+            PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
             _ => unreachable!(),
         }
     }
@@ -212,12 +210,11 @@ impl Socket {
     fn recv_bin_event(
         self: Arc<Self>,
         e: String,
-        data: Value,
-        payload: Vec<Vec<u8>>,
+        packet: BinaryPacket,
         ack: Option<i64>,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
-            handler.call(self.clone(), data, Some(payload), ack)?;
+            handler.call(self.clone(), packet.data, Some(packet.bin), ack)?;
         }
         Ok(())
     }
@@ -229,14 +226,9 @@ impl Socket {
         Ok(())
     }
 
-    pub fn recv_bin_ack(
-        self: Arc<Self>,
-        data: Value,
-        payload: Vec<Vec<u8>>,
-        ack: i64,
-    ) -> Result<(), Error> {
+    pub fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
-            tx.send((data, Some(payload))).ok();
+            tx.send((packet.data, Some(packet.bin))).ok();
         }
         Ok(())
     }
