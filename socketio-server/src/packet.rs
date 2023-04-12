@@ -110,17 +110,27 @@ impl PacketData {
 }
 
 impl BinaryPacket {
-    pub fn new(data: Value) -> Self {
-        let payload_count = match &data {
-            Value::Array(v) => v
-                .iter()
-                .filter(|v| match v {
-                    Value::Object(o) => o.get("_placeholder").map_or(false, |v| v == true),
-                    _ => false,
-                })
-                .count(),
-            Value::Object(o) => o.get("_placeholder").map_or(0, |_| 1),
-            _ => 0,
+    /// Create a binary packet from data and remove all placeholders and get the payload count
+    pub fn new(mut data: Value) -> Self {
+        let payload_count = match &mut data {
+            Value::Array(ref mut v) => {
+                let count = v.len();
+                v.retain(|v| {
+                    !v.as_object()
+                        .map(|o| o.get("_placeholder"))
+                        .flatten()
+                        .is_some()
+                });
+                count - v.len()
+            }
+            val => {
+                if val.as_object().map(|o| o.get("_placeholder")).flatten().is_some() {
+                    data = Value::Array(vec![]);
+                    1
+                } else {
+                    0
+                }
+            },
         };
 
         Self {

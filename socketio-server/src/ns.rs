@@ -63,12 +63,12 @@ impl Namespace {
 
     pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Connect(_) => unreachable!(),
-            PacketData::ConnectError(_) => unreachable!(),
             PacketData::Disconnect => {
                 self.disconnect(sid);
                 Ok(())
             }
+            PacketData::Connect(_) => unreachable!("connect packets should not be handled in namespace"),
+            PacketData::ConnectError(_) => Ok(()),
             packet => self.socket_recv(sid, packet),
         }
     }
