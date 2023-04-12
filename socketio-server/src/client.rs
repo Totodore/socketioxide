@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use engineio_server::socket::Socket as EIoSocket;
 use engineio_server::{engine::EngineIo, layer::EngineIoHandler};
-use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::debug;
 use tracing::error;
 
@@ -39,7 +38,7 @@ impl Client {
         client
     }
 
-    pub async fn emit(&self, sid: i64, packet: Packet<impl Serialize>) -> Result<(), Error> {
+    pub async fn emit(&self, sid: i64, packet: Packet) -> Result<(), Error> {
         // debug!("Emitting packet: {:?}", packet);
         let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
         socket.emit(packet.try_into()?).await.unwrap();
@@ -47,6 +46,7 @@ impl Client {
     }
 
     /// Apply an incoming binary payload to a partial binary packet waiting to be filled with all the payloads
+    ///
     /// Returns true if the packet is complete and should be processed
     fn apply_payload_on_packet(&self, data: Vec<u8>, socket: &EIoSocket<Self>) -> bool {
         debug!("[sid={}] applying payload on packet", socket.sid);
@@ -64,13 +64,50 @@ impl Client {
             return false;
         };
     }
+
+    /// Called when a socket connects to a new namespace
+    async fn sock_connect(self: Arc<Self>, auth: Value, ns_path: String, sid: i64) {
+        debug!("auth: {:?}", auth);
+        let handshake = Handshake {
+            url: "".to_string(),
+            issued: 0,
+            auth,
+        };
+        if let Some(ns) = self.ns.get(&ns_path) {
+            ns.connect(sid, self.clone(), handshake);
+            self.emit(sid, Packet::connect(ns_path, sid)).await.unwrap();
+        } else {
+            self.emit(sid, Packet::invalid_namespace(ns_path))
+                .await
+                .unwrap();
+        }
+    }
+
+    /// Cache-in the socket data until all the binary payloads are received
+    fn sock_recv_bin_packet(self: Arc<Self>, socket: &EIoSocket<Self>, packet: Packet) {
+        socket
+            .data
+            .partial_bin_packet
+            .lock()
+            .unwrap()
+            .replace(packet);
+    }
+
+    /// Propagate a packet to a its target namespace
+    fn sock_propagate_packet(self: Arc<Self>, packet: Packet, sid: i64) {
+        if let Some(ns) = self.ns.get(&packet.ns) {
+            if let Err(e) = ns.recv(sid, packet.inner) {
+                error!("[sid={}] {e}", sid);
+            }
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct SocketData {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
-    pub partial_bin_packet: Mutex<Option<Packet<Value>>>,
+    pub partial_bin_packet: Mutex<Option<Packet>>,
 }
 
 #[engineio_server::async_trait]
@@ -87,78 +124,36 @@ impl EngineIoHandler for Client {
 
     async fn on_message(self: Arc<Self>, msg: String, socket: &EIoSocket<Self>) {
         debug!("Received message: {:?}", msg);
-        let packet = Packet::<Value>::try_from(msg);
-        debug!("Packet: {:?}", packet);
-        match packet {
-            Ok(Packet {
-                inner: PacketData::Connect(auth),
-                ns: ns_path,
-            }) => {
-                debug!("auth: {:?}", auth);
-                let handshake = Handshake {
-                    url: "".to_string(),
-                    issued: 0,
-                    auth: auth.unwrap_or(json!({})),
-                };
-                if let Some(ns) = self.ns.get(&ns_path) {
-                    ns.connect(socket.sid, self.clone(), handshake);
-                    self.emit(socket.sid, Packet::connect(ns_path, socket.sid))
-                        .await
-                        .unwrap();
-                } else {
-                    self.emit(socket.sid, Packet::<()>::invalid_namespace(ns_path))
-                        .await
-                        .unwrap();
-                }
-            }
-            Ok(Packet {
-                inner: PacketData::BinaryEvent(e, p, a),
-                ns,
-            }) => {
-                socket
-                    .data
-                    .partial_bin_packet
-                    .lock()
-                    .unwrap()
-                    .replace(Packet { inner: PacketData::BinaryEvent(e, p, a), ns });
-            },
-            Ok(Packet {
-                inner: PacketData::BinaryAck(p, a),
-                ns,
-            }) => {
-                socket
-                    .data
-                    .partial_bin_packet
-                    .lock()
-                    .unwrap()
-                    .replace(Packet { inner: PacketData::BinaryAck(p, a), ns });
-            }
-            Ok(Packet {
-                inner: packet_data,
-                ns,
-            }) => {
-                if let Some(ns) = self.ns.get(&ns) {
-                    if let Err(e) = ns.recv(socket.sid, packet_data) {
-                        error!("[sid={}] {e}", socket.sid);
-                    }
-                }
-            }
+        let packet = match Packet::try_from(msg) {
+            Ok(packet) => packet,
             Err(e) => {
                 debug!("socket serialization error: {}", e);
                 socket.emit_close().await;
+                return;
             }
+        };
+        debug!("Packet: {:?}", packet);
+        match packet.inner {
+            PacketData::Connect(auth) => self.sock_connect(auth, packet.ns, socket.sid).await,
+            PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
+                self.sock_recv_bin_packet(socket, packet)
+            }
+            _ => self.sock_propagate_packet(packet, socket.sid),
         };
     }
 
+    /// When a binary payload is received from a socket, it is applied to the partial binary packet
+    ///
+    /// If the packet is complete, it is propagated to the namespace
     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &EIoSocket<Self>) {
         if self.apply_payload_on_packet(data, socket) {
-            if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
-                if let Some(ns) = self.ns.get(&packet.ns) {
-                    if let Err(e) = ns.recv(socket.sid, packet.inner) {
-                        error!("[sid={}] {e}", socket.sid);
-                    }
-                }
-            }
+            socket
+                .data
+                .partial_bin_packet
+                .lock()
+                .unwrap()
+                .take()
+                .map(|p| self.sock_propagate_packet(p, socket.sid));
         }
     }
 }

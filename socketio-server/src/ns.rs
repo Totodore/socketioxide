@@ -5,7 +5,6 @@ use std::{
 };
 
 use futures::Future;
-use serde_json::Value;
 
 use crate::{
     client::Client, errors::Error, handshake::Handshake, packet::PacketData, socket::Socket,
@@ -55,14 +54,14 @@ impl Namespace {
     }
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket
-    pub fn socket_recv(&self, sid: i64, packet: PacketData<Value>) -> Result<(), Error> {
+    pub fn socket_recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
         if let Some(socket) = self.get_socket(sid) {
             socket.recv(packet)?;
         }
         Ok(())
     }
 
-    pub fn recv(&self, sid: i64, packet: PacketData<Value>) -> Result<(), Error> {
+    pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!(),
             PacketData::ConnectError(_) => unreachable!(),

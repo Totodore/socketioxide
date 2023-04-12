@@ -130,7 +130,7 @@ impl Socket {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
         self.client
-            .emit(self.sid, Packet::<()>::event(ns, event.into(), data, None))
+            .emit(self.sid, Packet::event(ns, event.into(), data, None))
             .await
     }
 
@@ -145,7 +145,7 @@ impl Socket {
         self.client
             .emit(
                 self.sid,
-                Packet::<()>::bin_event(ns, event.into(), data, payload, None),
+                Packet::bin_event(ns, event.into(), data, payload, None),
             )
             .await
     }
@@ -164,7 +164,7 @@ impl Socket {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.write().unwrap().insert(ack, tx);
-        let packet = Packet::<()>::event(ns, event.into(), data, Some(ack));
+        let packet = Packet::event(ns, event.into(), data, Some(ack));
         self.client.emit(self.sid, packet).await?;
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok((serde_json::from_value(v.0)?, v.1))
@@ -186,11 +186,11 @@ impl Socket {
         let ns = self.ns.clone();
         let data = serde_json::to_value(&data)?;
         self.client
-            .emit(self.sid, Packet::<()>::ack(ns, data, ack_id))
+            .emit(self.sid, Packet::ack(ns, data, ack_id))
             .await
     }
 
-    pub(crate) fn recv(self: Arc<Self>, packet: PacketData<Value>) -> Result<(), Error> {
+    pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Event(e, data, ack) => self.recv_event(e, data, ack),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),

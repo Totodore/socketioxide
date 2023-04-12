@@ -1,6 +1,6 @@
 use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::errors::Error;
@@ -8,23 +8,25 @@ use crate::errors::Error;
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
 #[derive(Debug, Clone, PartialEq)]
-pub struct Packet<T> {
-    pub inner: PacketData<T>,
+pub struct Packet {
+    pub inner: PacketData,
     pub ns: String,
 }
 
-impl Packet<ConnectPacket> {
+impl Packet {
     pub fn connect(ns: String, sid: i64) -> Self {
+        let val = serde_json::to_value(ConnectPacket {
+            sid: sid.to_string(),
+        })
+        .unwrap();
         Self {
-            inner: PacketData::Connect(Some(ConnectPacket {
-                sid: sid.to_string(),
-            })),
+            inner: PacketData::Connect(val),
             ns,
         }
     }
 }
 
-impl<T> Packet<T> {
+impl Packet {
     pub fn invalid_namespace(ns: String) -> Self {
         Self {
             inner: PacketData::ConnectError(ConnectErrorPacket {
@@ -76,8 +78,8 @@ impl<T> Packet<T> {
 /// | BINARY_EVENT  | 5   | Used to [send binary data](#sending-and-receiving-data) to the other side.            |
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq)]
-pub enum PacketData<T> {
-    Connect(Option<T>),
+pub enum PacketData {
+    Connect(Value),
     Disconnect,
     Event(String, Value, Option<i64>),
     EventAck(Value, i64),
@@ -93,7 +95,7 @@ pub struct BinaryPacket {
     payload_count: usize,
 }
 
-impl<T> PacketData<T> {
+impl PacketData {
     fn index(&self) -> u8 {
         match self {
             PacketData::Connect(_) => 0,
@@ -135,10 +137,7 @@ impl BinaryPacket {
     }
 }
 
-impl<T> TryInto<String> for Packet<T>
-where
-    T: Serialize,
-{
+impl TryInto<String> for Packet {
     type Error = Error;
 
     fn try_into(self) -> Result<String, Self::Error> {
@@ -148,8 +147,7 @@ where
         }
 
         match self.inner {
-            PacketData::Connect(None) => (),
-            PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
+            PacketData::Connect(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::Disconnect => (),
             PacketData::Event(event, data, ack) => {
                 if let Some(ack) = ack {
@@ -240,7 +238,7 @@ fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Erro
 /// <packet type>[<# of binary attachments>-][<namespace>,][<acknowledgment id>][JSON-stringified payload without binary]
 /// + binary attachments extracted
 /// ```
-impl TryFrom<String> for Packet<Value> {
+impl TryFrom<String> for Packet {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -282,7 +280,7 @@ impl TryFrom<String> for Packet<Value> {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(deserialize_packet(&data)?),
+            '0' => PacketData::Connect(deserialize_packet(&data)?.unwrap_or(json!({}))),
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(&data)?;
@@ -302,7 +300,10 @@ impl TryFrom<String> for Packet<Value> {
             }
             '6' => {
                 let packet = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
-                PacketData::BinaryAck(BinaryPacket::new(packet), ack.ok_or(Error::InvalidPacketType)?)
+                PacketData::BinaryAck(
+                    BinaryPacket::new(packet),
+                    ack.ok_or(Error::InvalidPacketType)?,
+                )
             }
             _ => return Err(Error::InvalidPacketType),
         };
@@ -354,7 +355,7 @@ mod test {
         assert_eq!(
             Packet {
                 ns: "/".to_string(),
-                inner: PacketData::Connect(Some(json!({ "token": "123"})))
+                inner: PacketData::Connect(json!({ "token": "123"}))
             },
             packet.unwrap()
         );
@@ -367,7 +368,7 @@ mod test {
         assert_eq!(
             Packet {
                 ns: "/admin™".to_owned(),
-                inner: PacketData::Connect(Some(json!({ "token™": "123" })))
+                inner: PacketData::Connect(json!({ "token™": "123" }))
             },
             packet.unwrap()
         );
