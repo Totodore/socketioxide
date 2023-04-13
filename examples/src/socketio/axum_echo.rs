@@ -2,16 +2,10 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Server;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
-
-#[derive(Serialize, Deserialize)]
-struct TestMessage {
-    test: String,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
