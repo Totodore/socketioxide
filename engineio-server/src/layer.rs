@@ -66,7 +66,7 @@ pub struct EngineIoConfig {
     ///         socket.emit(msg).await;  // This will wait until the buffer is drained
     ///     }
     ///
-    ///     async fn on_binary(self: Arc<Self>ata: Vec<u8>, socket: &Socket<Self>) {
+    ///     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
     ///         println!("Ping pong binary message {:?}"ata);
     ///         socket.emit_binary(data).await;  // This will wait until the buffer is drained
     ///     }
