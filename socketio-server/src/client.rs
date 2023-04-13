@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use engineio_server::socket::Socket as EIoSocket;
 use engineio_server::{engine::EngineIo, layer::EngineIoHandler};
+use futures::future;
 use serde_json::Value;
 use tracing::debug;
 use tracing::error;
@@ -42,6 +43,14 @@ impl Client {
         // debug!("Emitting packet: {:?}", packet);
         let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
         socket.emit(packet.try_into()?).await.unwrap();
+        Ok(())
+    }
+
+    pub async fn emit_bin(&self, sid: i64, packet: Packet, bin: Vec<Vec<u8>>) -> Result<(), Error> {
+        let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
+        
+        socket.emit(packet.try_into()?).await.unwrap();
+        future::join_all(bin.into_iter().map(|payload| socket.emit_binary(payload))).await;
         Ok(())
     }
 

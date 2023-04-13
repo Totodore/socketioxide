@@ -142,12 +142,8 @@ impl Socket {
     ) -> Result<(), Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
-        self.client
-            .emit(
-                self.sid,
-                Packet::bin_event(ns, event.into(), data, payload, None),
-            )
-            .await
+        let packet = Packet::bin_event(ns, event.into(), data, payload.len(), None);
+        self.client.emit_bin(self.sid, packet, payload).await
     }
 
     pub async fn emit_with_ack_timeout<V>(

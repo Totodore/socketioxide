@@ -1,5 +1,8 @@
 use itertools::{Itertools, PeekingNext};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{DeserializeOwned},
+    Deserialize, Serialize,
+};
 use serde_json::{json, Value};
 use tracing::debug;
 
@@ -47,13 +50,10 @@ impl Packet {
         ns: String,
         e: String,
         data: Value,
-        bin: Vec<Vec<u8>>,
+        payload_count: usize,
         ack: Option<i64>,
     ) -> Self {
-        let mut packet = BinaryPacket::new(data);
-        for b in bin {
-            packet.add_payload(b);
-        }
+        let packet = BinaryPacket::outgoing(data, payload_count);
         Self {
             inner: PacketData::BinaryEvent(e, packet, ack),
             ns,
@@ -110,8 +110,8 @@ impl PacketData {
 }
 
 impl BinaryPacket {
-    /// Create a binary packet from data and remove all placeholders and get the payload count
-    pub fn new(mut data: Value) -> Self {
+    /// Create a binary packet from incoming data and remove all placeholders and get the payload count
+    pub fn incoming(mut data: Value) -> Self {
         let payload_count = match &mut data {
             Value::Array(ref mut v) => {
                 let count = v.len();
@@ -124,18 +124,42 @@ impl BinaryPacket {
                 count - v.len()
             }
             val => {
-                if val.as_object().map(|o| o.get("_placeholder")).flatten().is_some() {
+                if val
+                    .as_object()
+                    .map(|o| o.get("_placeholder"))
+                    .flatten()
+                    .is_some()
+                {
                     data = Value::Array(vec![]);
                     1
                 } else {
                     0
                 }
-            },
+            }
         };
 
         Self {
             data,
             bin: Vec::new(),
+            payload_count,
+        }
+    }
+
+    /// Create a binary packet from outgoing data and a payload
+    pub fn outgoing(data: Value, payload_count: usize) -> Self {
+        let mut data = match data {
+            Value::Array(v) => Value::Array(v),
+            d => Value::Array(vec![d]),
+        };
+        (0..payload_count).for_each(|i| {
+            data.as_array_mut().unwrap().push(json!({
+                "_placeholder": true,
+                "num": i
+            }))
+        });
+        Self {
+            data,
+            bin: vec![],
             payload_count,
         }
     }
@@ -186,11 +210,13 @@ impl TryInto<String> for Packet {
             }
             PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
             PacketData::BinaryEvent(event, bin, ack) => {
+                res.push_str(&bin.payload_count.to_string());
+                res.push('-');
                 if let Some(ack) = ack {
                     res.push_str(&ack.to_string());
                 }
                 // Expand the packet if it is an array -> ["event", ...data]
-                let mut array = match bin.data {
+                let array = match bin.data {
                     Value::Array(mut v) => {
                         v.insert(0, Value::String(event));
                         v
@@ -198,10 +224,6 @@ impl TryInto<String> for Packet {
                     _ => vec![Value::String(event), bin.data],
                 };
 
-                // Add the placeholders at the end of the payload
-                array.extend(bin.bin.iter().enumerate().map(|(i, _)| {
-                    serde_json::to_value(Placeholder::new(i.try_into().unwrap())).unwrap()
-                }));
                 let packet = serde_json::to_string(&array)?;
                 res.push_str(&packet)
             }
@@ -306,12 +328,12 @@ impl TryFrom<String> for Packet {
             }
             '5' => {
                 let (event, payload) = deserialize_event_packet(&data)?;
-                PacketData::BinaryEvent(event, BinaryPacket::new(payload), ack)
+                PacketData::BinaryEvent(event, BinaryPacket::incoming(payload), ack)
             }
             '6' => {
                 let packet = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::BinaryAck(
-                    BinaryPacket::new(packet),
+                    BinaryPacket::incoming(packet),
                     ack.ok_or(Error::InvalidPacketType)?,
                 )
             }
@@ -321,22 +343,6 @@ impl TryFrom<String> for Packet {
         Ok(Self { inner, ns })
     }
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Placeholder {
-    #[serde(rename = "_placeholder")]
-    placeholder: bool,
-    num: u32,
-}
-
-impl Placeholder {
-    pub fn new(num: u32) -> Self {
-        Self {
-            placeholder: true,
-            num,
-        }
-    }
-}
-
 /// Connect packet sent by the client
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectPacket {
