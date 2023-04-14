@@ -38,16 +38,16 @@ impl Client {
         client
     }
 
-    pub async fn emit(&self, sid: i64, packet: Packet) -> Result<(), Error> {
+    pub fn emit(&self, sid: i64, packet: Packet) -> Result<(), Error> {
         // debug!("Emitting packet: {:?}", packet);
         let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
         socket.emit(packet.try_into()?).unwrap();
         Ok(())
     }
 
-    pub async fn emit_bin(&self, sid: i64, packet: Packet, bin: Vec<Vec<u8>>) -> Result<(), Error> {
+    pub fn emit_bin(&self, sid: i64, packet: Packet, bin: Vec<Vec<u8>>) -> Result<(), Error> {
         let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
-        
+
         socket.emit(packet.try_into()?).unwrap();
         for payload in bin {
             socket.emit_binary(payload).unwrap();
@@ -85,11 +85,9 @@ impl Client {
         };
         if let Some(ns) = self.ns.get(&ns_path) {
             ns.connect(sid, self.clone(), handshake);
-            self.emit(sid, Packet::connect(ns_path, sid)).await.unwrap();
+            self.emit(sid, Packet::connect(ns_path, sid)).unwrap();
         } else {
-            self.emit(sid, Packet::invalid_namespace(ns_path))
-                .await
-                .unwrap();
+            self.emit(sid, Packet::invalid_namespace(ns_path)).unwrap();
         }
     }
 

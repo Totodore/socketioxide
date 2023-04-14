@@ -1,8 +1,5 @@
 use itertools::{Itertools, PeekingNext};
-use serde::{
-    de::{DeserializeOwned},
-    Deserialize, Serialize,
-};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::debug;
 
@@ -63,6 +60,13 @@ impl Packet {
     pub fn ack(ns: String, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::EventAck(data, ack),
+            ns,
+        }
+    }
+    pub fn bin_ack(ns: String, data: Value, payload_count: usize, ack: i64) -> Self {
+        let packet = BinaryPacket::outgoing(data, payload_count);
+        Self {
+            inner: PacketData::BinaryAck(packet, ack),
             ns,
         }
     }
@@ -212,6 +216,7 @@ impl TryInto<String> for Packet {
             PacketData::BinaryEvent(event, bin, ack) => {
                 res.push_str(&bin.payload_count.to_string());
                 res.push('-');
+
                 if let Some(ack) = ack {
                     res.push_str(&ack.to_string());
                 }
@@ -227,7 +232,19 @@ impl TryInto<String> for Packet {
                 let packet = serde_json::to_string(&array)?;
                 res.push_str(&packet)
             }
-            PacketData::BinaryAck(_, _) => todo!(),
+            PacketData::BinaryAck(packet, ack) => {
+                res.push_str(&packet.payload_count.to_string());
+                res.push('-');
+                res.push_str(&ack.to_string());
+                // Enforce that the packet is an array -> [data]
+                let data = match packet.data {
+                    Value::Array(_) => packet.data,
+                    Value::Null => Value::Array(vec![]),
+                    _ => Value::Array(vec![packet.data]),
+                };
+                let packet = serde_json::to_string(&data)?;
+                res.push_str(&packet)
+            }
         };
         Ok(res)
     }

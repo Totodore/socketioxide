@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace};
+use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace, socket::Ack};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -26,33 +26,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
 
-            socket
-                .emit("auth", socket.handshake.auth.clone())
-                .await
-                .ok();
+            socket.emit("auth", socket.handshake.auth.clone()).ok();
 
             socket.on_event("message", |socket, data: Value, bin| async move {
                 if let Some(bin) = bin {
                     info!("Received event binary: {:?} {:?}", data, bin);
-                    socket.emit_bin("message-back", data, bin).await.ok();
+                    socket.emit_bin("message-back", data, bin).ok();
                 } else {
                     info!("Received event: {:?}", data);
-                    socket.emit("message-back", data).await.ok();
+                    socket.emit("message-back", data).ok();
                 }
-                Ok(())
+                Ok(Ack::<()>::None)
             });
 
-            socket.on_event("message-with-ack", |_, data: Value, _| async move {
-                info!("Received event with ack: {:?}", data);
-                Ok(data)
+            socket.on_event("message-with-ack", |_, data: Value, bin| async move {
+                if let Some(bin) = bin {
+                    info!("Received event binary: {:?} {:?}", data, bin);
+                    return Ok(Ack::DataBin(data, bin));
+                } else {
+                    info!("Received event: {:?}", data);
+                    return Ok(Ack::Data(data));
+                }
             });
         })
         .add("/custom", |socket| async move {
             info!("Socket.IO connected on: {:?} {:?}", socket.ns, socket.sid);
-            socket
-                .emit("auth", socket.handshake.auth.clone())
-                .await
-                .ok();
+            socket.emit("auth", socket.handshake.auth.clone()).ok();
         })
         .build();
 

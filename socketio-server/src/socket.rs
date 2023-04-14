@@ -10,7 +10,7 @@ use std::{
 
 use futures::{Future, TryFutureExt};
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use crate::{
@@ -22,7 +22,22 @@ use crate::{
 
 type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
 
-//TODO: Define a trait to handle all types of data (serialized, binary, etc.)
+pub enum Ack<T>
+where
+    T: Serialize + Send + Sync + 'static,
+{
+    Bin(Vec<Vec<u8>>),
+    Data(T),
+    DataBin(T, Vec<Vec<u8>>),
+    None,
+}
+
+impl From<()> for Ack<()> {
+    fn from(_: ()) -> Self {
+        Ack::None
+    }
+}
+
 trait MessageCaller: Send + Sync + 'static {
     fn call(
         &self,
@@ -47,7 +62,7 @@ impl<Param, RetV, F> MessageCaller for MessageHandler<Param, RetV, F>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
     RetV: Serialize + Send + Sync + 'static,
-    F: Fn(Arc<Socket>, Param, Option<Vec<Vec<u8>>>) -> BoxAsyncFut<Result<RetV, Error>>
+    F: Fn(Arc<Socket>, Param, Option<Vec<Vec<u8>>>) -> BoxAsyncFut<Result<Ack<RetV>, Error>>
         + Send
         + Sync
         + 'static,
@@ -75,9 +90,12 @@ where
         let fut = (self.handler)(s, v, p);
         if let Some(ack_id) = ack_id {
             // Send ack for the message if it has an ack_id
-            tokio::spawn(
-                fut.and_then(move |val| async move { owned_socket.send_ack(ack_id, val).await }),
-            );
+            tokio::spawn(fut.map_ok(move |val| match val {
+                Ack::Bin(b) => owned_socket.send_bin_ack(ack_id, json!({}), b),
+                Ack::Data(d) => owned_socket.send_ack(ack_id, d),
+                Ack::DataBin(d, b) => owned_socket.send_bin_ack(ack_id, d, b),
+                Ack::None => Ok(()),
+            }));
         } else {
             tokio::spawn(fut);
         }
@@ -111,7 +129,7 @@ impl Socket {
     pub fn on_event<C, F, V, RetV>(&self, event: impl Into<String>, callback: C)
     where
         C: Fn(Arc<Socket>, V, Option<Vec<Vec<u8>>>) -> F + Send + Sync + 'static,
-        F: Future<Output = Result<RetV, Error>> + Send + Sync + 'static,
+        F: Future<Output = Result<Ack<RetV>, Error>> + Send + Sync + 'static,
         V: DeserializeOwned + Send + Sync + 'static,
         RetV: Serialize + Send + Sync + 'static,
     {
@@ -126,15 +144,14 @@ impl Socket {
         );
     }
 
-    pub async fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
+    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
         self.client
             .emit(self.sid, Packet::event(ns, event.into(), data, None))
-            .await
     }
 
-    pub async fn emit_bin(
+    pub fn emit_bin(
         &self,
         event: impl Into<String>,
         data: impl Serialize,
@@ -143,7 +160,7 @@ impl Socket {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
         let packet = Packet::bin_event(ns, event.into(), data, payload.len(), None);
-        self.client.emit_bin(self.sid, packet, payload).await
+        self.client.emit_bin(self.sid, packet, payload)
     }
 
     pub async fn emit_with_ack_timeout<V>(
@@ -161,7 +178,7 @@ impl Socket {
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.write().unwrap().insert(ack, tx);
         let packet = Packet::event(ns, event.into(), data, Some(ack));
-        self.client.emit(self.sid, packet).await?;
+        self.client.emit(self.sid, packet)?;
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok((serde_json::from_value(v.0)?, v.1))
     }
@@ -178,12 +195,55 @@ impl Socket {
             .await
     }
 
-    pub(crate) async fn send_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
+    pub async fn emit_bin_with_ack_timeout<V>(
+        &self,
+        event: impl Into<String>,
+        data: impl Serialize,
+        bin: Vec<Vec<u8>>,
+        timeout: Duration,
+    ) -> Result<(V, Option<Vec<Vec<u8>>>), AckError>
+    where
+        V: DeserializeOwned + Send + Sync + 'static,
+    {
+        let ns = self.ns.clone();
+        let data = serde_json::to_value(data)?;
+        let (tx, rx) = oneshot::channel();
+        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        self.ack_message.write().unwrap().insert(ack, tx);
+        let packet = Packet::bin_event(ns, event.into(), data, bin.len(), Some(ack));
+        self.client.emit_bin(self.sid, packet, bin)?;
+        let v = tokio::time::timeout(timeout, rx).await??;
+        Ok((serde_json::from_value(v.0)?, v.1))
+    }
+
+    pub async fn emit_bin_with_ack<V>(
+        &self,
+        event: impl Into<String>,
+        data: impl Serialize,
+        bin: Vec<Vec<u8>>
+    ) -> Result<(V, Option<Vec<Vec<u8>>>), AckError>
+    where
+        V: DeserializeOwned + Send + Sync + 'static,
+    {
+        self.emit_bin_with_ack_timeout(event, data, bin, self.client.config.ack_timeout)
+            .await
+    }
+
+    pub(crate) fn send_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
+        let ns = self.ns.clone();
+        let data = serde_json::to_value(&data)?;
+        self.client.emit(self.sid, Packet::ack(ns, data, ack_id))
+    }
+    pub(crate) fn send_bin_ack(
+        &self,
+        ack_id: i64,
+        data: impl Serialize,
+        bin: Vec<Vec<u8>>,
+    ) -> Result<(), Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(&data)?;
         self.client
-            .emit(self.sid, Packet::ack(ns, data, ack_id))
-            .await
+            .emit_bin(self.sid, Packet::bin_ack(ns, data, bin.len(), ack_id), bin)
     }
 
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
