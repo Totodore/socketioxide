@@ -190,8 +190,7 @@ where
     /// If the transport is in websocket mode, the message is directly sent as a text frame.
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame to the next polling request.
-    ///
-    /// ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
+    /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
     pub fn emit(&self, msg: String) -> Result<(), Error> {
         self.send(Packet::Message(msg))
     }
@@ -205,7 +204,7 @@ where
     /// If the transport is in websocket mode, the message is directly sent as a binary frame.
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
-    /// > ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
+    /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
     pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
         self.send(Packet::Binary(data))?;
         Ok(())

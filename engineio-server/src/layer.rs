@@ -40,7 +40,7 @@ pub struct EngineIoConfig {
 
     /// The maximum number of packets that can be buffered per connection before being emitted to the client.
     ///
-    /// If the buffer if full the `emit()` method will wait until the buffer is drained:
+    /// If the buffer if full the `emit()` method will return an error
     /// ```
     /// use engineio_server::{
     ///     layer::{EngineIoHandler, EngineIoLayer},
@@ -63,12 +63,12 @@ pub struct EngineIoConfig {
     ///
     ///     async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>) {
     ///         println!("Ping pong message {:?}", msg);
-    ///         socket.emit(msg).await;  // This will wait until the buffer is drained
+    ///         socket.emit(msg).unwrap();
     ///     }
     ///
     ///     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
     ///         println!("Ping pong binary message {:?}", data);
-    ///         socket.emit_binary(data).await;  // This will wait until the buffer is drained
+    ///         socket.emit_binary(data).unwrap();
     ///     }
     /// }
     /// ```
