@@ -102,7 +102,7 @@ where
             Ok(s) => s,
             Err(_) => {
                 if socket.is_http() {
-                    socket.send(Packet::Close).await?;
+                    socket.send(Packet::Close)?;
                     self.close_session(sid);
                 }
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
@@ -347,7 +347,7 @@ where
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
         // send a NOOP packet to any pending polling request
-        socket.send(Packet::Noop).await?;
+        socket.send(Packet::Noop)?;
 
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,

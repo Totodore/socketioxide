@@ -25,12 +25,12 @@ impl EngineIoHandler for MyHandler {
 
     async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>) {
         println!("Ping pong message {:?}", msg);
-        socket.emit(msg).await.ok();
+        socket.emit(msg).ok();
     }
 
     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
         println!("Ping pong binary message {:?}", data);
-        socket.emit_binary(data).await.ok();
+        socket.emit_binary(data).ok();
     }
 }
 

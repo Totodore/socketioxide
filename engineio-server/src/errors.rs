@@ -24,7 +24,7 @@ pub enum Error {
     #[error("http error: {0:?}")]
     HttpError(#[from] http::Error),
     #[error("internal channel error: {0:?}")]
-    SendChannelError(#[from] mpsc::error::SendError<Packet>),
+    SendChannelError(#[from] mpsc::error::TrySendError<Packet>),
     #[error("internal channel error: {0:?}")]
     RecvChannelError(#[from] mpsc::error::TryRecvError),
     #[error("heartbeat timeout")]

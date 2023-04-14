@@ -95,10 +95,7 @@ where
     ) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
         debug!("[sid={}] received packet: {:?}", self.sid, packet);
         match packet {
-            Packet::Close => {
-                let res = self.send(Packet::Noop).await;
-                ControlFlow::Break(res)
-            }
+            Packet::Close => ControlFlow::Break(self.send(Packet::Noop)),
             Packet::Pong => {
                 self.pong_tx.try_send(()).ok();
                 ControlFlow::Continue(Ok(()))
@@ -106,11 +103,10 @@ where
             Packet::Binary(data) => {
                 self.handler.clone().on_binary(data, self).await;
                 ControlFlow::Continue(Ok(()))
-             },
+            }
             Packet::Message(msg) => {
                 self.handler.clone().on_message(msg, self).await;
                 ControlFlow::Continue(Ok(()))
-                
             }
             p => ControlFlow::Continue(Err(Error::BadPacket(p))),
         }
@@ -125,9 +121,9 @@ where
     }
 
     /// Sends a packet to the connection.
-    pub(crate) async fn send(&self, packet: Packet) -> Result<(), Error> {
+    pub(crate) fn send(&self, packet: Packet) -> Result<(), Error> {
         debug!("[sid={}] sending packet: {:?}", self.sid, packet);
-        self.tx.send(packet).await?;
+        self.tx.try_send(packet)?;
         Ok(())
     }
 
@@ -138,9 +134,7 @@ where
 
         let handle = tokio::spawn(async move {
             if let Err(e) = socket.heartbeat_job(interval, timeout).await {
-                // if socket.rx.try_lock().is_err() {
-                socket.send(Packet::Abort).await.ok();
-                // }
+                socket.send(Packet::Abort).ok();
                 debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
             }
         });
@@ -198,12 +192,12 @@ where
     /// If the transport is in polling mode, the message is buffered and sent as a text frame to the next polling request.
     ///
     /// ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
-    pub async fn emit(&self, msg: String) -> Result<(), Error> {
-        self.send(Packet::Message(msg)).await
+    pub fn emit(&self, msg: String) -> Result<(), Error> {
+        self.send(Packet::Message(msg))
     }
 
-    pub async fn emit_close(&self)  {
-        self.send(Packet::Abort).await.ok();
+    pub fn emit_close(&self) {
+        self.send(Packet::Abort).ok();
     }
 
     /// Emits a binary message to the client.
@@ -212,8 +206,8 @@ where
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
     /// > ⚠️ If the buffer is full the fn will wait until the buffer is emptied.
-    pub async fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
-        self.send(Packet::Binary(data)).await?;
+    pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
+        self.send(Packet::Binary(data))?;
         Ok(())
     }
 }
