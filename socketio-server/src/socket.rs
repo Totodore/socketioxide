@@ -114,7 +114,7 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub fn new(client: Arc<Client>, handshake: Handshake, ns: String, sid: i64) -> Self {
+    pub(crate) fn new(client: Arc<Client>, handshake: Handshake, ns: String, sid: i64) -> Self {
         Self {
             client,
             message_handlers: RwLock::new(HashMap::new()),
@@ -275,14 +275,14 @@ impl Socket {
         Ok(())
     }
 
-    pub fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
+    pub(crate) fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
             tx.send((data, None)).ok();
         }
         Ok(())
     }
 
-    pub fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
+    pub(crate) fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
             tx.send((packet.data, Some(packet.bin))).ok();
         }
