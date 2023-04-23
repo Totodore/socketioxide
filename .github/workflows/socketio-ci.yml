@@ -1,4 +1,4 @@
-name: EngineIO CI
+name: SocketIO CI
 
 on:
   push:

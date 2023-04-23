@@ -1,5 +1,5 @@
 # SocketIO & EngineIO Server in Rust
-[![EngineIO CI](https://github.com/Totodore/rust-socketio-server/actions/workflows/engineio-ci.yml/badge.svg)](https://github.com/Totodore/rust-socketio-server/actions/workflows/engineio-ci.yml)
+[![SocketIO CI](https://github.com/Totodore/rust-socketio-server/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/rust-socketio-server/actions/workflows/socketio-ci.yml)
 
 ### Rust implementation for a socket.io server, it is based on :
 * hyper
