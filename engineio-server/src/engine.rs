@@ -208,11 +208,6 @@ where
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
             .clone();
 
-        if let Some(socket) = sid.and_then(|sid| self.get_socket(sid)) {
-            if socket.is_ws() {
-                return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
-            }
-        }
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
@@ -260,7 +255,12 @@ where
         } else {
             let sid = sid.unwrap();
             debug!("[sid={sid}] websocket connection upgrade");
-            self.ws_upgrade_handshake(sid, &mut ws).await?;
+            if let Some(socket) = self.get_socket(sid) {
+                if socket.is_ws() {
+                    return Err(Error::UpgradeError);
+                }
+            }
+            self.ws_upgrade_handshake(sid, &mut ws, req_data).await?;
             self.get_socket(sid).unwrap()
         };
         let (mut tx, mut rx) = ws.split();
