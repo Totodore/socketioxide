@@ -6,11 +6,6 @@ on:
       - main
     tags:
       - v*
-    paths:
-      - engineio-server/**
-      - examples/src/axum_echo.rs
-      - examples/Cargo.toml
-      - .github/workflows/engineio-ci.yml
   pull_request:
     branches:
       - main
@@ -35,16 +30,16 @@ jobs:
           toolchain: stable
       - uses: actions/checkout@v2
         with:
-          repository: socketio/engine.io-protocol
-          path: engine.io-protocol
+          repository: socketio/socket.io-protocol
+          path: socket.io-protocol
       - uses: actions/setup-node@v1
         with:
           node-version: 16
       - name: Install deps & run tests 
         run: |
-          cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --example engineio-axum-echo --release
-          cargo run --example engineio-axum-echo --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cd socket.io-protocol/test-suite && npm install && cd ../..
+          cargo build --example socketio-axum-echo --release
+          cargo run --example socketio-axum-echo --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
