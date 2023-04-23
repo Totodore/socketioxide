@@ -2,11 +2,12 @@ use std::{
     ops::ControlFlow,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc,
+        Arc, RwLock,
     },
     time::Duration,
 };
 
+use http::{request::Parts, Uri};
 use tokio::{
     sync::{mpsc, Mutex},
     task::JoinHandle,
@@ -25,7 +26,30 @@ pub(crate) enum ConnectionType {
     WebSocket = 0b000000010,
 }
 
-#[derive(Debug)]
+pub struct SocketReq {
+    pub uri: Uri,
+    pub headers: http::HeaderMap,
+}
+
+impl From<Parts> for SocketReq {
+    fn from(parts: Parts) -> Self {
+        Self {
+            uri: parts.uri,
+            headers: parts.headers,
+        }
+    }
+}
+
+impl SocketReq {
+    pub fn new(uri: Uri, headers: http::HeaderMap) -> Self {
+        Self { uri, headers }
+    }
+    pub fn update(&mut self, req: SocketReq) {
+        self.uri = req.uri;
+        self.headers = req.headers;
+    }
+}
+
 pub struct Socket<H>
 where
     H: EngineIoHandler + ?Sized,
@@ -45,7 +69,9 @@ where
     pong_tx: mpsc::Sender<()>,
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
+    // User data bound to the socket
     pub data: H::Data,
+    pub req_data: RwLock<SocketReq>,
 }
 
 impl<H> Drop for Socket<H>
@@ -66,6 +92,7 @@ where
         conn: ConnectionType,
         config: &EngineIoConfig,
         handler: Arc<H>,
+        req_data: SocketReq,
     ) -> Self {
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
         let (pong_tx, pong_rx) = mpsc::channel(1);
@@ -82,6 +109,7 @@ where
             heartbeat_handle: Mutex::new(None),
 
             data: H::Data::default(),
+            req_data: req_data.into(),
         };
         socket.handler.clone().on_connect(&socket);
         socket
@@ -180,9 +208,10 @@ where
     }
 
     /// Sets the connection type to WebSocket when the client upgrades the connection.
-    pub(crate) fn upgrade_to_websocket(&self) {
+    pub(crate) fn upgrade_to_websocket(&self, req_data: SocketReq) {
         self.conn
             .store(ConnectionType::WebSocket as u8, Ordering::Relaxed);
+        self.req_data.write().unwrap().update(req_data);
     }
 
     /// Emits a message to the client.

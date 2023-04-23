@@ -13,7 +13,7 @@ use crate::{
     layer::{EngineIoConfig, EngineIoHandler},
     packet::{OpenPacket, Packet},
     service::TransportType,
-    socket::{ConnectionType, Socket},
+    socket::{ConnectionType, Socket, SocketReq},
     utils::generate_sid,
 };
 use bytes::Buf;
@@ -55,7 +55,10 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,
 {
-    pub(crate) async fn on_open_http_req<B>(self: Arc<Self>) -> Result<Response<ResponseBody<B>>, Error>
+    pub(crate) async fn on_open_http_req<B, R>(
+        self: Arc<Self>,
+        req: Request<R>,
+    ) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
     {
@@ -68,6 +71,7 @@ where
                     ConnectionType::Http,
                     &self.config,
                     self.handler.clone(),
+                    SocketReq::from(req.into_parts().0)
                 )
                 .into(),
             );
@@ -207,11 +211,13 @@ where
             .get("Sec-WebSocket-Key")
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
             .clone();
+        let (uri, headers) = (parts.uri.clone(), parts.headers.clone());
+        let req_data = SocketReq::new(uri, headers);
 
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
-                Ok(conn) => match self.on_ws_req_init(conn, sid).await {
+                Ok(conn) => match self.on_ws_req_init(conn, sid, req_data).await {
                     Ok(_) => debug!("ws closed"),
                     Err(e) => debug!("ws closed with error: {:?}", e),
                 },
@@ -231,6 +237,7 @@ where
         self: Arc<Self>,
         conn: Upgraded,
         sid: Option<i64>,
+        req_data: SocketReq,
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
 
@@ -241,6 +248,7 @@ where
                 ConnectionType::WebSocket,
                 &self.config,
                 self.handler.clone(),
+                req_data
             )
             .into();
             {
@@ -344,6 +352,7 @@ where
         &self,
         sid: i64,
         ws: &mut WebSocketStream<Upgraded>,
+        req_data: SocketReq,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
         // send a NOOP packet to any pending polling request
@@ -372,7 +381,7 @@ where
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
         let _lock = socket.rx.lock().await;
-        socket.upgrade_to_websocket();
+        socket.upgrade_to_websocket(req_data);
         Ok(())
     }
     async fn ws_init_handshake(

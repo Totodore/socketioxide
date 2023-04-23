@@ -64,7 +64,7 @@ where
                     transport: TransportType::Polling,
                     method: Method::GET,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(engine.on_open_http_req())),
+                }) => ResponseFuture::async_response(Box::pin(engine.on_open_http_req(req))),
                 Some(RequestInfo {
                     sid: Some(sid),
                     transport: TransportType::Polling,
