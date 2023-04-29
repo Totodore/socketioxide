@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use crate::{
+    adapter::Adapter,
     client::Client,
     errors::{AckError, Error},
     handshake::Handshake,
@@ -38,38 +39,40 @@ impl From<()> for Ack<()> {
     }
 }
 
-trait MessageCaller: Send + Sync + 'static {
+trait MessageCaller<A: Adapter>: Send + Sync + 'static {
     fn call(
         &self,
-        s: Arc<Socket>,
+        s: Arc<Socket<A>>,
         v: Value,
         p: Option<Vec<Vec<u8>>>,
         ack_id: Option<i64>,
     ) -> Result<(), Error>;
 }
 
-struct MessageHandler<Param, ParamCb, F>
+struct MessageHandler<Param, ParamCb, F, A>
 where
     Param: Send + Sync + 'static,
     ParamCb: Send + Sync + 'static,
 {
     param: std::marker::PhantomData<Param>,
     param_cb: std::marker::PhantomData<ParamCb>,
+    adapter: std::marker::PhantomData<A>,
     handler: F,
 }
 
-impl<Param, RetV, F> MessageCaller for MessageHandler<Param, RetV, F>
+impl<Param, RetV, F, A> MessageCaller<A> for MessageHandler<Param, RetV, F, A>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
     RetV: Serialize + Send + Sync + 'static,
-    F: Fn(Arc<Socket>, Param, Option<Vec<Vec<u8>>>) -> BoxAsyncFut<Result<Ack<RetV>, Error>>
+    F: Fn(Arc<Socket<A>>, Param, Option<Vec<Vec<u8>>>) -> BoxAsyncFut<Result<Ack<RetV>, Error>>
         + Send
         + Sync
         + 'static,
+    A: Adapter,
 {
     fn call(
         &self,
-        s: Arc<Socket>,
+        s: Arc<Socket<A>>,
         v: Value,
         p: Option<Vec<Vec<u8>>>,
         ack_id: Option<i64>,
@@ -103,9 +106,9 @@ where
     }
 }
 
-pub struct Socket {
-    client: Arc<Client>,
-    message_handlers: RwLock<HashMap<String, Box<dyn MessageCaller>>>,
+pub struct Socket<A: Adapter> {
+    client: Arc<Client<A>>,
+    message_handlers: RwLock<HashMap<String, Box<dyn MessageCaller<A>>>>,
     ack_message: RwLock<HashMap<i64, oneshot::Sender<(Value, Option<Vec<Vec<u8>>>)>>>,
     ack_counter: AtomicI64,
     pub handshake: Handshake,
@@ -113,8 +116,8 @@ pub struct Socket {
     pub sid: i64,
 }
 
-impl Socket {
-    pub(crate) fn new(client: Arc<Client>, handshake: Handshake, ns: String, sid: i64) -> Self {
+impl<A: Adapter> Socket<A> {
+    pub(crate) fn new(client: Arc<Client<A>>, handshake: Handshake, ns: String, sid: i64) -> Self {
         Self {
             client,
             message_handlers: RwLock::new(HashMap::new()),
@@ -128,7 +131,7 @@ impl Socket {
 
     pub fn on_event<C, F, V, RetV>(&self, event: impl Into<String>, callback: C)
     where
-        C: Fn(Arc<Socket>, V, Option<Vec<Vec<u8>>>) -> F + Send + Sync + 'static,
+        C: Fn(Arc<Socket<A>>, V, Option<Vec<Vec<u8>>>) -> F + Send + Sync + 'static,
         F: Future<Output = Result<Ack<RetV>, Error>> + Send + Sync + 'static,
         V: DeserializeOwned + Send + Sync + 'static,
         RetV: Serialize + Send + Sync + 'static,
@@ -139,6 +142,7 @@ impl Socket {
             Box::new(MessageHandler {
                 param: std::marker::PhantomData,
                 param_cb: std::marker::PhantomData,
+                adapter: std::marker::PhantomData,
                 handler,
             }),
         );
@@ -220,7 +224,7 @@ impl Socket {
         &self,
         event: impl Into<String>,
         data: impl Serialize,
-        bin: Vec<Vec<u8>>
+        bin: Vec<Vec<u8>>,
     ) -> Result<(V, Option<Vec<Vec<u8>>>), AckError>
     where
         V: DeserializeOwned + Send + Sync + 'static,
@@ -282,7 +286,11 @@ impl Socket {
         Ok(())
     }
 
-    pub(crate) fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
+    pub(crate) fn recv_bin_ack(
+        self: Arc<Self>,
+        packet: BinaryPacket,
+        ack: i64,
+    ) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
             tx.send((packet.data, Some(packet.bin))).ok();
         }

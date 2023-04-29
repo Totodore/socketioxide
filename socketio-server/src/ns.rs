@@ -7,40 +7,51 @@ use std::{
 use futures::Future;
 
 use crate::{
-    client::Client, errors::Error, handshake::Handshake, packet::PacketData, socket::Socket,
+    adapter::{Adapter, LocalAdapter},
+    client::Client,
+    errors::Error,
+    handshake::Handshake,
+    packet::PacketData,
+    socket::Socket,
 };
 
-pub type EventCallback = Arc<
-    dyn Fn(Arc<Socket>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
+pub type EventCallback<A> = Arc<
+    dyn Fn(Arc<Socket<A>>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
         + Send
         + Sync
         + 'static,
 >;
 
-pub type NsHandlers = HashMap<String, EventCallback>;
+pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
 
-pub struct Namespace {
+pub struct Namespace<A: Adapter> {
     pub path: String,
-    callback: EventCallback,
-    sockets: RwLock<HashMap<i64, Arc<Socket>>>,
+    callback: EventCallback<A>,
+    sockets: RwLock<HashMap<i64, Arc<Socket<A>>>>,
+    adapter: A,
 }
 
-impl Namespace {
+impl Namespace<LocalAdapter> {
+    pub fn builder() -> NamespaceBuilder<LocalAdapter> {
+        NamespaceBuilder::new()
+    }
+}
+
+impl<A: Adapter> Namespace<A> {
     //TODO: enforce path format
-    pub fn new(path: String, callback: EventCallback) -> Self {
-        Self {
+    pub fn new(path: String, callback: EventCallback<A>) -> Arc<Self> {
+        Arc::new_cyclic(|ns| Self {
             path,
             callback,
             sockets: HashMap::new().into(),
-        }
-    }
-    pub fn builder() -> NamespaceBuilder {
-        NamespaceBuilder::new()
+            adapter: A::new(ns.clone()),
+        })
     }
 
     /// Connects a socket to a namespace
-    pub fn connect(&self, sid: i64, client: Arc<Client>, handshake: Handshake) {
-        let socket: Arc<Socket> = Socket::new(client, handshake, self.path.clone(), sid).into();
+    pub fn connect(&self, sid: i64, client: Arc<Client<A>>, handshake: Handshake) {
+        let socket: Arc<Socket<A>> =
+            Socket::new(client.clone(), handshake, self.path.clone(), sid).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket));
     }
@@ -67,21 +78,23 @@ impl Namespace {
                 self.disconnect(sid);
                 Ok(())
             }
-            PacketData::Connect(_) => unreachable!("connect packets should not be handled in namespace"),
+            PacketData::Connect(_) => {
+                unreachable!("connect packets should not be handled in namespace")
+            }
             PacketData::ConnectError(_) => Ok(()),
             packet => self.socket_recv(sid, packet),
         }
     }
-    fn get_socket(&self, sid: i64) -> Option<Arc<Socket>> {
+    fn get_socket(&self, sid: i64) -> Option<Arc<Socket<A>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 }
 
-pub struct NamespaceBuilder {
-    ns_handlers: HashMap<String, EventCallback>,
+pub struct NamespaceBuilder<A: Adapter = LocalAdapter> {
+    ns_handlers: HashMap<String, EventCallback<A>>,
 }
 
-impl NamespaceBuilder {
+impl<A: Adapter> NamespaceBuilder<A> {
     fn new() -> Self {
         Self {
             ns_handlers: HashMap::new(),
@@ -90,7 +103,7 @@ impl NamespaceBuilder {
 
     pub fn add<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
     where
-        C: Fn(Arc<Socket>) -> F + Send + Sync + 'static,
+        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + Sync + 'static,
     {
         let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
@@ -99,7 +112,7 @@ impl NamespaceBuilder {
     }
     pub fn add_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
     where
-        C: Fn(Arc<Socket>) -> F + Send + Sync + 'static,
+        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + Sync + 'static,
     {
         let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
@@ -109,7 +122,7 @@ impl NamespaceBuilder {
         self
     }
 
-    pub fn build(self) -> NsHandlers {
+    pub fn build(self) -> NsHandlers<A> {
         self.ns_handlers
     }
 }

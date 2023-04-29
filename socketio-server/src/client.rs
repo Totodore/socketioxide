@@ -7,6 +7,7 @@ use serde_json::Value;
 use tracing::debug;
 use tracing::error;
 
+use crate::adapter::Adapter;
 use crate::handshake::Handshake;
 use crate::{
     config::SocketIoConfig,
@@ -15,24 +16,24 @@ use crate::{
     packet::{Packet, PacketData},
 };
 
-pub struct Client {
+pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
-    ns: HashMap<String, Namespace>,
+    ns: HashMap<String, Arc<Namespace<A>>>,
     engine: Weak<EngineIo<Self>>,
 }
 
-impl Client {
+impl<A: Adapter> Client<A> {
     pub fn new(
         config: SocketIoConfig,
         engine: Weak<EngineIo<Self>>,
-        ns_handlers: HashMap<String, EventCallback>,
+        ns_handlers: HashMap<String, EventCallback<A>>,
     ) -> Self {
         let client = Self {
             config,
             engine,
             ns: ns_handlers
                 .into_iter()
-                .map(|(path, callback)| (path.clone(), Namespace::new(path, callback)))
+                .map(|(path, callback)| (path.clone(), Namespace::new(path, callback).into()))
                 .collect(),
         };
         client
@@ -76,13 +77,14 @@ impl Client {
     }
 
     /// Called when a socket connects to a new namespace
-    async fn sock_connect(self: Arc<Self>, auth: Value, ns_path: String, sid: i64) {
+    async fn sock_connect(self: Arc<Self>, auth: Value, ns_path: String, socket: &EIoSocket<Self>) {
         debug!("auth: {:?}", auth);
         let handshake = Handshake {
             url: "".to_string(),
             issued: 0,
             auth,
         };
+        let sid = socket.sid;
         if let Some(ns) = self.ns.get(&ns_path) {
             ns.connect(sid, self.clone(), handshake);
             self.emit(sid, Packet::connect(ns_path, sid)).unwrap();
@@ -109,6 +111,10 @@ impl Client {
             }
         }
     }
+
+    pub(crate) fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
+        self.ns.get(path).cloned()
+    }
 }
 
 #[derive(Default)]
@@ -119,7 +125,7 @@ pub struct SocketData {
 }
 
 #[engineio_server::async_trait]
-impl EngineIoHandler for Client {
+impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
     fn on_connect(self: Arc<Self>, socket: &EIoSocket<Self>) {
@@ -142,7 +148,7 @@ impl EngineIoHandler for Client {
         };
         debug!("Packet: {:?}", packet);
         match packet.inner {
-            PacketData::Connect(auth) => self.sock_connect(auth, packet.ns, socket.sid).await,
+            PacketData::Connect(auth) => self.sock_connect(auth, packet.ns, socket).await,
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(socket, packet)
             }
