@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace, socket::Ack};
+use socketio_server::{Ack, Namespace, SocketIoConfig, SocketIoLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -30,7 +30,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             socket.on_event("message", |socket, data: Value, bin| async move {
                 if let Some(bin) = bin {
                     info!("Received event binary: {:?} {:?}", data, bin);
-                    socket.join("room1");
                     socket.bin(bin).emit("message-back", data).ok();
                 } else {
                     info!("Received event: {:?}", data);
