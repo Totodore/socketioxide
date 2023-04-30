@@ -65,7 +65,7 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    /// Operator to select all clients in the given rooms except the current socket.
+    /// Select all clients in the given rooms except the current socket.
     /// ## Example :
     /// ```
     /// use socketio_server::{Namespace, Ack};
@@ -97,7 +97,7 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    /// Operator to filter out all clients selected with the previous operators which are in the given rooms.
+    /// Filter out all clients selected with the previous operators which are in the given rooms.
     /// ## Example :
     /// ```
     /// use socketio_server::{Namespace, Ack};
@@ -133,7 +133,7 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    /// Operator to broadcast to all clients only connected on this node (when using multiple nodes).
+    /// Broadcast to all clients only connected on this node (when using multiple nodes).
     /// When using the default in-memory adapter, this operator is a no-op.
     /// ## Example :
     /// ```
@@ -155,7 +155,7 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    /// Operator to broadcast to all clients without any filtering (except the current socket).
+    /// Broadcast to all clients without any filtering (except the current socket).
     /// ## Example :
     /// ```
     /// use socketio_server::{Namespace, Ack};
@@ -176,7 +176,7 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    /// Operator to set a custom timeout when sending a message with an acknowledgement.
+    /// Set a custom timeout when sending a message with an acknowledgement.
     ///
     /// If it is not used, the default timeout would be the one set in the configuration.
     //TODO: Example
@@ -189,7 +189,7 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    /// Operator to add a binary payload to the message.
+    /// Add a binary payload to the message.
     /// ## Example :
     /// ```
     /// use socketio_server::{Namespace, Ack};
