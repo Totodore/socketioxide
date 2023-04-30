@@ -1,5 +1,6 @@
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration, pin::Pin};
 
+use futures::Stream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -225,17 +226,16 @@ impl<A: Adapter> BroadcastOperator<A> {
     }
 
     //TODO: add example
-    pub async fn emit_with_ack<V: DeserializeOwned + Send>(
+    pub fn emit_with_ack<V: DeserializeOwned + Send>(
         self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<Vec<Result<AckResponse<V>, AckError>>, Error> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
         let packet = self.get_packet(event, data)?;
         Ok(self
             .ns
             .adapter
-            .broadcast_with_ack(packet, self.binary, self.opts)
-            .await)
+            .broadcast_with_ack(packet, self.binary, self.opts))
     }
 
     /// Create a packet with the given event and data.
