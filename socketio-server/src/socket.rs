@@ -19,7 +19,7 @@ use crate::{
     errors::{AckError, Error},
     handshake::Handshake,
     ns::Namespace,
-    operator::{BroadcastOperator, RoomParam},
+    operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
 };
 
@@ -229,27 +229,27 @@ impl<A: Adapter> Socket<A> {
         self.ns.adapter.del_all(self.sid);
     }
 
-    // Broadcast operators
-    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperator<A> {
-        BroadcastOperator::new(self.ns.clone(), self.sid).to(rooms)
+    // Socket operators
+    pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).to(rooms)
     }
-    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperator<A> {
-        BroadcastOperator::new(self.ns.clone(), self.sid).except(rooms)
-    }
-
-    pub fn local(&self) -> BroadcastOperator<A> {
-        BroadcastOperator::new(self.ns.clone(), self.sid).local()
+    pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).except(rooms)
     }
 
-    pub fn timeout(&self, timeout: Duration) -> BroadcastOperator<A> {
-        BroadcastOperator::new(self.ns.clone(), self.sid).timeout(timeout)
+    pub fn local(&self) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).local()
     }
 
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> BroadcastOperator<A> {
-        BroadcastOperator::new(self.ns.clone(), self.sid).bin(binary)
+    pub fn timeout(&self, timeout: Duration) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).timeout(timeout)
     }
-    pub fn broadcast(&self) -> BroadcastOperator<A> {
-        BroadcastOperator::new(self.ns.clone(), self.sid).broadcast()
+
+    pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).bin(binary)
+    }
+    pub fn broadcast(&self) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).broadcast()
     }
 
     pub fn disconnect(&self) -> Result<(), Error> {

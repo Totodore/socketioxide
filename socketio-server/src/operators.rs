@@ -46,14 +46,14 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
     }
 }
 
-/// Broadcast operators are used to select clients to send a packet to, or to configure the packet that will be emitted.
-pub struct BroadcastOperator<A: Adapter> {
+/// Operators are used to select clients to send a packet to, or to configure the packet that will be emitted.
+pub struct Operators<A: Adapter> {
     opts: BroadcastOptions,
     ns: Arc<Namespace<A>>,
     binary: Option<Vec<Vec<u8>>>,
 }
 
-impl<A: Adapter> BroadcastOperator<A> {
+impl<A: Adapter> Operators<A> {
     pub(crate) fn new(ns: Arc<Namespace<A>>, sid: i64) -> Self {
         Self {
             opts: BroadcastOptions {

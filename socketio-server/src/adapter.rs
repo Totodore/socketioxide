@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 use crate::{
     errors::{AckError, Error},
     ns::Namespace,
-    operator::RoomParam,
+    operators::RoomParam,
     packet::Packet,
     socket::{AckResponse, Socket},
 };
