@@ -1,11 +1,17 @@
 pub mod adapter;
-pub mod layer;
-pub mod client;
-pub mod config;
-pub mod ns;
-pub mod socket;
 
-mod handshake;
-mod packet;
+pub use config::{SocketIoConfig, SocketIoConfigBuilder};
+pub use errors::Error as SocketError;
+pub use layer::SocketIoLayer;
+pub use ns::Namespace;
+pub use socket::{Ack, Socket};
+
+mod client;
+mod config;
 mod errors;
+mod handshake;
+mod layer;
+mod ns;
 mod operator;
+mod packet;
+mod socket;
