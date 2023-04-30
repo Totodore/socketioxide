@@ -248,6 +248,9 @@ impl<A: Adapter> Socket<A> {
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> BroadcastOperator<A> {
         BroadcastOperator::new(self.ns.clone(), self.sid).bin(binary)
     }
+    pub fn broadcast(&self) -> BroadcastOperator<A> {
+        BroadcastOperator::new(self.ns.clone(), self.sid).broadcast()
+    }
 
     pub fn disconnect(&self) -> Result<(), Error> {
         self.ns.disconnect(self.sid)
