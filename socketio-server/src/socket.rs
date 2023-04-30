@@ -178,6 +178,46 @@ impl<A: Adapter> Socket<A> {
         self.send_with_ack(packet, None, None).await
     }
 
+    // Room actions
+
+    pub fn join(&self, rooms: impl RoomParam) {
+        self.ns.adapter.add_all(self.sid, rooms);
+    }
+    pub fn leave(&self, rooms: impl RoomParam) {
+        self.ns.adapter.del(self.sid, rooms);
+    }
+    pub fn leave_all(&self) {
+        self.ns.adapter.del_all(self.sid);
+    }
+
+    // Socket operators
+    pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).to(rooms)
+    }
+    pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).except(rooms)
+    }
+    pub fn local(&self) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).local()
+    }
+    pub fn timeout(&self, timeout: Duration) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).timeout(timeout)
+    }
+    pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).bin(binary)
+    }
+    pub fn broadcast(&self) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).broadcast()
+    }
+
+    pub fn disconnect(&self) -> Result<(), Error> {
+        self.ns.disconnect(self.sid)
+    }
+
+    pub fn ns(&self) -> &String {
+        &self.ns.path
+    }
+
     pub(crate) fn send(&self, packet: Packet, payload: Option<Vec<Vec<u8>>>) -> Result<(), Error> {
         if let Some(payload) = payload {
             self.client.emit_bin(self.sid, packet, payload)
@@ -219,47 +259,6 @@ impl<A: Adapter> Socket<A> {
             .emit_bin(self.sid, Packet::bin_ack(ns, data, bin.len(), ack_id), bin)
     }
 
-    pub fn join(&self, rooms: impl RoomParam) {
-        self.ns.adapter.add_all(self.sid, rooms);
-    }
-    pub fn leave(&self, rooms: impl RoomParam) {
-        self.ns.adapter.del(self.sid, rooms);
-    }
-    pub fn leave_all(&self) {
-        self.ns.adapter.del_all(self.sid);
-    }
-
-    // Socket operators
-    pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).to(rooms)
-    }
-    pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).except(rooms)
-    }
-
-    pub fn local(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).local()
-    }
-
-    pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).timeout(timeout)
-    }
-
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).bin(binary)
-    }
-    pub fn broadcast(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).broadcast()
-    }
-
-    pub fn disconnect(&self) -> Result<(), Error> {
-        self.ns.disconnect(self.sid)
-    }
-
-    pub fn ns(&self) -> &String {
-        &self.ns.path
-    }
-
     // Receive data from client:
 
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
@@ -291,14 +290,14 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    pub(crate) fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
+    fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
             tx.send((data, None)).ok();
         }
         Ok(())
     }
 
-    pub(crate) fn recv_bin_ack(
+    fn recv_bin_ack(
         self: Arc<Self>,
         packet: BinaryPacket,
         ack: i64,
