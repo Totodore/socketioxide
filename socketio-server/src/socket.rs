@@ -220,10 +220,10 @@ impl<A: Adapter> Socket<A> {
             .emit_bin(self.sid, Packet::bin_ack(ns, data, bin.len(), ack_id), bin)
     }
 
-    pub async fn join(&self, rooms: Vec<Room>) {
+    pub async fn join(&self, rooms: impl RoomParam) {
         self.ns.adapter.add_all(self.sid, rooms).await;
     }
-    pub async fn leave(&self, rooms: Vec<Room>) {
+    pub async fn leave(&self, rooms: impl RoomParam) {
         self.ns.adapter.del(self.sid, rooms).await;
     }
     pub async fn leave_all(&self) {
@@ -231,10 +231,10 @@ impl<A: Adapter> Socket<A> {
     }
 
     // Broadcast operators
-    pub fn to(&self, rooms: Vec<Room>) -> BroadcastOperator<A> {
+    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperator<A> {
         BroadcastOperator::new(self.ns.clone(), self.sid).to(rooms)
     }
-    pub fn except(&self, rooms: Vec<Room>) -> BroadcastOperator<A> {
+    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperator<A> {
         BroadcastOperator::new(self.ns.clone(), self.sid).except(rooms)
     }
     

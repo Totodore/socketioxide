@@ -14,7 +14,7 @@ use crate::{
     errors::{AckError, Error},
     ns::Namespace,
     packet::Packet,
-    socket::{AckResponse, Socket},
+    socket::{AckResponse, Socket}, operator::RoomParam,
 };
 
 pub type Room = String;
@@ -52,8 +52,8 @@ pub trait Adapter: Send + Sync + 'static {
 
     async fn server_count(&self) -> u16;
 
-    async fn add_all(&self, sid: i64, rooms: Vec<String>);
-    async fn del(&self, sid: i64, rooms: Vec<String>);
+    async fn add_all(&self, sid: i64, rooms: impl RoomParam);
+    async fn del(&self, sid: i64, rooms: impl RoomParam);
     async fn del_all(&self, sid: i64);
 
     async fn broadcast(
@@ -70,14 +70,14 @@ pub trait Adapter: Send + Sync + 'static {
         opts: BroadcastOptions,
     ) -> Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>;
 
-    async fn sockets(&self, rooms: Vec<Room>) -> Vec<i64>;
+    async fn sockets(&self, rooms: impl RoomParam) -> Vec<i64>;
     async fn socket_rooms(&self, sid: i64) -> Vec<String>;
 
     async fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>>
     where
         Self: Sized;
-    async fn add_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>);
-    async fn del_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>);
+    async fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
+    async fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error>;
 
     //TODO: implement
@@ -108,9 +108,9 @@ impl Adapter for LocalAdapter {
         1
     }
 
-    async fn add_all(&self, sid: i64, rooms: Vec<Room>) {
+    async fn add_all(&self, sid: i64, rooms: impl RoomParam) {
         let mut rooms_map = self.rooms.write().unwrap();
-        for room in rooms {
+        for room in rooms.into_room_iter() {
             rooms_map
                 .entry(room)
                 .or_insert_with(HashSet::new)
@@ -118,9 +118,9 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    async fn del(&self, sid: i64, rooms: Vec<Room>) {
+    async fn del(&self, sid: i64, rooms: impl RoomParam) {
         let mut rooms_map = self.rooms.write().unwrap();
-        for room in rooms {
+        for room in rooms.into_room_iter() {
             if let Some(room) = rooms_map.get_mut(&room) {
                 room.remove(&sid);
             }
@@ -174,9 +174,9 @@ impl Adapter for LocalAdapter {
         stream::iter(ack_futs).buffer_unordered(count).boxed()
     }
 
-    async fn sockets(&self, rooms: Vec<Room>) -> Vec<i64> {
+    async fn sockets(&self, rooms: impl RoomParam) -> Vec<i64> {
         let opts = BroadcastOptions {
-            rooms,
+            rooms: rooms.into_room_iter().collect(),
             ..Default::default()
         };
         self.apply_opts(opts)
@@ -199,7 +199,8 @@ impl Adapter for LocalAdapter {
         self.apply_opts(opts)
     }
 
-    async fn add_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
+    async fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) {
+        let rooms: Vec<Room> = rooms.into_room_iter().collect();
         let futs = self
             .apply_opts(opts)
             .into_iter()
@@ -207,7 +208,8 @@ impl Adapter for LocalAdapter {
         futures::future::join_all(futs).await;
     }
 
-    async fn del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
+    async fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) {
+        let rooms: Vec<Room> = rooms.into_room_iter().collect();
         let futs = self
             .apply_opts(opts)
             .into_iter()

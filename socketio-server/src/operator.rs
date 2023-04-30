@@ -17,7 +17,43 @@ pub struct BroadcastOperator<A: Adapter> {
     ns: Arc<Namespace<A>>,
     binary: Option<Vec<Vec<u8>>>,
 }
+/// A trait for types that can be used as a room parameter.
+/// ```
+/// use socketio_server::operator::RoomParam;
+/// use std::collections::HashSet;
+/// 
+pub trait RoomParam: 'static {
+    type IntoIter: Iterator<Item = Room>;
+    fn into_room_iter(self) -> Self::IntoIter;
+}
 
+impl RoomParam for Room {
+    type IntoIter = std::iter::Once<Room>;
+    fn into_room_iter(self) -> Self::IntoIter {
+        std::iter::once(self)
+    }
+}
+impl RoomParam for Vec<Room> {
+    type IntoIter = std::vec::IntoIter<Room>;
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter()
+    }
+}
+impl RoomParam for &'static str {
+    type IntoIter = std::iter::Once<Room>;
+    fn into_room_iter(self) -> Self::IntoIter {
+        std::iter::once(self.to_string())
+    }
+}
+
+impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
+    type IntoIter =
+        std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
+
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter().map(|s| s.to_string().to_string())
+    }
+}
 impl<A: Adapter> BroadcastOperator<A> {
     pub fn new(ns: Arc<Namespace<A>>, sid: i64) -> Self {
         Self {
@@ -30,9 +66,9 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    pub fn to(self, rooms: Vec<Room>) -> Self {
+    pub fn to(self, rooms: impl RoomParam) -> Self {
         let mut curr_rooms = self.opts.rooms;
-        curr_rooms.extend(rooms.into_iter().unique());
+        curr_rooms.extend(rooms.into_room_iter().unique());
         let mut flags = self.opts.flags;
         flags.insert(BroadcastFlags::Broadcast);
         Self {
@@ -45,9 +81,9 @@ impl<A: Adapter> BroadcastOperator<A> {
         }
     }
 
-    pub fn except(self, rooms: Vec<Room>) -> Self {
+    pub fn except(self, rooms: impl RoomParam) -> Self {
         let mut curr_rooms = self.opts.except;
-        curr_rooms.extend(rooms.into_iter().unique());
+        curr_rooms.extend(rooms.into_room_iter().unique());
         let mut flags = self.opts.flags;
         flags.insert(BroadcastFlags::Broadcast);
         Self {
@@ -106,7 +142,7 @@ impl<A: Adapter> BroadcastOperator<A> {
 
     pub async fn emit_with_ack<V: DeserializeOwned>(
         self,
-        event: &str,
+        event: impl Into<String>,
         data: impl serde::Serialize,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
         let packet = self.get_packet(event, data)?;
