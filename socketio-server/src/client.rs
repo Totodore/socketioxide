@@ -85,7 +85,7 @@ impl<A: Adapter> Client<A> {
             auth,
         };
         let sid = socket.sid;
-        if let Some(ns) = self.ns.get(&ns_path) {
+        if let Some(ns) = self.get_ns(&ns_path) {
             ns.connect(sid, self.clone(), handshake);
             self.emit(sid, Packet::connect(ns_path, sid)).unwrap();
         } else {
@@ -112,7 +112,7 @@ impl<A: Adapter> Client<A> {
         }
     }
 
-    pub(crate) fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
+    fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
         self.ns.get(path).cloned()
     }
 }

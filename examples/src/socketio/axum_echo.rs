@@ -21,17 +21,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
     info!("Starting server");
-
     let ns = Namespace::builder()
         .add("/", |socket| async move {
-            info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
+            info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
 
             socket.on_event("message", |socket, data: Value, bin| async move {
                 if let Some(bin) = bin {
                     info!("Received event binary: {:?} {:?}", data, bin);
-                    socket.emit_bin("message-back", data, bin).ok();
+                    socket.bin(bin).emit("message-back", data).ok();
                 } else {
                     info!("Received event: {:?}", data);
                     socket.emit("message-back", data).ok();
@@ -50,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         })
         .add("/custom", |socket| async move {
-            info!("Socket.IO connected on: {:?} {:?}", socket.ns, socket.sid);
+            info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
         })

@@ -11,7 +11,7 @@ use crate::{
     client::Client,
     errors::Error,
     handshake::Handshake,
-    packet::PacketData,
+    packet::{Packet, PacketData},
     socket::Socket,
 };
 
@@ -26,13 +26,17 @@ pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
 
 pub struct Namespace<A: Adapter> {
     pub path: String,
+    pub(crate) adapter: A,
     callback: EventCallback<A>,
     sockets: RwLock<HashMap<i64, Arc<Socket<A>>>>,
-    adapter: A,
 }
 
 impl Namespace<LocalAdapter> {
     pub fn builder() -> NamespaceBuilder<LocalAdapter> {
+        NamespaceBuilder::new()
+    }
+
+    pub fn builder_with_adapter<CustomAdapter: Adapter>() -> NamespaceBuilder<CustomAdapter> {
         NamespaceBuilder::new()
     }
 }
@@ -49,14 +53,20 @@ impl<A: Adapter> Namespace<A> {
     }
 
     /// Connects a socket to a namespace
-    pub fn connect(&self, sid: i64, client: Arc<Client<A>>, handshake: Handshake) {
+    pub fn connect(self: Arc<Self>, sid: i64, client: Arc<Client<A>>, handshake: Handshake) {
         let socket: Arc<Socket<A>> =
-            Socket::new(client.clone(), handshake, self.path.clone(), sid).into();
+            Socket::new(client.clone(), self.clone(), handshake, sid).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket));
     }
 
-    fn disconnect(&self, sid: i64) {
+    pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
+        if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
+            socket.send(Packet::disconnect(self.path.clone()), None)?;
+        }
+        Ok(())
+    }
+    fn remove_socket(&self, sid: i64) {
         self.sockets.write().unwrap().remove(&sid);
     }
 
@@ -74,10 +84,7 @@ impl<A: Adapter> Namespace<A> {
 
     pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Disconnect => {
-                self.disconnect(sid);
-                Ok(())
-            }
+            PacketData::Disconnect => Ok(self.remove_socket(sid)),
             PacketData::Connect(_) => {
                 unreachable!("connect packets should not be handled in namespace")
             }
@@ -85,12 +92,15 @@ impl<A: Adapter> Namespace<A> {
             packet => self.socket_recv(sid, packet),
         }
     }
-    fn get_socket(&self, sid: i64) -> Option<Arc<Socket<A>>> {
+    pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<A>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
+    }
+    pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
+        self.sockets.read().unwrap().values().cloned().collect()
     }
 }
 
-pub struct NamespaceBuilder<A: Adapter = LocalAdapter> {
+pub struct NamespaceBuilder<A: Adapter> {
     ns_handlers: HashMap<String, EventCallback<A>>,
 }
 

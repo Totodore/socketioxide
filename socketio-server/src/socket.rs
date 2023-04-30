@@ -14,14 +14,17 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use crate::{
-    adapter::Adapter,
+    adapter::{Adapter, Room},
     client::Client,
     errors::{AckError, Error},
     handshake::Handshake,
+    ns::Namespace,
+    operator::BroadcastOperator,
     packet::{BinaryPacket, Packet, PacketData},
 };
 
 type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
+pub type AckResponse<T> = (T, Option<Vec<Vec<u8>>>);
 
 pub enum Ack<T>
 where
@@ -108,23 +111,28 @@ where
 
 pub struct Socket<A: Adapter> {
     client: Arc<Client<A>>,
+    ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, Box<dyn MessageCaller<A>>>>,
-    ack_message: RwLock<HashMap<i64, oneshot::Sender<(Value, Option<Vec<Vec<u8>>>)>>>,
+    ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     pub handshake: Handshake,
-    pub ns: String,
     pub sid: i64,
 }
 
 impl<A: Adapter> Socket<A> {
-    pub(crate) fn new(client: Arc<Client<A>>, handshake: Handshake, ns: String, sid: i64) -> Self {
+    pub(crate) fn new(
+        client: Arc<Client<A>>,
+        ns: Arc<Namespace<A>>,
+        handshake: Handshake,
+        sid: i64,
+    ) -> Self {
         Self {
             client,
+            ns,
             message_handlers: RwLock::new(HashMap::new()),
             ack_message: RwLock::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
             handshake,
-            ns,
             sid,
         }
     }
@@ -149,94 +157,56 @@ impl<A: Adapter> Socket<A> {
     }
 
     pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
-        let ns = self.ns.clone();
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         self.client
-            .emit(self.sid, Packet::event(ns, event.into(), data, None))
-    }
-
-    pub fn emit_bin(
-        &self,
-        event: impl Into<String>,
-        data: impl Serialize,
-        payload: Vec<Vec<u8>>,
-    ) -> Result<(), Error> {
-        let ns = self.ns.clone();
-        let data = serde_json::to_value(data)?;
-        let packet = Packet::bin_event(ns, event.into(), data, payload.len(), None);
-        self.client.emit_bin(self.sid, packet, payload)
-    }
-
-    pub async fn emit_with_ack_timeout<V>(
-        &self,
-        event: impl Into<String>,
-        data: impl Serialize,
-        timeout: Duration,
-    ) -> Result<(V, Option<Vec<Vec<u8>>>), AckError>
-    where
-        V: DeserializeOwned + Send + Sync + 'static,
-    {
-        let ns = self.ns.clone();
-        let data = serde_json::to_value(data)?;
-        let (tx, rx) = oneshot::channel();
-        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        self.ack_message.write().unwrap().insert(ack, tx);
-        let packet = Packet::event(ns, event.into(), data, Some(ack));
-        self.client.emit(self.sid, packet)?;
-        let v = tokio::time::timeout(timeout, rx).await??;
-        Ok((serde_json::from_value(v.0)?, v.1))
+            .emit(self.sid, Packet::event(ns, event.into(), data))
     }
 
     pub async fn emit_with_ack<V>(
         &self,
         event: impl Into<String>,
         data: impl Serialize,
-    ) -> Result<(V, Option<Vec<Vec<u8>>>), AckError>
+    ) -> Result<AckResponse<V>, AckError>
     where
         V: DeserializeOwned + Send + Sync + 'static,
     {
-        self.emit_with_ack_timeout(event, data, self.client.config.ack_timeout)
-            .await
+        let ns = self.ns.path.clone();
+        let data = serde_json::to_value(data)?;
+        let packet = Packet::event(ns, event.into(), data);
+
+        self.send_with_ack(packet, None, None).await
     }
 
-    pub async fn emit_bin_with_ack_timeout<V>(
+
+    pub(crate) fn send(&self, packet: Packet, payload: Option<Vec<Vec<u8>>>) -> Result<(), Error> {
+        if let Some(payload) = payload {
+            self.client.emit_bin(self.sid, packet, payload)
+        } else {
+            self.client.emit(self.sid, packet)
+        }
+    }
+
+    pub(crate) async fn send_with_ack<V: DeserializeOwned>(
         &self,
-        event: impl Into<String>,
-        data: impl Serialize,
-        bin: Vec<Vec<u8>>,
-        timeout: Duration,
-    ) -> Result<(V, Option<Vec<Vec<u8>>>), AckError>
-    where
-        V: DeserializeOwned + Send + Sync + 'static,
-    {
-        let ns = self.ns.clone();
-        let data = serde_json::to_value(data)?;
+        mut packet: Packet,
+        payload: Option<Vec<Vec<u8>>>,
+        timeout: Option<Duration>,
+    ) -> Result<AckResponse<V>, AckError> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.write().unwrap().insert(ack, tx);
-        let packet = Packet::bin_event(ns, event.into(), data, bin.len(), Some(ack));
-        self.client.emit_bin(self.sid, packet, bin)?;
+        packet.inner.set_ack_id(ack);
+        self.send(packet, payload)?;
+        let timeout = timeout.unwrap_or(self.client.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok((serde_json::from_value(v.0)?, v.1))
     }
 
-    pub async fn emit_bin_with_ack<V>(
-        &self,
-        event: impl Into<String>,
-        data: impl Serialize,
-        bin: Vec<Vec<u8>>,
-    ) -> Result<(V, Option<Vec<Vec<u8>>>), AckError>
-    where
-        V: DeserializeOwned + Send + Sync + 'static,
-    {
-        self.emit_bin_with_ack_timeout(event, data, bin, self.client.config.ack_timeout)
-            .await
-    }
-
     pub(crate) fn send_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
-        let ns = self.ns.clone();
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(&data)?;
-        self.client.emit(self.sid, Packet::ack(ns, data, ack_id))
+        self.send(Packet::ack(ns, data, ack_id), None)
     }
     pub(crate) fn send_bin_ack(
         &self,
@@ -244,11 +214,51 @@ impl<A: Adapter> Socket<A> {
         data: impl Serialize,
         bin: Vec<Vec<u8>>,
     ) -> Result<(), Error> {
-        let ns = self.ns.clone();
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(&data)?;
         self.client
             .emit_bin(self.sid, Packet::bin_ack(ns, data, bin.len(), ack_id), bin)
     }
+
+    pub async fn join(&self, rooms: Vec<Room>) {
+        self.ns.adapter.add_all(self.sid, rooms).await;
+    }
+    pub async fn leave(&self, rooms: Vec<Room>) {
+        self.ns.adapter.del(self.sid, rooms).await;
+    }
+    pub async fn leave_all(&self) {
+        self.ns.adapter.del_all(self.sid).await;
+    }
+
+    // Broadcast operators
+    pub fn to(&self, rooms: Vec<Room>) -> BroadcastOperator<A> {
+        BroadcastOperator::new(self.ns.clone(), self.sid).to(rooms)
+    }
+    pub fn except(&self, rooms: Vec<Room>) -> BroadcastOperator<A> {
+        BroadcastOperator::new(self.ns.clone(), self.sid).except(rooms)
+    }
+    
+    pub fn local(&self) -> BroadcastOperator<A> {
+        BroadcastOperator::new(self.ns.clone(), self.sid).local()
+    }
+
+    pub fn timeout(&self, timeout: Duration) -> BroadcastOperator<A> {
+        BroadcastOperator::new(self.ns.clone(), self.sid).timeout(timeout)
+    }
+
+    pub fn bin(&self, binary: Vec<Vec<u8>>) -> BroadcastOperator<A> {
+        BroadcastOperator::new(self.ns.clone(), self.sid).bin(binary)
+    }
+
+    pub fn disconnect(&self) -> Result<(), Error> {
+        self.ns.disconnect(self.sid)
+    }
+
+    pub fn ns(&self) -> &String {
+        &self.ns.path
+    }
+
+    // Receive data from client:
 
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {

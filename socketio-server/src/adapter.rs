@@ -1,27 +1,45 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{RwLock, Weak},
+    pin::Pin,
+    sync::{Arc, RwLock, Weak},
+    time::Duration,
 };
 
 use engineio_server::async_trait;
-use futures::Stream;
+use futures::{stream, Stream, StreamExt};
+use itertools::Itertools;
+use serde::de::DeserializeOwned;
 
-use crate::{ns::Namespace, packet::Packet};
+use crate::{
+    errors::{AckError, Error},
+    ns::Namespace,
+    packet::Packet,
+    socket::{AckResponse, Socket},
+};
 
-pub struct Room(String);
+pub type Room = String;
 
-#[repr(u8)]
-enum BroadcastFlags {
-    Volatile = 0b1,
-    Compress = 0b1 << 1,
-    Local = 0b1 << 2,
-    Broadcast = 0b1 << 3,
-    Binary = 0b1 << 4,
+#[derive(Hash, PartialEq, Eq)]
+pub enum BroadcastFlags {
+    Local,
+    Broadcast,
+    Timeout(Duration),
 }
 pub struct BroadcastOptions {
-    flags: u8,
-    rooms: Vec<String>,
-    except: Vec<i64>,
+    pub flags: HashSet<BroadcastFlags>,
+    pub rooms: Vec<Room>,
+    pub except: Vec<Room>,
+    pub sid: i64,
+}
+impl Default for BroadcastOptions {
+    fn default() -> Self {
+        Self {
+            flags: HashSet::new(),
+            rooms: Vec::new(),
+            except: Vec::new(),
+            sid: -1,
+        }
+    }
 }
 
 #[async_trait]
@@ -38,21 +56,34 @@ pub trait Adapter: Send + Sync + 'static {
     async fn del(&self, sid: i64, rooms: Vec<String>);
     async fn del_all(&self, sid: i64);
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions);
-
-    fn broadcast_with_ack(
+    async fn broadcast(
         &self,
         packet: Packet,
+        binary: Option<Vec<Vec<u8>>>,
         opts: BroadcastOptions,
-    ) -> Box<dyn Stream<Item = Packet>>;
+    ) -> Result<(), Error>;
+
+    async fn broadcast_with_ack<V: DeserializeOwned>(
+        &self,
+        packet: Packet,
+        binary: Option<Vec<Vec<u8>>>,
+        opts: BroadcastOptions,
+    ) -> Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>;
 
     async fn sockets(&self, rooms: Vec<Room>) -> Vec<i64>;
     async fn socket_rooms(&self, sid: i64) -> Vec<String>;
 
-    async fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<i64>;
-    fn add_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>);
-    fn del_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>);
-    fn disconnect_socket(&self, opts: BroadcastOptions, close: bool);
+    async fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>>
+    where
+        Self: Sized;
+    async fn add_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>);
+    async fn del_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>);
+    async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error>;
+
+    //TODO: implement
+    // async fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
+    // async fn persist_session(&self, sid: i64);
+    // async fn restore_session(&self, sid: i64) -> Session;
 }
 
 pub struct LocalAdapter {
@@ -77,7 +108,7 @@ impl Adapter for LocalAdapter {
         1
     }
 
-    async fn add_all(&self, sid: i64, rooms: Vec<String>) {
+    async fn add_all(&self, sid: i64, rooms: Vec<Room>) {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms {
             rooms_map
@@ -87,7 +118,7 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    async fn del(&self, sid: i64, rooms: Vec<String>) {
+    async fn del(&self, sid: i64, rooms: Vec<Room>) {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms {
             if let Some(room) = rooms_map.get_mut(&room) {
@@ -103,40 +134,138 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) {
-        // let rooms_map = self.rooms.read().unwrap();
-        todo!()
-    }
-
-    fn broadcast_with_ack(
+    async fn broadcast(
         &self,
         packet: Packet,
+        binary: Option<Vec<Vec<u8>>>,
         opts: BroadcastOptions,
-    ) -> Box<dyn Stream<Item = Packet>> {
-        todo!()
+    ) -> Result<(), Error> {
+        let sockets = self.apply_opts(opts);
+
+        tracing::debug!("broadcasting packet to {} sockets", sockets.len());
+        sockets
+            .into_iter()
+            .map(|socket| socket.send(packet.clone(), binary.clone()))
+            .collect::<Result<(), Error>>()
+    }
+
+    async fn broadcast_with_ack<V: DeserializeOwned>(
+        &self,
+        packet: Packet,
+        binary: Option<Vec<Vec<u8>>>,
+        opts: BroadcastOptions,
+    ) -> Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>> {
+        let duration = opts.flags.iter().find_map(|flag| match flag {
+            BroadcastFlags::Timeout(duration) => Some(*duration),
+            _ => None,
+        });
+        let sockets = self.apply_opts(opts);
+        tracing::debug!(
+            "broadcasting packet to {} sockets: {:?}",
+            sockets.len(),
+            sockets.iter().map(|s| s.sid).collect::<Vec<_>>()
+        );
+        let count = sockets.len();
+        let ack_futs = sockets.into_iter().map(move |socket| {
+            let packet = packet.clone();
+            let binary = binary.clone();
+            async move { socket.clone().send_with_ack(packet, binary, duration).await }
+        });
+        stream::iter(ack_futs).buffer_unordered(count).boxed()
     }
 
     async fn sockets(&self, rooms: Vec<Room>) -> Vec<i64> {
-        todo!()
+        let opts = BroadcastOptions {
+            rooms,
+            ..Default::default()
+        };
+        self.apply_opts(opts)
+            .into_iter()
+            .map(|socket| socket.sid)
+            .collect()
     }
 
-    async fn socket_rooms(&self, sid: i64) -> Vec<String> {
-        todo!()
+    //TODO: make this operation O(1)
+    async fn socket_rooms(&self, sid: i64) -> Vec<Room> {
+        let rooms_map = self.rooms.read().unwrap();
+        rooms_map
+            .iter()
+            .filter(|(_, sockets)| sockets.contains(&sid))
+            .map(|(room, _)| room.clone())
+            .collect()
     }
 
-    async fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<i64> {
-        todo!()
+    async fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>> {
+        self.apply_opts(opts)
     }
 
-    fn add_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>) {
-        todo!()
+    async fn add_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
+        let futs = self
+            .apply_opts(opts)
+            .into_iter()
+            .map(|socket| self.add_all(socket.sid, rooms.clone()));
+        futures::future::join_all(futs).await;
     }
 
-    fn del_sockets(&self, opts: BroadcastOptions, rooms: Vec<String>) {
-        todo!()
+    async fn del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
+        let futs = self
+            .apply_opts(opts)
+            .into_iter()
+            .map(|socket| self.del(socket.sid, rooms.clone()));
+        futures::future::join_all(futs).await;
     }
 
-    fn disconnect_socket(&self, opts: BroadcastOptions, close: bool) {
-        todo!()
+    async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error> {
+        self.apply_opts(opts)
+            .into_iter()
+            .map(|socket| socket.disconnect())
+            .collect::<Result<(), Error>>()
+    }
+}
+
+impl LocalAdapter {
+    /// Apply the given `opts` and return the sockets that match.
+    fn apply_opts(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>> {
+        let rooms = opts.rooms;
+
+        let except = self.get_except_sids(&opts.except);
+        let ns = self.ns.upgrade().unwrap();
+        if rooms.len() > 0 {
+            let rooms_map = self.rooms.read().unwrap();
+            rooms_map
+                .iter()
+                .filter(|(room, _)| rooms.contains(room))
+                .flat_map(|(_, sockets)| sockets)
+                .filter(|sid| {
+                    !except.contains(*sid)
+                        && (opts.flags.contains(&BroadcastFlags::Broadcast) && **sid != opts.sid)
+                })
+                .unique()
+                .map(|sid| ns.get_socket(*sid))
+                .filter(Option::is_some)
+                .map(Option::unwrap)
+                .collect()
+        } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
+            let sockets = ns.get_sockets();
+            sockets
+                .into_iter()
+                .filter(|socket| !except.contains(&socket.sid))
+                .collect()
+        } else if let Some(sock) = ns.get_socket(opts.sid) {
+            vec![sock]
+        } else {
+            vec![]
+        }
+    }
+
+    fn get_except_sids(&self, except: &Vec<Room>) -> HashSet<i64> {
+        let mut except_sids = HashSet::new();
+        let rooms_map = self.rooms.read().unwrap();
+        for room in except {
+            if let Some(sockets) = rooms_map.get(room) {
+                except_sids.extend(sockets);
+            }
+        }
+        except_sids
     }
 }

@@ -24,6 +24,12 @@ impl Packet {
             ns,
         }
     }
+    pub fn disconnect(ns: String) -> Self {
+        Self {
+            inner: PacketData::Disconnect,
+            ns,
+        }
+    }
 }
 
 impl Packet {
@@ -36,9 +42,9 @@ impl Packet {
         }
     }
 
-    pub fn event(ns: String, e: String, data: Value, ack: Option<i64>) -> Self {
+    pub fn event(ns: String, e: String, data: Value) -> Self {
         Self {
-            inner: PacketData::Event(e, data, ack),
+            inner: PacketData::Event(e, data, None),
             ns,
         }
     }
@@ -48,11 +54,10 @@ impl Packet {
         e: String,
         data: Value,
         payload_count: usize,
-        ack: Option<i64>,
     ) -> Self {
         let packet = BinaryPacket::outgoing(data, payload_count);
         Self {
-            inner: PacketData::BinaryEvent(e, packet, ack),
+            inner: PacketData::BinaryEvent(e, packet, None),
             ns,
         }
     }
@@ -110,6 +115,15 @@ impl PacketData {
             PacketData::BinaryEvent(_, _, _) => 5,
             PacketData::BinaryAck(_, _) => 6,
         }
+    }
+
+    /// Set the ack id for the packet
+    /// It will only set the ack id for the packets that support it
+    pub(crate) fn set_ack_id(&mut self, ack_id: i64) {
+        match self {
+            PacketData::Event(_, _, ack) | PacketData::BinaryEvent(_, _, ack) => *ack = Some(ack_id),
+            _ => {}
+        };
     }
 }
 

@@ -1,3 +1,4 @@
+pub mod adapter;
 pub mod layer;
 pub mod client;
 pub mod config;
@@ -7,4 +8,4 @@ pub mod socket;
 mod handshake;
 mod packet;
 mod errors;
-mod adapter;
+mod operator;
