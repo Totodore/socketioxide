@@ -30,6 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             socket.on_event("message", |socket, data: Value, bin| async move {
                 if let Some(bin) = bin {
                     info!("Received event binary: {:?} {:?}", data, bin);
+                    socket.join("room1");
                     socket.bin(bin).emit("message-back", data).ok();
                 } else {
                     info!("Received event: {:?}", data);

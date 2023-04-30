@@ -219,14 +219,14 @@ impl<A: Adapter> Socket<A> {
             .emit_bin(self.sid, Packet::bin_ack(ns, data, bin.len(), ack_id), bin)
     }
 
-    pub async fn join(&self, rooms: impl RoomParam) {
-        self.ns.adapter.add_all(self.sid, rooms).await;
+    pub fn join(&self, rooms: impl RoomParam) {
+        self.ns.adapter.add_all(self.sid, rooms);
     }
-    pub async fn leave(&self, rooms: impl RoomParam) {
-        self.ns.adapter.del(self.sid, rooms).await;
+    pub fn leave(&self, rooms: impl RoomParam) {
+        self.ns.adapter.del(self.sid, rooms);
     }
-    pub async fn leave_all(&self) {
-        self.ns.adapter.del_all(self.sid).await;
+    pub fn leave_all(&self) {
+        self.ns.adapter.del_all(self.sid);
     }
 
     // Broadcast operators

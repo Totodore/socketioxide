@@ -21,7 +21,7 @@ pub struct BroadcastOperator<A: Adapter> {
 /// ```
 /// use socketio_server::operator::RoomParam;
 /// use std::collections::HashSet;
-/// 
+///
 pub trait RoomParam: 'static {
     type IntoIter: Iterator<Item = Room>;
     fn into_room_iter(self) -> Self::IntoIter;
@@ -131,26 +131,19 @@ impl<A: Adapter> BroadcastOperator<A> {
 
     pub fn emit(self, event: impl Into<String>, data: impl serde::Serialize) -> Result<(), Error> {
         let packet = self.get_packet(event, data)?;
-        tokio::spawn(async move {
-            self.ns
-                .adapter
-                .broadcast(packet, self.binary, self.opts)
-                .await
-        });
-        Ok(())
+        self.ns.adapter.broadcast(packet, self.binary, self.opts)
     }
 
-    pub async fn emit_with_ack<V: DeserializeOwned>(
+    pub fn emit_with_ack<V: DeserializeOwned>(
         self,
         event: impl Into<String>,
         data: impl serde::Serialize,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
         let packet = self.get_packet(event, data)?;
-        Ok(self
-            .ns
+        Ok(self.ns
             .adapter
-            .broadcast_with_ack(packet, self.binary, self.opts)
-            .await)
+            .broadcast_with_ack(packet, self.binary, self.opts))
+
     }
 
     fn get_packet(&self, event: impl Into<String>, data: impl Serialize) -> Result<Packet, Error> {
