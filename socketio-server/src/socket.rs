@@ -14,12 +14,12 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use crate::{
-    adapter::{Adapter, Room},
+    adapter::Adapter,
     client::Client,
     errors::{AckError, Error},
     handshake::Handshake,
     ns::Namespace,
-    operator::BroadcastOperator,
+    operator::{BroadcastOperator, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
 };
 
@@ -178,7 +178,6 @@ impl<A: Adapter> Socket<A> {
         self.send_with_ack(packet, None, None).await
     }
 
-
     pub(crate) fn send(&self, packet: Packet, payload: Option<Vec<Vec<u8>>>) -> Result<(), Error> {
         if let Some(payload) = payload {
             self.client.emit_bin(self.sid, packet, payload)
@@ -237,7 +236,7 @@ impl<A: Adapter> Socket<A> {
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperator<A> {
         BroadcastOperator::new(self.ns.clone(), self.sid).except(rooms)
     }
-    
+
     pub fn local(&self) -> BroadcastOperator<A> {
         BroadcastOperator::new(self.ns.clone(), self.sid).local()
     }
