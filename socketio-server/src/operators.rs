@@ -55,10 +55,7 @@ pub struct Operators<A: Adapter> {
 impl<A: Adapter> Operators<A> {
     pub(crate) fn new(ns: Arc<Namespace<A>>, sid: i64) -> Self {
         Self {
-            opts: BroadcastOptions {
-                sid,
-                ..Default::default()
-            },
+            opts: BroadcastOptions::new(sid),
             ns,
             binary: None,
         }

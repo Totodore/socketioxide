@@ -31,13 +31,13 @@ pub struct BroadcastOptions {
     pub except: Vec<Room>,
     pub sid: i64,
 }
-impl Default for BroadcastOptions {
-    fn default() -> Self {
+impl BroadcastOptions {
+    pub fn new(sid: i64) -> Self {
         Self {
             flags: HashSet::new(),
             rooms: Vec::new(),
             except: Vec::new(),
-            sid: -1,
+            sid,
         }
     }
 }
@@ -174,10 +174,9 @@ impl Adapter for LocalAdapter {
     }
 
     fn sockets(&self, rooms: impl RoomParam) -> Vec<i64> {
-        let opts = BroadcastOptions {
-            rooms: rooms.into_room_iter().collect(),
-            ..Default::default()
-        };
+        // TODO: fix this depending on the utilisation of the function
+        let mut opts = BroadcastOptions::new(0);
+        opts.rooms.extend(rooms.into_room_iter());
         self.apply_opts(opts)
             .into_iter()
             .map(|socket| socket.sid)
