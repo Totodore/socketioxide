@@ -7,7 +7,7 @@ use std::{
 use futures::Future;
 
 use crate::{
-    adapters::{Adapter, LocalAdapter},
+    adapter::{Adapter, LocalAdapter},
     client::Client,
     errors::Error,
     handshake::Handshake,

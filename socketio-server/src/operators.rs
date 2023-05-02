@@ -1,11 +1,11 @@
-use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 use futures::Stream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    adapters::Adapter,
+    adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::{AckError, Error},
     ns::Namespace,
     packet::Packet,
@@ -42,31 +42,6 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
 
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(|s| s.to_string().to_string())
-    }
-}
-
-pub type Room = String;
-
-#[derive(Hash, PartialEq, Eq)]
-pub enum BroadcastFlags {
-    Local,
-    Broadcast,
-    Timeout(Duration),
-}
-pub struct BroadcastOptions {
-    pub flags: HashSet<BroadcastFlags>,
-    pub rooms: Vec<Room>,
-    pub except: Vec<Room>,
-    pub sid: i64,
-}
-impl BroadcastOptions {
-    pub fn new(sid: i64) -> Self {
-        Self {
-            flags: HashSet::new(),
-            rooms: Vec::new(),
-            except: Vec::new(),
-            sid,
-        }
     }
 }
 

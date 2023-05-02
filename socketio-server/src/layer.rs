@@ -3,7 +3,7 @@ use std::sync::Arc;
 use engineio_server::{engine::EngineIo, service::EngineIoService};
 use tower::Layer;
 
-use crate::{adapters::Adapter, client::Client, config::SocketIoConfig, ns::NsHandlers};
+use crate::{adapter::Adapter, client::Client, config::SocketIoConfig, ns::NsHandlers};
 
 pub struct SocketIoLayer<A: Adapter> {
     config: SocketIoConfig,
