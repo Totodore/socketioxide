@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration, pin::Pin};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 use futures::Stream;
 use itertools::Itertools;
@@ -36,7 +36,6 @@ impl RoomParam for &'static str {
         std::iter::once(self.to_string())
     }
 }
-
 impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
     type IntoIter =
         std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
@@ -82,19 +81,10 @@ impl<A: Adapter> Operators<A> {
     ///         Ok(Ack::<()>::None)
     ///     });
     /// });
-    pub fn to(self, rooms: impl RoomParam) -> Self {
-        let mut curr_rooms = self.opts.rooms;
-        curr_rooms.extend(rooms.into_room_iter().unique());
-        let mut flags = self.opts.flags;
-        flags.insert(BroadcastFlags::Broadcast);
-        Self {
-            opts: BroadcastOptions {
-                rooms: curr_rooms,
-                flags,
-                ..self.opts
-            },
-            ..self
-        }
+    pub fn to(mut self, rooms: impl RoomParam) -> Self {
+        self.opts.rooms.extend(rooms.into_room_iter().unique());
+        self.opts.flags.insert(BroadcastFlags::Broadcast);
+        self
     }
 
     /// Filter out all clients selected with the previous operators which are in the given rooms.
@@ -118,19 +108,10 @@ impl<A: Adapter> Operators<A> {
     ///         Ok(Ack::<()>::None)
     ///     });
     /// });
-    pub fn except(self, rooms: impl RoomParam) -> Self {
-        let mut curr_rooms = self.opts.except;
-        curr_rooms.extend(rooms.into_room_iter().unique());
-        let mut flags = self.opts.flags;
-        flags.insert(BroadcastFlags::Broadcast);
-        Self {
-            opts: BroadcastOptions {
-                except: curr_rooms,
-                flags,
-                ..self.opts
-            },
-            ..self
-        }
+    pub fn except(mut self, rooms: impl RoomParam) -> Self {
+        self.opts.except.extend(rooms.into_room_iter().unique());
+        self.opts.flags.insert(BroadcastFlags::Broadcast);
+        self
     }
 
     /// Broadcast to all clients only connected on this node (when using multiple nodes).
@@ -146,13 +127,9 @@ impl<A: Adapter> Operators<A> {
     ///         Ok(Ack::<()>::None)
     ///     });
     /// });
-    pub fn local(self) -> Self {
-        let mut flags = self.opts.flags;
-        flags.insert(BroadcastFlags::Local);
-        Self {
-            opts: BroadcastOptions { flags, ..self.opts },
-            ..self
-        }
+    pub fn local(mut self) -> Self {
+        self.opts.flags.insert(BroadcastFlags::Local);
+        self
     }
 
     /// Broadcast to all clients without any filtering (except the current socket).
@@ -167,26 +144,18 @@ impl<A: Adapter> Operators<A> {
     ///         Ok(Ack::<()>::None)
     ///     });
     /// });
-    pub fn broadcast(self) -> Self {
-        let mut flags = self.opts.flags;
-        flags.insert(BroadcastFlags::Broadcast);
-        Self {
-            opts: BroadcastOptions { flags, ..self.opts },
-            ..self
-        }
+    pub fn broadcast(mut self) -> Self {
+        self.opts.flags.insert(BroadcastFlags::Broadcast);
+        self
     }
 
     /// Set a custom timeout when sending a message with an acknowledgement.
     ///
     /// If it is not used, the default timeout would be the one set in the configuration.
     //TODO: Example
-    pub fn timeout(self, timeout: Duration) -> Self {
-        let mut flags = self.opts.flags;
-        flags.insert(BroadcastFlags::Timeout(timeout));
-        Self {
-            opts: BroadcastOptions { flags, ..self.opts },
-            ..self
-        }
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.opts.flags.insert(BroadcastFlags::Timeout(timeout));
+        self
     }
 
     /// Add a binary payload to the message.
@@ -201,11 +170,9 @@ impl<A: Adapter> Operators<A> {
     ///         Ok(Ack::<()>::None)
     ///     });
     /// });
-    pub fn bin(self, binary: Vec<Vec<u8>>) -> Self {
-        Self {
-            binary: Some(binary),
-            ..self
-        }
+    pub fn bin(mut self, binary: Vec<Vec<u8>>) -> Self {
+        self.binary = Some(binary);
+        self
     }
 
     /// Emit a message to all clients selected with the previous operators.
