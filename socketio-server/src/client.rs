@@ -7,7 +7,7 @@ use serde_json::Value;
 use tracing::debug;
 use tracing::error;
 
-use crate::adapter::Adapter;
+use crate::adapters::Adapter;
 use crate::handshake::Handshake;
 use crate::{
     config::SocketIoConfig,

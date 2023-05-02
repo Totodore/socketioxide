@@ -1,4 +1,4 @@
-pub mod adapter;
+pub mod adapters;
 
 pub use config::{SocketIoConfig, SocketIoConfigBuilder};
 pub use errors::{Error as SocketError, AckError};

@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use crate::{
-    adapter::Adapter,
+    adapters::Adapter,
     client::Client,
     errors::{AckError, Error},
     handshake::Handshake,
