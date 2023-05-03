@@ -14,12 +14,12 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use crate::{
-    adapter::Adapter,
+    adapter::{Adapter, RoomParam},
     client::Client,
     errors::{AckError, Error},
     handshake::Handshake,
     ns::Namespace,
-    operators::{Operators, RoomParam},
+    operators::Operators,
     packet::{BinaryPacket, Packet, PacketData},
 };
 
@@ -297,11 +297,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    fn recv_bin_ack(
-        self: Arc<Self>,
-        packet: BinaryPacket,
-        ack: i64,
-    ) -> Result<(), Error> {
+    fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
             tx.send((packet.data, Some(packet.bin))).ok();
         }

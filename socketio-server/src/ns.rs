@@ -6,8 +6,10 @@ use std::{
 
 use futures::Future;
 
+#[cfg(not(feature = "remote_adapter"))]
+use crate::adapter::LocalAdapter;
 use crate::{
-    adapter::{Adapter, LocalAdapter},
+    adapter::Adapter,
     client::Client,
     errors::Error,
     handshake::Handshake,
@@ -31,12 +33,16 @@ pub struct Namespace<A: Adapter> {
     sockets: RwLock<HashMap<i64, Arc<Socket<A>>>>,
 }
 
+#[cfg(not(feature = "remote_adapter"))]
 impl Namespace<LocalAdapter> {
     pub fn builder() -> NamespaceBuilder<LocalAdapter> {
         NamespaceBuilder::new()
     }
+}
 
-    pub fn builder_with_adapter<CustomAdapter: Adapter>() -> NamespaceBuilder<CustomAdapter> {
+#[cfg(feature = "remote_adapter")]
+impl<A: Adapter> Namespace<A> {
+    pub fn builder() -> NamespaceBuilder<A> {
         NamespaceBuilder::new()
     }
 }

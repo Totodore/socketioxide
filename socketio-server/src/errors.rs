@@ -26,10 +26,12 @@ pub enum AckError {
     #[error("ack receive error")]
     AckReceiveError(#[from] oneshot::error::RecvError),
 
-
     #[error("ack timeout error")]
     AckTimeoutError(#[from] tokio::time::error::Elapsed),
 
     #[error("internal error: {0}")]
     InternalError(#[from] Error),
+
+    #[error("invalid ack")]
+    InvalidAck
 }

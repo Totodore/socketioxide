@@ -5,45 +5,12 @@ use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
+    adapter::{Adapter, BroadcastFlags, BroadcastOptions, RoomParam},
     errors::{AckError, Error},
     ns::Namespace,
     packet::Packet,
     socket::AckResponse,
 };
-
-/// A trait for types that can be used as a room parameter.
-pub trait RoomParam: 'static {
-    type IntoIter: Iterator<Item = Room>;
-    fn into_room_iter(self) -> Self::IntoIter;
-}
-
-impl RoomParam for Room {
-    type IntoIter = std::iter::Once<Room>;
-    fn into_room_iter(self) -> Self::IntoIter {
-        std::iter::once(self)
-    }
-}
-impl RoomParam for Vec<Room> {
-    type IntoIter = std::vec::IntoIter<Room>;
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter()
-    }
-}
-impl RoomParam for &'static str {
-    type IntoIter = std::iter::Once<Room>;
-    fn into_room_iter(self) -> Self::IntoIter {
-        std::iter::once(self.to_string())
-    }
-}
-impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
-    type IntoIter =
-        std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
-
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(|s| s.to_string().to_string())
-    }
-}
 
 /// Operators are used to select clients to send a packet to, or to configure the packet that will be emitted.
 pub struct Operators<A: Adapter> {
@@ -184,11 +151,44 @@ impl<A: Adapter> Operators<A> {
     ///         Ok(Ack::<()>::None)
     ///     });
     /// });
-    pub fn emit(self, event: impl Into<String>, data: impl serde::Serialize) -> Result<(), Error> {
+    #[cfg(feature = "remote_adapter")]
+    pub async fn emit(
+        self,
+        event: impl Into<String>,
+        data: impl serde::Serialize,
+    ) -> Result<(), Error> {
+        let packet = self.get_packet(event, data)?;
+        self.ns
+            .adapter
+            .broadcast(packet, self.binary, self.opts)
+            .await
+    }
+
+    #[cfg(not(feature = "remote_adapter"))]
+    pub fn emit(
+        self,
+        event: impl Into<String>,
+        data: impl serde::Serialize,
+    ) -> Result<(), Error> {
         let packet = self.get_packet(event, data)?;
         self.ns.adapter.broadcast(packet, self.binary, self.opts)
     }
 
+    #[cfg(feature = "remote_adapter")]
+    //TODO: add example
+    pub async fn emit_with_ack<V: DeserializeOwned + Send>(
+        self,
+        event: impl Into<String>,
+        data: impl serde::Serialize,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
+        let packet = self.get_packet(event, data)?;
+        self.ns
+            .adapter
+            .broadcast_with_ack(packet, self.binary, self.opts)
+            .await
+    }
+
+    #[cfg(not(feature = "remote_adapter"))]
     //TODO: add example
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         self,
@@ -196,8 +196,7 @@ impl<A: Adapter> Operators<A> {
         data: impl serde::Serialize,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
         let packet = self.get_packet(event, data)?;
-        Ok(self
-            .ns
+        Ok(self.ns
             .adapter
             .broadcast_with_ack(packet, self.binary, self.opts))
     }
