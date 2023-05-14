@@ -67,7 +67,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
     ///         socket
@@ -90,15 +90,15 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("register1", |socket, data: Value, _| async move {
+    ///     socket.on("register1", |socket, data: Value, _| async move {
     ///         socket.join("room1");
     ///         Ok(Ack::<()>::None)
     ///     });
-    ///     socket.on_event("register2", |socket, data: Value, _| async move {
+    ///     socket.on("register2", |socket, data: Value, _| async move {
     ///         socket.join("room2");
     ///         Ok(Ack::<()>::None)
     ///     });
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         // This message will be broadcast to all clients in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
@@ -118,7 +118,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///         Ok(Ack::<()>::None)
@@ -135,7 +135,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
     ///         Ok(Ack::<()>::None)
@@ -161,7 +161,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin| async move {
     ///         // This will send the binary paylaod received to all clients in this namespace with the test message
     ///         socket.bin(bin.unwrap()).emit("test", data);
     ///         Ok(Ack::<()>::None)
@@ -178,7 +178,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///         socket.to("room1").to("room3").except("room2").bin(bin.unwrap()).emit("test", data);
     ///         Ok(Ack::<()>::None)

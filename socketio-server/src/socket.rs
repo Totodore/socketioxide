@@ -137,7 +137,7 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    pub fn on_event<C, F, V, RetV>(&self, event: impl Into<String>, callback: C)
+    pub fn on<C, F, V, RetV>(&self, event: impl Into<String>, callback: C)
     where
         C: Fn(Arc<Socket<A>>, V, Option<Vec<Vec<u8>>>) -> F + Send + Sync + 'static,
         F: Future<Output = Result<Ack<RetV>, Error>> + Send + 'static,

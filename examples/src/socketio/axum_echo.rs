@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
 
-            socket.on_event("message", |socket, data: Value, bin| async move {
+            socket.on("message", |socket, data: Value, bin| async move {
                 if let Some(bin) = bin {
                     info!("Received event binary: {:?} {:?}", data, bin);
                     socket.bin(bin).emit("message-back", data).ok();
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(Ack::<()>::None)
             });
 
-            socket.on_event("message-with-ack", |_, data: Value, bin| async move {
+            socket.on("message-with-ack", |_, data: Value, bin| async move {
                 if let Some(bin) = bin {
                     info!("Received event binary: {:?} {:?}", data, bin);
                     return Ok(Ack::DataBin(data, bin));
