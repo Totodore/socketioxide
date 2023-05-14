@@ -23,7 +23,7 @@ use crate::{
     packet::{BinaryPacket, Packet, PacketData},
 };
 
-type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
+type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 pub type AckResponse<T> = (T, Option<Vec<Vec<u8>>>);
 
 pub enum Ack<T>
@@ -140,7 +140,7 @@ impl<A: Adapter> Socket<A> {
     pub fn on_event<C, F, V, RetV>(&self, event: impl Into<String>, callback: C)
     where
         C: Fn(Arc<Socket<A>>, V, Option<Vec<Vec<u8>>>) -> F + Send + Sync + 'static,
-        F: Future<Output = Result<Ack<RetV>, Error>> + Send + Sync + 'static,
+        F: Future<Output = Result<Ack<RetV>, Error>> + Send + 'static,
         V: DeserializeOwned + Send + Sync + 'static,
         RetV: Serialize + Send + Sync + 'static,
     {
@@ -297,11 +297,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    fn recv_bin_ack(
-        self: Arc<Self>,
-        packet: BinaryPacket,
-        ack: i64,
-    ) -> Result<(), Error> {
+    fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
             tx.send((packet.data, Some(packet.bin))).ok();
         }

@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub type EventCallback<A> = Arc<
-    dyn Fn(Arc<Socket<A>>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
+    dyn Fn(Arc<Socket<A>>) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
         + Send
         + Sync
         + 'static,
@@ -114,7 +114,7 @@ impl<A: Adapter> NamespaceBuilder<A> {
     pub fn add<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
     where
         C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
         self.ns_handlers.insert(path.into(), handler);
@@ -123,7 +123,7 @@ impl<A: Adapter> NamespaceBuilder<A> {
     pub fn add_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
     where
         C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
         for path in paths {
