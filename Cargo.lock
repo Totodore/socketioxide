@@ -807,6 +807,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "engineio-server",
+ "futures",
  "serde",
  "serde_json",
  "socketio-server",

@@ -1,11 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
-    pin::Pin,
     sync::{Arc, RwLock, Weak},
     time::Duration,
 };
 
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, StreamExt};
+use futures_core::stream::BoxStream;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
@@ -68,7 +68,7 @@ pub trait Adapter: Send + Sync + 'static {
         packet: Packet,
         binary: Option<Vec<Vec<u8>>>,
         opts: BroadcastOptions,
-    ) -> Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>;
+    ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
     fn sockets(&self, rooms: impl RoomParam) -> Vec<i64>;
     fn socket_rooms(&self, sid: i64) -> Vec<String>;
@@ -153,7 +153,7 @@ impl Adapter for LocalAdapter {
         packet: Packet,
         binary: Option<Vec<Vec<u8>>>,
         opts: BroadcastOptions,
-    ) -> Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>> {
+    ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,

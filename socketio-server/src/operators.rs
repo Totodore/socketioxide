@@ -1,6 +1,6 @@
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use futures::Stream;
+use futures_core::stream::BoxStream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -189,12 +189,34 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.broadcast(packet, self.binary, self.opts)
     }
 
-    //TODO: add example
+    /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// use futures::stream::StreamExt;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
+    ///       socket.to("room1")
+    ///             .to("room3")
+    ///             .except("room2")
+    ///             .bin(bin.unwrap())
+    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///                match ack {
+    ///                    Ok(ack) => println!("Ack received {:?}", ack),
+    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                }
+    ///             }).await;
+    ///       Ok(Ack::<()>::None)
+    ///    });
+    /// });
+    ///
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Error> {
         let packet = self.get_packet(event, data)?;
         Ok(self
             .ns

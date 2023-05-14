@@ -203,6 +203,19 @@ impl<A: Adapter> Socket<A> {
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).timeout(timeout)
     }
+
+    /// Add a binary payload to the message.
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///         // This will send the binary paylaod received to all clients in this namespace with the test message
+    ///         socket.bin(bin.unwrap()).emit("test", data);
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    /// });
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).bin(binary)
     }
