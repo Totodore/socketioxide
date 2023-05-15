@@ -1,10 +1,10 @@
 use std::{
     collections::HashMap,
-    pin::Pin,
     sync::{Arc, RwLock},
 };
 
 use futures::Future;
+use futures_core::future::BoxFuture;
 
 use crate::{
     adapter::{Adapter, LocalAdapter},
@@ -15,12 +15,8 @@ use crate::{
     socket::Socket,
 };
 
-pub type EventCallback<A> = Arc<
-    dyn Fn(Arc<Socket<A>>) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
-        + Send
-        + Sync
-        + 'static,
->;
+pub type EventCallback<A> =
+    Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
 
 pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
 

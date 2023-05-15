@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    pin::Pin,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc, RwLock,
@@ -9,6 +8,7 @@ use std::{
 };
 
 use futures::{Future, TryFutureExt};
+use futures_core::future::BoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
@@ -22,8 +22,6 @@ use crate::{
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
 };
-
-type BoxAsyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 pub type AckResponse<T> = (T, Option<Vec<Vec<u8>>>);
 
 pub enum Ack<T>
@@ -67,7 +65,7 @@ impl<Param, RetV, F, A> MessageCaller<A> for MessageHandler<Param, RetV, F, A>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
     RetV: Serialize + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, Param, Option<Vec<Vec<u8>>>) -> BoxAsyncFut<Result<Ack<RetV>, Error>>
+    F: Fn(Arc<Socket<A>>, Param, Option<Vec<Vec<u8>>>) -> BoxFuture<'static, Result<Ack<RetV>, Error>>
         + Send
         + Sync
         + 'static,
