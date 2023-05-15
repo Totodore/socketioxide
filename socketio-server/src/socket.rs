@@ -143,6 +143,7 @@ impl<A: Adapter> Socket<A> {
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin| async move {
     ///         println!("Received a test message {:?}", data);
+    ///         Ok(Ack::<()>::None)
     ///     });
     /// });
     /// ```
