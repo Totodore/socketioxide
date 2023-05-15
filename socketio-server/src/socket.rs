@@ -137,6 +137,17 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
+    /// Register a message handler for the given event.
+    /// ## Example with a closure :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///         println!("Received a test message {:?}", data);
+    ///     });
+    /// });
+    /// ```
     pub fn on<C, F, V, RetV>(&self, event: impl Into<String>, callback: C)
     where
         C: Fn(Arc<Socket<A>>, V, Option<Vec<Vec<u8>>>) -> F + Send + Sync + 'static,
@@ -156,6 +167,18 @@ impl<A: Adapter> Socket<A> {
         );
     }
 
+    /// Emit a message to the client
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///         // Emit a test message to the client
+    ///         socket.emit("test", data);
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    /// });
     pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
@@ -163,6 +186,23 @@ impl<A: Adapter> Socket<A> {
             .emit(self.sid, Packet::event(ns, event.into(), data))
     }
 
+    /// Emit a message to the client and wait for acknowledgement.
+    /// 
+    /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///         // Emit a test message and wait for an acknowledgement
+    ///         match socket.emit_with_ack::<Value>("test", data).await {
+    ///             Ok(ack) => println!("Ack received {:?}", ack),
+    ///             Err(err) => println!("Ack error {:?}", err),
+    ///         }
+    ///         Ok(Ack::<()>::None)
+    ///    });
+    /// });
     pub async fn emit_with_ack<V>(
         &self,
         event: impl Into<String>,
@@ -180,26 +220,112 @@ impl<A: Adapter> Socket<A> {
 
     // Room actions
 
+    /// Join the given rooms.
     pub fn join(&self, rooms: impl RoomParam) {
         self.ns.adapter.add_all(self.sid, rooms);
     }
+
+    /// Leave the given rooms.
     pub fn leave(&self, rooms: impl RoomParam) {
         self.ns.adapter.del(self.sid, rooms);
     }
+
+    /// Leave all rooms where the socket is connected.
     pub fn leave_all(&self) {
         self.ns.adapter.del_all(self.sid);
     }
 
     // Socket operators
+
+    /// Select all clients in the given rooms except the current socket.
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///         let other_rooms = "room4".to_string();
+    ///         // In room1, room2, room3 and room4 except the current
+    ///         socket
+    ///             .to("room1")
+    ///             .to(["room2", "room3"])
+    ///             .to(vec![other_rooms])
+    ///             .emit("test", data);
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    /// });
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).to(rooms)
     }
+
+    /// Filter out all clients selected with the previous operators which are in the given rooms.
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("register1", |socket, data: Value, _| async move {
+    ///         socket.join("room1");
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    ///     socket.on("register2", |socket, data: Value, _| async move {
+    ///         socket.join("room2");
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///         // This message will be broadcast to all clients in the Namespace
+    ///         // except for ones in room1 and the current socket
+    ///         socket.broadcast().except("room1").emit("test", data);
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    /// });
     pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).except(rooms)
     }
+
+    /// Broadcast to all clients only connected on this node (when using multiple nodes).
+    /// When using the default in-memory adapter, this operator is a no-op.
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///         // This message will be broadcast to all clients in this namespace and connected on this node
+    ///         socket.local().emit("test", data);
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    /// });
     pub fn local(&self) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).local()
     }
+
+    /// Set a custom timeout when sending a message with an acknowledgement.
+    ///
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// use futures::stream::StreamExt;
+    /// use std::time::Duration;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
+    ///       socket.to("room1")
+    ///             .to("room3")
+    ///             .except("room2")
+    ///             .bin(bin.unwrap())
+    ///             .timeout(Duration::from_secs(5))
+    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///                match ack {
+    ///                    Ok(ack) => println!("Ack received {:?}", ack),
+    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                }
+    ///             }).await;
+    ///       Ok(Ack::<()>::None)
+    ///    });
+    /// });
+    ///
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).timeout(timeout)
     }
@@ -219,14 +345,29 @@ impl<A: Adapter> Socket<A> {
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).bin(binary)
     }
+
+    /// Broadcast to all clients without any filtering (except the current socket).
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///         // This message will be broadcast to all clients in this namespace
+    ///         socket.broadcast().emit("test", data);
+    ///         Ok(Ack::<()>::None)
+    ///     });
+    /// });
     pub fn broadcast(&self) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).broadcast()
     }
 
+    /// Disconnect the socket from the current namespace.
     pub fn disconnect(&self) -> Result<(), Error> {
         self.ns.disconnect(self.sid)
     }
 
+    /// Get the current namespace path.
     pub fn ns(&self) -> &String {
         &self.ns.path
     }
