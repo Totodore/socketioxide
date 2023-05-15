@@ -1,10 +1,10 @@
 use std::{
     collections::HashMap,
-    pin::Pin,
     sync::{Arc, RwLock},
 };
 
 use futures::Future;
+use futures_core::future::BoxFuture;
 
 #[cfg(not(feature = "remote_adapter"))]
 use crate::adapter::LocalAdapter;
@@ -17,12 +17,8 @@ use crate::{
     socket::Socket,
 };
 
-pub type EventCallback<A> = Arc<
-    dyn Fn(Arc<Socket<A>>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>
-        + Send
-        + Sync
-        + 'static,
->;
+pub type EventCallback<A> =
+    Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
 
 pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
 
@@ -120,7 +116,7 @@ impl<A: Adapter> NamespaceBuilder<A> {
     pub fn add<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
     where
         C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
         self.ns_handlers.insert(path.into(), handler);
@@ -129,7 +125,7 @@ impl<A: Adapter> NamespaceBuilder<A> {
     pub fn add_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
     where
         C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
         for path in paths {

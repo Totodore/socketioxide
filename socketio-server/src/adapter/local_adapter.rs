@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    pin::Pin,
     sync::{Arc, RwLock, Weak},
 };
 
@@ -214,7 +213,7 @@ impl Adapter for LocalAdapter {
         packet: Packet,
         binary: Option<Vec<Vec<u8>>>,
         opts: BroadcastOptions,
-    ) -> Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>> {
+    ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,

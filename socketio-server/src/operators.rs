@@ -1,6 +1,6 @@
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use futures::Stream;
+use futures_core::stream::BoxStream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -34,7 +34,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
     ///         socket
@@ -57,15 +57,15 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("register1", |socket, data: Value, _| async move {
+    ///     socket.on("register1", |socket, data: Value, _| async move {
     ///         socket.join("room1");
     ///         Ok(Ack::<()>::None)
     ///     });
-    ///     socket.on_event("register2", |socket, data: Value, _| async move {
+    ///     socket.on("register2", |socket, data: Value, _| async move {
     ///         socket.join("room2");
     ///         Ok(Ack::<()>::None)
     ///     });
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         // This message will be broadcast to all clients in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
@@ -85,7 +85,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///         Ok(Ack::<()>::None)
@@ -102,7 +102,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
     ///         Ok(Ack::<()>::None)
@@ -115,8 +115,30 @@ impl<A: Adapter> Operators<A> {
 
     /// Set a custom timeout when sending a message with an acknowledgement.
     ///
-    /// If it is not used, the default timeout would be the one set in the configuration.
-    //TODO: Example
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// use futures::stream::StreamExt;
+    /// use std::time::Duration;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
+    ///       socket.to("room1")
+    ///             .to("room3")
+    ///             .except("room2")
+    ///             .bin(bin.unwrap())
+    ///             .timeout(Duration::from_secs(5))
+    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///                match ack {
+    ///                    Ok(ack) => println!("Ack received {:?}", ack),
+    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                }
+    ///             }).await;
+    ///       Ok(Ack::<()>::None)
+    ///    });
+    /// });
+    ///
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.opts.flags.insert(BroadcastFlags::Timeout(timeout));
         self
@@ -128,8 +150,8 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, bin| async move {
-    ///         // This will send the binary paylaod received to all clients in this namespace with the test message
+    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///         // This will send the binary payload received to all clients in this namespace with the test message
     ///         socket.bin(bin.unwrap()).emit("test", data);
     ///         Ok(Ack::<()>::None)
     ///     });
@@ -145,7 +167,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketio_server::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_event("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///         socket.to("room1").to("room3").except("room2").bin(bin.unwrap()).emit("test", data);
     ///         Ok(Ack::<()>::None)
@@ -174,27 +196,36 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.broadcast(packet, self.binary, self.opts)
     }
 
-    #[cfg(feature = "remote_adapter")]
-    //TODO: add example
-    pub async fn emit_with_ack<V: DeserializeOwned + Send>(
-        self,
-        event: impl Into<String>,
-        data: impl serde::Serialize,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
-        let packet = self.get_packet(event, data)?;
-        self.ns
-            .adapter
-            .broadcast_with_ack(packet, self.binary, self.opts)
-            .await
-    }
-
-    #[cfg(not(feature = "remote_adapter"))]
-    //TODO: add example
+    /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.
+    /// 
+    /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// use futures::stream::StreamExt;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
+    ///       socket.to("room1")
+    ///             .to("room3")
+    ///             .except("room2")
+    ///             .bin(bin.unwrap())
+    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///                match ack {
+    ///                    Ok(ack) => println!("Ack received {:?}", ack),
+    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                }
+    ///             }).await;
+    ///       Ok(Ack::<()>::None)
+    ///    });
+    /// });
+    ///
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<AckResponse<V>, AckError>>>>, Error> {
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Error> {
         let packet = self.get_packet(event, data)?;
         Ok(self.ns
             .adapter
