@@ -148,8 +148,30 @@ impl<A: Adapter> Operators<A> {
 
     /// Set a custom timeout when sending a message with an acknowledgement.
     ///
-    /// If it is not used, the default timeout would be the one set in the configuration.
-    //TODO: Example
+    /// ## Example :
+    /// ```
+    /// use socketio_server::{Namespace, Ack};
+    /// use serde_json::Value;
+    /// use futures::stream::StreamExt;
+    /// use std::time::Duration;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
+    ///       socket.to("room1")
+    ///             .to("room3")
+    ///             .except("room2")
+    ///             .bin(bin.unwrap())
+    ///             .timeout(Duration::from_secs(5))
+    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///                match ack {
+    ///                    Ok(ack) => println!("Ack received {:?}", ack),
+    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                }
+    ///             }).await;
+    ///       Ok(Ack::<()>::None)
+    ///    });
+    /// });
+    ///
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.opts.flags.insert(BroadcastFlags::Timeout(timeout));
         self
@@ -190,6 +212,8 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.
+    /// 
+    /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// ## Example :
     /// ```
     /// use socketio_server::{Namespace, Ack};
