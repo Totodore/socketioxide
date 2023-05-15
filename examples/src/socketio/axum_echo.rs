@@ -6,7 +6,6 @@ use serde_json::Value;
 use socketio_server::{Ack, Namespace, SocketIoConfig, SocketIoLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
-use futures::stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,12 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             socket.on("message", |socket, data: Value, bin| async move {
                 if let Some(bin) = bin {
                     info!("Received event binary: {:?} {:?}", data, bin);
-                    socket.bin(bin).emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
-                        match ack {
-                            Ok(ack) => info!("Ack received {:?}", ack),
-                            Err(err) => info!("Ack error {:?}", err),
-                        }
-                    }).await;
+                    socket.bin(bin).emit("message-back", data).ok();
                 } else {
                     info!("Received event: {:?}", data);
                     socket.emit("message-back", data).ok();
