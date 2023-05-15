@@ -211,7 +211,7 @@ impl<A: Adapter> Socket<A> {
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin| async move {
-    ///         // This will send the binary paylaod received to all clients in this namespace with the test message
+    ///         // This will send the binary payload received to all clients in this namespace with the test message
     ///         socket.bin(bin.unwrap()).emit("test", data);
     ///         Ok(Ack::<()>::None)
     ///     });
