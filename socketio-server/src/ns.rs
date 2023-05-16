@@ -38,8 +38,11 @@ impl Namespace<LocalAdapter> {
 }
 
 impl<A: Adapter> Namespace<A> {
-    //TODO: enforce path format
-    pub fn new(path: String, callback: EventCallback<A>) -> Arc<Self> {
+    pub fn new(path: impl Into<String>, callback: EventCallback<A>) -> Arc<Self> {
+        let mut path: String = path.into();
+        if !path.starts_with('/') {
+            path = format!("/{}", path);
+        }
         Arc::new_cyclic(|ns| Self {
             path,
             callback,
