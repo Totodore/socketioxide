@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc, RwLock,
@@ -65,7 +66,11 @@ impl<Param, RetV, F, A> MessageCaller<A> for MessageHandler<Param, RetV, F, A>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
     RetV: Serialize + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, Param, Option<Vec<Vec<u8>>>) -> BoxFuture<'static, Result<Ack<RetV>, Error>>
+    F: Fn(
+            Arc<Socket<A>>,
+            Param,
+            Option<Vec<Vec<u8>>>,
+        ) -> BoxFuture<'static, Result<Ack<RetV>, Error>>
         + Send
         + Sync
         + 'static,
@@ -186,7 +191,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Emit a message to the client and wait for acknowledgement.
-    /// 
+    ///
     /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// ## Example :
     /// ```
@@ -455,5 +460,32 @@ impl<A: Adapter> Socket<A> {
             tx.send((packet.data, Some(packet.bin))).ok();
         }
         Ok(())
+    }
+}
+
+impl<A: Adapter> Debug for Socket<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Socket")
+            .field("ns", &self.ns())
+            .field("ack_message", &self.ack_message)
+            .field("ack_counter", &self.ack_counter)
+            .field("handshake", &self.handshake)
+            .field("sid", &self.sid)
+            .finish()
+    }
+}
+
+#[cfg(test)]
+impl<A: Adapter> Socket<A> {
+    pub fn new_dummy(sid: i64) -> Socket<A> {
+        use crate::SocketIoConfig;
+        use std::sync::Weak;
+        let client = Arc::new(Client::new(
+            SocketIoConfig::default(),
+            Weak::new(),
+            HashMap::new(),
+        ));
+        let ns = Namespace::new("/", Arc::new(|_| Box::pin(async {})));
+        Socket::new(client, ns, Handshake::new_dummy(), sid)
     }
 }

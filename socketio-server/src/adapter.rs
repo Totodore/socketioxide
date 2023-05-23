@@ -71,7 +71,7 @@ pub trait Adapter: Send + Sync + 'static {
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
     fn sockets(&self, rooms: impl RoomParam) -> Vec<i64>;
-    fn socket_rooms(&self, sid: i64) -> Vec<String>;
+    fn socket_rooms(&self, sid: i64) -> Vec<Room>;
 
     fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>>
     where
@@ -87,7 +87,7 @@ pub trait Adapter: Send + Sync + 'static {
 }
 
 pub struct LocalAdapter {
-    rooms: RwLock<HashMap<String, HashSet<i64>>>,
+    rooms: RwLock<HashMap<Room, HashSet<i64>>>,
     ns: Weak<Namespace<Self>>,
 }
 
@@ -228,18 +228,17 @@ impl LocalAdapter {
         let ns = self.ns.upgrade().unwrap();
         if rooms.len() > 0 {
             let rooms_map = self.rooms.read().unwrap();
-            rooms_map
+            rooms
                 .iter()
-                .filter(|(room, _)| rooms.contains(room))
-                .flat_map(|(_, sockets)| sockets)
+                .map(|room| rooms_map.get(room))
+                .flatten()
+                .flatten()
+                .unique()
                 .filter(|sid| {
                     !except.contains(*sid)
-                        && (opts.flags.contains(&BroadcastFlags::Broadcast) && **sid != opts.sid)
+                        && (!opts.flags.contains(&BroadcastFlags::Broadcast) || **sid != opts.sid)
                 })
-                .unique()
-                .map(|sid| ns.get_socket(*sid))
-                .filter(Option::is_some)
-                .map(Option::unwrap)
+                .filter_map(|sid| ns.get_socket(*sid))
                 .collect()
         } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
             let sockets = ns.get_sockets();
@@ -263,5 +262,152 @@ impl LocalAdapter {
             }
         }
         except_sids
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[test]
+    fn test_server_count() {
+        let ns = Namespace::new_dummy([]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        assert_eq!(adapter.server_count(), 1);
+    }
+
+    #[test]
+    fn test_add_all() {
+        const SOCKET: i64 = 1;
+        let ns = Namespace::new_dummy([SOCKET]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(SOCKET, ["room1", "room2"]);
+        let rooms_map = adapter.rooms.read().unwrap();
+        assert_eq!(rooms_map.len(), 2);
+        assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
+        assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_del() {
+        const SOCKET: i64 = 1;
+        let ns = Namespace::new_dummy([SOCKET]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(SOCKET, ["room1", "room2"]);
+        adapter.del(SOCKET, "room1");
+        let rooms_map = adapter.rooms.read().unwrap();
+        assert_eq!(rooms_map.len(), 2);
+        assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
+        assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_del_all() {
+        const SOCKET: i64 = 1;
+        let ns = Namespace::new_dummy([SOCKET]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(SOCKET, ["room1", "room2"]);
+        adapter.del_all(SOCKET);
+        let rooms_map = adapter.rooms.read().unwrap();
+        assert_eq!(rooms_map.len(), 2);
+        assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
+        assert_eq!(rooms_map.get("room2").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_socket_room() {
+        let ns = Namespace::new_dummy([1, 2, 3]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(1, ["room1", "room2"]);
+        adapter.add_all(2, ["room1"]);
+        adapter.add_all(3, ["room2"]);
+        assert!(adapter.socket_rooms(1).contains(&"room1".into()));
+        assert!(adapter.socket_rooms(1).contains(&"room2".into()));
+        assert_eq!(adapter.socket_rooms(2), ["room1"]);
+        assert_eq!(adapter.socket_rooms(3), ["room2"]);
+    }
+
+    #[test]
+    fn test_add_socket() {
+        const SOCKET: i64 = 0;
+        let ns = Namespace::new_dummy([SOCKET]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(SOCKET, ["room1"]);
+
+        let mut opts = BroadcastOptions::new(SOCKET);
+        opts.rooms = vec!["room1".to_string()];
+        adapter.add_sockets(opts, "room2");
+        let rooms_map = adapter.rooms.read().unwrap();
+
+        assert_eq!(rooms_map.len(), 2);
+        assert!(rooms_map.get("room1").unwrap().contains(&SOCKET));
+        assert!(rooms_map.get("room2").unwrap().contains(&SOCKET));
+    }
+
+    #[test]
+    fn test_del_socket() {
+        const SOCKET: i64 = 0;
+        let ns = Namespace::new_dummy([SOCKET]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(SOCKET, ["room1"]);
+
+        let mut opts = BroadcastOptions::new(SOCKET);
+        opts.rooms = vec!["room1".to_string()];
+        adapter.add_sockets(opts, "room2");
+
+        {
+            let rooms_map = adapter.rooms.read().unwrap();
+
+            assert_eq!(rooms_map.len(), 2);
+            assert!(rooms_map.get("room1").unwrap().contains(&SOCKET));
+            assert!(rooms_map.get("room2").unwrap().contains(&SOCKET));
+        }
+
+        let mut opts = BroadcastOptions::new(SOCKET);
+        opts.rooms = vec!["room1".to_string()];
+        adapter.del_sockets(opts, "room2");
+
+        {
+            let rooms_map = adapter.rooms.read().unwrap();
+
+            assert_eq!(rooms_map.len(), 2);
+            assert!(rooms_map.get("room1").unwrap().contains(&SOCKET));
+            assert!(rooms_map.get("room2").unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_apply_opts() {
+        const SOCKET0: i64 = 0;
+        const SOCKET1: i64 = 1;
+        const SOCKET2: i64 = 2;
+        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        // Add socket 0 to room1 and room2
+        adapter.add_all(SOCKET0, ["room1", "room2"]);
+        // Add socket 1 to room1 and room3
+        adapter.add_all(SOCKET1, ["room1", "room3"]);
+        // Add socket 2 to room2 and room3
+        adapter.add_all(SOCKET2, ["room1", "room2", "room3"]);
+
+        // Socket 2 is the sender
+        let mut opts = BroadcastOptions::new(SOCKET2);
+        opts.rooms = vec!["room1".to_string()];
+        opts.except = vec!["room2".to_string()];
+        let sockets = adapter.apply_opts(opts);
+        assert_eq!(sockets.len(), 1);
+        assert_eq!(sockets[0].sid, SOCKET1);
+
+        let mut opts = BroadcastOptions::new(SOCKET2);
+        opts.flags.insert(BroadcastFlags::Broadcast);
+        opts.except = vec!["room2".to_string()];
+        let sockets = adapter.apply_opts(opts);
+        assert_eq!(sockets.len(), 1);
+
+        let opts = BroadcastOptions::new(SOCKET2);
+        let sockets = adapter.apply_opts(opts);
+        assert_eq!(sockets.len(), 1);
+        assert_eq!(sockets[0].sid, SOCKET2);
     }
 }

@@ -99,6 +99,24 @@ impl<A: Adapter> Namespace<A> {
     }
 }
 
+#[cfg(test)]
+impl<A: Adapter> Namespace<A> {
+    pub fn new_dummy<const S: usize>(sockets: [i64; S]) -> Arc<Self> {
+        use futures::future::FutureExt;
+        let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
+        for sid in sockets {
+            ns.sockets
+                .write()
+                .unwrap()
+                .insert(sid, Socket::new_dummy(sid).into());
+        }
+        ns
+    }
+    pub fn clean_dummy_sockets(&self) {
+        self.sockets.write().unwrap().clear();
+    }
+}
+
 pub struct NamespaceBuilder<A: Adapter> {
     ns_handlers: HashMap<String, EventCallback<A>>,
 }
