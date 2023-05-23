@@ -61,12 +61,14 @@ impl<A: Adapter> Namespace<A> {
 
     pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
+            self.adapter.del_all(sid);
             socket.send(Packet::disconnect(self.path.clone()), None)?;
         }
         Ok(())
     }
     fn remove_socket(&self, sid: i64) {
         self.sockets.write().unwrap().remove(&sid);
+        self.adapter.del_all(sid);
     }
 
     pub fn has(&self, sid: i64) -> bool {
@@ -84,9 +86,7 @@ impl<A: Adapter> Namespace<A> {
     pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Disconnect => Ok(self.remove_socket(sid)),
-            PacketData::Connect(_) => {
-                unreachable!("connect packets should not be handled in namespace")
-            }
+            PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError(_) => Ok(()),
             packet => self.socket_recv(sid, packet),
         }
@@ -108,7 +108,7 @@ impl<A: Adapter> Namespace<A> {
             ns.sockets
                 .write()
                 .unwrap()
-                .insert(sid, Socket::new_dummy(sid).into());
+                .insert(sid, Socket::new_dummy(sid, ns.clone()).into());
         }
         ns
     }

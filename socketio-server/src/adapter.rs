@@ -19,12 +19,13 @@ use crate::{
 
 pub type Room = String;
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum BroadcastFlags {
     Local,
     Broadcast,
     Timeout(Duration),
 }
+#[derive(Clone, Debug)]
 pub struct BroadcastOptions {
     pub flags: HashSet<BroadcastFlags>,
     pub rooms: Vec<Room>,
@@ -378,6 +379,60 @@ mod test {
     }
 
     #[test]
+    fn test_sockets() {
+        const SOCKET0: i64 = 0;
+        const SOCKET1: i64 = 1;
+        const SOCKET2: i64 = 2;
+        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(SOCKET0, ["room1", "room2"]);
+        adapter.add_all(SOCKET1, ["room1", "room3"]);
+        adapter.add_all(SOCKET2, ["room2", "room3"]);
+
+        let sockets = adapter.sockets("room1");
+        assert_eq!(sockets.len(), 2);
+        assert!(sockets.contains(&SOCKET0));
+        assert!(sockets.contains(&SOCKET1));
+
+        let sockets = adapter.sockets("room2");
+        assert_eq!(sockets.len(), 2);
+        assert!(sockets.contains(&SOCKET0));
+        assert!(sockets.contains(&SOCKET2));
+
+        let sockets = adapter.sockets("room3");
+        assert_eq!(sockets.len(), 2);
+        assert!(sockets.contains(&SOCKET1));
+        assert!(sockets.contains(&SOCKET2));
+    }
+
+    #[test]
+    fn test_disconnect_socket() {
+        const SOCKET0: i64 = 0;
+        const SOCKET1: i64 = 1;
+        const SOCKET2: i64 = 2;
+        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        adapter.add_all(SOCKET0, ["room1", "room2", "room4"]);
+        adapter.add_all(SOCKET1, ["room1", "room3", "room5"]);
+        adapter.add_all(SOCKET2, ["room2", "room3", "room6"]);
+
+        let mut opts = BroadcastOptions::new(SOCKET0);
+        opts.rooms = vec!["room5".to_string()];
+        match adapter.disconnect_socket(opts) {
+            Err(Error::EngineGone) | Ok(_) => {}
+            e => panic!(
+                "should return an EngineGone error as it is a stub namespace: {:?}",
+                e
+            ),
+        }
+
+        let sockets = adapter.sockets("room2");
+        assert_eq!(sockets.len(), 2);
+        assert!(sockets.contains(&SOCKET2));
+        assert!(sockets.contains(&SOCKET0));
+
+    }
+    #[test]
     fn test_apply_opts() {
         const SOCKET0: i64 = 0;
         const SOCKET1: i64 = 1;
@@ -395,19 +450,23 @@ mod test {
         let mut opts = BroadcastOptions::new(SOCKET2);
         opts.rooms = vec!["room1".to_string()];
         opts.except = vec!["room2".to_string()];
-        let sockets = adapter.apply_opts(opts);
+        let sockets = adapter.fetch_sockets(opts);
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].sid, SOCKET1);
 
         let mut opts = BroadcastOptions::new(SOCKET2);
         opts.flags.insert(BroadcastFlags::Broadcast);
         opts.except = vec!["room2".to_string()];
-        let sockets = adapter.apply_opts(opts);
+        let sockets = adapter.fetch_sockets(opts);
         assert_eq!(sockets.len(), 1);
 
         let opts = BroadcastOptions::new(SOCKET2);
-        let sockets = adapter.apply_opts(opts);
+        let sockets = adapter.fetch_sockets(opts);
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].sid, SOCKET2);
+
+        let opts = BroadcastOptions::new(10000);
+        let sockets = adapter.fetch_sockets(opts);
+        assert_eq!(sockets.len(), 0);
     }
 }

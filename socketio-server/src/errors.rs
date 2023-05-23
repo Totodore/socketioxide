@@ -15,6 +15,9 @@ pub enum Error {
 
     #[error("internal error: {0}")]
     InternalError(#[from] BoxError),
+
+    #[error("cannot find socketio engine")]
+    EngineGone
 }
 
 #[derive(thiserror::Error, Debug)]

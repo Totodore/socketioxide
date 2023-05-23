@@ -186,8 +186,7 @@ impl<A: Adapter> Socket<A> {
     pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.client
-            .emit(self.sid, Packet::event(ns, event.into(), data))
+        self.send(Packet::event(ns, event.into(), data), None)
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -477,7 +476,7 @@ impl<A: Adapter> Debug for Socket<A> {
 
 #[cfg(test)]
 impl<A: Adapter> Socket<A> {
-    pub fn new_dummy(sid: i64) -> Socket<A> {
+    pub fn new_dummy(sid: i64, ns: Arc<Namespace<A>>) -> Socket<A> {
         use crate::SocketIoConfig;
         use std::sync::Weak;
         let client = Arc::new(Client::new(
@@ -485,7 +484,6 @@ impl<A: Adapter> Socket<A> {
             Weak::new(),
             HashMap::new(),
         ));
-        let ns = Namespace::new("/", Arc::new(|_| Box::pin(async {})));
         Socket::new(client, ns, Handshake::new_dummy(), sid)
     }
 }

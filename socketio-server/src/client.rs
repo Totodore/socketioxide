@@ -40,14 +40,23 @@ impl<A: Adapter> Client<A> {
     }
 
     pub fn emit(&self, sid: i64, packet: Packet) -> Result<(), Error> {
-        // debug!("Emitting packet: {:?}", packet);
-        let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
+        let socket = self
+            .engine
+            .upgrade()
+            .ok_or(Error::EngineGone)?
+            .get_socket(sid)
+            .unwrap();
         socket.emit(packet.try_into()?).unwrap();
         Ok(())
     }
 
     pub fn emit_bin(&self, sid: i64, packet: Packet, bin: Vec<Vec<u8>>) -> Result<(), Error> {
-        let socket = self.engine.upgrade().unwrap().get_socket(sid).unwrap();
+        let socket = self
+            .engine
+            .upgrade()
+            .ok_or(Error::EngineGone)?
+            .get_socket(sid)
+            .unwrap();
 
         socket.emit(packet.try_into()?).unwrap();
         for payload in bin {
