@@ -41,7 +41,7 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
         std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
 
     fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(|s| s.to_string().to_string())
+        self.into_iter().map(|s| s.to_string())
     }
 }
 

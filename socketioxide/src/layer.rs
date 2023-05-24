@@ -40,7 +40,7 @@ impl<S, A: Adapter> Layer<S> for SocketIoLayer<A> {
     fn layer(&self, inner: S) -> Self::Service {
         let engine: Arc<EngineIo<Client<A>>> = Arc::new_cyclic(|e| {
             let client = Client::new(self.config.clone(), e.clone(), self.ns_handlers.clone());
-            EngineIo::from_config(client.into(), self.config.engine_config.clone()).into()
+            EngineIo::from_config(client.into(), self.config.engine_config.clone())
         });
 
         EngineIoService::from_custom_engine(inner, engine)

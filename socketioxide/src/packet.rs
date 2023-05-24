@@ -134,18 +134,16 @@ impl BinaryPacket {
             Value::Array(ref mut v) => {
                 let count = v.len();
                 v.retain(|v| {
-                    !v.as_object()
-                        .map(|o| o.get("_placeholder"))
-                        .flatten()
-                        .is_some()
+                    v.as_object()
+                        .and_then(|o| o.get("_placeholder"))
+                        .is_none()
                 });
                 count - v.len()
             }
             val => {
                 if val
                     .as_object()
-                    .map(|o| o.get("_placeholder"))
-                    .flatten()
+                    .and_then(|o| o.get("_placeholder"))
                     .is_some()
                 {
                     data = Value::Array(vec![]);
@@ -290,7 +288,7 @@ fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Erro
     let packet = if data.is_empty() {
         None
     } else {
-        Some(serde_json::from_str(&data)?)
+        Some(serde_json::from_str(data)?)
     };
     Ok(packet)
 }
@@ -320,10 +318,10 @@ impl TryFrom<String> for Packet {
         };
 
         // If there are attachments, skip the `-` separator
-        chars.peeking_next(|c| attachments > 0 && !c.is_digit(10));
+        chars.peeking_next(|c| attachments > 0 && !c.is_ascii_digit());
 
         let mut ns: String = chars
-            .take_while_ref(|c| *c != ',' && *c != '{' && *c != '[' && !c.is_digit(10))
+            .take_while_ref(|c| *c != ',' && *c != '{' && *c != '[' && !c.is_ascii_digit())
             .collect();
 
         // If there is a namespace, skip the `,` separator
@@ -331,38 +329,38 @@ impl TryFrom<String> for Packet {
             chars.next();
         }
         //TODO: improve ?
-        if !ns.starts_with("/") {
+        if !ns.starts_with('/') {
             ns.insert(0, '/');
         }
 
         let ack: Option<i64> = chars
-            .take_while_ref(|c| c.is_digit(10))
+            .take_while_ref(|c| c.is_ascii_digit())
             .collect::<String>()
             .parse()
             .ok();
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(deserialize_packet(&data)?.unwrap_or(json!({}))),
+            '0' => PacketData::Connect(deserialize_packet(data)?.unwrap_or(json!({}))),
             '1' => PacketData::Disconnect,
             '2' => {
-                let (event, payload) = deserialize_event_packet(&data)?;
+                let (event, payload) = deserialize_event_packet(data)?;
                 PacketData::Event(event, payload, ack)
             }
             '3' => {
-                let packet = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::EventAck(packet, ack.ok_or(Error::InvalidPacketType)?)
             }
             '4' => {
-                let payload = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                let payload = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::ConnectError(payload)
             }
             '5' => {
-                let (event, payload) = deserialize_event_packet(&data)?;
+                let (event, payload) = deserialize_event_packet(data)?;
                 PacketData::BinaryEvent(event, BinaryPacket::incoming(payload), ack)
             }
             '6' => {
-                let packet = deserialize_packet(&data)?.ok_or(Error::InvalidPacketType)?;
+                let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::BinaryAck(
                     BinaryPacket::incoming(packet),
                     ack.ok_or(Error::InvalidPacketType)?,

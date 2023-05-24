@@ -145,8 +145,7 @@ impl Adapter for LocalAdapter {
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
         sockets
             .into_iter()
-            .map(|socket| socket.send(packet.clone(), binary.clone()))
-            .collect::<Result<(), Error>>()
+            .try_for_each(|socket| socket.send(packet.clone(), binary.clone()))
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(
@@ -215,8 +214,7 @@ impl Adapter for LocalAdapter {
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error> {
         self.apply_opts(opts)
             .into_iter()
-            .map(|socket| socket.disconnect())
-            .collect::<Result<(), Error>>()
+            .try_for_each(|socket| socket.disconnect())
     }
 }
 
@@ -227,12 +225,11 @@ impl LocalAdapter {
 
         let except = self.get_except_sids(&opts.except);
         let ns = self.ns.upgrade().unwrap();
-        if rooms.len() > 0 {
+        if !rooms.is_empty() {
             let rooms_map = self.rooms.read().unwrap();
             rooms
                 .iter()
-                .map(|room| rooms_map.get(room))
-                .flatten()
+                .filter_map(|room| rooms_map.get(room))
                 .flatten()
                 .unique()
                 .filter(|sid| {
@@ -430,7 +427,6 @@ mod test {
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&SOCKET2));
         assert!(sockets.contains(&SOCKET0));
-
     }
     #[test]
     fn test_apply_opts() {

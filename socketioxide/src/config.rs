@@ -42,6 +42,12 @@ impl SocketIoConfigBuilder {
     }
 }
 
+impl Default for SocketIoConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SocketIoConfig {
     pub(crate) engine_config: EngineIoConfig,

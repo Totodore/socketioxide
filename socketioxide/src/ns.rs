@@ -53,8 +53,7 @@ impl<A: Adapter> Namespace<A> {
 
     /// Connects a socket to a namespace
     pub fn connect(self: Arc<Self>, sid: i64, client: Arc<Client<A>>, handshake: Handshake) {
-        let socket: Arc<Socket<A>> =
-            Socket::new(client.clone(), self.clone(), handshake, sid).into();
+        let socket: Arc<Socket<A>> = Socket::new(client, self.clone(), handshake, sid).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket));
     }
@@ -85,7 +84,10 @@ impl<A: Adapter> Namespace<A> {
 
     pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Disconnect => Ok(self.remove_socket(sid)),
+            PacketData::Disconnect => {
+                self.remove_socket(sid);
+                Ok(())
+            }
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError(_) => Ok(()),
             packet => self.socket_recv(sid, packet),

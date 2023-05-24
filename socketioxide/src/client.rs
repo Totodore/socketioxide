@@ -28,15 +28,14 @@ impl<A: Adapter> Client<A> {
         engine: Weak<EngineIo<Self>>,
         ns_handlers: HashMap<String, EventCallback<A>>,
     ) -> Self {
-        let client = Self {
+        Self {
             config,
             engine,
             ns: ns_handlers
                 .into_iter()
-                .map(|(path, callback)| (path.clone(), Namespace::new(path, callback).into()))
+                .map(|(path, callback)| (path.clone(), Namespace::new(path, callback)))
                 .collect(),
-        };
-        client
+        }
     }
 
     pub fn emit(&self, sid: i64, packet: Packet) -> Result<(), Error> {
@@ -75,14 +74,14 @@ impl<A: Adapter> Client<A> {
                 PacketData::BinaryEvent(_, ref mut bin, _)
                 | PacketData::BinaryAck(ref mut bin, _) => {
                     bin.add_payload(data);
-                    return bin.is_complete();
+                    bin.is_complete()
                 }
                 _ => unreachable!("partial_bin_packet should only be set for binary packets"),
             }
         } else {
             debug!("[sid={}] socket received unexpected bin data", socket.sid);
-            return false;
-        };
+            false
+        }
     }
 
     /// Called when a socket connects to a new namespace
@@ -170,13 +169,9 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// If the packet is complete, it is propagated to the namespace
     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &EIoSocket<Self>) {
         if self.apply_payload_on_packet(data, socket) {
-            socket
-                .data
-                .partial_bin_packet
-                .lock()
-                .unwrap()
-                .take()
-                .map(|p| self.sock_propagate_packet(p, socket.sid));
+            if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
+                self.sock_propagate_packet(packet, socket.sid)
+            }
         }
     }
 }
