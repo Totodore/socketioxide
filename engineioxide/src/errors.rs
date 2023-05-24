@@ -8,25 +8,25 @@ use crate::{packet::Packet, body::ResponseBody};
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("error serializing json packet: {0:?}")]
-	SerializeError(#[from] serde_json::Error),
+	Serialize(#[from] serde_json::Error),
     #[error("error decoding binary packet from polling request: {0:?}")]
-    Base64Error(#[from] base64::DecodeError),
+    Base64(#[from] base64::DecodeError),
     #[error("error decoding packet: {0:?}")]
-    Utf8Error(#[from] std::string::FromUtf8Error),
+    Utf8(#[from] std::string::FromUtf8Error),
     #[error("io error: {0:?}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
     #[error("bad packet received")]
     BadPacket(Packet),
     #[error("ws transport error: {0:?}")]
-    WsTransportError(#[from] tungstenite::Error),
+    WsTransport(#[from] tungstenite::Error),
     #[error("http transport error: {0:?}")]
-    HttpTransportError(#[from] hyper::Error),
+    HttpTransport(#[from] hyper::Error),
     #[error("http error: {0:?}")]
-    HttpError(#[from] http::Error),
+    Http(#[from] http::Error),
     #[error("internal channel error: {0:?}")]
-    SendChannelError(#[from] mpsc::error::TrySendError<Packet>),
+    SendChannel(#[from] mpsc::error::TrySendError<Packet>),
     #[error("internal channel error: {0:?}")]
-    RecvChannelError(#[from] mpsc::error::TryRecvError),
+    RecvChannel(#[from] mpsc::error::TryRecvError),
     #[error("heartbeat timeout")]
     HeartbeatTimeout,
     #[error("upgrade error")]
@@ -40,9 +40,9 @@ pub enum Error {
 /// Convert an error into an http response
 /// If it is a known error, return the appropriate http status code
 /// Otherwise, return a 500
-impl<B> Into<Response<ResponseBody<B>>> for Error {
-    fn into(self) -> Response<ResponseBody<B>> {
-        match self {
+impl<B> From<Error> for Response<ResponseBody<B>> {
+    fn from(err: Error) -> Self {
+        match err {
             Error::HttpErrorResponse(code) => {
                 Response::builder()
                     .status(code)

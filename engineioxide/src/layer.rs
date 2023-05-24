@@ -130,6 +130,11 @@ impl EngineIoConfigBuilder {
         self.config
     }
 }
+impl Default for EngineIoConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H>

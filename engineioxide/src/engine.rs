@@ -46,7 +46,7 @@ where
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
-            handler: handler.clone(),
+            handler,
         }
     }
 }
@@ -80,7 +80,7 @@ where
         socket.spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config)).try_into()?;
-        http_response(StatusCode::OK, packet).map_err(Error::HttpError)
+        http_response(StatusCode::OK, packet).map_err(Error::Http)
     }
 
     /// Handle http polling request
@@ -96,8 +96,7 @@ where
     {
         let socket = self
             .get_socket(sid)
-            .map(|s| s.is_http().then(|| s))
-            .flatten()
+            .and_then(|s| s.is_http().then(|| s))
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
 
         // If the socket is already locked, it means that the socket is being used by another request
@@ -165,8 +164,7 @@ where
 
         let socket = self
             .get_socket(sid)
-            .map(|s| s.is_http().then(|| s))
-            .flatten()
+            .and_then(|s| s.is_http().then(|| s))
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
 
         for packet in packets {
@@ -241,7 +239,7 @@ where
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
 
-        let socket = if sid.is_none() || !self.get_socket(sid.unwrap()).is_some() {
+        let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
             let sid = generate_sid();
             let socket: Arc<Socket<H>> = Socket::new(
                 sid,

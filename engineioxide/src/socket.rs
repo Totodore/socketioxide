@@ -79,7 +79,7 @@ where
     H: EngineIoHandler + ?Sized,
 {
     fn drop(&mut self) {
-        self.handler.clone().on_disconnect(&self);
+        self.handler.clone().on_disconnect(self);
     }
 }
 

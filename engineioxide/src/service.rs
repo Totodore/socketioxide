@@ -136,16 +136,15 @@ impl RequestInfo {
         }
 
         let sid = query
-            .split("&")
+            .split('&')
             .find(|s| s.starts_with("sid="))
-            .map(|s| s.split("=").nth(1).map(|s1| s1.parse().ok()))
-            .flatten()
+            .and_then(|s| s.split('=').nth(1).map(|s1| s1.parse().ok()))
             .flatten();
 
         let transport: TransportType = query
-            .split("&")
+            .split('&')
             .find(|s| s.starts_with("transport="))?
-            .split("=")
+            .split('=')
             .nth(1)?
             .parse()
             .ok()?;
