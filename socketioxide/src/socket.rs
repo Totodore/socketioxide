@@ -143,7 +143,7 @@ impl<A: Adapter> Socket<A> {
     /// Register a message handler for the given event.
     /// ## Example with a closure :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin| async move {
@@ -174,7 +174,7 @@ impl<A: Adapter> Socket<A> {
     /// Emit a message to the client
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin| async move {
@@ -194,7 +194,7 @@ impl<A: Adapter> Socket<A> {
     /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin| async move {
@@ -243,7 +243,7 @@ impl<A: Adapter> Socket<A> {
     /// Select all clients in the given rooms except the current socket.
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _| async move {
@@ -264,7 +264,7 @@ impl<A: Adapter> Socket<A> {
     /// Filter out all clients selected with the previous operators which are in the given rooms.
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("register1", |socket, data: Value, _| async move {
@@ -290,7 +290,7 @@ impl<A: Adapter> Socket<A> {
     /// When using the default in-memory adapter, this operator is a no-op.
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _| async move {
@@ -307,7 +307,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// use futures::stream::StreamExt;
     /// use std::time::Duration;
@@ -336,7 +336,7 @@ impl<A: Adapter> Socket<A> {
     /// Add a binary payload to the message.
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin| async move {
@@ -352,7 +352,7 @@ impl<A: Adapter> Socket<A> {
     /// Broadcast to all clients without any filtering (except the current socket).
     /// ## Example :
     /// ```
-    /// use socketio_server::{Namespace, Ack};
+    /// use socketioxide::{Namespace, Ack};
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _| async move {

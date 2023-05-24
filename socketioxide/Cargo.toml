@@ -1,5 +1,5 @@
 [package]
-name = "socketio-server"
+name = "socketioxide"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.60.0"
@@ -7,7 +7,7 @@ rust-version = "1.60.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-engineio-server = { path = "../engineio-server" }
+engineioxide = { path = "../engineioxide" }
 futures = "0.3.27"
 futures-core = "0.3.27"
 tokio = "1.26.0"

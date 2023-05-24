@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketio_server::{Ack, Namespace, SocketIoConfig, SocketIoLayer};
+use socketioxide::{Ack, Namespace, SocketIoConfig, SocketIoLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 

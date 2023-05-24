@@ -42,7 +42,7 @@ pub struct EngineIoConfig {
     ///
     /// If the buffer if full the `emit()` method will return an error
     /// ```
-    /// use engineio_server::{
+    /// use engineioxide::{
     ///     layer::{EngineIoHandler, EngineIoLayer},
     ///     socket::Socket,
     /// };
@@ -50,7 +50,7 @@ pub struct EngineIoConfig {
     /// #[derive(Clone)]
     /// struct MyHandler;
     ///
-    /// #[engineio_server::async_trait]
+    /// #[engineioxide::async_trait]
     /// impl EngineIoHandler for MyHandler {
     ///
     ///     type Data = ();

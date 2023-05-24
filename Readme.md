@@ -16,7 +16,7 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketio_server::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace, socket::Ack};
+use socketioxide::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace, socket::Ack};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -86,7 +86,7 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Server;
-use engineio_server::{
+use engineioxide::{
     errors::Error,
     layer::{EngineIoConfig, EngineIoHandler, EngineIoLayer},
     socket::Socket,
@@ -97,7 +97,7 @@ use tracing_subscriber::FmtSubscriber;
 #[derive(Clone)]
 struct MyHandler;
 
-#[engineio_server::async_trait]
+#[engineioxide::async_trait]
 impl EngineIoHandler for MyHandler {
     fn on_connect(&self, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
