@@ -38,8 +38,11 @@ impl Namespace<LocalAdapter> {
 }
 
 impl<A: Adapter> Namespace<A> {
-    //TODO: enforce path format
-    pub fn new(path: String, callback: EventCallback<A>) -> Arc<Self> {
+    pub fn new(path: impl Into<String>, callback: EventCallback<A>) -> Arc<Self> {
+        let mut path: String = path.into();
+        if !path.starts_with('/') {
+            path = format!("/{}", path);
+        }
         Arc::new_cyclic(|ns| Self {
             path,
             callback,
@@ -58,12 +61,14 @@ impl<A: Adapter> Namespace<A> {
 
     pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
+            self.adapter.del_all(sid);
             socket.send(Packet::disconnect(self.path.clone()), None)?;
         }
         Ok(())
     }
     fn remove_socket(&self, sid: i64) {
         self.sockets.write().unwrap().remove(&sid);
+        self.adapter.del_all(sid);
     }
 
     pub fn has(&self, sid: i64) -> bool {
@@ -81,9 +86,7 @@ impl<A: Adapter> Namespace<A> {
     pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Disconnect => Ok(self.remove_socket(sid)),
-            PacketData::Connect(_) => {
-                unreachable!("connect packets should not be handled in namespace")
-            }
+            PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError(_) => Ok(()),
             packet => self.socket_recv(sid, packet),
         }
@@ -93,6 +96,24 @@ impl<A: Adapter> Namespace<A> {
     }
     pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
         self.sockets.read().unwrap().values().cloned().collect()
+    }
+}
+
+#[cfg(test)]
+impl<A: Adapter> Namespace<A> {
+    pub fn new_dummy<const S: usize>(sockets: [i64; S]) -> Arc<Self> {
+        use futures::future::FutureExt;
+        let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
+        for sid in sockets {
+            ns.sockets
+                .write()
+                .unwrap()
+                .insert(sid, Socket::new_dummy(sid, ns.clone()).into());
+        }
+        ns
+    }
+    pub fn clean_dummy_sockets(&self) {
+        self.sockets.write().unwrap().clear();
     }
 }
 
