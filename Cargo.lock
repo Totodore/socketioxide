@@ -149,7 +149,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 
 [[package]]
-name = "engineio-server"
+name = "engineioxide"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -802,22 +802,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
-name = "socket-io-server-examples"
-version = "0.1.0"
-dependencies = [
- "axum",
- "engineio-server",
- "futures",
- "serde",
- "serde_json",
- "socketio-server",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "socket2"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -828,10 +812,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "socketio-server"
+name = "socketioxide"
 version = "0.1.0"
 dependencies = [
- "engineio-server",
+ "engineioxide",
  "futures",
  "futures-core",
  "itertools",
@@ -842,6 +826,22 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+]
+
+[[package]]
+name = "socketioxide-examples"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "engineioxide",
+ "futures",
+ "serde",
+ "serde_json",
+ "socketioxide",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

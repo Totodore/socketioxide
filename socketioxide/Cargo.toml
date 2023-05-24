@@ -1,0 +1,27 @@
+[package]
+name = "socketioxide"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.60.0"
+
+authors = ["Théodore Prévot <"]
+description = "Socket IO server implementation in rust as a Tower Service."
+repository = "https://github.com/totodore/socketioxide"
+homepage = "https://github.com/totodore/socketioxide"
+keywords = ["socketio", "tower", "axum", "hyper", "websocket"]
+categories = ["asynchronous", "network-programming", "web-programming::websocket"]
+license = "MIT"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+engineioxide = { path = "../engineioxide" }
+futures = "0.3.27"
+futures-core = "0.3.27"
+tokio = "1.26.0"
+serde = { version = "1.0.155", features = ["derive"] }
+serde_json = "1.0.94"
+tower = "0.4.13"
+tower-http = "0.4.0"
+tracing = "0.1.37"
+thiserror = "1.0.40"
+itertools = "0.10.5"

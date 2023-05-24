@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use axum::routing::get;
 use axum::Server;
-use engineio_server::{
+use engineioxide::{
     layer::{EngineIoConfig, EngineIoHandler, EngineIoLayer},
     socket::Socket,
 };
@@ -12,7 +12,7 @@ use tracing_subscriber::FmtSubscriber;
 #[derive(Clone)]
 struct MyHandler;
 
-#[engineio_server::async_trait]
+#[engineioxide::async_trait]
 impl EngineIoHandler for MyHandler {
     type Data = ();
     

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use engineio_server::{engine::EngineIo, service::EngineIoService};
+use engineioxide::{engine::EngineIo, service::EngineIoService};
 use tower::Layer;
 
 use crate::{adapter::Adapter, client::Client, config::SocketIoConfig, ns::NsHandlers};

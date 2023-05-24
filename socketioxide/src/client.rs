@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
-use engineio_server::socket::Socket as EIoSocket;
-use engineio_server::{engine::EngineIo, layer::EngineIoHandler};
+use engineioxide::socket::Socket as EIoSocket;
+use engineioxide::{engine::EngineIo, layer::EngineIoHandler};
 use serde_json::Value;
 use tracing::debug;
 use tracing::error;
@@ -133,7 +133,7 @@ pub struct SocketData {
     pub partial_bin_packet: Mutex<Option<Packet>>,
 }
 
-#[engineio_server::async_trait]
+#[engineioxide::async_trait]
 impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
