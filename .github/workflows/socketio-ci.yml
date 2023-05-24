@@ -45,22 +45,3 @@ jobs:
       - name: Client output
         if: always()
         run:  cat client.txt
-
-  publish:
-    runs-on: ubuntu-latest
-    # Only publish on tags on main
-    if: startsWith(github.ref, 'refs/tags/v') && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - run: cargo build --release --all-features
-      - uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: --token ${{ secrets.CARGO_TOKEN }} --all-features -p engineioxide
-      - uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: --token ${{ secrets.CARGO_TOKEN }} --all-features -p socketioxide
