@@ -61,4 +61,8 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: publish
-          args: --token ${{ secrets.CARGO_TOKEN }} --all-features
+          args: --token ${{ secrets.CARGO_TOKEN }} --all-features -p engineioxide
+      - uses: actions-rs/cargo@v1
+        with:
+          command: publish
+          args: --token ${{ secrets.CARGO_TOKEN }} --all-features -p socketioxide
