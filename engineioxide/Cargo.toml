@@ -12,7 +12,6 @@ keywords = ["engineio", "tower", "axum", "hyper", "websocket"]
 categories = ["asynchronous", "network-programming", "web-programming::websocket"]
 license = "MIT"
 readme = "../Readme.md"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 async-trait = "0.1.66"
