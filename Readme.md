@@ -1,5 +1,5 @@
-# SocketIO & EngineIO Server in Rust
-[![SocketIO CI](https://github.com/Totodore/rust-socketio-server/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/rust-socketio-server/actions/workflows/socketio-ci.yml)
+# Socketioxide: SocketIO & EngineIO Server in Rust
+[![SocketIO CI](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml)
 
 ### Rust implementation for a socket.io server, it is based on :
 * hyper
@@ -8,6 +8,26 @@
 * tower
 
 > ⚠️ This crate is under active development and the API is not yet stable.
+### Socket.IO is a tower Service, therefore it itegrates really well with frameworks based on tower like axum and warp.
+### Features :
+* Namespaces
+* Rooms
+* Handshake data
+* Ack and emit with ack
+* Binary
+
+### Planned features :
+* Improving closure support with custom extractor, this will permit :
+  * Extracting data only if wanted
+  * Extracting data from the handshake
+  * Extracting custom data attached to the socket
+  * Extracting ack callback to send the ack rather than returning an enum `Ok(Ack)`
+* Improving the documentation
+* Improving tests
+* Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
+* Better error handling
+* State recovery when a socket reconnects
+
 
 ### Socket.IO example echo implementation with Axum :
 ```rust
@@ -24,16 +44,12 @@ use tracing_subscriber::FmtSubscriber;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
         .with_line_number(true)
-        .with_max_level(Level::DEBUG)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     let config = SocketIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
+        .req_path("/custom_endpoint")
         .build();
-    info!("Starting server");
 
     let ns = Namespace::builder()
         .add("/", |socket| async move {
@@ -71,6 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .layer(SocketIoLayer::from_config(config, ns));
+
+    info!("Starting server, socket.io endpoint available at http://localhost:3000/custom_endpoint");
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
