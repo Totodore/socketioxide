@@ -9,7 +9,6 @@ use std::{
 };
 
 use futures::Future;
-use futures_core::future::BoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -18,85 +17,17 @@ use crate::{
     adapter::Adapter,
     client::Client,
     errors::{AckError, Error},
+    handler::{AckResponse, BoxedHandler, MessageHandler, AckSender},
     handshake::Handshake,
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
 };
-pub type AckResponse<T> = (T, Vec<Vec<u8>>);
-
-trait MessageCaller<A: Adapter>: Send + Sync + 'static {
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        v: Value,
-        p: Vec<Vec<u8>>,
-        ack_id: Option<i64>,
-    ) -> Result<(), Error>;
-}
-
-struct MessageHandler<Param, F, AckV, A>
-where
-    Param: Send + Sync + 'static,
-    AckV: Send + Sync + 'static,
-{
-    param: std::marker::PhantomData<Param>,
-    adapter: std::marker::PhantomData<A>,
-    ack_val: std::marker::PhantomData<AckV>,
-    handler: F,
-}
-
-type AckFn<AckV> = Box<dyn FnOnce(AckV) -> Result<(), Error> + Send + Sync + 'static>;
-
-impl<Param, AckV, F, A> MessageCaller<A> for MessageHandler<Param, F, AckV, A>
-where
-    Param: DeserializeOwned + Send + Sync + 'static,
-    AckV: Serialize + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, Param, Vec<Vec<u8>>, AckFn<AckV>) -> BoxFuture<'static, ()>
-        + Send
-        + Sync
-        + 'static,
-    A: Adapter,
-{
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        v: Value,
-        p: Vec<Vec<u8>>,
-        ack_id: Option<i64>,
-    ) -> Result<(), Error> {
-        // Unwrap array if it has only one element
-        let v = match v {
-            Value::Array(v) => {
-                if v.len() == 1 {
-                    v.into_iter().next().unwrap_or(Value::Null)
-                } else {
-                    Value::Array(v)
-                }
-            }
-            v => v,
-        };
-        let v: Param = serde_json::from_value(v)?;
-        let owned_socket = s.clone();
-        let ack_fn: AckFn<AckV> = if let Some(ack_id) = ack_id {
-            Box::new(move |data| {
-                let ns = owned_socket.ns().clone();
-                let data = serde_json::to_value(&data)?;
-                owned_socket.send(Packet::ack(ns, data, ack_id), vec![])
-            } as _)
-        } else {
-            Box::new(move |_: AckV| Ok(()) as _)
-        };
-        let fut = (self.handler)(s, v, p, ack_fn);
-        tokio::spawn(fut);
-        Ok(())
-    }
-}
 
 pub struct Socket<A: Adapter> {
     client: Arc<Client<A>>,
     ns: Arc<Namespace<A>>,
-    message_handlers: RwLock<HashMap<String, Box<dyn MessageCaller<A>>>>,
+    message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
     ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     pub handshake: Handshake,
@@ -123,54 +54,16 @@ impl<A: Adapter> Socket<A> {
 
     /// ### Register a message handler for the given event.
     ///
-    /// The data parameter can be type with anything that implement [serde::deserialize](https://docs.rs/serde/latest/serde/)
-    /// #### Example with a closure :
-    /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
-    /// use serde::{Serialize, Deserialize};
-    ///
-    /// #[derive(Debug, Serialize, Deserialize)]
-    /// struct MyData {
-    ///     name: String,
-    ///     age: u8,
-    /// }
-    ///
-    /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: MyData, bin| async move {
-    ///         println!("Received a test message {:?}", data);
-    ///     });
-    /// });
-    /// ```
-    pub fn on<C, F, V>(&self, event: impl Into<String>, callback: C)
-    where
-        C: Fn(Arc<Socket<A>>, V, Vec<Vec<u8>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-        V: DeserializeOwned + Send + Sync + 'static,
-    {
-        let handler = Box::new(move |s, v, p, _: AckFn<()>| Box::pin(callback(s, v, p)) as _);
-        self.message_handlers.write().unwrap().insert(
-            event.into(),
-            Box::new(MessageHandler {
-                param: std::marker::PhantomData,
-                ack_val: std::marker::PhantomData,
-                adapter: std::marker::PhantomData,
-                handler,
-            }),
-        );
-    }
-
-    /// ### Register a message handler for the given event with an ack.
-    ///
     /// The data parameter can be typed with anything that implement [serde::Deserialize](https://docs.rs/serde/latest/serde/)
     ///
+    /// ### Acknowledgements
     /// The ack can be sent only once and take a `Serializable` value as parameter.
     ///
     /// For more info about ack see [socket.io documentation](https://socket.io/fr/docs/v4/emitting-events/#acknowledgements)
     ///
     /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
     ///
-    /// #### Example with a closure :
+    /// #### Simple example with a closure:
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -183,29 +76,45 @@ impl<A: Adapter> Socket<A> {
     /// }
     ///
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on_ack("test", |socket, data: MyData, bin, ack| async move {
+    ///     socket.on("test", |socket, data: MyData, _, _| async move {
     ///         println!("Received a test message {:?}", data);
-    ///         ack(data); // The data received is sent back to the client through the ack
+    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
+    ///
+    /// ```
+    /// 
+    /// #### Example with a closure and an ackknowledgement + binary data:
+    /// ```
+    /// use socketioxide::Namespace;
+    /// use serde_json::Value;
+    /// use serde::{Serialize, Deserialize};
+    ///
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
+    ///
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: MyData, bin, ack| async move {
+    ///         println!("Received a test message {:?}", data);
+    ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
+    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
     /// ```
-    pub fn on_ack<C, F, V, AckV>(&self, event: impl Into<String>, callback: C)
+    pub fn on<C, F, V>(&self, event: impl Into<String>, callback: C)
     where
-        C: Fn(Arc<Socket<A>>, V, Vec<Vec<u8>>, AckFn<AckV>) -> F + Send + Sync + 'static,
+        C: Fn(Arc<Socket<A>>, V, Vec<Vec<u8>>, AckSender<A>) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
         V: DeserializeOwned + Send + Sync + 'static,
-        AckV: Serialize + Send + Sync + 'static,
     {
         let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
-        self.message_handlers.write().unwrap().insert(
-            event.into(),
-            Box::new(MessageHandler {
-                param: std::marker::PhantomData,
-                ack_val: std::marker::PhantomData,
-                adapter: std::marker::PhantomData,
-                handler,
-            }),
-        );
+        self.message_handlers
+            .write()
+            .unwrap()
+            .insert(event.into(), MessageHandler::boxed(handler));
     }
 
     /// Emit a message to the client
@@ -214,7 +123,7 @@ impl<A: Adapter> Socket<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message to the client
     ///         socket.emit("test", data);
     ///     });
@@ -233,7 +142,7 @@ impl<A: Adapter> Socket<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message and wait for an acknowledgement
     ///         match socket.emit_with_ack::<Value>("test", data).await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
@@ -281,7 +190,7 @@ impl<A: Adapter> Socket<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
     ///         socket
@@ -301,13 +210,13 @@ impl<A: Adapter> Socket<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("register1", |socket, data: Value, _| async move {
+    ///     socket.on("register1", |socket, data: Value, _, _| async move {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket, data: Value, _| async move {
+    ///     socket.on("register2", |socket, data: Value, _, _| async move {
     ///         socket.join("room2");
     ///     });
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
@@ -324,7 +233,7 @@ impl<A: Adapter> Socket<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///     });
@@ -342,7 +251,7 @@ impl<A: Adapter> Socket<A> {
     /// use futures::stream::StreamExt;
     /// use std::time::Duration;
     /// Namespace::builder().add("/", |socket| async move {
-    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///    socket.on("test", |socket, data: Value, bin, _| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
@@ -368,7 +277,7 @@ impl<A: Adapter> Socket<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // This will send the binary payload received to all clients in this namespace with the test message
     ///         socket.bin(bin).emit("test", data);
     ///     });
@@ -383,7 +292,7 @@ impl<A: Adapter> Socket<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });

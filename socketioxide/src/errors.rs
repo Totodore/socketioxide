@@ -3,7 +3,6 @@ use tower::BoxError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-
     #[error("error serializing json packet: {0:?}")]
     SerializeError(#[from] serde_json::Error),
 
@@ -17,18 +16,16 @@ pub enum Error {
     InternalError(#[from] BoxError),
 
     #[error("cannot find socketio engine")]
-    EngineGone
+    EngineGone,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum AckError {
-    
     #[error("error serializing/deserializing json packet: {0:?}")]
     SerdeError(#[from] serde_json::Error),
 
     #[error("ack receive error")]
     AckReceiveError(#[from] oneshot::error::RecvError),
-
 
     #[error("ack timeout error")]
     AckTimeoutError(#[from] tokio::time::error::Elapsed),

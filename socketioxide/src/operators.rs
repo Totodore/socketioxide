@@ -7,9 +7,9 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::{AckError, Error},
+    handler::AckResponse,
     ns::Namespace,
     packet::Packet,
-    socket::AckResponse,
 };
 
 /// A trait for types that can be used as a room parameter.
@@ -67,7 +67,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
     ///         socket
@@ -89,13 +89,13 @@ impl<A: Adapter> Operators<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("register1", |socket, data: Value, _| async move {
+    ///     socket.on("register1", |socket, data: Value, _, _| async move {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket, data: Value, _| async move {
+    ///     socket.on("register2", |socket, data: Value, _, _| async move {
     ///         socket.join("room2");
     ///     });
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
@@ -114,7 +114,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///     });
@@ -130,7 +130,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, _| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });
@@ -149,7 +149,7 @@ impl<A: Adapter> Operators<A> {
     /// use futures::stream::StreamExt;
     /// use std::time::Duration;
     /// Namespace::builder().add("/", |socket| async move {
-    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///    socket.on("test", |socket, data: Value, bin, _| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
@@ -176,7 +176,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // This will send the binary payload received to all clients in this namespace with the test message
     ///         socket.bin(bin).emit("test", data);
     ///     });
@@ -192,7 +192,7 @@ impl<A: Adapter> Operators<A> {
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
-    ///     socket.on("test", |socket, data: Value, bin| async move {
+    ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
     ///     });
@@ -203,7 +203,7 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.
-    /// 
+    ///
     /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// #### Example
     /// ```
@@ -211,7 +211,7 @@ impl<A: Adapter> Operators<A> {
     /// use serde_json::Value;
     /// use futures::stream::StreamExt;
     /// Namespace::builder().add("/", |socket| async move {
-    ///    socket.on("test", |socket, data: Value, bin| async move {
+    ///    socket.on("test", |socket, data: Value, bin, _| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///       socket.to("room1")
     ///             .to("room3")

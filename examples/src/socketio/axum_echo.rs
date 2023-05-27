@@ -27,14 +27,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
 
-            socket.on("message", |socket, data: Value, bin| async move {
+            socket.on("message", |socket, data: Value, bin, _| async move {
                 info!("Received event: {:?} {:?}", data, bin);
                 socket.bin(bin).emit("message-back", data).ok();
             });
 
-            socket.on_ack("message-with-ack", |_, data: Value, bin, ack| async move {
+            socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
                 info!("Received event: {:?} {:?}", data, bin);
-                ack(data).ok();
+                ack.bin(bin).send(data).ok();
             });
         })
         .add("/custom", |socket| async move {

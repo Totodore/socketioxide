@@ -9,6 +9,7 @@ pub use socket::Socket;
 mod client;
 mod config;
 mod errors;
+mod handler;
 mod handshake;
 mod layer;
 mod ns;

@@ -84,9 +84,11 @@ impl<A: Adapter> Client<A> {
         let sid = socket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
             ns.connect(sid, self.clone(), handshake);
-            self.emit(sid, Packet::connect(ns_path, sid), vec![]).unwrap();
+            self.emit(sid, Packet::connect(ns_path, sid), vec![])
+                .unwrap();
         } else {
-            self.emit(sid, Packet::invalid_namespace(ns_path), vec![]).unwrap();
+            self.emit(sid, Packet::invalid_namespace(ns_path), vec![])
+                .unwrap();
         }
     }
 

@@ -11,10 +11,11 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     errors::{AckError, Error},
+    handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::{AckResponse, Socket},
+    socket::Socket,
 };
 
 pub type Room = String;

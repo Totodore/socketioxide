@@ -31,64 +31,48 @@
 
 ### Socket.IO example echo implementation with Axum :
 ```rust
-use std::time::Duration;
-
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketioxide::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace, socket::Ack};
-use tracing::{info, Level};
+use socketioxide::{Namespace, SocketIoConfig, SocketIoLayer};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .finish();
+    let subscriber = FmtSubscriber::builder().finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = SocketIoConfig::builder()
-        .req_path("/custom_endpoint")
-        .build();
+    let config = SocketIoConfig::builder().build();
+
+    info!("Starting server");
 
     let ns = Namespace::builder()
         .add("/", |socket| async move {
-            info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
+            info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
+            let data: Value = socket.handshake.data().unwrap();
+            socket.emit("auth", data).ok();
 
-            socket.emit("auth", socket.handshake.auth.clone()).ok();
-
-            socket.on("message", |socket, data: Value, bin| async move {
-                if let Some(bin) = bin {
-                    info!("Received event binary: {:?} {:?}", data, bin);
-                    socket.emit_bin("message-back", data, bin).ok();
-                } else {
-                    info!("Received event: {:?}", data);
-                    socket.emit("message-back", data).ok();
-                }
-                Ok(Ack::<()>::None)
+            socket.on("message", |socket, data: Value, bin, _| async move {
+                info!("Received event: {:?} {:?}", data, bin);
+                socket.bin(bin).emit("message-back", data).ok();
             });
 
-            socket.on("message-with-ack", |_, data: Value, bin| async move {
-                if let Some(bin) = bin {
-                    info!("Received event binary: {:?} {:?}", data, bin);
-                    return Ok(Ack::DataBin(data, bin));
-                } else {
-                    info!("Received event: {:?}", data);
-                    return Ok(Ack::Data(data));
-                }
+            socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
+                info!("Received event: {:?} {:?}", data, bin);
+                ack.bin(bin).send(data).ok();
             });
         })
         .add("/custom", |socket| async move {
-            info!("Socket.IO connected on: {:?} {:?}", socket.ns, socket.sid);
-            socket.emit("auth", socket.handshake.auth.clone()).ok();
+            info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
+            let data: Value = socket.handshake.data().unwrap();
+            socket.emit("auth", data).ok();
         })
         .build();
 
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .layer(SocketIoLayer::from_config(config, ns));
-
-    info!("Starting server, socket.io endpoint available at http://localhost:3000/custom_endpoint");
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())

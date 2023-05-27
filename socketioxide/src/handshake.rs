@@ -14,7 +14,7 @@ pub struct Handshake {
 
 impl Handshake {
     /// Extract the data from the handshake.
-    /// 
+    ///
     /// It is cloned and deserialized from a json::Value to the given type.
     pub fn data<T: DeserializeOwned>(&self) -> Result<T, Error> {
         Ok(serde_json::from_value(self.auth.clone())?)
