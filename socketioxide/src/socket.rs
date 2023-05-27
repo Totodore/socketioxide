@@ -209,7 +209,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Emit a message to the client
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -228,7 +228,7 @@ impl<A: Adapter> Socket<A> {
     /// Emit a message to the client and wait for acknowledgement.
     ///
     /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -276,7 +276,7 @@ impl<A: Adapter> Socket<A> {
     // Socket operators
 
     /// Select all clients in the given rooms except the current socket.
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -296,7 +296,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Filter out all clients selected with the previous operators which are in the given rooms.
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -319,7 +319,7 @@ impl<A: Adapter> Socket<A> {
 
     /// Broadcast to all clients only connected on this node (when using multiple nodes).
     /// When using the default in-memory adapter, this operator is a no-op.
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -335,7 +335,7 @@ impl<A: Adapter> Socket<A> {
 
     /// Set a custom timeout when sending a message with an acknowledgement.
     ///
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -363,7 +363,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Add a binary payload to the message.
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
@@ -378,7 +378,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Broadcast to all clients without any filtering (except the current socket).
-    /// ### Example :
+    /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
