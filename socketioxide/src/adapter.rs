@@ -60,14 +60,14 @@ pub trait Adapter: Send + Sync + 'static {
     fn broadcast(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> Result<(), Error>;
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
@@ -137,7 +137,7 @@ impl Adapter for LocalAdapter {
     fn broadcast(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> Result<(), Error> {
         let sockets = self.apply_opts(opts);
@@ -151,7 +151,7 @@ impl Adapter for LocalAdapter {
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {

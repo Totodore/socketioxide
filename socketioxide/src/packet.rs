@@ -50,6 +50,8 @@ impl Packet {
     }
 
     pub fn bin_event(ns: String, e: String, data: Value, payload_count: usize) -> Self {
+        debug_assert!(payload_count > 0);
+
         let packet = BinaryPacket::outgoing(data, payload_count);
         Self {
             inner: PacketData::BinaryEvent(e, packet, None),

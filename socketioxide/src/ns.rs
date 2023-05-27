@@ -61,7 +61,7 @@ impl<A: Adapter> Namespace<A> {
     pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             self.adapter.del_all(sid);
-            socket.send(Packet::disconnect(self.path.clone()), None)?;
+            socket.send(Packet::disconnect(self.path.clone()), vec![])?;
         }
         Ok(())
     }

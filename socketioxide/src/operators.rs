@@ -49,7 +49,7 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
 pub struct Operators<A: Adapter> {
     opts: BroadcastOptions,
     ns: Arc<Namespace<A>>,
-    binary: Option<Vec<Vec<u8>>>,
+    binary: Vec<Vec<u8>>,
 }
 
 impl<A: Adapter> Operators<A> {
@@ -57,7 +57,7 @@ impl<A: Adapter> Operators<A> {
         Self {
             opts: BroadcastOptions::new(sid),
             ns,
-            binary: None,
+            binary: vec![],
         }
     }
 
@@ -182,7 +182,7 @@ impl<A: Adapter> Operators<A> {
     ///     });
     /// });
     pub fn bin(mut self, binary: Vec<Vec<u8>>) -> Self {
-        self.binary = Some(binary);
+        self.binary = binary;
         self
     }
 
@@ -242,10 +242,10 @@ impl<A: Adapter> Operators<A> {
     fn get_packet(&self, event: impl Into<String>, data: impl Serialize) -> Result<Packet, Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
-        let packet = if let Some(ref bin) = self.binary {
-            Packet::bin_event(ns.path.clone(), event.into(), data, bin.len())
-        } else {
+        let packet = if self.binary.is_empty() {
             Packet::event(ns.path.clone(), event.into(), data)
+        } else {
+            Packet::bin_event(ns.path.clone(), event.into(), data, self.binary.len())
         };
         Ok(packet)
     }

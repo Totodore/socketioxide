@@ -23,7 +23,7 @@ use crate::{
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
 };
-pub type AckResponse<T> = (T, Option<Vec<Vec<u8>>>);
+pub type AckResponse<T> = (T, Vec<Vec<u8>>);
 
 trait MessageCaller<A: Adapter>: Send + Sync + 'static {
     fn call(
@@ -82,7 +82,7 @@ where
             Box::new(move |data| {
                 let ns = owned_socket.ns().clone();
                 let data = serde_json::to_value(&data)?;
-                owned_socket.send(Packet::ack(ns, data, ack_id), None)
+                owned_socket.send(Packet::ack(ns, data, ack_id), vec![])
             } as _)
         } else {
             Box::new(move |_: AckV| Ok(()) as _)
@@ -122,20 +122,20 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// ### Register a message handler for the given event.
-    /// 
+    ///
     /// The data parameter can be type with anything that implement [serde::deserialize](https://docs.rs/serde/latest/serde/)
     /// #### Example with a closure :
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// use serde::{Serialize, Deserialize};
-    /// 
+    ///
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
     ///     name: String,
     ///     age: u8,
     /// }
-    /// 
+    ///
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: MyData, bin| async move {
     ///         println!("Received a test message {:?}", data);
@@ -161,27 +161,27 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// ### Register a message handler for the given event with an ack.
-    /// 
+    ///
     /// The data parameter can be typed with anything that implement [serde::Deserialize](https://docs.rs/serde/latest/serde/)
-    /// 
+    ///
     /// The ack can be sent only once and take a `Serializable` value as parameter.
-    /// 
+    ///
     /// For more info about ack see [socket.io documentation](https://socket.io/fr/docs/v4/emitting-events/#acknowledgements)
-    /// 
+    ///
     /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
-    /// 
+    ///
     /// #### Example with a closure :
     /// ```
     /// use socketioxide::Namespace;
     /// use serde_json::Value;
     /// use serde::{Serialize, Deserialize};
-    /// 
+    ///
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
     ///     name: String,
     ///     age: u8,
     /// }
-    /// 
+    ///
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on_ack("test", |socket, data: MyData, bin, ack| async move {
     ///         println!("Received a test message {:?}", data);
@@ -222,7 +222,7 @@ impl<A: Adapter> Socket<A> {
     pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.send(Packet::event(ns, event.into(), data), None)
+        self.send(Packet::event(ns, event.into(), data), vec![])
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -253,7 +253,7 @@ impl<A: Adapter> Socket<A> {
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(ns, event.into(), data);
 
-        self.send_with_ack(packet, None, None).await
+        self.send_with_ack(packet, vec![], None).await
     }
 
     // Room actions
@@ -402,15 +402,14 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, packet: Packet, payload: Option<Vec<Vec<u8>>>) -> Result<(), Error> {
-        self.client
-            .emit(self.sid, packet, payload.unwrap_or_default())
+    pub(crate) fn send(&self, packet: Packet, payload: Vec<Vec<u8>>) -> Result<(), Error> {
+        self.client.emit(self.sid, packet, payload)
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
         &self,
         mut packet: Packet,
-        payload: Option<Vec<Vec<u8>>>,
+        payload: Vec<Vec<u8>>,
         timeout: Option<Duration>,
     ) -> Result<AckResponse<V>, AckError> {
         let (tx, rx) = oneshot::channel();
@@ -456,14 +455,14 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
-            tx.send((data, None)).ok();
+            tx.send((data, vec![])).ok();
         }
         Ok(())
     }
 
     fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
-            tx.send((packet.data, Some(packet.bin))).ok();
+            tx.send((packet.data, packet.bin)).ok();
         }
         Ok(())
     }
