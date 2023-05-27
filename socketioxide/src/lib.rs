@@ -1,10 +1,10 @@
 pub mod adapter;
 
 pub use config::{SocketIoConfig, SocketIoConfigBuilder};
-pub use errors::{Error as SocketError, AckError};
+pub use errors::{AckError, Error as SocketError};
 pub use layer::SocketIoLayer;
 pub use ns::Namespace;
-pub use socket::{Ack, Socket};
+pub use socket::Socket;
 
 mod client;
 mod config;

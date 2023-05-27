@@ -8,10 +8,10 @@ use std::{
     time::Duration,
 };
 
-use futures::{Future, TryFutureExt};
+use futures::Future;
 use futures_core::future::BoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::{
@@ -25,52 +25,34 @@ use crate::{
 };
 pub type AckResponse<T> = (T, Option<Vec<Vec<u8>>>);
 
-pub enum Ack<T>
-where
-    T: Serialize + Send + Sync + 'static,
-{
-    Bin(Vec<Vec<u8>>),
-    Data(T),
-    DataBin(T, Vec<Vec<u8>>),
-    None,
-}
-
-impl From<()> for Ack<()> {
-    fn from(_: ()) -> Self {
-        Ack::None
-    }
-}
-
 trait MessageCaller<A: Adapter>: Send + Sync + 'static {
     fn call(
         &self,
         s: Arc<Socket<A>>,
         v: Value,
-        p: Option<Vec<Vec<u8>>>,
+        p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
     ) -> Result<(), Error>;
 }
 
-struct MessageHandler<Param, ParamCb, F, A>
+struct MessageHandler<Param, F, AckV, A>
 where
     Param: Send + Sync + 'static,
-    ParamCb: Send + Sync + 'static,
+    AckV: Send + Sync + 'static,
 {
     param: std::marker::PhantomData<Param>,
-    param_cb: std::marker::PhantomData<ParamCb>,
     adapter: std::marker::PhantomData<A>,
+    ack_val: std::marker::PhantomData<AckV>,
     handler: F,
 }
 
-impl<Param, RetV, F, A> MessageCaller<A> for MessageHandler<Param, RetV, F, A>
+type AckFn<AckV> = Box<dyn FnOnce(AckV) -> Result<(), Error> + Send + Sync + 'static>;
+
+impl<Param, AckV, F, A> MessageCaller<A> for MessageHandler<Param, F, AckV, A>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
-    RetV: Serialize + Send + Sync + 'static,
-    F: Fn(
-            Arc<Socket<A>>,
-            Param,
-            Option<Vec<Vec<u8>>>,
-        ) -> BoxFuture<'static, Result<Ack<RetV>, Error>>
+    AckV: Serialize + Send + Sync + 'static,
+    F: Fn(Arc<Socket<A>>, Param, Vec<Vec<u8>>, AckFn<AckV>) -> BoxFuture<'static, ()>
         + Send
         + Sync
         + 'static,
@@ -80,7 +62,7 @@ where
         &self,
         s: Arc<Socket<A>>,
         v: Value,
-        p: Option<Vec<Vec<u8>>>,
+        p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
     ) -> Result<(), Error> {
         // Unwrap array if it has only one element
@@ -96,18 +78,17 @@ where
         };
         let v: Param = serde_json::from_value(v)?;
         let owned_socket = s.clone();
-        let fut = (self.handler)(s, v, p);
-        if let Some(ack_id) = ack_id {
-            // Send ack for the message if it has an ack_id
-            tokio::spawn(fut.map_ok(move |val| match val {
-                Ack::Bin(b) => owned_socket.send_bin_ack(ack_id, json!({}), b),
-                Ack::Data(d) => owned_socket.send_ack(ack_id, d),
-                Ack::DataBin(d, b) => owned_socket.send_bin_ack(ack_id, d, b),
-                Ack::None => Ok(()),
-            }));
+        let ack_fn: AckFn<AckV> = if let Some(ack_id) = ack_id {
+            Box::new(move |data| {
+                let ns = owned_socket.ns().clone();
+                let data = serde_json::to_value(&data)?;
+                owned_socket.send(Packet::ack(ns, data, ack_id), None)
+            } as _)
         } else {
-            tokio::spawn(fut);
-        }
+            Box::new(move |_: AckV| Ok(()) as _)
+        };
+        let fut = (self.handler)(s, v, p, ack_fn);
+        tokio::spawn(fut);
         Ok(())
     }
 }
@@ -152,19 +133,19 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn on<C, F, V, RetV>(&self, event: impl Into<String>, callback: C)
+    pub fn on<C, F, V, AckV>(&self, event: impl Into<String>, callback: C)
     where
-        C: Fn(Arc<Socket<A>>, V, Option<Vec<Vec<u8>>>) -> F + Send + Sync + 'static,
-        F: Future<Output = Result<Ack<RetV>, Error>> + Send + 'static,
+        C: Fn(Arc<Socket<A>>, V, Vec<Vec<u8>>, AckFn<AckV>) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
         V: DeserializeOwned + Send + Sync + 'static,
-        RetV: Serialize + Send + Sync + 'static,
+        AckV: Serialize + Send + Sync + 'static,
     {
-        let handler = Box::new(move |s, v, p| Box::pin(callback(s, v, p)) as _);
+        let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
         self.message_handlers.write().unwrap().insert(
             event.into(),
             Box::new(MessageHandler {
                 param: std::marker::PhantomData,
-                param_cb: std::marker::PhantomData,
+                ack_val: std::marker::PhantomData,
                 adapter: std::marker::PhantomData,
                 handler,
             }),
@@ -376,11 +357,8 @@ impl<A: Adapter> Socket<A> {
     }
 
     pub(crate) fn send(&self, packet: Packet, payload: Option<Vec<Vec<u8>>>) -> Result<(), Error> {
-        if let Some(payload) = payload {
-            self.client.emit_bin(self.sid, packet, payload)
-        } else {
-            self.client.emit(self.sid, packet)
-        }
+        self.client
+            .emit(self.sid, packet, payload.unwrap_or_default())
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
@@ -399,23 +377,6 @@ impl<A: Adapter> Socket<A> {
         Ok((serde_json::from_value(v.0)?, v.1))
     }
 
-    pub(crate) fn send_ack(&self, ack_id: i64, data: impl Serialize) -> Result<(), Error> {
-        let ns = self.ns.path.clone();
-        let data = serde_json::to_value(&data)?;
-        self.send(Packet::ack(ns, data, ack_id), None)
-    }
-    pub(crate) fn send_bin_ack(
-        &self,
-        ack_id: i64,
-        data: impl Serialize,
-        bin: Vec<Vec<u8>>,
-    ) -> Result<(), Error> {
-        let ns = self.ns.path.clone();
-        let data = serde_json::to_value(&data)?;
-        self.client
-            .emit_bin(self.sid, Packet::bin_ack(ns, data, bin.len(), ack_id), bin)
-    }
-
     // Receive data from client:
 
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
@@ -430,7 +391,7 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_event(self: Arc<Self>, e: String, data: Value, ack: Option<i64>) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
-            handler.call(self.clone(), data, None, ack)?;
+            handler.call(self.clone(), data, vec![], ack)?;
         }
         Ok(())
     }
@@ -442,7 +403,7 @@ impl<A: Adapter> Socket<A> {
         ack: Option<i64>,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
-            handler.call(self.clone(), packet.data, Some(packet.bin), ack)?;
+            handler.call(self.clone(), packet.data, packet.bin, ack)?;
         }
         Ok(())
     }

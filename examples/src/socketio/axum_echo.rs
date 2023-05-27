@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketioxide::{Ack, Namespace, SocketIoConfig, SocketIoLayer};
+use socketioxide::{Namespace, SocketIoConfig, SocketIoLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -27,25 +27,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
 
-            socket.on("message", |socket, data: Value, bin| async move {
-                if let Some(bin) = bin {
-                    info!("Received event binary: {:?} {:?}", data, bin);
-                    socket.bin(bin).emit("message-back", data).ok();
-                } else {
-                    info!("Received event: {:?}", data);
-                    socket.emit("message-back", data).ok();
-                }
-                Ok(Ack::<()>::None)
-            });
+            // socket.on("message", |socket, data: Value, bin, _| async move {
+            //     info!("Received event: {:?} {:?}", data, bin);
+            //     socket.bin(bin).emit("message-back", data).ok();
+            // });
 
-            socket.on("message-with-ack", |_, data: Value, bin| async move {
-                if let Some(bin) = bin {
-                    info!("Received event binary: {:?} {:?}", data, bin);
-                    return Ok(Ack::DataBin(data, bin));
-                } else {
-                    info!("Received event: {:?}", data);
-                    return Ok(Ack::Data(data));
-                }
+            socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
+                info!("Received event: {:?} {:?}", data, bin);
+                ack(data).ok();
             });
         })
         .add("/custom", |socket| async move {

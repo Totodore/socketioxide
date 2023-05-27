@@ -38,7 +38,7 @@ impl<A: Adapter> Client<A> {
         }
     }
 
-    pub fn emit(&self, sid: i64, packet: Packet) -> Result<(), Error> {
+    pub fn emit(&self, sid: i64, packet: Packet, bin: Vec<Vec<u8>>) -> Result<(), Error> {
         let socket = self
             .engine
             .upgrade()
@@ -46,18 +46,7 @@ impl<A: Adapter> Client<A> {
             .get_socket(sid)
             .unwrap();
         socket.emit(packet.try_into()?).unwrap();
-        Ok(())
-    }
 
-    pub fn emit_bin(&self, sid: i64, packet: Packet, bin: Vec<Vec<u8>>) -> Result<(), Error> {
-        let socket = self
-            .engine
-            .upgrade()
-            .ok_or(Error::EngineGone)?
-            .get_socket(sid)
-            .unwrap();
-
-        socket.emit(packet.try_into()?).unwrap();
         for payload in bin {
             socket.emit_binary(payload).unwrap();
         }
@@ -95,9 +84,9 @@ impl<A: Adapter> Client<A> {
         let sid = socket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
             ns.connect(sid, self.clone(), handshake);
-            self.emit(sid, Packet::connect(ns_path, sid)).unwrap();
+            self.emit(sid, Packet::connect(ns_path, sid), vec![]).unwrap();
         } else {
-            self.emit(sid, Packet::invalid_namespace(ns_path)).unwrap();
+            self.emit(sid, Packet::invalid_namespace(ns_path), vec![]).unwrap();
         }
     }
 
