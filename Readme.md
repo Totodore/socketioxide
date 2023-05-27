@@ -17,15 +17,12 @@
 * Binary
 
 ### Planned features :
-* Improving closure support with custom extractor, this will permit :
-  * Extracting data only if wanted
-  * Extracting data from the handshake
-  * Extracting custom data attached to the socket
-  * Extracting ack callback to send the ack rather than returning an enum `Ok(Ack)`
 * Improving the documentation
 * Improving tests
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
 * Better error handling
+* Adding handshake options
+* Socket extensions to share state between sockets
 * State recovery when a socket reconnects
 
 
@@ -34,7 +31,7 @@
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketioxide::{Namespace, SocketIoConfig, SocketIoLayer};
+use socketioxide::{Namespace, SocketIoLayer};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
@@ -42,8 +39,6 @@ use tracing_subscriber::FmtSubscriber;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder().finish();
     tracing::subscriber::set_global_default(subscriber)?;
-
-    let config = SocketIoConfig::builder().build();
 
     info!("Starting server");
 
@@ -72,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::from_config(config, ns));
+        .layer(SocketIoLayer::new(ns));
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
