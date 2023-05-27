@@ -34,7 +34,7 @@
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketioxide::{Namespace, SocketIoConfig, SocketIoLayer};
+use socketioxide::{Namespace, SocketIoLayer};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
@@ -42,8 +42,6 @@ use tracing_subscriber::FmtSubscriber;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder().finish();
     tracing::subscriber::set_global_default(subscriber)?;
-
-    let config = SocketIoConfig::builder().build();
 
     info!("Starting server");
 
@@ -72,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::from_config(config, ns));
+        .layer(SocketIoLayer::new(ns));
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
