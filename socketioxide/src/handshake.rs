@@ -1,18 +1,26 @@
+use std::{sync::Arc, time::SystemTime};
+
+use engineioxide::socket::SocketReq;
 use serde::de::DeserializeOwned;
 
 use crate::errors::Error;
 
-//TODO: add http headerMap
 /// Handshake informations bound to a socket
 #[derive(Debug)]
 pub struct Handshake {
     pub(crate) auth: serde_json::Value,
-    pub url: String,
-    // pub headers: HeaderMap<HeaderValue>,
-    pub issued: u64,
+    pub issued: SystemTime,
+    pub req: Arc<SocketReq>,
 }
 
 impl Handshake {
+    pub(crate) fn new(auth: serde_json::Value, req: Arc<SocketReq>) -> Self {
+        Self {
+            auth,
+            req,
+            issued: SystemTime::now(),
+        }
+    }
     /// Extract the data from the handshake.
     ///
     /// It is cloned and deserialized from a json::Value to the given type.
@@ -26,9 +34,11 @@ impl Handshake {
     pub fn new_dummy() -> Self {
         Self {
             auth: serde_json::json!({}),
-            url: "http://localhost".to_string(),
-            // headers: HeaderMap::new(),
-            issued: 0,
+            issued: SystemTime::now(),
+            req: Arc::new(SocketReq {
+                headers: Default::default(),
+                uri: Default::default(),
+            }),
         }
     }
 }

@@ -209,8 +209,7 @@ where
             .get("Sec-WebSocket-Key")
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
             .clone();
-        let (uri, headers) = (parts.uri.clone(), parts.headers.clone());
-        let req_data = SocketReq::new(uri, headers);
+        let req_data = SocketReq::from(&parts);
 
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
@@ -266,7 +265,7 @@ where
                     return Err(Error::UpgradeError);
                 }
             }
-            self.ws_upgrade_handshake(sid, &mut ws, req_data).await?;
+            self.ws_upgrade_handshake(sid, &mut ws).await?;
             self.get_socket(sid).unwrap()
         };
         let (mut tx, mut rx) = ws.split();
@@ -350,7 +349,6 @@ where
         &self,
         sid: i64,
         ws: &mut WebSocketStream<Upgraded>,
-        req_data: SocketReq,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
         // send a NOOP packet to any pending polling request
@@ -379,7 +377,7 @@ where
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
         let _lock = socket.rx.lock().await;
-        socket.upgrade_to_websocket(req_data);
+        socket.upgrade_to_websocket();
         Ok(())
     }
     async fn ws_init_handshake(

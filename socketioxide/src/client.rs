@@ -77,11 +77,7 @@ impl<A: Adapter> Client<A> {
     /// Called when a socket connects to a new namespace
     async fn sock_connect(self: Arc<Self>, auth: Value, ns_path: String, socket: &EIoSocket<Self>) {
         debug!("auth: {:?}", auth);
-        let handshake = Handshake {
-            url: "".to_string(),
-            issued: 0,
-            auth,
-        };
+        let handshake = Handshake::new(auth, socket.req_data.clone());
         let sid = socket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
             ns.connect(sid, self.clone(), handshake);
