@@ -46,6 +46,7 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
 }
 
 /// Operators are used to select clients to send a packet to, or to configure the packet that will be emitted.
+#[derive(Debug)]
 pub struct Operators<A: Adapter> {
     opts: BroadcastOptions,
     ns: Arc<Namespace<A>>,

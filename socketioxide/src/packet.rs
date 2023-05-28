@@ -301,7 +301,6 @@ impl TryFrom<String> for Packet {
         let mut chars = value.chars();
         let index = chars.next().ok_or(Error::InvalidPacketType)?;
 
-        //TODO: attachments
         let attachments: u8 = if index == '5' || index == '6' {
             chars
                 .take_while_ref(|c| *c != '-')

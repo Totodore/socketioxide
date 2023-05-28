@@ -155,3 +155,13 @@ impl<A: Adapter> NamespaceBuilder<A> {
         self.ns_handlers
     }
 }
+
+impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Namespace")
+            .field("path", &self.path)
+            .field("adapter", &self.adapter)
+            .field("sockets", &self.sockets)
+            .finish()
+    }
+}

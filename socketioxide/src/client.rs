@@ -16,6 +16,7 @@ use crate::{
     packet::{Packet, PacketData},
 };
 
+#[derive(Debug)]
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
     ns: HashMap<String, Arc<Namespace<A>>>,

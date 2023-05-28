@@ -83,6 +83,7 @@ where
 
 /// AckSender is used to send an ack response to the client.
 /// If the client did not request an ack, it will not send anything.
+#[derive(Debug)]
 pub struct AckSender<A: Adapter> {
     binary: Vec<Vec<u8>>,
     socket: Arc<Socket<A>>,

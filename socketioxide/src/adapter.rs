@@ -45,7 +45,7 @@ impl BroadcastOptions {
 }
 
 //TODO: Make an AsyncAdapter trait
-pub trait Adapter: Send + Sync + 'static {
+pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
         Self: Sized;
@@ -88,6 +88,7 @@ pub trait Adapter: Send + Sync + 'static {
     // fn restore_session(&self, sid: i64) -> Session;
 }
 
+#[derive(Debug)]
 pub struct LocalAdapter {
     rooms: RwLock<HashMap<Room, HashSet<i64>>>,
     ns: Weak<Namespace<Self>>,
