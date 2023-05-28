@@ -11,7 +11,6 @@ homepage = "https://github.com/totodore/socketioxide"
 keywords = ["engineio", "tower", "axum", "hyper", "websocket"]
 categories = ["asynchronous", "network-programming", "web-programming::websocket"]
 license = "MIT"
-readme = "../Readme.md"
 
 [dependencies]
 async-trait = "0.1.66"
