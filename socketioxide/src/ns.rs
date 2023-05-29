@@ -61,7 +61,7 @@ impl<A: Adapter> Namespace<A> {
     pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             self.adapter.del_all(sid);
-            socket.send(Packet::disconnect(self.path.clone()), None)?;
+            socket.send(Packet::disconnect(self.path.clone()), vec![])?;
         }
         Ok(())
     }
@@ -76,10 +76,7 @@ impl<A: Adapter> Namespace<A> {
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket
     pub fn socket_recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
-        if let Some(socket) = self.get_socket(sid) {
-            socket.recv(packet)?;
-        }
-        Ok(())
+        self.get_socket(sid)?.recv(packet)
     }
 
     pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
@@ -93,8 +90,13 @@ impl<A: Adapter> Namespace<A> {
             packet => self.socket_recv(sid, packet),
         }
     }
-    pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<A>>> {
-        self.sockets.read().unwrap().get(&sid).cloned()
+    pub fn get_socket(&self, sid: i64) -> Result<Arc<Socket<A>>, Error> {
+        self.sockets
+            .read()
+            .unwrap()
+            .get(&sid)
+            .cloned()
+            .ok_or(Error::SocketGone(sid))
     }
     pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
         self.sockets.read().unwrap().values().cloned().collect()
@@ -153,5 +155,15 @@ impl<A: Adapter> NamespaceBuilder<A> {
 
     pub fn build(self) -> NsHandlers<A> {
         self.ns_handlers
+    }
+}
+
+impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Namespace")
+            .field("path", &self.path)
+            .field("adapter", &self.adapter)
+            .field("sockets", &self.sockets)
+            .finish()
     }
 }

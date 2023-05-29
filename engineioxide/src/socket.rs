@@ -2,7 +2,7 @@ use std::{
     ops::ControlFlow,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     time::Duration,
 };
@@ -26,27 +26,28 @@ pub(crate) enum ConnectionType {
     WebSocket = 0b000000010,
 }
 
+#[derive(Debug)]
 pub struct SocketReq {
     pub uri: Uri,
     pub headers: http::HeaderMap,
 }
 
+/// Convert a `Parts` struct to a `SocketReq` by cloning the fields.
+impl From<&Parts> for SocketReq {
+    fn from(parts: &Parts) -> Self {
+        Self {
+            uri: parts.uri.clone(),
+            headers: parts.headers.clone(),
+        }
+    }
+}
+/// Convert a `Parts` struct to a `SocketReq` by moving the fields.
 impl From<Parts> for SocketReq {
     fn from(parts: Parts) -> Self {
         Self {
             uri: parts.uri,
             headers: parts.headers,
         }
-    }
-}
-
-impl SocketReq {
-    pub fn new(uri: Uri, headers: http::HeaderMap) -> Self {
-        Self { uri, headers }
-    }
-    pub fn update(&mut self, req: SocketReq) {
-        self.uri = req.uri;
-        self.headers = req.headers;
     }
 }
 
@@ -71,7 +72,7 @@ where
 
     // User data bound to the socket
     pub data: H::Data,
-    pub req_data: RwLock<SocketReq>,
+    pub req_data: Arc<SocketReq>,
 }
 
 impl<H> Drop for Socket<H>
@@ -208,10 +209,9 @@ where
     }
 
     /// Sets the connection type to WebSocket when the client upgrades the connection.
-    pub(crate) fn upgrade_to_websocket(&self, req_data: SocketReq) {
+    pub(crate) fn upgrade_to_websocket(&self) {
         self.conn
             .store(ConnectionType::WebSocket as u8, Ordering::Relaxed);
-        self.req_data.write().unwrap().update(req_data);
     }
 
     /// Emits a message to the client.

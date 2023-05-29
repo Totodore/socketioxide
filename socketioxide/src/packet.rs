@@ -49,12 +49,9 @@ impl Packet {
         }
     }
 
-    pub fn bin_event(
-        ns: String,
-        e: String,
-        data: Value,
-        payload_count: usize,
-    ) -> Self {
+    pub fn bin_event(ns: String, e: String, data: Value, payload_count: usize) -> Self {
+        debug_assert!(payload_count > 0);
+
         let packet = BinaryPacket::outgoing(data, payload_count);
         Self {
             inner: PacketData::BinaryEvent(e, packet, None),
@@ -121,7 +118,9 @@ impl PacketData {
     /// It will only set the ack id for the packets that support it
     pub(crate) fn set_ack_id(&mut self, ack_id: i64) {
         match self {
-            PacketData::Event(_, _, ack) | PacketData::BinaryEvent(_, _, ack) => *ack = Some(ack_id),
+            PacketData::Event(_, _, ack) | PacketData::BinaryEvent(_, _, ack) => {
+                *ack = Some(ack_id)
+            }
             _ => {}
         };
     }
@@ -133,11 +132,7 @@ impl BinaryPacket {
         let payload_count = match &mut data {
             Value::Array(ref mut v) => {
                 let count = v.len();
-                v.retain(|v| {
-                    v.as_object()
-                        .and_then(|o| o.get("_placeholder"))
-                        .is_none()
-                });
+                v.retain(|v| v.as_object().and_then(|o| o.get("_placeholder")).is_none());
                 count - v.len()
             }
             val => {
@@ -306,7 +301,6 @@ impl TryFrom<String> for Packet {
         let mut chars = value.chars();
         let index = chars.next().ok_or(Error::InvalidPacketType)?;
 
-        //TODO: attachments
         let attachments: u8 = if index == '5' || index == '6' {
             chars
                 .take_while_ref(|c| *c != '-')

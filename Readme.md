@@ -1,14 +1,16 @@
 # Socketioxide: SocketIO & EngineIO Server in Rust
 [![SocketIO CI](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml)
+### Socket.IO server implementation as a (tower layer)[https://docs.rs/tower/latest/tower/] in Rust
+It integrates with any framework based on tower/hyper, such as:
+* [axum](https://docs.rs/axum/latest/axum/)
+* [warp](https://docs.rs/warp/latest/warp/)
+* [hyper](https://docs.rs/hyper/latest/hyper/)
 
-### Rust implementation for a socket.io server, it is based on :
-* hyper
-* tokio
-* tokio-tungstenite
-* tower
+It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and [tower-http](https://docs.rs/tower-http/latest/tower_http/) ecosystem of middleware, services, and utilities.
+
 
 > ⚠️ This crate is under active development and the API is not yet stable.
-### Socket.IO is a tower Service, therefore it itegrates really well with frameworks based on tower like axum and warp.
+
 ### Features :
 * Namespaces
 * Rooms
@@ -17,141 +19,62 @@
 * Binary
 
 ### Planned features :
-* Improving closure support with custom extractor, this will permit :
-  * Extracting data only if wanted
-  * Extracting data from the handshake
-  * Extracting custom data attached to the socket
-  * Extracting ack callback to send the ack rather than returning an enum `Ok(Ack)`
 * Improving the documentation
-* Improving tests
+* Adding more tests & benchmars 
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
 * Better error handling
+* Socket extensions to share state between sockets
 * State recovery when a socket reconnects
 
 
 ### Socket.IO example echo implementation with Axum :
 ```rust
-use std::time::Duration;
-
 use axum::routing::get;
 use axum::Server;
-use serde_json::Value;
-use socketioxide::{config::SocketIoConfig, layer::SocketIoLayer, ns::Namespace, socket::Ack};
-use tracing::{info, Level};
+use serde::{Serialize, Deserialize};
+use socketioxide::{Namespace, SocketIoLayer};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MyData {
+  pub name: String,
+  pub age: u8,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .finish();
+    let subscriber = FmtSubscriber::builder().finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = SocketIoConfig::builder()
-        .req_path("/custom_endpoint")
-        .build();
+    info!("Starting server");
 
     let ns = Namespace::builder()
         .add("/", |socket| async move {
-            info!("Socket.IO connected: {:?} {:?}", socket.ns, socket.sid);
+            info!("Socket connected on / namespace with id: {}", socket.sid);
 
-            socket.emit("auth", socket.handshake.auth.clone()).ok();
-
-            socket.on("message", |socket, data: Value, bin| async move {
-                if let Some(bin) = bin {
-                    info!("Received event binary: {:?} {:?}", data, bin);
-                    socket.emit_bin("message-back", data, bin).ok();
-                } else {
-                    info!("Received event: {:?}", data);
-                    socket.emit("message-back", data).ok();
-                }
-                Ok(Ack::<()>::None)
+            // Add a callback triggered when the socket receive an 'abc' event
+            // The json data will be deserialized to MyData
+            socket.on("abc", |socket, data: MyData, bin, _| async move {
+                info!("Received abc event: {:?} {:?}", data, bin);
+                socket.bin(bin).emit("abc", data).ok();
             });
 
-            socket.on("message-with-ack", |_, data: Value, bin| async move {
-                if let Some(bin) = bin {
-                    info!("Received event binary: {:?} {:?}", data, bin);
-                    return Ok(Ack::DataBin(data, bin));
-                } else {
-                    info!("Received event: {:?}", data);
-                    return Ok(Ack::Data(data));
-                }
+            // Add a callback triggered when the socket receive an 'acb' event
+            // Ackknowledge the message with the ack callback
+            socket.on("acb", |_, data: Value, bin, ack| async move {
+                info!("Received acb event: {:?} {:?}", data, bin);
+                ack.bin(bin).send(data).ok();
             });
         })
         .add("/custom", |socket| async move {
-            info!("Socket.IO connected on: {:?} {:?}", socket.ns, socket.sid);
-            socket.emit("auth", socket.handshake.auth.clone()).ok();
+            info!("Socket connected on /custom namespace with id: {}", socket.sid);
         })
         .build();
 
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::from_config(config, ns));
-
-    info!("Starting server, socket.io endpoint available at http://localhost:3000/custom_endpoint");
-
-    Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await?;
-
-    Ok(())
-}
-```
-
-### Engine.IO example echo implementation with Axum :
-```rust
-use std::time::Duration;
-
-use axum::routing::get;
-use axum::Server;
-use engineioxide::{
-    errors::Error,
-    layer::{EngineIoConfig, EngineIoHandler, EngineIoLayer},
-    socket::Socket,
-};
-use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
-
-#[derive(Clone)]
-struct MyHandler;
-
-#[engineioxide::async_trait]
-impl EngineIoHandler for MyHandler {
-    fn on_connect(&self, socket: &Socket<Self>) {
-        println!("socket connect {}", socket.sid);
-    }
-    fn on_disconnect(&self, socket: &Socket<Self>) {
-        println!("socket disconnect {}", socket.sid);
-    }
-
-    async fn on_message(&self, msg: String, socket: &Socket<Self>) -> Result<(), Error> {
-        println!("Ping pong message {:?}", msg);
-        socket.emit(msg).await
-    }
-
-    async fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) -> Result<(), Error> {
-        println!("Ping pong binary message {:?}", data);
-        socket.emit_binary(data).await
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .with_max_level(Level::INFO)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
-
-    let config = EngineIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
-        .build();
-    info!("Starting server");
-    let app = axum::Router::new()
-        .route("/", get(|| async { "Hello, World!" }))
-        .layer(EngineIoLayer::from_config(MyHandler, config));
+        .layer(SocketIoLayer::new(ns));
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())

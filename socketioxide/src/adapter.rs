@@ -11,10 +11,11 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     errors::{AckError, Error},
+    handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::{AckResponse, Socket},
+    socket::Socket,
 };
 
 pub type Room = String;
@@ -44,7 +45,7 @@ impl BroadcastOptions {
 }
 
 //TODO: Make an AsyncAdapter trait
-pub trait Adapter: Send + Sync + 'static {
+pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
         Self: Sized;
@@ -60,14 +61,14 @@ pub trait Adapter: Send + Sync + 'static {
     fn broadcast(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> Result<(), Error>;
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
@@ -87,6 +88,7 @@ pub trait Adapter: Send + Sync + 'static {
     // fn restore_session(&self, sid: i64) -> Session;
 }
 
+#[derive(Debug)]
 pub struct LocalAdapter {
     rooms: RwLock<HashMap<Room, HashSet<i64>>>,
     ns: Weak<Namespace<Self>>,
@@ -137,7 +139,7 @@ impl Adapter for LocalAdapter {
     fn broadcast(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> Result<(), Error> {
         let sockets = self.apply_opts(opts);
@@ -151,7 +153,7 @@ impl Adapter for LocalAdapter {
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
@@ -236,7 +238,7 @@ impl LocalAdapter {
                     !except.contains(*sid)
                         && (!opts.flags.contains(&BroadcastFlags::Broadcast) || **sid != opts.sid)
                 })
-                .filter_map(|sid| ns.get_socket(*sid))
+                .filter_map(|sid| ns.get_socket(*sid).ok())
                 .collect()
         } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
             let sockets = ns.get_sockets();
@@ -244,7 +246,7 @@ impl LocalAdapter {
                 .into_iter()
                 .filter(|socket| !except.contains(&socket.sid))
                 .collect()
-        } else if let Some(sock) = ns.get_socket(opts.sid) {
+        } else if let Ok(sock) = ns.get_socket(opts.sid) {
             vec![sock]
         } else {
             vec![]
