@@ -246,7 +246,7 @@ impl LocalAdapter {
                 .into_iter()
                 .filter(|socket| !except.contains(&socket.sid))
                 .collect()
-        } else if let Some(sock) = ns.get_socket(opts.sid).ok() {
+        } else if let Ok(sock) = ns.get_socket(opts.sid) {
             vec![sock]
         } else {
             vec![]
