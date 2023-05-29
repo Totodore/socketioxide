@@ -150,7 +150,7 @@ checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 
 [[package]]
 name = "engineioxide"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "engineioxide",
@@ -832,7 +832,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-examples"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "engineioxide",
