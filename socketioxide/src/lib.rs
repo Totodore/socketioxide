@@ -1,15 +1,17 @@
-//! Socket.IO server implementation as a (tower layer)[https://docs.rs/tower/latest/tower/] in Rust
+//! Socket.IO server implementation as a [tower layer](https://docs.rs/tower/latest/tower/) in Rust.
+//! 
 //! It integrates with any framework that based on tower/hyper, such as:
 //! * [axum](https://docs.rs/axum/latest/axum/)
 //! * [warp](https://docs.rs/warp/latest/warp/)
 //! * [hyper](https://docs.rs/hyper/latest/hyper/)
 //! 
-//! ## Usage
+//! ## Usage with axum
 //! 
-//! ```rust
+//! ```no_run
 //! use axum::routing::get;
 //! use axum::Server;
 //! use serde::{Serialize, Deserialize};
+//! use serde_json::Value;
 //! use socketioxide::{Namespace, SocketIoLayer};
 //! use tracing::info;
 //! use tracing_subscriber::FmtSubscriber;
