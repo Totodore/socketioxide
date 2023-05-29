@@ -82,3 +82,4 @@ mod ns;
 mod operators;
 mod packet;
 mod socket;
+pub mod extensions;
