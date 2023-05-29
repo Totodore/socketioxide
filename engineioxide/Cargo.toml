@@ -1,6 +1,6 @@
 [package]
 name = "engineioxide"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.60.0"
 
@@ -11,7 +11,6 @@ homepage = "https://github.com/totodore/socketioxide"
 keywords = ["engineio", "tower", "axum", "hyper", "websocket"]
 categories = ["asynchronous", "network-programming", "web-programming::websocket"]
 license = "MIT"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 async-trait = "0.1.66"

@@ -1,6 +1,6 @@
 [package]
 name = "socketioxide"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.60.0"
 
@@ -11,10 +11,10 @@ homepage = "https://github.com/totodore/socketioxide"
 keywords = ["socketio", "tower", "axum", "hyper", "websocket"]
 categories = ["asynchronous", "network-programming", "web-programming::websocket"]
 license = "MIT"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+readme = "../Readme.md"
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.1.0" }
+engineioxide = { path = "../engineioxide", version = "0.2.0" }
 futures = "0.3.27"
 futures-core = "0.3.27"
 tokio = "1.26.0"
@@ -25,3 +25,7 @@ tower-http = "0.4.0"
 tracing = "0.1.37"
 thiserror = "1.0.40"
 itertools = "0.10.5"
+
+[dev-dependencies]
+axum = "0.6.18"
+tracing-subscriber = "0.3.17"

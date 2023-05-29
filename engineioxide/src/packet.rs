@@ -38,9 +38,9 @@ impl TryInto<String> for Packet {
             Packet::Message(msg) => "4".to_string() + &msg,
             Packet::Upgrade => "5".to_string(),
             Packet::Noop => "6".to_string(),
-            Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(&data),
+            Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(data),
             _ => {
-                return Err(Self::Error::SerializeError(serde_json::Error::custom(
+                return Err(Self::Error::Serialize(serde_json::Error::custom(
                     "invalid packet type",
                 )))
             }

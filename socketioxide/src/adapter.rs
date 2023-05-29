@@ -11,10 +11,11 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     errors::{AckError, Error},
+    handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::{AckResponse, Socket},
+    socket::Socket,
 };
 
 pub type Room = String;
@@ -44,7 +45,7 @@ impl BroadcastOptions {
 }
 
 //TODO: Make an AsyncAdapter trait
-pub trait Adapter: Send + Sync + 'static {
+pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
         Self: Sized;
@@ -60,14 +61,14 @@ pub trait Adapter: Send + Sync + 'static {
     fn broadcast(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> Result<(), Error>;
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
@@ -87,6 +88,7 @@ pub trait Adapter: Send + Sync + 'static {
     // fn restore_session(&self, sid: i64) -> Session;
 }
 
+#[derive(Debug)]
 pub struct LocalAdapter {
     rooms: RwLock<HashMap<Room, HashSet<i64>>>,
     ns: Weak<Namespace<Self>>,
@@ -137,7 +139,7 @@ impl Adapter for LocalAdapter {
     fn broadcast(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> Result<(), Error> {
         let sockets = self.apply_opts(opts);
@@ -145,14 +147,13 @@ impl Adapter for LocalAdapter {
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
         sockets
             .into_iter()
-            .map(|socket| socket.send(packet.clone(), binary.clone()))
-            .collect::<Result<(), Error>>()
+            .try_for_each(|socket| socket.send(packet.clone(), binary.clone()))
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Option<Vec<Vec<u8>>>,
+        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
@@ -215,8 +216,7 @@ impl Adapter for LocalAdapter {
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error> {
         self.apply_opts(opts)
             .into_iter()
-            .map(|socket| socket.disconnect())
-            .collect::<Result<(), Error>>()
+            .try_for_each(|socket| socket.disconnect())
     }
 }
 
@@ -227,19 +227,18 @@ impl LocalAdapter {
 
         let except = self.get_except_sids(&opts.except);
         let ns = self.ns.upgrade().unwrap();
-        if rooms.len() > 0 {
+        if !rooms.is_empty() {
             let rooms_map = self.rooms.read().unwrap();
             rooms
                 .iter()
-                .map(|room| rooms_map.get(room))
-                .flatten()
+                .filter_map(|room| rooms_map.get(room))
                 .flatten()
                 .unique()
                 .filter(|sid| {
                     !except.contains(*sid)
                         && (!opts.flags.contains(&BroadcastFlags::Broadcast) || **sid != opts.sid)
                 })
-                .filter_map(|sid| ns.get_socket(*sid))
+                .filter_map(|sid| ns.get_socket(*sid).ok())
                 .collect()
         } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
             let sockets = ns.get_sockets();
@@ -247,7 +246,7 @@ impl LocalAdapter {
                 .into_iter()
                 .filter(|socket| !except.contains(&socket.sid))
                 .collect()
-        } else if let Some(sock) = ns.get_socket(opts.sid) {
+        } else if let Ok(sock) = ns.get_socket(opts.sid) {
             vec![sock]
         } else {
             vec![]
@@ -430,7 +429,6 @@ mod test {
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&SOCKET2));
         assert!(sockets.contains(&SOCKET0));
-
     }
     #[test]
     fn test_apply_opts() {

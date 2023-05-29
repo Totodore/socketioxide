@@ -46,7 +46,7 @@ where
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
-            handler: handler.clone(),
+            handler,
         }
     }
 }
@@ -80,7 +80,7 @@ where
         socket.spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config)).try_into()?;
-        http_response(StatusCode::OK, packet).map_err(Error::HttpError)
+        http_response(StatusCode::OK, packet).map_err(Error::Http)
     }
 
     /// Handle http polling request
@@ -96,8 +96,7 @@ where
     {
         let socket = self
             .get_socket(sid)
-            .map(|s| s.is_http().then(|| s))
-            .flatten()
+            .and_then(|s| s.is_http().then(|| s))
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
 
         // If the socket is already locked, it means that the socket is being used by another request
@@ -165,8 +164,7 @@ where
 
         let socket = self
             .get_socket(sid)
-            .map(|s| s.is_http().then(|| s))
-            .flatten()
+            .and_then(|s| s.is_http().then(|| s))
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
 
         for packet in packets {
@@ -211,8 +209,7 @@ where
             .get("Sec-WebSocket-Key")
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
             .clone();
-        let (uri, headers) = (parts.uri.clone(), parts.headers.clone());
-        let req_data = SocketReq::new(uri, headers);
+        let req_data = SocketReq::from(&parts);
 
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
@@ -241,7 +238,7 @@ where
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
 
-        let socket = if sid.is_none() || !self.get_socket(sid.unwrap()).is_some() {
+        let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
             let sid = generate_sid();
             let socket: Arc<Socket<H>> = Socket::new(
                 sid,
@@ -268,7 +265,7 @@ where
                     return Err(Error::UpgradeError);
                 }
             }
-            self.ws_upgrade_handshake(sid, &mut ws, req_data).await?;
+            self.ws_upgrade_handshake(sid, &mut ws).await?;
             self.get_socket(sid).unwrap()
         };
         let (mut tx, mut rx) = ws.split();
@@ -352,7 +349,6 @@ where
         &self,
         sid: i64,
         ws: &mut WebSocketStream<Upgraded>,
-        req_data: SocketReq,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
         // send a NOOP packet to any pending polling request
@@ -381,7 +377,7 @@ where
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
         let _lock = socket.rx.lock().await;
-        socket.upgrade_to_websocket(req_data);
+        socket.upgrade_to_websocket();
         Ok(())
     }
     async fn ws_init_handshake(
