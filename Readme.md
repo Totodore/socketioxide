@@ -51,24 +51,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ns = Namespace::builder()
         .add("/", |socket| async move {
-            info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
-            let data: Value = socket.handshake.data().unwrap();
-            socket.emit("auth", data).ok();
+            info!("Socket connected on / namespace with id: {}", socket.sid);
 
-            socket.on("message", |socket, data: Value, bin, _| async move {
-                info!("Received event: {:?} {:?}", data, bin);
-                socket.bin(bin).emit("message-back", data).ok();
+            // Add a callback triggered when the socket receive an 'abc' event
+            // The json data will be deserialized to MyData
+            socket.on("abc", |socket, data: MyData, bin, _| async move {
+                info!("Received abc event: {:?} {:?}", data, bin);
+                socket.bin(bin).emit("abc", data).ok();
             });
 
-            socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
-                info!("Received event: {:?} {:?}", data, bin);
+            // Add a callback triggered when the socket receive an 'acb' event
+            // Ackknowledge the message with the ack callback
+            socket.on("acb", |_, data: Value, bin, ack| async move {
+                info!("Received acb event: {:?} {:?}", data, bin);
                 ack.bin(bin).send(data).ok();
             });
         })
         .add("/custom", |socket| async move {
-            info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
-            let data: Value = socket.handshake.data().unwrap();
-            socket.emit("auth", data).ok();
+            info!("Socket connected on /custom namespace with id: {}", socket.sid);
         })
         .build();
 
