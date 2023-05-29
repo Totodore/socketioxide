@@ -238,7 +238,7 @@ impl LocalAdapter {
                     !except.contains(*sid)
                         && (!opts.flags.contains(&BroadcastFlags::Broadcast) || **sid != opts.sid)
                 })
-                .filter_map(|sid| ns.get_socket(*sid))
+                .filter_map(|sid| ns.get_socket(*sid).ok())
                 .collect()
         } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
             let sockets = ns.get_sockets();
@@ -246,7 +246,7 @@ impl LocalAdapter {
                 .into_iter()
                 .filter(|socket| !except.contains(&socket.sid))
                 .collect()
-        } else if let Some(sock) = ns.get_socket(opts.sid) {
+        } else if let Some(sock) = ns.get_socket(opts.sid).ok() {
             vec![sock]
         } else {
             vec![]

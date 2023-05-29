@@ -3,7 +3,7 @@ pub mod service;
 pub mod layer;
 pub mod socket;
 pub mod engine;
-mod errors;
+pub mod errors;
 mod futures;
 mod body;
 mod packet;

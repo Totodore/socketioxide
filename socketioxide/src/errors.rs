@@ -17,6 +17,12 @@ pub enum Error {
 
     #[error("cannot find socketio engine")]
     EngineGone,
+
+    #[error("cannot find socketio socket")]
+    SocketGone(i64),
+
+    #[error("engineio error: {0}")]
+    EngineIoError(#[from] engineioxide::errors::Error),
 }
 
 #[derive(thiserror::Error, Debug)]

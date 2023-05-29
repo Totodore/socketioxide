@@ -45,11 +45,11 @@ impl<A: Adapter> Client<A> {
             .upgrade()
             .ok_or(Error::EngineGone)?
             .get_socket(sid)
-            .unwrap();
-        socket.emit(packet.try_into()?).unwrap();
+            .ok_or(Error::SocketGone(sid))?;
+        socket.emit(packet.try_into()?)?;
 
         for payload in bin {
-            socket.emit_binary(payload).unwrap();
+            socket.emit_binary(payload)?;
         }
         Ok(())
     }
@@ -75,17 +75,20 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Called when a socket connects to a new namespace
-    async fn sock_connect(self: Arc<Self>, auth: Value, ns_path: String, socket: &EIoSocket<Self>) {
+    async fn sock_connect(
+        self: Arc<Self>,
+        auth: Value,
+        ns_path: String,
+        socket: &EIoSocket<Self>,
+    ) -> Result<(), Error> {
         debug!("auth: {:?}", auth);
         let handshake = Handshake::new(auth, socket.req_data.clone());
         let sid = socket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
             ns.connect(sid, self.clone(), handshake);
             self.emit(sid, Packet::connect(ns_path, sid), vec![])
-                .unwrap();
         } else {
             self.emit(sid, Packet::invalid_namespace(ns_path), vec![])
-                .unwrap();
         }
     }
 
@@ -100,11 +103,12 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Propagate a packet to a its target namespace
-    fn sock_propagate_packet(self: Arc<Self>, packet: Packet, sid: i64) {
+    fn sock_propagate_packet(self: Arc<Self>, packet: Packet, sid: i64) -> Result<(), Error> {
         if let Some(ns) = self.ns.get(&packet.ns) {
-            if let Err(e) = ns.recv(sid, packet.inner) {
-                error!("[sid={}] {e}", sid);
-            }
+            ns.recv(sid, packet.inner)
+        } else {
+            debug!("invalid namespace requested: {}", packet.ns);
+            Ok(())
         }
     }
 
@@ -143,13 +147,18 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             }
         };
         debug!("Packet: {:?}", packet);
-        match packet.inner {
+        let res = match packet.inner {
             PacketData::Connect(auth) => self.sock_connect(auth, packet.ns, socket).await,
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
-                self.sock_recv_bin_packet(socket, packet)
+                self.sock_recv_bin_packet(socket, packet);
+                Ok(())
             }
             _ => self.sock_propagate_packet(packet, socket.sid),
         };
+        if let Err(err) = res {
+            error!("error while processing packet: {}", err);
+            socket.emit_close();
+        }
     }
 
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
@@ -158,7 +167,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &EIoSocket<Self>) {
         if self.apply_payload_on_packet(data, socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
-                self.sock_propagate_packet(packet, socket.sid)
+                if let Err(e) = self.sock_propagate_packet(packet, socket.sid) {
+                    debug!(
+                        "error while propagating packet to socket {}: {}",
+                        socket.sid, e
+                    );
+                    socket.emit_close();
+                }
             }
         }
     }

@@ -31,10 +31,16 @@ It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and 
 ```rust
 use axum::routing::get;
 use axum::Server;
-use serde_json::Value;
+use serde::{Serialize, Deserialize};
 use socketioxide::{Namespace, SocketIoLayer};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MyData {
+  pub name: String,
+  pub age: u8,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
