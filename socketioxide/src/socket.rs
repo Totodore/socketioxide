@@ -21,7 +21,7 @@ use crate::{
     handshake::Handshake,
     ns::Namespace,
     operators::{Operators, RoomParam},
-    packet::{BinaryPacket, Packet, PacketData},
+    packet::{BinaryPacket, Packet, PacketData}, extensions::Extensions,
 };
 
 pub struct Socket<A: Adapter> {
@@ -32,6 +32,7 @@ pub struct Socket<A: Adapter> {
     ack_counter: AtomicI64,
     pub handshake: Handshake,
     pub sid: i64,
+    pub extensions: Extensions
 }
 
 impl<A: Adapter> Socket<A> {
@@ -49,6 +50,7 @@ impl<A: Adapter> Socket<A> {
             ack_counter: AtomicI64::new(0),
             handshake,
             sid,
+            extensions: Extensions::new()
         }
     }
 

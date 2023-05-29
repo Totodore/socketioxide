@@ -129,11 +129,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
     fn on_connect(self: Arc<Self>, socket: &EIoSocket<Self>) {
-        println!("socket connect {}", socket.sid);
-        // self.state = SocketState::AwaitingConnect;
+        debug!("socket connect {}", socket.sid);
     }
     fn on_disconnect(self: Arc<Self>, socket: &EIoSocket<Self>) {
-        println!("socket disconnect {}", socket.sid);
+        debug!("socket disconnect {}", socket.sid);
     }
 
     async fn on_message(self: Arc<Self>, msg: String, socket: &EIoSocket<Self>) {

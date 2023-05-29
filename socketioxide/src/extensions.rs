@@ -1,0 +1,312 @@
+//! Extensions used to store extra data in each socket instance.
+//!
+//! It is heavily inspired by the `Extensions` type from the `http` crate.
+//!
+//! The main difference is that it uses a `DashMap` instead of a `HashMap` to allow concurrent access.
+//!
+//! This is necessary because `Extensions` are shared between all the threads that handle the same socket.
+
+use dashmap::DashMap;
+use std::fmt;
+use std::ops::{Deref, DerefMut};
+use std::{
+    any::{Any, TypeId},
+    hash::{BuildHasherDefault, Hasher},
+};
+
+/// TypeMap value
+type AnyVal = Box<dyn Any + Send + Sync>;
+
+/// The `AnyDashMap` is a `DashMap` that uses `TypeId` as keys and `Any` as values.
+type AnyDashMap = DashMap<TypeId, AnyVal, BuildHasherDefault<IdHasher>>;
+
+/// A wrapper for a `MappedRef` that implements `Deref` and `DerefMut` to allow
+/// easy access to the value.
+pub struct Ref<'a, T>(
+    dashmap::mapref::one::MappedRef<'a, TypeId, AnyVal, T, BuildHasherDefault<IdHasher>>,
+);
+
+impl<'a, T> Ref<'a, T> {
+    fn value(&self) -> &T {
+        self.0.value()
+    }
+}
+impl<'a, T> Deref for Ref<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.value()
+    }
+}
+
+/// A wrapper for a `MappedRefMut` that implements `Deref` and `DerefMut` to allow
+/// easy access to the value.
+pub struct RefMut<'a, T>(
+    dashmap::mapref::one::MappedRefMut<'a, TypeId, AnyVal, T, BuildHasherDefault<IdHasher>>,
+);
+
+impl<'a, T> RefMut<'a, T> {
+    fn value(&self) -> &T {
+        self.0.value()
+    }
+    fn value_mut(&mut self) -> &mut T {
+        self.0.value_mut()
+    }
+}
+impl<'a, T> Deref for RefMut<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.value()
+    }
+}
+impl<'a, T> DerefMut for RefMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.value_mut()
+    }
+}
+
+// With TypeIds as keys, there's no need to hash them. They are already hashes
+// themselves, coming from the compiler. The IdHasher just holds the u64 of
+// the TypeId, and then returns it, instead of doing any bit fiddling.
+#[derive(Default)]
+struct IdHasher(u64);
+
+impl Hasher for IdHasher {
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("TypeId calls write_u64");
+    }
+
+    #[inline]
+    fn write_u64(&mut self, id: u64) {
+        self.0 = id;
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// A type map of protocol extensions.
+///
+/// It is heavily inspired by the `Extensions` type from the `http` crate.
+///
+/// The main difference is that it uses a `DashMap` instead of a `HashMap` to allow concurrent access.
+///
+/// This is necessary because `Extensions` are shared between all the threads that handle the same socket.
+#[derive(Default)]
+pub struct Extensions {
+    // If extensions are never used, no need to carry around an empty HashMap.
+    // That's 3 words. Instead, this is only 1 word.
+    map: Option<Box<AnyDashMap>>,
+}
+
+impl Extensions {
+    /// Create an empty `Extensions`.
+    #[inline]
+    pub fn new() -> Extensions {
+        Extensions { map: None }
+    }
+
+    /// Insert a type into this `Extensions`.
+    ///
+    /// If a extension of this type already existed, it will
+    /// be returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    /// assert!(ext.insert(5i32).is_none());
+    /// assert!(ext.insert(4u8).is_none());
+    /// assert_eq!(ext.insert(9i32), Some(5i32));
+    /// ```
+    pub fn insert<T: Send + Sync + 'static>(&mut self, val: T) -> Option<T> {
+        self.map
+            .get_or_insert_with(|| Box::new(DashMap::default()))
+            .insert(TypeId::of::<T>(), Box::new(val))
+            .and_then(|boxed| {
+                (boxed as Box<dyn Any + 'static>)
+                    .downcast()
+                    .ok()
+                    .map(|boxed| *boxed)
+            })
+    }
+
+    /// Get a reference to a type previously inserted on this `Extensions`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    /// assert!(ext.get::<i32>().is_none());
+    /// ext.insert(5i32);
+    ///
+    /// assert_eq!(ext.get::<i32>(), Some(&5i32));
+    /// ```
+    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Ref<T>> {
+        self.map
+            .as_ref()
+            .and_then(|map| map.get(&TypeId::of::<T>()))
+            .and_then(|entry| entry.try_map(|r| r.downcast_ref::<T>()).ok())
+            .map(|r| Ref(r))
+    }
+
+    /// Get a mutable reference to a type previously inserted on this `Extensions`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    /// ext.insert(String::from("Hello"));
+    /// ext.get_mut::<String>().unwrap().push_str(" World");
+    ///
+    /// assert_eq!(ext.get::<String>().unwrap(), "Hello World");
+    /// ```
+    pub fn get_mut<T: Send + Sync + 'static>(&mut self) -> Option<RefMut<T>> {
+        self.map
+            .as_mut()
+            .and_then(|map| map.get_mut(&TypeId::of::<T>()))
+            .and_then(|entry| entry.try_map(|r| r.downcast_mut::<T>()).ok())
+            .map(|r| RefMut(r))
+    }
+
+    /// Remove a type from this `Extensions`.
+    ///
+    /// If a extension of this type existed, it will be returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    /// ext.insert(5i32);
+    /// assert_eq!(ext.remove::<i32>(), Some(5i32));
+    /// assert!(ext.get::<i32>().is_none());
+    /// ```
+    pub fn remove<T: Send + Sync + 'static>(&mut self) -> Option<T> {
+        self.map
+            .as_mut()
+            .and_then(|map| map.remove(&TypeId::of::<T>()))
+            .and_then(|(_, boxed)| {
+                (boxed as Box<dyn Any + 'static>)
+                    .downcast()
+                    .ok()
+                    .map(|boxed| *boxed)
+            })
+    }
+
+    /// Clear the `Extensions` of all inserted extensions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    /// ext.insert(5i32);
+    /// ext.clear();
+    ///
+    /// assert!(ext.get::<i32>().is_none());
+    /// ```
+    #[inline]
+    pub fn clear(&mut self) {
+        if let Some(ref mut map) = self.map {
+            map.clear();
+        }
+    }
+
+    /// Check whether the extension set is empty or not.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    /// assert!(ext.is_empty());
+    /// ext.insert(5i32);
+    /// assert!(!ext.is_empty());
+    /// ```
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.map.as_ref().map_or(true, |map| map.is_empty())
+    }
+
+    /// Get the numer of extensions available.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext = Extensions::new();
+    /// assert_eq!(ext.len(), 0);
+    /// ext.insert(5i32);
+    /// assert_eq!(ext.len(), 1);
+    /// ```
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.map.as_ref().map_or(0, |map| map.len())
+    }
+
+    /// Extends `self` with another `Extensions`.
+    ///
+    /// If an instance of a specific type exists in both, the one in `self` is overwritten with the
+    /// one from `other`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use socketioxide::extensions::Extensions;
+    /// let mut ext_a = Extensions::new();
+    /// ext_a.insert(8u8);
+    /// ext_a.insert(16u16);
+    ///
+    /// let mut ext_b = Extensions::new();
+    /// ext_b.insert(4u8);
+    /// ext_b.insert("hello");
+    ///
+    /// ext_a.extend(ext_b);
+    /// assert_eq!(ext_a.len(), 3);
+    /// assert_eq!(ext_a.get::<u8>(), Some(&4u8));
+    /// assert_eq!(ext_a.get::<u16>(), Some(&16u16));
+    /// assert_eq!(ext_a.get::<&'static str>().copied(), Some("hello"));
+    /// ```
+    pub fn extend(&mut self, other: Self) {
+        if let Some(other) = other.map {
+            if let Some(map) = &mut self.map {
+                map.extend(*other);
+            } else {
+                self.map = Some(other);
+            }
+        }
+    }
+}
+
+impl fmt::Debug for Extensions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Extensions").finish()
+    }
+}
+
+#[test]
+fn test_extensions() {
+    #[derive(Debug, PartialEq)]
+    struct MyType(i32);
+
+    let mut extensions = Extensions::new();
+
+    extensions.insert(5i32);
+    extensions.insert(MyType(10));
+
+    assert_eq!(extensions.get().as_deref(), Some(&5i32));
+    assert_eq!(extensions.get_mut().as_deref_mut(), Some(&mut 5i32));
+
+    assert_eq!(extensions.remove::<i32>(), Some(5i32));
+    assert!(extensions.get::<i32>().is_none());
+
+    assert!(extensions.get::<bool>().is_none());
+    assert_eq!(extensions.get().as_deref(), Some(&MyType(10)));
+}
