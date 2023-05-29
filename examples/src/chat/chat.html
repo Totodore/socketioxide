@@ -13,10 +13,14 @@
     <script>
         document.addEventListener("DOMContentLoaded", () => {
             const logs = document.querySelector("textarea");
-            const input = document.querySelector("input");
             const form = document.querySelector("form");
-        
-            const socket = io();
+
+            const nickname = prompt("Enter your name");
+            const socket = io({
+                auth: {
+                    nickname
+                }
+            });
 
             function appendLog(val) {
                 logs.value += `${val}\n`;
@@ -37,11 +41,14 @@
 
             form.addEventListener("submit", e => {
                 e.preventDefault();
-                const input = input.value;
-                if (input.startWith("/")) {
-                    switch (input.slice(1)) {
+                /**
+                 * @type {string}
+                 */
+                const input = document.querySelector("input").value;
+                if (input.startsWith("/")) {
+                    switch (input.split(" ")[0].slice(1)) {
                         case "nick":
-                            break;
+                            socket.emit("nickname", input.split(" ")[1]);
                         case "join":
                             break;
                         case "leave":
@@ -59,7 +66,7 @@
                     socket.emit("message", input);
                 }
 
-                input.value = "";
+                document.querySelector("input").value = "";
             })
         });
     </script>
