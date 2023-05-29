@@ -1,6 +1,6 @@
 # Socketioxide: SocketIO & EngineIO Server in Rust
 [![SocketIO CI](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml)
-### Socket.IO server implementation as a (tower layer)[https://docs.rs/tower/latest/tower/] in Rust
+### Socket.IO server implementation as a [tower layer](https://docs.rs/tower/latest/tower/) in Rust
 It integrates with any framework based on tower/hyper, such as:
 * [axum](https://docs.rs/axum/latest/axum/)
 * [warp](https://docs.rs/warp/latest/warp/)
