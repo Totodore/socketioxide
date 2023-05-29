@@ -19,8 +19,12 @@ futures = "0.3.27"
 
 [[example]]
 name = "engineio-axum-echo"
-path = "src/engineio/axum_echo.rs"
+path = "src/engineio-echo/axum_echo.rs"
 
 [[example]]
 name = "socketio-axum-echo"
-path = "src/socketio/axum_echo.rs"
+path = "src/socketio-echo/axum_echo.rs"
+
+[[example]]
+name = "chat"
+path = "src/chat/main.rs"

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat app example</title>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"
+        integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+"
+        crossorigin="anonymous"></script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const logs = document.querySelector("textarea");
+            const input = document.querySelector("input");
+            const form = document.querySelector("form");
+        
+            const socket = io();
+
+            function appendLog(val) {
+                logs.value += `${val}\n`;
+                logs.scrollTop = logs.scrollHeight;
+            }
+
+            socket.on("connect", () => {
+                console.log(socket.id);
+            });
+
+            socket.on("disconnect", () => {
+                console.log(socket.id);
+            });
+
+            socket.on("message", (data) => {
+                console.log(data);
+            });
+
+            form.addEventListener("submit", e => {
+                e.preventDefault();
+                const input = input.value;
+                if (input.startWith("/")) {
+                    switch (input.slice(1)) {
+                        case "nick":
+                            break;
+                        case "join":
+                            break;
+                        case "leave":
+                            break;
+                        case "msg":
+                            break;
+                        case "list":
+                            break;
+                        case "quit":
+                            break;
+                        default:
+                            appendLog("[info]: Unknown command");
+                    }
+                } else {
+                    socket.emit("message", input);
+                }
+
+                input.value = "";
+            })
+        });
+    </script>
+</head>
+
+<body>
+    <textarea readonly cols="80" rows="20">
+        Help : 
+        /nick <name> - change nickname
+        /join <room> - join room
+        /leave <room> - leave room
+        /msg <name> <message> - send private message
+        /list - list all rooms
+        /list <room> - list all users in room
+        /quit - disconnect
+    </textarea>
+    <form>
+        <input style="width: 300px;" type="text" />
+        <button type="submit">Send</button>
+    </form>
+</body>
+
+</html>
