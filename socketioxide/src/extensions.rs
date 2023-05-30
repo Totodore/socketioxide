@@ -27,7 +27,7 @@ pub struct Ref<'a, T>(
 );
 
 impl<'a, T> Ref<'a, T> {
-    fn value(&self) -> &T {
+    pub fn value(&self) -> &T {
         self.0.value()
     }
 }
@@ -46,10 +46,10 @@ pub struct RefMut<'a, T>(
 );
 
 impl<'a, T> RefMut<'a, T> {
-    fn value(&self) -> &T {
+    pub fn value(&self) -> &T {
         self.0.value()
     }
-    fn value_mut(&mut self) -> &mut T {
+    pub fn value_mut(&mut self) -> &mut T {
         self.0.value_mut()
     }
 }
@@ -163,11 +163,11 @@ impl Extensions {
     ///
     /// ```
     /// # use socketioxide::extensions::Extensions;
-    /// let mut ext = Extensions::new();
+    /// let ext = Extensions::new();
     /// assert!(ext.get::<i32>().is_none());
     /// ext.insert(5i32);
     ///
-    /// assert_eq!(ext.get::<i32>(), Some(&5i32));
+    /// assert_eq!(*ext.get::<i32>().unwrap(), 5i32);
     /// ```
     pub fn get<T: Send + Sync + 'static>(&self) -> Option<Ref<T>> {
         self.map
@@ -182,11 +182,11 @@ impl Extensions {
     ///
     /// ```
     /// # use socketioxide::extensions::Extensions;
-    /// let mut ext = Extensions::new();
+    /// let ext = Extensions::new();
     /// ext.insert(String::from("Hello"));
     /// ext.get_mut::<String>().unwrap().push_str(" World");
     ///
-    /// assert_eq!(ext.get::<String>().unwrap(), "Hello World");
+    /// assert_eq!(*ext.get::<String>().unwrap(), "Hello World");
     /// ```
     pub fn get_mut<T: Send + Sync + 'static>(&self) -> Option<RefMut<T>> {
         self.map
