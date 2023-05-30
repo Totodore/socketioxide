@@ -10,6 +10,7 @@ use crate::{
     handler::AckResponse,
     ns::Namespace,
     packet::Packet,
+    Socket,
 };
 
 /// A trait for types that can be used as a room parameter.
@@ -63,6 +64,8 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Select all clients in the given rooms except the current socket.
+    ///
+    /// If you want to include the current socket, use the `within()` operator.
     /// #### Example
     /// ```
     /// use socketioxide::Namespace;
@@ -81,6 +84,29 @@ impl<A: Adapter> Operators<A> {
     pub fn to(mut self, rooms: impl RoomParam) -> Self {
         self.opts.rooms.extend(rooms.into_room_iter().unique());
         self.opts.flags.insert(BroadcastFlags::Broadcast);
+        self
+    }
+
+    /// Select all clients in the given rooms.
+    ///
+    /// It does include the current socket contrary to the `to()` operator.
+    /// #### Example
+    /// ```
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    ///         let other_rooms = "room4".to_string();
+    ///         // In room1, room2, room3 and room4 including the current socket
+    ///         socket
+    ///             .within("room1")
+    ///             .within(["room2", "room3"])
+    ///             .within(vec![other_rooms])
+    ///             .emit("test", data);
+    ///     });
+    /// });
+    pub fn within(mut self, rooms: impl RoomParam) -> Self {
+        self.opts.rooms.extend(rooms.into_room_iter().unique());
         self
     }
 
@@ -237,6 +263,26 @@ impl<A: Adapter> Operators<A> {
             .ns
             .adapter
             .broadcast_with_ack(packet, self.binary, self.opts))
+    }
+
+    /// Get all sockets selected with the previous operators.
+    ///
+    /// It can be used to retrieve any extension data from the sockets or to make some sockets join other rooms.
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::Namespace;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///   socket.on("test", |socket, _, _, _| async move {
+    ///     // Find an extension data in each sockets in the room1 and room3 rooms, except for the room2
+    ///     let sockets = socket.within("room1").within("room3").except("room2").sockets();
+    ///     for socket in sockets {
+    ///         println!("Socket custom string: {:?}", socket.extensions.get::<String>());
+    ///     }
+    ///   });
+    /// });
+    pub fn sockets(self) -> Vec<Arc<Socket<A>>> {
+        self.ns.adapter.fetch_sockets(self.opts)
     }
 
     /// Create a packet with the given event and data.
