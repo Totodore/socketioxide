@@ -28,15 +28,15 @@
             }
 
             socket.on("connect", () => {
-                console.log(socket.id);
+                appendLog(`[info]: Connected to server as ${nickname}`);
             });
 
             socket.on("disconnect", () => {
-                console.log(socket.id);
+                appendLog(`[info]: Disconnected from server`);
             });
 
-            socket.on("message", (data) => {
-                console.log(data);
+            socket.on("message", (...data) => {
+                appendLog(`[server]: ${data}`);
             });
 
             form.addEventListener("submit", e => {
@@ -48,14 +48,22 @@
                 if (input.startsWith("/")) {
                     switch (input.split(" ")[0].slice(1)) {
                         case "nick":
+                            appendLog(`[info]: Changed nickname to ${input.split(" ")[1]}`);
                             socket.emit("nickname", input.split(" ")[1]);
+                            break;
                         case "join":
+                            appendLog(`[info]: Joined room ${input.split(" ")[1]}`);
+                            socket.emit("join", input.split(" ")[1]);
                             break;
                         case "leave":
+                            appendLog(`[info]: Left room ${input.split(" ")[1]}`);
+                            socket.emit("leave", input.split(" ")[1]);
                             break;
                         case "msg":
                             break;
                         case "list":
+                            appendLog(`[info]: Listing rooms`);
+                            socket.emit("list", input.split(" ")[1]);
                             break;
                         case "quit":
                             break;
@@ -74,15 +82,16 @@
 
 <body>
     <textarea readonly cols="80" rows="20">
-        Help : 
-        /nick <name> - change nickname
-        /join <room> - join room
-        /leave <room> - leave room
-        /msg <name> <message> - send private message
-        /list - list all rooms
-        /list <room> - list all users in room
-        /quit - disconnect
-    </textarea>
+Help : 
+/nick <name> - change nickname
+/join <room> - join room
+/leave <room> - leave room
+/msg <name> <message> - send private message
+/list - list all rooms
+/list <room> - list all users in room
+/quit - disconnect
+
+</textarea>
     <form>
         <input style="width: 300px;" type="text" />
         <button type="submit">Send</button>
