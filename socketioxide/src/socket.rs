@@ -14,10 +14,11 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::{
-    adapter::Adapter,
+    adapter::{Adapter, Room},
     client::Client,
     errors::{AckError, Error},
-    handler::{AckResponse, BoxedHandler, MessageHandler, AckSender},
+    extensions::Extensions,
+    handler::{AckResponse, AckSender, BoxedHandler, MessageHandler},
     handshake::Handshake,
     ns::Namespace,
     operators::{Operators, RoomParam},
@@ -85,7 +86,7 @@ impl<A: Adapter> Socket<A> {
     /// });
     ///
     /// ```
-    /// 
+    ///
     /// #### Example with a closure and an ackknowledgement + binary data:
     /// ```
     /// use socketioxide::Namespace;
@@ -184,9 +185,16 @@ impl<A: Adapter> Socket<A> {
         self.ns.adapter.del_all(self.sid);
     }
 
+    /// Get all rooms where the socket is connected.
+    pub fn rooms(&self) -> Vec<Room> {
+        self.ns.adapter.socket_rooms(self.sid)
+    }
+
     // Socket operators
 
     /// Select all clients in the given rooms except the current socket.
+    ///
+    /// If you want to include the current socket, use the `within()` operator.
     /// ##### Example
     /// ```
     /// use socketioxide::Namespace;
@@ -204,6 +212,28 @@ impl<A: Adapter> Socket<A> {
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
         Operators::new(self.ns.clone(), self.sid).to(rooms)
+    }
+
+    /// Select all clients in the given rooms.
+    ///
+    /// It does include the current socket contrary to the `to()` operator.
+    /// #### Example
+    /// ```
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    ///         let other_rooms = "room4".to_string();
+    ///         // In room1, room2, room3 and room4 including the current socket
+    ///         socket
+    ///             .within("room1")
+    ///             .within(["room2", "room3"])
+    ///             .within(vec![other_rooms])
+    ///             .emit("test", data);
+    ///     });
+    /// });
+    pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).within(rooms)
     }
 
     /// Filter out all clients selected with the previous operators which are in the given rooms.
