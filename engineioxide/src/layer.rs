@@ -41,37 +41,6 @@ pub struct EngineIoConfig {
     /// The maximum number of packets that can be buffered per connection before being emitted to the client.
     ///
     /// If the buffer if full the `emit()` method will return an error
-    /// ```
-    /// use engineioxide::{
-    ///     layer::{EngineIoHandler, EngineIoLayer},
-    ///     socket::Socket,
-    /// };
-    /// use std::sync::Arc;
-    /// #[derive(Clone)]
-    /// struct MyHandler;
-    ///
-    /// #[engineioxide::async_trait]
-    /// impl EngineIoHandler for MyHandler {
-    ///
-    ///     type Data = ();
-    ///     fn on_connect(self: Arc<Self>, socket: &Socket<Self>) {
-    ///         println!("socket connect {}", socket.sid);
-    ///     }
-    ///     fn on_disconnect(self: Arc<Self>, socket: &Socket<Self>) {
-    ///         println!("socket disconnect {}", socket.sid);
-    ///     }
-    ///
-    ///     async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>) {
-    ///         println!("Ping pong message {:?}", msg);
-    ///         socket.emit(msg).unwrap();
-    ///     }
-    ///
-    ///     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
-    ///         println!("Ping pong binary message {:?}", data);
-    ///         socket.emit_binary(data).unwrap();
-    ///     }
-    /// }
-    /// ```
     pub max_buffer_size: usize,
 
     /// The maximum number of bytes that can be received per http request.
@@ -131,11 +100,11 @@ impl EngineIoConfigBuilder {
     ///
     /// If the buffer if full the `emit()` method will return an error
     /// ```
-    /// use engineioxide::{
+    /// # use engineioxide::{
     ///     layer::{EngineIoHandler, EngineIoLayer},
     ///     socket::Socket,
     /// };
-    /// use std::sync::Arc;
+    /// # use std::sync::Arc;
     /// #[derive(Clone)]
     /// struct MyHandler;
     ///
