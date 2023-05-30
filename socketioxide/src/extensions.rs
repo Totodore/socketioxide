@@ -66,6 +66,27 @@ impl<'a, T> DerefMut for RefMut<'a, T> {
     }
 }
 
+impl<'a, T: fmt::Debug> fmt::Debug for Ref<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.value().fmt(f)
+    }
+}
+impl<'a, T: fmt::Debug> fmt::Debug for RefMut<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.value().fmt(f)
+    }
+}
+impl<'a, T: fmt::Display> fmt::Display for Ref<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.value().fmt(f)
+    }
+}
+impl<'a, T: fmt::Display> fmt::Display for RefMut<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.value().fmt(f)
+    }
+}
+
 // With TypeIds as keys, there's no need to hash them. They are already hashes
 // themselves, coming from the compiler. The IdHasher just holds the u64 of
 // the TypeId, and then returns it, instead of doing any bit fiddling.
@@ -244,7 +265,6 @@ impl Extensions {
     pub fn len(&self) -> usize {
         self.map.len()
     }
-
 }
 
 impl fmt::Debug for Extensions {
