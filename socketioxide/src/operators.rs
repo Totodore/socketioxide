@@ -273,7 +273,7 @@ impl<A: Adapter> Operators<A> {
     /// ```
     /// # use socketioxide::Namespace;
     /// Namespace::builder().add("/", |socket| async move {
-    ///   socket.on("test", |socket, _, _, _| async move {
+    ///   socket.on("test", |socket, _: (), _, _| async move {
     ///     // Find an extension data in each sockets in the room1 and room3 rooms, except for the room2
     ///     let sockets = socket.within("room1").within("room3").except("room2").sockets();
     ///     for socket in sockets {
