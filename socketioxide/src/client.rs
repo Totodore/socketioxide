@@ -129,10 +129,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
     fn on_connect(self: Arc<Self>, socket: &EIoSocket<Self>) {
-        debug!("socket connect {}", socket.sid);
+        debug!("eio socket connect {}", socket.sid);
     }
     fn on_disconnect(self: Arc<Self>, socket: &EIoSocket<Self>) {
-        debug!("socket disconnect {}", socket.sid);
+        debug!("eio socket disconnect {}", socket.sid);
+        self.ns.values().for_each(|ns| {
+            ns.disconnect(socket.sid).ok();
+        });
     }
 
     async fn on_message(self: Arc<Self>, msg: String, socket: &EIoSocket<Self>) {
