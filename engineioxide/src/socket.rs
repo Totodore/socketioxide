@@ -9,7 +9,7 @@ use std::{
 
 use http::{request::Parts, Uri};
 use tokio::{
-    sync::{mpsc, Mutex},
+    sync::{mpsc, mpsc::Receiver, Mutex},
     task::JoinHandle,
 };
 use tracing::debug;
@@ -18,6 +18,8 @@ use crate::{
     errors::Error,
     layer::{EngineIoConfig, EngineIoHandler},
     packet::Packet,
+    utils::forward_map_chan,
+    SendPacket,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,9 +28,13 @@ pub(crate) enum ConnectionType {
     WebSocket = 0b000000010,
 }
 
+/// Http Request data used to create a socket
 #[derive(Debug)]
 pub struct SocketReq {
+    /// Request URI
     pub uri: Uri,
+
+    /// Request headers
     pub headers: http::HeaderMap,
 }
 
@@ -51,27 +57,54 @@ impl From<Parts> for SocketReq {
     }
 }
 
+/// A [`Socket`] represents a connection to the server.
+/// It is agnostic to the [`TransportType`](crate::service::TransportType).
+/// It handles :
+/// * the packet communication between with the [`Engine`](crate::engine)
+/// and the user defined [`Handler`](crate::layer::EngineIoHandler).
+/// * the user defined [`Data`](crate::layer::EngineIoHandler::Data) bound to the socket.
+/// * the heartbeat job that verify that the connection is still up by sending packets periodically.
 pub struct Socket<H>
 where
     H: EngineIoHandler + ?Sized,
 {
+    /// The socket id
     pub sid: i64,
 
-    // The connection type casted to u8
+    /// The connection type represented as a bitfield
+    /// It is represented as a bitfield to allow the use of an [`AtomicU8`] so it can be shared between threads
+    /// without any mutex
     conn: AtomicU8,
 
-    // Channel to send packets to the connection
-    pub(crate) rx: Mutex<mpsc::Receiver<Packet>>,
-    tx: mpsc::Sender<Packet>,
+    /// Channel to receive [`Packet`] from the connection
+    ///
+    /// It is used and managed by the [`EngineIo`](crate::engine) struct depending on the transport type
+    ///
+    /// It is locked if [`EngineIo`](crate::engine) is currently reading from it :
+    /// * In case of polling transport it will be locked and released for each request
+    /// * In case of websocket transport it will be always locked until the connection is closed
+    pub(crate) internal_rx: Mutex<Receiver<Packet>>,
+
+    /// Channel to send [Packet] to the internal connection
+    internal_tx: mpsc::Sender<Packet>,
+    pub tx: mpsc::Sender<SendPacket>,
+
+    /// The handler for this socket
     handler: Arc<H>,
 
-    // Channel to receive pong packets from the connection
+    /// Internal channel to receive Pong [`Packets`](Packet) in the heartbeat job
+    /// which is running in a separate task
     pong_rx: Mutex<mpsc::Receiver<()>>,
+    /// Channel to send Ping [`Packets`](Packet) from the connexion to the heartbeat job
+    /// which is running in a separate task
     pong_tx: mpsc::Sender<()>,
+    /// Handle to the heartbeat job so that it can be aborted when the socket is closed
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
-    // User data bound to the socket
+    /// User data bound to the socket
     pub data: H::Data,
+
+    /// Http Request data used to create a socket
     pub req_data: Arc<SocketReq>,
 }
 
@@ -95,13 +128,18 @@ where
         handler: Arc<H>,
         req_data: SocketReq,
     ) -> Self {
+        let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
         let (pong_tx, pong_rx) = mpsc::channel(1);
+
+        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
+
         let socket = Self {
             sid,
             conn: AtomicU8::new(conn as u8),
 
-            rx: Mutex::new(rx),
+            internal_rx: Mutex::new(internal_rx),
+            internal_tx,
             tx,
             handler,
 
@@ -130,11 +168,11 @@ where
                 ControlFlow::Continue(Ok(()))
             }
             Packet::Binary(data) => {
-                self.handler.clone().on_binary(data, self).await;
+                self.handler.clone().on_binary(data, self);
                 ControlFlow::Continue(Ok(()))
             }
             Packet::Message(msg) => {
-                self.handler.clone().on_message(msg, self).await;
+                self.handler.clone().on_message(msg, self);
                 ControlFlow::Continue(Ok(()))
             }
             p => ControlFlow::Continue(Err(Error::BadPacket(p))),
@@ -152,7 +190,7 @@ where
     /// Sends a packet to the connection.
     pub(crate) fn send(&self, packet: Packet) -> Result<(), Error> {
         debug!("[sid={}] sending packet: {:?}", self.sid, packet);
-        self.tx.try_send(packet)?;
+        self.internal_tx.try_send(packet)?;
         Ok(())
     }
 
@@ -191,7 +229,7 @@ where
             // Some clients send the pong packet in first. If that happens, we should consume it.
             pong_rx.try_recv().ok();
 
-            self.tx
+            self.internal_tx
                 .try_send(Packet::Ping)
                 .map_err(|_| Error::HeartbeatTimeout)?;
             tokio::time::timeout(timeout, pong_rx.recv())
@@ -219,6 +257,7 @@ where
     /// If the transport is in websocket mode, the message is directly sent as a text frame.
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame to the next polling request.
+    ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
     pub fn emit(&self, msg: String) -> Result<(), Error> {
         self.send(Packet::Message(msg))
@@ -233,6 +272,7 @@ where
     /// If the transport is in websocket mode, the message is directly sent as a binary frame.
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
+    ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
     pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
         self.send(Packet::Binary(data))?;

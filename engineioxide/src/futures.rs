@@ -1,6 +1,6 @@
 use crate::body::ResponseBody;
 use bytes::Bytes;
-use futures_core::ready;
+use futures::ready;
 use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
 use http::{HeaderValue, Response, StatusCode};
 use http_body::{Body, Full};
@@ -50,7 +50,6 @@ impl<F, B> ResponseFuture<F, B> {
             inner: ResponseFutureInner::EmptyResponse { code },
         }
     }
-
 
     pub fn new(future: F) -> Self {
         Self {

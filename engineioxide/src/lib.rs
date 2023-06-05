@@ -1,10 +1,15 @@
 pub use async_trait::async_trait;
-pub mod service;
-pub mod layer;
-pub mod socket;
+
+/// A Packet type to use when sending data to the client
+pub use packet::SendPacket;
+
 pub mod engine;
 pub mod errors;
-mod futures;
+pub mod layer;
+pub mod service;
+pub mod socket;
+
 mod body;
+mod futures;
 mod packet;
 mod utils;

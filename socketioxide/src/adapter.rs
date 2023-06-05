@@ -4,8 +4,10 @@ use std::{
     time::Duration,
 };
 
-use futures::{stream, StreamExt};
-use futures_core::stream::BoxStream;
+use futures::{
+    stream::{self, BoxStream},
+    StreamExt,
+};
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
@@ -58,17 +60,11 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del(&self, sid: i64, rooms: impl RoomParam);
     fn del_all(&self, sid: i64);
 
-    fn broadcast(
-        &self,
-        packet: Packet,
-        binary: Vec<Vec<u8>>,
-        opts: BroadcastOptions,
-    ) -> Result<(), Error>;
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error>;
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
@@ -136,24 +132,18 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast(
-        &self,
-        packet: Packet,
-        binary: Vec<Vec<u8>>,
-        opts: BroadcastOptions,
-    ) -> Result<(), Error> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error> {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
         sockets
             .into_iter()
-            .try_for_each(|socket| socket.send(packet.clone(), binary.clone()))
+            .try_for_each(|socket| socket.send(packet.clone()))
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
@@ -169,8 +159,7 @@ impl Adapter for LocalAdapter {
         let count = sockets.len();
         let ack_futs = sockets.into_iter().map(move |socket| {
             let packet = packet.clone();
-            let binary = binary.clone();
-            async move { socket.clone().send_with_ack(packet, binary, duration).await }
+            async move { socket.clone().send_with_ack(packet, duration).await }
         });
         stream::iter(ack_futs).buffer_unordered(count).boxed()
     }
@@ -270,15 +259,15 @@ mod test {
 
     use super::*;
 
-    #[test]
-    fn test_server_count() {
+    #[tokio::test]
+    async fn test_server_count() {
         let ns = Namespace::new_dummy([]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         assert_eq!(adapter.server_count(), 1);
     }
 
-    #[test]
-    fn test_add_all() {
+    #[tokio::test]
+    async fn test_add_all() {
         const SOCKET: i64 = 1;
         let ns = Namespace::new_dummy([SOCKET]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
@@ -289,8 +278,8 @@ mod test {
         assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
     }
 
-    #[test]
-    fn test_del() {
+    #[tokio::test]
+    async fn test_del() {
         const SOCKET: i64 = 1;
         let ns = Namespace::new_dummy([SOCKET]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
@@ -302,8 +291,8 @@ mod test {
         assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
     }
 
-    #[test]
-    fn test_del_all() {
+    #[tokio::test]
+    async fn test_del_all() {
         const SOCKET: i64 = 1;
         let ns = Namespace::new_dummy([SOCKET]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
@@ -315,8 +304,8 @@ mod test {
         assert_eq!(rooms_map.get("room2").unwrap().len(), 0);
     }
 
-    #[test]
-    fn test_socket_room() {
+    #[tokio::test]
+    async fn test_socket_room() {
         let ns = Namespace::new_dummy([1, 2, 3]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(1, ["room1", "room2"]);
@@ -328,8 +317,8 @@ mod test {
         assert_eq!(adapter.socket_rooms(3), ["room2"]);
     }
 
-    #[test]
-    fn test_add_socket() {
+    #[tokio::test]
+    async fn test_add_socket() {
         const SOCKET: i64 = 0;
         let ns = Namespace::new_dummy([SOCKET]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
@@ -345,8 +334,8 @@ mod test {
         assert!(rooms_map.get("room2").unwrap().contains(&SOCKET));
     }
 
-    #[test]
-    fn test_del_socket() {
+    #[tokio::test]
+    async fn test_del_socket() {
         const SOCKET: i64 = 0;
         let ns = Namespace::new_dummy([SOCKET]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
@@ -377,8 +366,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_sockets() {
+    #[tokio::test]
+    async fn test_sockets() {
         const SOCKET0: i64 = 0;
         const SOCKET1: i64 = 1;
         const SOCKET2: i64 = 2;
@@ -404,8 +393,8 @@ mod test {
         assert!(sockets.contains(&SOCKET2));
     }
 
-    #[test]
-    fn test_disconnect_socket() {
+    #[tokio::test]
+    async fn test_disconnect_socket() {
         const SOCKET0: i64 = 0;
         const SOCKET1: i64 = 1;
         const SOCKET2: i64 = 2;
@@ -430,8 +419,8 @@ mod test {
         assert!(sockets.contains(&SOCKET2));
         assert!(sockets.contains(&SOCKET0));
     }
-    #[test]
-    fn test_apply_opts() {
+    #[tokio::test]
+    async fn test_apply_opts() {
         const SOCKET0: i64 = 0;
         const SOCKET1: i64 = 1;
         const SOCKET2: i64 = 2;

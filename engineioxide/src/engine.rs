@@ -42,12 +42,13 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,
 {
-    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
+    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Arc<Self> {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
             handler,
         }
+        .into()
     }
 }
 
@@ -71,7 +72,7 @@ where
                     ConnectionType::Http,
                     &self.config,
                     self.handler.clone(),
-                    SocketReq::from(req.into_parts().0)
+                    SocketReq::from(req.into_parts().0),
                 )
                 .into(),
             );
@@ -101,7 +102,7 @@ where
 
         // If the socket is already locked, it means that the socket is being used by another request
         // In case of multiple http polling, session should be closed
-        let mut rx = match socket.rx.try_lock() {
+        let mut rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
                 if socket.is_http() {
@@ -245,7 +246,7 @@ where
                 ConnectionType::WebSocket,
                 &self.config,
                 self.handler.clone(),
-                req_data
+                req_data,
             )
             .into();
             {
@@ -273,11 +274,12 @@ where
         // Pipe between websocket and internal socket channel
         let rx_socket = socket.clone();
         let rx_handle = tokio::spawn(async move {
-            let mut socket_rx = rx_socket.rx.try_lock().unwrap();
+            let mut socket_rx = rx_socket.internal_rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
                 let res = match item {
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
+                    //TODO: check if it is ok to just return
                     Packet::Abort => tx.close().await,
                     _ => {
                         let packet: String = item.try_into().unwrap();
@@ -376,7 +378,7 @@ where
         };
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
-        let _lock = socket.rx.lock().await;
+        let _lock = socket.internal_rx.lock().await;
         socket.upgrade_to_websocket();
         Ok(())
     }

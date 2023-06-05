@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures_core::future::BoxFuture;
+use futures::future::BoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
@@ -112,9 +112,9 @@ impl<A: Adapter> AckSender<A> {
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {
-                Packet::bin_ack(ns, data, self.binary.len(), ack_id)
+                Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.send(packet, self.binary)
+            self.socket.send(packet)
         } else {
             Ok(())
         }

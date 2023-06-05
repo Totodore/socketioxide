@@ -3,17 +3,17 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use futures::Future;
-use futures_core::future::BoxFuture;
-
 use crate::{
     adapter::{Adapter, LocalAdapter},
-    client::Client,
     errors::Error,
     handshake::Handshake,
     packet::{Packet, PacketData},
     socket::Socket,
+    SocketIoConfig,
 };
+use engineioxide::SendPacket as EnginePacket;
+use futures::{future::BoxFuture, Future};
+use tokio::sync::mpsc;
 
 pub type EventCallback<A> =
     Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
@@ -52,16 +52,23 @@ impl<A: Adapter> Namespace<A> {
     }
 
     /// Connects a socket to a namespace
-    pub fn connect(self: Arc<Self>, sid: i64, client: Arc<Client<A>>, handshake: Handshake) {
-        let socket: Arc<Socket<A>> = Socket::new(client, self.clone(), handshake, sid).into();
+    pub fn connect(
+        self: Arc<Self>,
+        sid: i64,
+        tx: mpsc::Sender<EnginePacket>,
+        handshake: Handshake,
+        config: Arc<SocketIoConfig>,
+    ) -> Arc<Socket<A>> {
+        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), handshake, tx, config).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
-        tokio::spawn((self.callback)(socket));
+        tokio::spawn((self.callback)(socket.clone()));
+        socket
     }
 
     pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             self.adapter.del_all(sid);
-            socket.send(Packet::disconnect(self.path.clone()), vec![])?;
+            socket.send(Packet::disconnect(self.path.clone()))?;
         }
         Ok(())
     }

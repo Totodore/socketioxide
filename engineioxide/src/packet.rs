@@ -4,25 +4,64 @@ use serde::{de::Error, Deserialize, Serialize};
 
 use crate::{layer::EngineIoConfig, service::TransportType};
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub enum Packet {
-    Open(OpenPacket),
-    Close,
-    Ping,
-    Pong,
-    PingUpgrade,
-    PongUpgrade,
+/// A Packet type to use when sending data to the client from the public API
+///
+/// This is a subset of the [Packet] enum, which is used internally
+#[derive(Debug)]
+pub enum SendPacket {
     Message(String),
-    Upgrade,
-    Noop,
-
-    Binary(Vec<u8>), // Not part of the protocol, used internally
-    Abort,           // Not part of the protocol, used internally
+    Binary(Vec<u8>),
+    Close,
 }
 
-/**
- * Serialize a Packet to a String according to Engine.IO protocol
- */
+/// Convert a [SendPacket] (used in the public API) to a Socket Packet
+impl Into<Packet> for SendPacket {
+    fn into(self) -> Packet {
+        match self {
+            SendPacket::Message(msg) => Packet::Message(msg),
+            SendPacket::Binary(data) => Packet::Binary(data),
+            SendPacket::Close => Packet::Close,
+        }
+    }
+}
+
+/// A Packet type to use when receiving and sending data from the client
+#[derive(Debug, PartialEq, PartialOrd)]
+pub enum Packet {
+    /// Open packet used to initiate a connection
+    Open(OpenPacket),
+    /// Close packet used to close a connection
+    Close,
+    /// Ping packet used to check if the connection is still alive
+    /// The client never sends this packet, it is only used by the server
+    Ping,
+    /// Pong packet used to respond to a Ping packet
+    /// The server never sends this packet, it is only used by the client
+    Pong,
+
+    /// Special Ping packet used to initiate a connection
+    PingUpgrade,
+    /// Special Pong packet used to respond to a PingUpgrade packet and upgrade the connection
+    PongUpgrade,
+
+    /// Message packet used to send a message to the client
+    Message(String),
+    /// Upgrade packet to upgrade the connection from polling to websocket
+    Upgrade,
+
+    /// Noop packet used to send something to a opened polling connection so it gracefully closes to allow the client to upgrade to websocket
+    Noop,
+
+    /// Binary packet used to send binary data to the client
+    /// Converts to a String using base64 encoding when using polling connection
+    /// Or to a websocket binary frame when using websocket connection
+    Binary(Vec<u8>), // Not part of the protocol, used internally
+
+    /// Custom packet used to abort the connection
+    Abort, // Not part of the protocol, used internally
+}
+
+/// Serialize a [Packet] to a [String] according to the Engine.IO protocol
 impl TryInto<String> for Packet {
     type Error = crate::errors::Error;
     fn try_into(self) -> Result<String, Self::Error> {
@@ -48,7 +87,7 @@ impl TryInto<String> for Packet {
         Ok(res)
     }
 }
-
+/// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
 impl TryFrom<String> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -87,6 +126,8 @@ impl TryFrom<String> for Packet {
     }
 }
 
+/// Deserialize a Binary Packet variant from a [Vec<u8>] according to the Engine.IO protocol
+/// Used when receiving data from a websocket binary frame
 impl TryFrom<Vec<u8>> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
@@ -95,13 +136,18 @@ impl TryFrom<Vec<u8>> for Packet {
     }
 }
 
+/// Deserialize a Binary Packet from [Bytes] according to the Engine.IO protocol
+/// Used when receiving data from a polling connection as a [Bytes] object (in an http body)
 impl TryFrom<Bytes> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
+        //TODO: consume value instead of copying it
         let value = String::from_utf8(value.to_vec())?;
         Packet::try_from(value)
     }
 }
+
+/// An OpenPacket is used to initiate a connection
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
@@ -113,6 +159,8 @@ pub struct OpenPacket {
 }
 
 impl OpenPacket {
+    /// Create a new [OpenPacket]
+    /// If the current transport is polling, the server will always allow the client to upgrade to websocket
     pub fn new(transport: TransportType, sid: i64, config: &EngineIoConfig) -> Self {
         let upgrades = if transport == TransportType::Polling {
             vec!["websocket".to_string()]
@@ -186,6 +234,17 @@ mod tests {
     fn test_binary_packet_deserialize() {
         let packet_str = "bAQID".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
+        assert_eq!(packet, Packet::Binary(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_send_packet_into_packet() {
+        let packet = SendPacket::Message("hello".to_string());
+        let packet: Packet = packet.into();
+        assert_eq!(packet, Packet::Message("hello".to_string()));
+
+        let packet = SendPacket::Binary(vec![1, 2, 3]);
+        let packet: Packet = packet.into();
         assert_eq!(packet, Packet::Binary(vec![1, 2, 3]));
     }
 }

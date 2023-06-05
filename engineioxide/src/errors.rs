@@ -1,14 +1,14 @@
-use http::{StatusCode, Response};
-use tokio::sync::{mpsc};
+use http::{Response, StatusCode};
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
-use crate::{packet::Packet, body::ResponseBody};
+use crate::{body::ResponseBody, packet::Packet};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("error serializing json packet: {0:?}")]
-	Serialize(#[from] serde_json::Error),
+    Serialize(#[from] serde_json::Error),
     #[error("error decoding binary packet from polling request: {0:?}")]
     Base64(#[from] base64::DecodeError),
     #[error("error decoding packet: {0:?}")]
@@ -31,11 +31,12 @@ pub enum Error {
     HeartbeatTimeout,
     #[error("upgrade error")]
     UpgradeError,
+    #[error("aborted connection")]
+    Aborted,
 
     #[error("http error response: {0:?}")]
-    HttpErrorResponse(StatusCode)
+    HttpErrorResponse(StatusCode),
 }
-
 
 /// Convert an error into an http response
 /// If it is a known error, return the appropriate http status code
@@ -43,12 +44,10 @@ pub enum Error {
 impl<B> From<Error> for Response<ResponseBody<B>> {
     fn from(err: Error) -> Self {
         match err {
-            Error::HttpErrorResponse(code) => {
-                Response::builder()
-                    .status(code)
-                    .body(ResponseBody::empty_response())
-                    .unwrap()
-            }
+            Error::HttpErrorResponse(code) => Response::builder()
+                .status(code)
+                .body(ResponseBody::empty_response())
+                .unwrap(),
             e => {
                 debug!("uncaught error {e:?}");
                 Response::builder()
