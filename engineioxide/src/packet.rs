@@ -141,8 +141,7 @@ impl TryFrom<Vec<u8>> for Packet {
 impl TryFrom<Bytes> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        //TODO: consume value instead of copying it
-        let value = String::from_utf8(value.to_vec())?;
+        let value = String::from_utf8(value.into())?;
         Packet::try_from(value)
     }
 }
