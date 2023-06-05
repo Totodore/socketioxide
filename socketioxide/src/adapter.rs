@@ -165,7 +165,6 @@ impl Adapter for LocalAdapter {
     }
 
     fn sockets(&self, rooms: impl RoomParam) -> Vec<i64> {
-        // TODO: fix this depending on the utilisation of the function
         let mut opts = BroadcastOptions::new(0);
         opts.rooms.extend(rooms.into_room_iter());
         self.apply_opts(opts)
