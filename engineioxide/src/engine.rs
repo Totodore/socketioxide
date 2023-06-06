@@ -29,6 +29,7 @@ use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<i64, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
+/// It handle all the connection logic and dispatch the packets to the socket
 pub struct EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,
@@ -42,13 +43,18 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,
 {
-    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Arc<Self> {
+    /// Create a new Engine.IO server with default config
+    pub fn new(handler: Arc<H>) -> Self {
+        Self::from_config(handler, EngineIoConfig::default())
+    }
+
+    /// Create a new Engine.IO server with a custom config
+    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
             handler,
         }
-        .into()
     }
 }
 
@@ -56,6 +62,10 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,
 {
+    /// Handle Open request
+    /// Create a new socket and add it to the socket map
+    /// Start the heartbeat task
+    /// Send an open packet
     pub(crate) async fn on_open_http_req<B, R>(
         self: Arc<Self>,
         req: Request<R>,
@@ -64,23 +74,22 @@ where
         B: Send + 'static,
     {
         let sid = generate_sid();
+        let socket = Socket::new(
+            sid,
+            ConnectionType::Http,
+            &self.config,
+            self.handler.clone(),
+            SocketReq::from(req.into_parts().0),
+        )
+        .into();
         {
-            self.sockets.write().unwrap().insert(
-                sid,
-                Socket::new(
-                    sid,
-                    ConnectionType::Http,
-                    &self.config,
-                    self.handler.clone(),
-                    SocketReq::from(req.into_parts().0),
-                )
-                .into(),
-            );
+            self.sockets.write().unwrap().insert(sid, socket);
         }
         let socket = self.get_socket(sid).unwrap();
         socket.spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
-        let packet: String =
-            Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config)).try_into()?;
+
+        let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
+        let packet: String = Packet::Open(packet).try_into()?;
         http_response(StatusCode::OK, packet).map_err(Error::Http)
     }
 
@@ -230,7 +239,7 @@ where
     ///
     /// Sends an open packet if it is not an upgrade from a polling request
     ///
-    /// Read packets from the websocket and handle them
+    /// Read packets from the websocket and handle them, it will block until the connection is closed
     async fn on_ws_req_init(
         self: Arc<Self>,
         conn: Upgraded,
@@ -353,21 +362,24 @@ where
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
-        // send a NOOP packet to any pending polling request
+        // send a NOOP packet to any pending polling request so it closes gracefully
         socket.send(Packet::Noop)?;
 
+        // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
             _ => Err(Error::UpgradeError)?,
         };
         match Packet::try_from(msg)? {
             Packet::PingUpgrade => {
+                // Respond with a PongUpgrade packet
                 ws.send(Message::Text(Packet::PongUpgrade.try_into()?))
                     .await?;
             }
             p => Err(Error::BadPacket(p))?,
         };
 
+        // Fetch the next packet from the ws stream, it should be an Upgrade packet
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
             _ => Err(Error::UpgradeError)?,
@@ -378,22 +390,24 @@ where
         };
 
         // wait for any polling connection to finish by waiting for the socket to be unlocked
-        let _lock = socket.internal_rx.lock().await;
+        let _ = socket.internal_rx.lock().await;
         socket.upgrade_to_websocket();
         Ok(())
     }
+
+    /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
     async fn ws_init_handshake(
         &self,
         sid: i64,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
-        let msg: String =
-            Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config))
-                .try_into()?;
-        ws.send(Message::Text(msg)).await?;
-
+        let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config));
+        ws.send(Message::Text(packet.try_into()?)).await?;
         Ok(())
     }
+
+    /// Close an engine.io session by removing the socket from the socket map and closing the socket
+    /// It should be the only way to close a session and to remove a socket from the socket map
     fn close_session(&self, sid: i64) {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             socket.close();
@@ -401,10 +415,8 @@ where
         debug!("[sid={sid}] socket closed");
     }
 
-    /**
-     * Get a socket by its sid
-     * Clones the socket ref to avoid holding the lock
-     */
+    /// Get a socket by its sid
+    /// Clones the socket ref to avoid holding the lock
     pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }

@@ -29,12 +29,15 @@ where
     pub fn from_config(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
-            engine: EngineIo::from_config(handler, config).into(),
+            engine: Arc::new(EngineIo::from_config(handler, config)),
         }
     }
 
-    pub fn from_custom_engine(inner: S, engine: Arc<EngineIo<H>>) -> Self {
-        EngineIoService { inner, engine }
+    pub fn from_custom_engine(inner: S, engine: EngineIo<H>) -> Self {
+        EngineIoService {
+            inner,
+            engine: Arc::new(engine),
+        }
     }
 }
 
