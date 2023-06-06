@@ -1,5 +1,4 @@
 use std::{
-    ops::ControlFlow,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -97,7 +96,7 @@ where
     pong_rx: Mutex<mpsc::Receiver<()>>,
     /// Channel to send Ping [`Packets`](Packet) from the connexion to the heartbeat job
     /// which is running in a separate task
-    pong_tx: mpsc::Sender<()>,
+    pub(crate) pong_tx: mpsc::Sender<()>,
     /// Handle to the heartbeat job so that it can be aborted when the socket is closed
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
@@ -153,32 +152,6 @@ where
         socket.handler.clone().on_connect(&socket);
         socket
     }
-
-    /// Handle a packet received from the connection.
-    /// Returns a `ControlFlow` to indicate whether the socket should be closed or not.
-    pub(crate) async fn handle_packet(
-        &self,
-        packet: Packet,
-    ) -> ControlFlow<Result<(), Error>, Result<(), Error>> {
-        debug!("[sid={}] received packet: {:?}", self.sid, packet);
-        match packet {
-            Packet::Close => ControlFlow::Break(self.send(Packet::Noop)),
-            Packet::Pong => {
-                self.pong_tx.try_send(()).ok();
-                ControlFlow::Continue(Ok(()))
-            }
-            Packet::Binary(data) => {
-                self.handler.clone().on_binary(data, self);
-                ControlFlow::Continue(Ok(()))
-            }
-            Packet::Message(msg) => {
-                self.handler.clone().on_message(msg, self);
-                ControlFlow::Continue(Ok(()))
-            }
-            p => ControlFlow::Continue(Err(Error::BadPacket(p))),
-        }
-    }
-
     /// Closes the socket
     /// Abort the heartbeat job if it is running
     pub(crate) fn close(&self) {

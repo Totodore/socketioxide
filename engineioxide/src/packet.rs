@@ -44,6 +44,8 @@ pub enum Packet {
     /// Binary packet used to send binary data to the client
     /// Converts to a String using base64 encoding when using polling connection
     /// Or to a websocket binary frame when using websocket connection
+    /// 
+    /// When receiving, it is only used with polling connection, websocket use binary frame
     Binary(Vec<u8>), // Not part of the protocol, used internally
 
     /// Custom packet used to abort the connection

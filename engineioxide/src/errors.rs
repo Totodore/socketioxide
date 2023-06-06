@@ -48,6 +48,10 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .status(code)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
+            Error::BadPacket(_) => Response::builder()
+                .status(400)
+                .body(ResponseBody::empty_response())
+                .unwrap(),
             e => {
                 debug!("uncaught error {e:?}");
                 Response::builder()

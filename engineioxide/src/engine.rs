@@ -2,7 +2,6 @@
 use std::{
     collections::HashMap,
     io::BufRead,
-    ops::ControlFlow,
     sync::{Arc, RwLock},
 };
 
@@ -17,7 +16,7 @@ use crate::{
     utils::generate_sid,
 };
 use bytes::Buf;
-use futures::{SinkExt, StreamExt, TryStreamExt};
+use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
@@ -186,20 +185,24 @@ where
                     return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
                 }
             };
-            match socket.handle_packet(packet).await {
-                ControlFlow::Continue(Err(e)) => {
-                    debug!("[sid={sid}] error handling packet: {:?}", e)
-                }
-                ControlFlow::Continue(Ok(_)) => (),
-                ControlFlow::Break(Ok(_)) => self.close_session(sid),
-                ControlFlow::Break(Err(e)) => {
-                    debug!(
-                        "[sid={sid}] error handling packet, closing session: {:?}",
-                        e
-                    );
+            match packet {
+                Packet::Close => {
+                    debug!("[sid={sid}] closing session");
+                    socket.send(Packet::Noop)?;
                     self.close_session(sid);
+                    break;
                 }
-            };
+                Packet::Pong => socket
+                    .pong_tx
+                    .try_send(())
+                    .map_err(|_| Error::HeartbeatTimeout),
+                Packet::Message(msg) => Ok(self.handler.on_message(msg, &socket)),
+                Packet::Binary(bin) => Ok(self.handler.on_binary(bin, &socket)),
+                p => {
+                    debug!("[sid={sid}] bad packet received: {:?}", &p);
+                    Err(Error::BadPacket(p))
+                }
+            }?;
         }
         Ok(http_response(StatusCode::OK, "ok")?)
     }
@@ -278,7 +281,7 @@ where
             self.ws_upgrade_handshake(sid, &mut ws).await?;
             self.get_socket(sid).unwrap()
         };
-        let (mut tx, mut rx) = ws.split();
+        let (mut tx, rx) = ws.split();
 
         // Pipe between websocket and internal socket channel
         let rx_socket = socket.clone();
@@ -288,7 +291,6 @@ where
                 let res = match item {
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
-                    //TODO: check if it is ok to just return
                     Packet::Abort => tx.close().await,
                     _ => {
                         let packet: String = item.try_into().unwrap();
@@ -302,34 +304,41 @@ where
                 }
             }
         });
-        while let Ok(msg) = rx.try_next().await {
-            let Some(msg) = msg else { continue };
-            let res = match msg {
-                Message::Text(msg) => match Packet::try_from(msg) {
-                    Ok(packet) => socket.handle_packet(packet).await,
-                    Err(err) => ControlFlow::Break(Err(err)),
-                },
-                Message::Binary(msg) => socket.handle_packet(Packet::Binary(msg)).await,
-                Message::Close(_) => break,
-                _ => panic!("[sid={}] unexpected ws message", socket.sid),
-            };
-            match res {
-                ControlFlow::Break(Ok(())) => break,
-                ControlFlow::Break(Err(e)) => {
-                    debug!(
-                        "[sid={}] error handling ws message, closing session: {:?}",
-                        socket.sid, e
-                    );
-                    break;
-                }
-                ControlFlow::Continue(Ok(())) => continue,
-                ControlFlow::Continue(Err(e)) => {
-                    debug!("[sid={}] error handling ws message: {:?}", socket.sid, e);
-                }
-            }
+        if let Err(e) = self.ws_forward_to_handler(rx, &socket).await {
+            debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
         }
         self.close_session(socket.sid);
         rx_handle.abort();
+        Ok(())
+    }
+
+    /// Forwards all packets received from a websocket to a EngineIo [`Socket`]
+    async fn ws_forward_to_handler(
+        &self,
+        mut rx: SplitStream<WebSocketStream<Upgraded>>,
+        socket: &Arc<Socket<H>>,
+    ) -> Result<(), Error> {
+        while let Ok(msg) = rx.try_next().await {
+            let Some(msg) = msg else { continue };
+            match msg {
+                Message::Text(msg) => match Packet::try_from(msg)? {
+                    Packet::Close => {
+                        debug!("[sid={}] closing session", socket.sid);
+                        self.close_session(socket.sid);
+                        break;
+                    }
+                    Packet::Pong => socket
+                        .pong_tx
+                        .try_send(())
+                        .map_err(|_| Error::HeartbeatTimeout),
+                    Packet::Message(msg) => Ok(self.handler.on_message(msg, &socket)),
+                    p => return Err(Error::BadPacket(p)),
+                },
+                Message::Binary(data) => Ok(self.handler.on_binary(data, &socket)),
+                Message::Close(_) => break,
+                _ => panic!("[sid={}] unexpected ws message", socket.sid),
+            }?
+        }
         Ok(())
     }
 
