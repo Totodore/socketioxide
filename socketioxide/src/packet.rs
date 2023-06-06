@@ -325,7 +325,6 @@ impl TryFrom<String> for Packet {
         if !ns.is_empty() {
             chars.next();
         }
-        //TODO: improve ?
         if !ns.starts_with('/') {
             ns.insert(0, '/');
         }
