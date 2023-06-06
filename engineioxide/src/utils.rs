@@ -24,9 +24,7 @@ pub async fn forward_map_chan<T, R>(
 ) -> Result<(), SendError<R>> {
     while let Some(item) = from.recv().await {
         let item = map(item);
-        if let Err(e) = to.send(item).await {
-            return Err(e);
-        }
+        to.send(item).await?;
     }
     Ok(())
 }

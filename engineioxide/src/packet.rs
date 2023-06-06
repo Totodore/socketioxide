@@ -14,17 +14,6 @@ pub enum SendPacket {
     Close,
 }
 
-/// Convert a [SendPacket] (used in the public API) to a Socket Packet
-impl Into<Packet> for SendPacket {
-    fn into(self) -> Packet {
-        match self {
-            SendPacket::Message(msg) => Packet::Message(msg),
-            SendPacket::Binary(data) => Packet::Binary(data),
-            SendPacket::Close => Packet::Close,
-        }
-    }
-}
-
 /// A Packet type to use when receiving and sending data from the client
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Packet {
@@ -143,6 +132,18 @@ impl TryFrom<Bytes> for Packet {
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
         let value = String::from_utf8(value.into())?;
         Packet::try_from(value)
+    }
+}
+
+
+/// Convert a [`SendPacket`] (used in the public API) to an internal [`Packet`]
+impl From<SendPacket> for Packet {
+    fn from(value: SendPacket) -> Packet {
+        match value {
+            SendPacket::Message(msg) => Packet::Message(msg),
+            SendPacket::Binary(data) => Packet::Binary(data),
+            SendPacket::Close => Packet::Close,
+        }
     }
 }
 

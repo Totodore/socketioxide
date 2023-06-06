@@ -51,7 +51,7 @@ impl Packet {
     }
 
     pub fn bin_event(ns: String, e: String, data: Value, bin: Vec<Vec<u8>>) -> Self {
-        debug_assert!(bin.len() > 0);
+        debug_assert!(!bin.is_empty());
 
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
@@ -67,7 +67,7 @@ impl Packet {
         }
     }
     pub fn bin_ack(ns: String, data: Value, bin: Vec<Vec<u8>>, ack: i64) -> Self {
-        debug_assert!(bin.len() > 0);
+        debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
             inner: PacketData::BinaryAck(packet, ack),
