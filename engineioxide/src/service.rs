@@ -1,8 +1,6 @@
 use crate::{
-    body::ResponseBody,
-    engine::EngineIo,
-    futures::ResponseFuture,
-    layer::{EngineIoConfig, EngineIoHandler},
+    body::ResponseBody, config::EngineIoConfig, engine::EngineIo, futures::ResponseFuture,
+    handler::EngineIoHandler,
 };
 use http::{Method, Request};
 use http_body::Body;

@@ -2,7 +2,7 @@ use base64::{engine::general_purpose, Engine};
 use bytes::Bytes;
 use serde::{de::Error, Deserialize, Serialize};
 
-use crate::{layer::EngineIoConfig, service::TransportType};
+use crate::{service::TransportType, config::EngineIoConfig};
 
 /// A Packet type to use when sending data to the client from the public API
 ///
@@ -11,7 +11,6 @@ use crate::{layer::EngineIoConfig, service::TransportType};
 pub enum SendPacket {
     Message(String),
     Binary(Vec<u8>),
-    Close,
 }
 
 /// A Packet type to use when receiving and sending data from the client
@@ -44,11 +43,11 @@ pub enum Packet {
     /// Binary packet used to send binary data to the client
     /// Converts to a String using base64 encoding when using polling connection
     /// Or to a websocket binary frame when using websocket connection
-    /// 
+    ///
     /// When receiving, it is only used with polling connection, websocket use binary frame
     Binary(Vec<u8>), // Not part of the protocol, used internally
 
-    /// Custom packet used to abort the connection
+    /// Custom packet used to abort ws connections
     Abort, // Not part of the protocol, used internally
 }
 
@@ -137,14 +136,12 @@ impl TryFrom<Bytes> for Packet {
     }
 }
 
-
 /// Convert a [`SendPacket`] (used in the public API) to an internal [`Packet`]
 impl From<SendPacket> for Packet {
     fn from(value: SendPacket) -> Packet {
         match value {
             SendPacket::Message(msg) => Packet::Message(msg),
             SendPacket::Binary(data) => Packet::Binary(data),
-            SendPacket::Close => Packet::Close,
         }
     }
 }
@@ -181,6 +178,8 @@ impl OpenPacket {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::EngineIoConfig;
+
     use super::*;
     use std::convert::TryInto;
 

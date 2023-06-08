@@ -14,11 +14,7 @@ use tokio::{
 use tracing::debug;
 
 use crate::{
-    errors::Error,
-    layer::{EngineIoConfig, EngineIoHandler},
-    packet::Packet,
-    utils::forward_map_chan,
-    SendPacket,
+    config::EngineIoConfig, errors::Error, packet::Packet, utils::forward_map_chan, SendPacket, handler::EngineIoHandler,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,9 +84,6 @@ where
     internal_tx: mpsc::Sender<Packet>,
     pub tx: mpsc::Sender<SendPacket>,
 
-    /// The handler for this socket
-    handler: Arc<H>,
-
     /// Internal channel to receive Pong [`Packets`](Packet) in the heartbeat job
     /// which is running in a separate task
     pong_rx: Mutex<mpsc::Receiver<()>>,
@@ -100,6 +93,7 @@ where
     /// Handle to the heartbeat job so that it can be aborted when the socket is closed
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
+    close_fn: Box<dyn Fn(i64) + Send + Sync>,
     /// User data bound to the socket
     pub data: H::Data,
 
@@ -112,7 +106,7 @@ where
     H: EngineIoHandler + ?Sized,
 {
     fn drop(&mut self) {
-        self.handler.clone().on_disconnect(self);
+        debug!("[sid={}] socket dropped", self.sid);
     }
 }
 
@@ -124,8 +118,8 @@ where
         sid: i64,
         conn: ConnectionType,
         config: &EngineIoConfig,
-        handler: Arc<H>,
         req_data: SocketReq,
+        close_fn: Box<dyn Fn(i64) + Send + Sync>,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
@@ -133,29 +127,27 @@ where
 
         tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
 
-        let socket = Self {
+        Self {
             sid,
             conn: AtomicU8::new(conn as u8),
 
             internal_rx: Mutex::new(internal_rx),
             internal_tx,
             tx,
-            handler,
 
             pong_rx: Mutex::new(pong_rx),
             pong_tx,
             heartbeat_handle: Mutex::new(None),
+            close_fn,
 
             data: H::Data::default(),
             req_data: req_data.into(),
-        };
-        socket.handler.clone().on_connect(&socket);
-        socket
+        }
     }
-    /// Closes the socket
+
     /// Abort the heartbeat job if it is running
-    pub(crate) fn close(&self) {
-        if let Some(handle) = self.heartbeat_handle.try_lock().unwrap().take() {
+    pub(crate) fn abort_heartbeat(&self) {
+        if let Ok(Some(handle)) = self.heartbeat_handle.try_lock().map(|mut h| h.take()) {
             handle.abort();
         }
     }
@@ -168,17 +160,21 @@ where
     }
 
     /// Spawn the heartbeat job
+    ///
     /// Keep a handle to the job so that it can be aborted when the socket is closed
     pub(crate) fn spawn_heartbeat(self: Arc<Self>, interval: Duration, timeout: Duration) {
         let socket = self.clone();
 
         let handle = tokio::spawn(async move {
             if let Err(e) = socket.heartbeat_job(interval, timeout).await {
-                socket.send(Packet::Abort).ok();
+                socket.close();
                 debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
             }
         });
-        self.heartbeat_handle.try_lock().unwrap().replace(handle);
+        self.heartbeat_handle
+            .try_lock()
+            .expect("heartbeat handle mutex should not be locked twice")
+            .replace(handle);
     }
 
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
@@ -236,7 +232,10 @@ where
         self.send(Packet::Message(msg))
     }
 
-    pub fn emit_close(&self) {
+    /// Immediately closes the socket and the underlying connection.
+    /// The socket will be removed from the [`Engine`](crate::engine) and the [`Handler`](crate::layer::EngineIoHandler) will be notified.
+    pub fn close(&self) {
+        (self.close_fn)(self.sid);
         self.send(Packet::Abort).ok();
     }
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use engineioxide::layer::EngineIoHandler;
+use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::Socket as EIoSocket;
 use serde_json::Value;
 
@@ -102,7 +102,7 @@ impl<A: Adapter> Client<A> {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SocketData {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
@@ -129,7 +129,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             Ok(packet) => packet,
             Err(e) => {
                 debug!("socket serialization error: {}", e);
-                socket.emit_close();
+                socket.close();
                 return;
             }
         };
@@ -144,7 +144,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         };
         if let Err(err) = res {
             error!("error while processing packet: {}", err);
-            socket.emit_close();
+            socket.close();
         }
     }
 
@@ -159,7 +159,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                         "error while propagating packet to socket {}: {}",
                         socket.sid, e
                     );
-                    socket.emit_close();
+                    socket.close();
                 }
             }
         }

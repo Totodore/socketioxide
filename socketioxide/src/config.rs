@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use engineioxide::layer::EngineIoConfig;
+use engineioxide::config::EngineIoConfig;
 
 /// Builder for SocketIoConfig
 pub struct SocketIoConfigBuilder {

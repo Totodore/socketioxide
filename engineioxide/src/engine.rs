@@ -7,9 +7,10 @@ use std::{
 
 use crate::{
     body::ResponseBody,
+    config::EngineIoConfig,
     errors::Error,
     futures::{http_response, ws_response},
-    layer::{EngineIoConfig, EngineIoHandler},
+    handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
     service::TransportType,
     socket::{ConnectionType, Socket, SocketReq},
@@ -72,20 +73,24 @@ where
     where
         B: Send + 'static,
     {
+        let engine = self.clone();
+        let close_fn = Box::new(move |sid: i64| engine.close_session(sid));
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
             ConnectionType::Http,
             &self.config,
-            self.handler.clone(),
             SocketReq::from(req.into_parts().0),
-        )
-        .into();
+            close_fn,
+        );
+        let socket = Arc::new(socket);
         {
-            self.sockets.write().unwrap().insert(sid, socket);
+            self.sockets.write().unwrap().insert(sid, socket.clone());
         }
-        let socket = self.get_socket(sid).unwrap();
-        socket.spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
+        socket
+            .clone()
+            .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
+        self.handler.on_connect(&socket);
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
         let packet: String = Packet::Open(packet).try_into()?;
@@ -114,8 +119,7 @@ where
             Ok(s) => s,
             Err(_) => {
                 if socket.is_http() {
-                    socket.send(Packet::Close)?;
-                    self.close_session(sid);
+                    socket.close();
                 }
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
@@ -196,8 +200,14 @@ where
                     .pong_tx
                     .try_send(())
                     .map_err(|_| Error::HeartbeatTimeout),
-                Packet::Message(msg) => Ok(self.handler.on_message(msg, &socket)),
-                Packet::Binary(bin) => Ok(self.handler.on_binary(bin, &socket)),
+                Packet::Message(msg) => {
+                    self.handler.on_message(msg, &socket);
+                    Ok(())
+                }
+                Packet::Binary(bin) => {
+                    self.handler.on_binary(bin, &socket);
+                    Ok(())
+                }
                 p => {
                     debug!("[sid={sid}] bad packet received: {:?}", &p);
                     Err(Error::BadPacket(p))
@@ -253,14 +263,16 @@ where
 
         let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
             let sid = generate_sid();
-            let socket: Arc<Socket<H>> = Socket::new(
+            let engine = self.clone();
+            let close_fn = Box::new(move |sid: i64| engine.close_session(sid));
+            let socket = Socket::new(
                 sid,
                 ConnectionType::WebSocket,
                 &self.config,
-                self.handler.clone(),
                 req_data,
-            )
-            .into();
+                close_fn,
+            );
+            let socket = Arc::new(socket);
             {
                 self.sockets.write().unwrap().insert(sid, socket.clone());
             }
@@ -331,10 +343,16 @@ where
                         .pong_tx
                         .try_send(())
                         .map_err(|_| Error::HeartbeatTimeout),
-                    Packet::Message(msg) => Ok(self.handler.on_message(msg, &socket)),
+                    Packet::Message(msg) => {
+                        self.handler.on_message(msg, socket);
+                        Ok(())
+                    },
                     p => return Err(Error::BadPacket(p)),
                 },
-                Message::Binary(data) => Ok(self.handler.on_binary(data, &socket)),
+                Message::Binary(data) => {
+                    self.handler.on_binary(data, socket);
+                    Ok(())
+                },
                 Message::Close(_) => break,
                 _ => panic!("[sid={}] unexpected ws message", socket.sid),
             }?
@@ -419,9 +437,15 @@ where
     /// It should be the only way to close a session and to remove a socket from the socket map
     fn close_session(&self, sid: i64) {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
-            socket.close();
+            self.handler.on_disconnect(&socket);
+            socket.abort_heartbeat();
+            debug!(
+                "remaining sockets: {:?}",
+                self.sockets.read().unwrap().len()
+            );
+        } else {
+            debug!("[sid={sid}] socket not found");
         }
-        debug!("[sid={sid}] socket closed");
     }
 
     /// Get a socket by its sid

@@ -7,7 +7,9 @@ pub mod engine;
 pub mod errors;
 pub mod layer;
 pub mod service;
+pub mod config;
 pub mod socket;
+pub mod handler;
 
 mod body;
 mod futures;
