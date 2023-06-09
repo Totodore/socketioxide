@@ -56,8 +56,8 @@ impl From<Parts> for SocketReq {
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 /// It handles :
 /// * the packet communication between with the [`Engine`](crate::engine)
-/// and the user defined [`Handler`](crate::layer::EngineIoHandler).
-/// * the user defined [`Data`](crate::layer::EngineIoHandler::Data) bound to the socket.
+/// and the user defined [`Handler`](crate::handler::EngineIoHandler).
+/// * the user defined [`Data`](crate::handler::EngineIoHandler::Data) bound to the socket.
 /// * the heartbeat job that verify that the connection is still up by sending packets periodically.
 pub struct Socket<H>
 where
@@ -99,15 +99,6 @@ where
 
     /// Http Request data used to create a socket
     pub req_data: Arc<SocketReq>,
-}
-
-impl<H> Drop for Socket<H>
-where
-    H: EngineIoHandler + ?Sized,
-{
-    fn drop(&mut self) {
-        debug!("[sid={}] socket dropped", self.sid);
-    }
 }
 
 impl<H> Socket<H>
@@ -208,14 +199,18 @@ where
             interval_tick.tick().await;
         }
     }
+
+    /// Returns true if the [`Socket`] has a websocket [`ConnectionType`]
     pub(crate) fn is_ws(&self) -> bool {
         self.conn.load(Ordering::Relaxed) == ConnectionType::WebSocket as u8
     }
+    /// returns true if the [`Socket`] has an HTTP [`ConnectionType`]
     pub(crate) fn is_http(&self) -> bool {
         self.conn.load(Ordering::Relaxed) == ConnectionType::Http as u8
     }
 
-    /// Sets the connection type to WebSocket when the client upgrades the connection.
+    /// Sets the [`ConnectionType`] to WebSocket
+    /// Used when the client upgrade the connection from HTTP to WebSocket
     pub(crate) fn upgrade_to_websocket(&self) {
         self.conn
             .store(ConnectionType::WebSocket as u8, Ordering::Relaxed);
