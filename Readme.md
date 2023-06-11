@@ -17,24 +17,25 @@ It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and 
 * Handshake data
 * Ack and emit with ack
 * Binary
+* Polling & Websocket transport
+* Extensions on socket to add custom data to sockets
 
 ### Planned features :
 * Improving the documentation
 * Adding more tests & benchmars 
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
 * Better error handling
-* Socket extensions to share state between sockets
 * State recovery when a socket reconnects
 
-
-### Socket.IO example echo implementation with Axum :
+### Examples :
+* [Chat app with Axum](./examples/src/chat)
+* Echo implementation with Axum :
 ```rust
 use axum::routing::get;
 use axum::Server;
 use serde::{Serialize, Deserialize};
 use socketioxide::{Namespace, SocketIoLayer};
 use tracing::info;
-use tracing_subscriber::FmtSubscriber;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MyData {
@@ -44,8 +45,6 @@ struct MyData {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder().finish();
-    tracing::subscriber::set_global_default(subscriber)?;
 
     info!("Starting server");
 
