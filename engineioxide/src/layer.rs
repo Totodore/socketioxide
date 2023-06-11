@@ -34,7 +34,7 @@ impl<S, H> Layer<S> for EngineIoLayer<H>
 where
     H: EngineIoHandler,
 {
-    type Service = EngineIoService<S, H>;
+    type Service = EngineIoService<H, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
         EngineIoService::from_config(inner, self.handler.clone(), self.config.clone())
