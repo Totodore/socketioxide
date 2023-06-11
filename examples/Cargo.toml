@@ -23,6 +23,10 @@ name = "engineio-axum-echo"
 path = "src/engineio-echo/axum_echo.rs"
 
 [[example]]
+name = "engineio-hyper-echo"
+path = "src/engineio-echo/hyper_echo.rs"
+
+[[example]]
 name = "socketio-axum-echo"
 path = "src/socketio-echo/axum_echo.rs"
 

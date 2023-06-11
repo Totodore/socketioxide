@@ -32,11 +32,11 @@ impl<A: Adapter> SocketIoLayer<A> {
     }
 }
 
-impl<S, A: Adapter> Layer<S> for SocketIoLayer<A> {
+impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
     type Service = EngineIoService<Client<A>, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
         let client = Client::new(self.config.clone(), self.ns_handlers.clone());
-        EngineIoService::from_config(inner, client.into(), self.config.engine_config.clone())
+        EngineIoService::with_config_inner(inner, client.into(), self.config.engine_config.clone())
     }
 }

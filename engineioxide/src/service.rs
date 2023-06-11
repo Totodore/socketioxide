@@ -39,24 +39,38 @@ where
             engine: Arc::new(EngineIo::new(handler)),
         }
     }
+    /// Create a new [`EngineIoService`] with a custom config
+    pub fn with_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
+        EngineIoService {
+            inner: NotFoundService,
+            engine: Arc::new(EngineIo::from_config(handler, config)),
+        }
+    }
 }
 impl<S, H> EngineIoService<H, S>
 where
     H: EngineIoHandler + ?Sized,
+    S: Clone,
 {
-    /// Create a new [`EngineIoService`] with a custom inner service.
-    pub fn from_config(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
+    /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
+    pub fn with_config_inner(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
             engine: Arc::new(EngineIo::from_config(handler, config)),
         }
+    }
+
+    /// Convert this [`EngineIoService`] into a [`MakeEngineIoService`].
+    /// This is useful when using [`EngineIoService`] without layers.
+    pub fn into_make_service(self) -> MakeEngineIoService<H, S> {
+        MakeEngineIoService::new(self)
     }
 }
 
 impl<S, H> Clone for EngineIoService<H, S>
 where
     H: EngineIoHandler + ?Sized,
-    S: Clone
+    S: Clone,
 {
     fn clone(&self) -> Self {
         EngineIoService {
@@ -117,6 +131,44 @@ where
         } else {
             ResponseFuture::new(self.inner.call(req))
         }
+    }
+}
+
+/// A MakeService that always returns a clone of the [`EngineIoService`] it was created with.
+pub struct MakeEngineIoService<H, S>
+where
+    H: EngineIoHandler + ?Sized,
+{
+    svc: EngineIoService<H, S>,
+}
+
+impl<H, S> MakeEngineIoService<H, S>
+where
+    H: EngineIoHandler + ?Sized,
+{
+    /// Create a new [`MakeEngineIoService`] with a custom inner service.
+    pub fn new(svc: EngineIoService<H, S>) -> Self {
+        MakeEngineIoService { svc }
+    }
+}
+
+impl<H, S, T> Service<T> for MakeEngineIoService<H, S>
+where
+    H: EngineIoHandler,
+    S: Clone,
+{
+    type Response = EngineIoService<H, S>;
+
+    type Error = Infallible;
+
+    type Future = Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _req: T) -> Self::Future {
+        ready(Ok(self.svc.clone()))
     }
 }
 

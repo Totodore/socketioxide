@@ -33,10 +33,11 @@ where
 impl<S, H> Layer<S> for EngineIoLayer<H>
 where
     H: EngineIoHandler,
+    S: Clone
 {
     type Service = EngineIoService<H, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        EngineIoService::from_config(inner, self.handler.clone(), self.config.clone())
+        EngineIoService::with_config_inner(inner, self.handler.clone(), self.config.clone())
     }
 }
