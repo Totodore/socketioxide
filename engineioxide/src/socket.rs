@@ -14,7 +14,8 @@ use tokio::{
 use tracing::debug;
 
 use crate::{
-    config::EngineIoConfig, errors::Error, packet::Packet, utils::forward_map_chan, SendPacket, handler::EngineIoHandler,
+    config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
+    utils::forward_map_chan, SendPacket,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -244,5 +245,37 @@ where
     pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
         self.send(Packet::Binary(data))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+impl<H: EngineIoHandler> Socket<H> {
+    pub fn new_dummy(sid: i64, close_fn: Box<dyn Fn(i64) + Send + Sync>) -> Socket<H> {
+        let (internal_tx, internal_rx) = mpsc::channel(200);
+        let (tx, rx) = mpsc::channel(200);
+        let (pong_tx, pong_rx) = mpsc::channel(1);
+
+        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
+
+        Self {
+            sid,
+            conn: AtomicU8::new(ConnectionType::WebSocket as u8),
+
+            internal_rx: Mutex::new(internal_rx),
+            internal_tx,
+            tx,
+
+            pong_rx: Mutex::new(pong_rx),
+            pong_tx,
+            heartbeat_handle: Mutex::new(None),
+            close_fn,
+
+            data: H::Data::default(),
+            req_data: SocketReq {
+                headers: http::HeaderMap::new(),
+                uri: Uri::default(),
+            }
+            .into(),
+        }
     }
 }

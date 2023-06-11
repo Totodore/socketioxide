@@ -1,4 +1,4 @@
-use engineioxide::{engine::EngineIo, service::EngineIoService};
+use engineioxide::service::EngineIoService;
 use tower::Layer;
 
 use crate::{adapter::Adapter, client::Client, config::SocketIoConfig, ns::NsHandlers};
@@ -33,11 +33,10 @@ impl<A: Adapter> SocketIoLayer<A> {
 }
 
 impl<S, A: Adapter> Layer<S> for SocketIoLayer<A> {
-    type Service = EngineIoService<S, Client<A>>;
+    type Service = EngineIoService<Client<A>, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
         let client = Client::new(self.config.clone(), self.ns_handlers.clone());
-        let engine = EngineIo::from_config(client.into(), self.config.engine_config.clone());
-        EngineIoService::from_custom_engine(inner, engine)
+        EngineIoService::from_config(inner, client.into(), self.config.engine_config.clone())
     }
 }
