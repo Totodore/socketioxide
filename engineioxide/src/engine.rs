@@ -127,11 +127,9 @@ where
 
         debug!("[sid={sid}] polling request");
         let mut data = String::new();
+
+        // Send all packets in the buffer
         while let Ok(packet) = rx.try_recv() {
-            if packet == Packet::Abort {
-                debug!("aborting immediate polling request");
-                return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
-            }
             debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
             if !data.is_empty() {
@@ -140,17 +138,11 @@ where
             data.push_str(&packet);
         }
 
+        // If there is no packet in the buffer, wait for the next packet
         if data.is_empty() {
-            match rx.recv().await {
-                Some(Packet::Abort) | None => {
-                    debug!("aborting waiting polling request");
-                    return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
-                }
-                Some(packet) => {
-                    let packet: String = packet.try_into().unwrap();
-                    data.push_str(&packet);
-                }
-            };
+            let packet = rx.recv().await.ok_or(Error::Aborted)?;
+            let packet: String = packet.try_into().unwrap();
+            data.push_str(&packet);
         }
         Ok(http_response(StatusCode::OK, data)?)
     }
@@ -303,7 +295,6 @@ where
                 let res = match item {
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
-                    Packet::Abort => tx.close().await,
                     _ => {
                         let packet: String = item.try_into().unwrap();
                         tx.send(Message::Text(packet)).await
@@ -438,7 +429,8 @@ where
     /// Close an engine.io session by removing the socket from the socket map and closing the socket
     /// It should be the only way to close a session and to remove a socket from the socket map
     fn close_session(&self, sid: i64) {
-        if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
+        let socket = self.sockets.write().unwrap().remove(&sid);
+        if let Some(socket) = socket {
             self.handler.on_disconnect(&socket);
             socket.abort_heartbeat();
             debug!(

@@ -94,6 +94,7 @@ where
     /// Handle to the heartbeat job so that it can be aborted when the socket is closed
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
+    /// Function to call when the socket is closed
     close_fn: Box<dyn Fn(i64) + Send + Sync>,
     /// User data bound to the socket
     pub data: H::Data,
@@ -232,7 +233,7 @@ where
     /// The socket will be removed from the [`Engine`](crate::engine) and the [`Handler`](crate::layer::EngineIoHandler) will be notified.
     pub fn close(&self) {
         (self.close_fn)(self.sid);
-        self.send(Packet::Abort).ok();
+        self.send(Packet::Close).ok();
     }
 
     /// Emits a binary message to the client.

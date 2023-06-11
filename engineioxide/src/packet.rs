@@ -46,9 +46,6 @@ pub enum Packet {
     ///
     /// When receiving, it is only used with polling connection, websocket use binary frame
     Binary(Vec<u8>), // Not part of the protocol, used internally
-
-    /// Custom packet used to abort ws connections
-    Abort, // Not part of the protocol, used internally
 }
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
@@ -68,11 +65,6 @@ impl TryInto<String> for Packet {
             Packet::Upgrade => "5".to_string(),
             Packet::Noop => "6".to_string(),
             Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(data),
-            _ => {
-                return Err(Self::Error::Serialize(serde_json::Error::custom(
-                    "invalid packet type",
-                )))
-            }
         };
         Ok(res)
     }
