@@ -316,6 +316,8 @@ where
                 }
             }
         });
+
+        self.handler.on_connect(&socket);
         if let Err(e) = self.ws_forward_to_handler(rx, &socket).await {
             debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
         }
@@ -452,15 +454,5 @@ where
     /// Clones the socket ref to avoid holding the lock
     pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
-    }
-}
-
-#[cfg(test)]
-impl<H: EngineIoHandler> EngineIo<H> {
-    pub fn add_socket(self: Arc<Self>, sid: i64) {
-        let engine = self.clone();
-        let close_fn = Box::new(move |sid: i64| engine.close_session(sid));
-        let socket = Socket::new_dummy(sid, close_fn);
-        self.sockets.write().unwrap().insert(sid, Arc::new(socket));
     }
 }
