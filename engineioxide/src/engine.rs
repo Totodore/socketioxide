@@ -66,7 +66,7 @@ where
     /// Create a new socket and add it to the socket map
     /// Start the heartbeat task
     /// Send an open packet
-    pub(crate) async fn on_open_http_req<B, R>(
+    pub(crate) fn on_open_http_req<B, R>(
         self: Arc<Self>,
         req: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
@@ -221,7 +221,7 @@ where
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
     /// the http polling request is closed and the SID is kept for the websocket
-    pub(crate) async fn on_ws_req<R, B>(
+    pub(crate) fn on_ws_req<R, B>(
         self: Arc<Self>,
         sid: Option<i64>,
         req: Request<R>,
@@ -346,13 +346,13 @@ where
                     Packet::Message(msg) => {
                         self.handler.on_message(msg, socket);
                         Ok(())
-                    },
+                    }
                     p => return Err(Error::BadPacket(p)),
                 },
                 Message::Binary(data) => {
                     self.handler.on_binary(data, socket);
                     Ok(())
-                },
+                }
                 Message::Close(_) => break,
                 _ => panic!("[sid={}] unexpected ws message", socket.sid),
             }?
@@ -452,5 +452,15 @@ where
     /// Clones the socket ref to avoid holding the lock
     pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
+    }
+}
+
+#[cfg(test)]
+impl<H: EngineIoHandler> EngineIo<H> {
+    pub fn add_socket(self: Arc<Self>, sid: i64) {
+        let engine = self.clone();
+        let close_fn = Box::new(move |sid: i64| engine.close_session(sid));
+        let socket = Socket::new_dummy(sid, close_fn);
+        self.sockets.write().unwrap().insert(sid, Arc::new(socket));
     }
 }

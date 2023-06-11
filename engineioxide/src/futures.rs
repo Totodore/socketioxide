@@ -1,4 +1,5 @@
 use crate::body::ResponseBody;
+use crate::errors::Error;
 use bytes::Bytes;
 use futures::ready;
 use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
@@ -50,7 +51,11 @@ impl<F, B> ResponseFuture<F, B> {
             inner: ResponseFutureInner::EmptyResponse { code },
         }
     }
-
+    pub fn ready(res: Result<Response<ResponseBody<B>>, Error>) -> Self {
+        Self {
+            inner: ResponseFutureInner::ReadyResponse { res: Some(res) },
+        }
+    }
     pub fn new(future: F) -> Self {
         Self {
             inner: ResponseFutureInner::Future { future },
@@ -66,6 +71,9 @@ impl<F, B> ResponseFuture<F, B> {
 enum ResponseFutureInner<F, B> {
     EmptyResponse {
         code: u16,
+    },
+    ReadyResponse {
+        res: Option<Result<Response<ResponseBody<B>>, Error>>,
     },
     AsyncResponse {
         future: BoxFuture<B>,
@@ -91,11 +99,11 @@ where
                 .status(*code)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-
             ResFutProj::AsyncResponse { future } => ready!(future
                 .as_mut()
                 .poll(cx)
                 .map(|r| r.unwrap_or_else(|e| e.into()))),
+            ResFutProj::ReadyResponse { res } => res.take().unwrap().unwrap_or_else(|e| e.into()),
         };
         Poll::Ready(Ok(res))
     }
