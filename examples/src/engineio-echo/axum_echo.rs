@@ -1,34 +1,31 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use axum::routing::get;
 use axum::Server;
-use engineioxide::{
-    layer::{EngineIoConfig, EngineIoHandler, EngineIoLayer},
-    socket::Socket,
-};
+use engineioxide::{layer::EngineIoLayer, socket::Socket, handler::EngineIoHandler, config::EngineIoConfig};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct MyHandler;
 
 #[engineioxide::async_trait]
 impl EngineIoHandler for MyHandler {
     type Data = ();
-    
-    fn on_connect(self: Arc<Self>, socket: &Socket<Self>) {
+
+    fn on_connect(&self, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
     }
-    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self>) {
+    fn on_disconnect(&self, socket: &Socket<Self>) {
         println!("socket disconnect {}", socket.sid);
     }
 
-    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>) {
+    fn on_message(&self, msg: String, socket: &Socket<Self>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).ok();
     }
 
-    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
+    fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).ok();
     }
@@ -38,7 +35,7 @@ impl EngineIoHandler for MyHandler {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
         .with_line_number(true)
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 

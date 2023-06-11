@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::errors::Error;
+use engineioxide::SendPacket as EnginePacket;
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
@@ -49,10 +50,10 @@ impl Packet {
         }
     }
 
-    pub fn bin_event(ns: String, e: String, data: Value, payload_count: usize) -> Self {
-        debug_assert!(payload_count > 0);
+    pub fn bin_event(ns: String, e: String, data: Value, bin: Vec<Vec<u8>>) -> Self {
+        debug_assert!(!bin.is_empty());
 
-        let packet = BinaryPacket::outgoing(data, payload_count);
+        let packet = BinaryPacket::outgoing(data, bin);
         Self {
             inner: PacketData::BinaryEvent(e, packet, None),
             ns,
@@ -65,8 +66,9 @@ impl Packet {
             ns,
         }
     }
-    pub fn bin_ack(ns: String, data: Value, payload_count: usize, ack: i64) -> Self {
-        let packet = BinaryPacket::outgoing(data, payload_count);
+    pub fn bin_ack(ns: String, data: Value, bin: Vec<Vec<u8>>, ack: i64) -> Self {
+        debug_assert!(!bin.is_empty());
+        let packet = BinaryPacket::outgoing(data, bin);
         Self {
             inner: PacketData::BinaryAck(packet, ack),
             ns,
@@ -157,11 +159,12 @@ impl BinaryPacket {
     }
 
     /// Create a binary packet from outgoing data and a payload
-    pub fn outgoing(data: Value, payload_count: usize) -> Self {
+    pub fn outgoing(data: Value, bin: Vec<Vec<u8>>) -> Self {
         let mut data = match data {
             Value::Array(v) => Value::Array(v),
             d => Value::Array(vec![d]),
         };
+        let payload_count = bin.len();
         (0..payload_count).for_each(|i| {
             data.as_array_mut().unwrap().push(json!({
                 "_placeholder": true,
@@ -170,7 +173,7 @@ impl BinaryPacket {
         });
         Self {
             data,
-            bin: vec![],
+            bin,
             payload_count,
         }
     }
@@ -322,7 +325,6 @@ impl TryFrom<String> for Packet {
         if !ns.is_empty() {
             chars.next();
         }
-        //TODO: improve ?
         if !ns.starts_with('/') {
             ns.insert(0, '/');
         }
@@ -364,6 +366,13 @@ impl TryFrom<String> for Packet {
         };
 
         Ok(Self { inner, ns })
+    }
+}
+
+impl TryInto<EnginePacket> for Packet {
+    type Error = Error;
+    fn try_into(self) -> Result<EnginePacket, Error> {
+        Ok(EnginePacket::Message(self.try_into()?))
     }
 }
 /// Connect packet sent by the client

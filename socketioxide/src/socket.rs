@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use engineioxide::SendPacket as EnginePacket;
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -15,7 +16,6 @@ use tokio::sync::oneshot;
 
 use crate::{
     adapter::{Adapter, Room},
-    client::Client,
     errors::{AckError, Error},
     extensions::Extensions,
     handler::{AckResponse, AckSender, BoxedHandler, MessageHandler},
@@ -23,14 +23,16 @@ use crate::{
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
+    SocketIoConfig,
 };
 
 pub struct Socket<A: Adapter> {
-    client: Arc<Client<A>>,
+    config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
     ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
+    tx: tokio::sync::mpsc::Sender<EnginePacket>,
     pub handshake: Handshake,
     pub sid: i64,
     pub extensions: Extensions,
@@ -38,13 +40,14 @@ pub struct Socket<A: Adapter> {
 
 impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
-        client: Arc<Client<A>>,
+        sid: i64,
         ns: Arc<Namespace<A>>,
         handshake: Handshake,
-        sid: i64,
+        tx: tokio::sync::mpsc::Sender<EnginePacket>,
+        config: Arc<SocketIoConfig>,
     ) -> Self {
         Self {
-            client,
+            tx,
             ns,
             message_handlers: RwLock::new(HashMap::new()),
             ack_message: RwLock::new(HashMap::new()),
@@ -52,6 +55,7 @@ impl<A: Adapter> Socket<A> {
             handshake,
             sid,
             extensions: Extensions::new(),
+            config,
         }
     }
 
@@ -134,7 +138,7 @@ impl<A: Adapter> Socket<A> {
     pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.send(Packet::event(ns, event.into(), data), vec![])
+        self.send(Packet::event(ns, event.into(), data))
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -165,7 +169,7 @@ impl<A: Adapter> Socket<A> {
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(ns, event.into(), data);
 
-        self.send_with_ack(packet, vec![], None).await
+        self.send_with_ack(packet, None).await
     }
 
     // Room actions
@@ -343,22 +347,34 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, packet: Packet, payload: Vec<Vec<u8>>) -> Result<(), Error> {
-        self.client.emit(self.sid, packet, payload)
+    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), Error> {
+        let payload = match packet.inner {
+            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
+                std::mem::take(&mut bin.bin)
+            }
+            _ => vec![],
+        };
+
+        //TODO: fix unwrap
+        self.tx.try_send(packet.try_into()?).unwrap();
+
+        for bin in payload {
+            self.tx.try_send(EnginePacket::Binary(bin)).unwrap();
+        }
+        Ok(())
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
         &self,
         mut packet: Packet,
-        payload: Vec<Vec<u8>>,
         timeout: Option<Duration>,
     ) -> Result<AckResponse<V>, AckError> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.write().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
-        self.send(packet, payload)?;
-        let timeout = timeout.unwrap_or(self.client.config.ack_timeout);
+        self.send(packet)?;
+        let timeout = timeout.unwrap_or(self.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok((serde_json::from_value(v.0)?, v.1))
     }
@@ -424,13 +440,18 @@ impl<A: Adapter> Debug for Socket<A> {
 #[cfg(test)]
 impl<A: Adapter> Socket<A> {
     pub fn new_dummy(sid: i64, ns: Arc<Namespace<A>>) -> Socket<A> {
-        use crate::SocketIoConfig;
-        use std::sync::Weak;
-        let client = Arc::new(Client::new(
-            SocketIoConfig::default(),
-            Weak::new(),
-            HashMap::new(),
-        ));
-        Socket::new(client, ns, Handshake::new_dummy(), sid)
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        tokio::spawn(async move {
+            while let Some(packet) = rx.recv().await {
+                println!("Dummy socket received packet {:?}", packet);
+            }
+        });
+        Socket::new(
+            sid,
+            ns,
+            Handshake::new_dummy(),
+            tx,
+            Arc::new(SocketIoConfig::default()),
+        )
     }
 }

@@ -12,19 +12,19 @@ struct MyHandler;
 impl EngineIoHandler for MyHandler {
     type Data = ();
     
-    fn on_connect(self: Arc<Self>, socket: &Socket<Self>) {
+    fn on_connect(&self, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
     }
-    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self>) {
+    fn on_disconnect(&self, socket: &Socket<Self>) {
         println!("socket disconnect {}", socket.sid);
     }
 
-    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>) {
+    fn on_message(&self, msg: String, socket: &Socket<Self>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).ok();
     }
 
-    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>) {
+    fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).ok();
     }
