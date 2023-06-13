@@ -14,10 +14,11 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::{
-    adapter::Adapter,
+    adapter::{Adapter, Room},
     client::Client,
     errors::{AckError, Error},
-    handler::{AckResponse, BoxedHandler, MessageHandler, AckSender},
+    extensions::Extensions,
+    handler::{AckResponse, AckSender, BoxedHandler, MessageHandler},
     handshake::Handshake,
     ns::Namespace,
     operators::{Operators, RoomParam},
@@ -32,6 +33,7 @@ pub struct Socket<A: Adapter> {
     ack_counter: AtomicI64,
     pub handshake: Handshake,
     pub sid: i64,
+    pub extensions: Extensions,
 }
 
 impl<A: Adapter> Socket<A> {
@@ -49,6 +51,7 @@ impl<A: Adapter> Socket<A> {
             ack_counter: AtomicI64::new(0),
             handshake,
             sid,
+            extensions: Extensions::new(),
         }
     }
 
@@ -65,9 +68,9 @@ impl<A: Adapter> Socket<A> {
     ///
     /// #### Simple example with a closure:
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
-    /// use serde::{Serialize, Deserialize};
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// # use serde::{Serialize, Deserialize};
     ///
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
@@ -83,12 +86,12 @@ impl<A: Adapter> Socket<A> {
     /// });
     ///
     /// ```
-    /// 
+    ///
     /// #### Example with a closure and an ackknowledgement + binary data:
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
-    /// use serde::{Serialize, Deserialize};
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// # use serde::{Serialize, Deserialize};
     ///
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
@@ -120,8 +123,8 @@ impl<A: Adapter> Socket<A> {
     /// Emit a message to the client
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message to the client
@@ -139,8 +142,8 @@ impl<A: Adapter> Socket<A> {
     /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message and wait for an acknowledgement
@@ -182,13 +185,20 @@ impl<A: Adapter> Socket<A> {
         self.ns.adapter.del_all(self.sid);
     }
 
+    /// Get all rooms where the socket is connected.
+    pub fn rooms(&self) -> Vec<Room> {
+        self.ns.adapter.socket_rooms(self.sid)
+    }
+
     // Socket operators
 
     /// Select all clients in the given rooms except the current socket.
+    ///
+    /// If you want to include the current socket, use the `within()` operator.
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         let other_rooms = "room4".to_string();
@@ -204,11 +214,33 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), self.sid).to(rooms)
     }
 
+    /// Select all clients in the given rooms.
+    ///
+    /// It does include the current socket contrary to the `to()` operator.
+    /// #### Example
+    /// ```
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    ///         let other_rooms = "room4".to_string();
+    ///         // In room1, room2, room3 and room4 including the current socket
+    ///         socket
+    ///             .within("room1")
+    ///             .within(["room2", "room3"])
+    ///             .within(vec![other_rooms])
+    ///             .emit("test", data);
+    ///     });
+    /// });
+    pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
+        Operators::new(self.ns.clone(), self.sid).within(rooms)
+    }
+
     /// Filter out all clients selected with the previous operators which are in the given rooms.
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("register1", |socket, data: Value, _, _| async move {
     ///         socket.join("room1");
@@ -230,8 +262,8 @@ impl<A: Adapter> Socket<A> {
     /// When using the default in-memory adapter, this operator is a no-op.
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
@@ -246,10 +278,10 @@ impl<A: Adapter> Socket<A> {
     ///
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
-    /// use futures::stream::StreamExt;
-    /// use std::time::Duration;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// # use futures::stream::StreamExt;
+    /// # use std::time::Duration;
     /// Namespace::builder().add("/", |socket| async move {
     ///    socket.on("test", |socket, data: Value, bin, _| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
@@ -274,8 +306,8 @@ impl<A: Adapter> Socket<A> {
     /// Add a binary payload to the message.
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // This will send the binary payload received to all clients in this namespace with the test message
@@ -289,8 +321,8 @@ impl<A: Adapter> Socket<A> {
     /// Broadcast to all clients without any filtering (except the current socket).
     /// ##### Example
     /// ```
-    /// use socketioxide::Namespace;
-    /// use serde_json::Value;
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
     /// Namespace::builder().add("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace
