@@ -284,7 +284,7 @@ mod test {
     #[test]
     fn test_server_count() {
         let ns = Namespace::new_dummy([]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let adapter: LocalAdapter<_> = LocalAdapter::new(Arc::downgrade(&ns), Default::default());
         assert_eq!(adapter.server_count(), 1);
     }
 

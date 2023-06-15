@@ -106,7 +106,7 @@ impl<A: Adapter> Namespace<A> {
 
 #[cfg(test)]
 impl<A: Adapter> Namespace<A> {
-    pub fn new_dummy<const S: usize>(sockets: [i64; S]) -> Arc<Self> {
+    pub fn new_dummy<const S: usize>(sockets: [A::Sid; S], g: A::G) -> Arc<Self> {
         use futures::future::FutureExt;
         let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
         for sid in sockets {

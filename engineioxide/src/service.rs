@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn request_info_polling() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling");
-        let info = RequestInfo::parse(&req).unwrap();
+        let info: RequestInfo<i64> = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, None);
         assert_eq!(info.transport, TransportType::Polling);
         assert_eq!(info.method, Method::GET);
@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn request_info_websocket() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket");
-        let info = RequestInfo::parse(&req).unwrap();
+        let info: RequestInfo<i64> = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, None);
         assert_eq!(info.transport, TransportType::Websocket);
         assert_eq!(info.method, Method::GET);
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn request_info_polling_with_sid() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling&sid=123");
-        let info = RequestInfo::parse(&req).unwrap();
+        let info: RequestInfo<i64> = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, Some(123));
         assert_eq!(info.transport, TransportType::Polling);
         assert_eq!(info.method, Method::GET);
@@ -201,7 +201,7 @@ mod tests {
     fn request_info_websocket_with_sid() {
         let req =
             build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=123");
-        let info = RequestInfo::parse(&req).unwrap();
+        let info: RequestInfo<i64> = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, Some(123));
         assert_eq!(info.transport, TransportType::Websocket);
         assert_eq!(info.method, Method::GET);

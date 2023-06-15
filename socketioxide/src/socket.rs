@@ -423,13 +423,14 @@ impl<A: Adapter> Debug for Socket<A> {
 
 #[cfg(test)]
 impl<A: Adapter> Socket<A> {
-    pub fn new_dummy(sid: i64, ns: Arc<Namespace<A>>) -> Socket<A> {
+    pub fn new_dummy(sid: A::Sid, ns: Arc<Namespace<A>>, g: A::G) -> Socket<A> {
         use crate::SocketIoConfig;
         use std::sync::Weak;
         let client = Arc::new(Client::new(
             SocketIoConfig::default(),
             Weak::new(),
             HashMap::new(),
+            g,
         ));
         Socket::new(client, ns, Handshake::new_dummy(), sid)
     }

@@ -59,7 +59,8 @@ impl Generator for SnowflakeGenerator {
 
 #[test]
 fn test_generate_sid() {
-    let id = generate_sid();
-    let id2 = generate_sid();
-    assert!(id != id2);
+    let g = SnowflakeGenerator::default();
+    let id = g.generate_sid();
+    let id2 = g.generate_sid();
+    assert_ne!(id, id2);
 }
