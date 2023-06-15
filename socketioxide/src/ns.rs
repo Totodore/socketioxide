@@ -55,7 +55,7 @@ impl<A: Adapter> Namespace<A> {
     /// Connects a socket to a namespace
     pub fn connect(self: Arc<Self>, sid: A::Sid, client: Arc<Client<A>>, handshake: Handshake) {
         let socket: Arc<Socket<A>> = Socket::new(client, self.clone(), handshake, sid.clone()).into();
-        self.sockets.write().unwrap().insert(sid.clone(), socket.clone());
+        self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket));
     }
 

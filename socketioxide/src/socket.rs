@@ -356,7 +356,7 @@ impl<A: Adapter> Socket<A> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.write().unwrap().insert(ack, tx);
-        packet.inner.set_ack_id(ack.clone());
+        packet.inner.set_ack_id(ack);
         self.send(packet, payload)?;
         let timeout = timeout.unwrap_or(self.client.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;

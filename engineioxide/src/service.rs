@@ -1,4 +1,4 @@
-use crate::utils::Generator;
+use crate::utils::{Generator, Sid};
 use crate::{
     body::ResponseBody,
     engine::EngineIo,
@@ -8,8 +8,6 @@ use crate::{
 use http::{Method, Request};
 use http_body::Body;
 use hyper::{service::Service, Response};
-use std::fmt::Display;
-use std::hash::Hash;
 use std::{
     fmt::Debug,
     str::FromStr,
@@ -129,13 +127,13 @@ impl FromStr for TransportType {
     }
 }
 
-struct RequestInfo<Sid: Clone + Hash + Eq + Display> {
-    sid: Option<Sid>,
+struct RequestInfo<S: Sid> {
+    sid: Option<S>,
     transport: TransportType,
     method: Method,
 }
 
-impl<Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static> RequestInfo<Sid> {
+impl<S: Sid> RequestInfo<S> {
     fn parse<B>(req: &Request<B>) -> Option<Self> {
         let query = req.uri().query()?;
         if !query.contains("EIO=4") {

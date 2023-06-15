@@ -1,32 +1,36 @@
 use async_trait::async_trait;
 use tower::Layer;
 
-use crate::utils::Generator;
-use crate::{service::EngineIoService, socket::Socket};
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
-use std::str::FromStr;
-use std::{sync::Arc, time::Duration};
+use crate::{
+    utils::{Generator, Sid},
+    service::EngineIoService,
+    socket::Socket
+};
+use std::{
+    fmt::{Debug},
+    sync::Arc,
+    time::Duration
+};
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
-pub trait EngineIoHandler<Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static>:
+pub trait EngineIoHandler<S: Sid>:
     Send + Sync + 'static
 {
     /// Data associated with the socket.
     type Data: Default + Send + Sync + 'static;
 
     /// Called when a new socket is connected.
-    fn on_connect(self: Arc<Self>, socket: &Socket<Self, Sid>);
+    fn on_connect(self: Arc<Self>, socket: &Socket<Self, S>);
 
     /// Called when a socket is disconnected.
-    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self, Sid>);
+    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self, S>);
 
     /// Called when a message is received from the client.
-    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self, Sid>);
+    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self, S>);
 
     /// Called when a binary message is received from the client.
-    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self, Sid>);
+    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self, S>);
 }
 
 #[derive(Debug, Clone)]

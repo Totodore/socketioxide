@@ -1,15 +1,15 @@
-use engineioxide::utils::Generator;
+use engineioxide::utils::{Generator, Sid};
 use futures::{stream, StreamExt};
 use futures_core::stream::BoxStream;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
-use std::str::FromStr;
 use std::{
+    fmt::{Debug},
+    hash::Hash,
+    str::FromStr,
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock, Weak},
-    time::Duration,
+    time::Duration
 };
 
 use crate::{
@@ -49,7 +49,7 @@ impl<S: FromStr> BroadcastOptions<S> {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
-    type Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static;
+    type Sid: Sid;
     type G: Generator<Sid = Self::Sid>;
 
     fn new(ns: Weak<Namespace<Self>>, g: Self::G) -> Self

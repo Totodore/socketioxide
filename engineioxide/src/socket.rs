@@ -1,6 +1,4 @@
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
-use std::str::FromStr;
+use std::fmt::{Debug};
 use std::{
     ops::ControlFlow,
     sync::{
@@ -22,6 +20,7 @@ use crate::{
     layer::{EngineIoConfig, EngineIoHandler},
     packet::Packet,
 };
+use crate::utils::Sid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -54,12 +53,12 @@ impl From<Parts> for SocketReq {
     }
 }
 
-pub struct Socket<H, Sid>
+pub struct Socket<H, S>
 where
-    H: EngineIoHandler<Sid> + ?Sized,
-    Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
+    H: EngineIoHandler<S> + ?Sized,
+    S: Sid,
 {
-    pub sid: Sid,
+    pub sid: S,
 
     // The connection type casted to u8
     conn: AtomicU8,
@@ -79,23 +78,23 @@ where
     pub req_data: Arc<SocketReq>,
 }
 
-impl<H, Sid> Drop for Socket<H, Sid>
+impl<H, S> Drop for Socket<H, S>
 where
-    H: EngineIoHandler<Sid> + ?Sized,
-    Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
+    H: EngineIoHandler<S> + ?Sized,
+    S: Sid,
 {
     fn drop(&mut self) {
         self.handler.clone().on_disconnect(self);
     }
 }
 
-impl<H, Sid> Socket<H, Sid>
+impl<H, S> Socket<H, S>
 where
-    H: EngineIoHandler<Sid> + ?Sized,
-    Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
+    H: EngineIoHandler<S> + ?Sized,
+    S: Sid,
 {
     pub(crate) fn new(
-        sid: Sid,
+        sid: S,
         conn: ConnectionType,
         config: &EngineIoConfig,
         handler: Arc<H>,

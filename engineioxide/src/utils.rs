@@ -1,12 +1,18 @@
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    str::FromStr,
+    sync::{Arc, Mutex}
+};
 
 use snowflake::SnowflakeIdGenerator;
 
+pub trait Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static {}
+
+impl<T: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static> Sid for T {}
+
 pub trait Generator: Clone + Sync + Send + 'static + Debug {
-    type Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static;
+    type Sid: Sid;
     fn generate_sid(&self) -> Self::Sid;
 }
 
