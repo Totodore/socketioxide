@@ -45,7 +45,7 @@ impl<A: Adapter> Client<A> {
             .engine
             .upgrade()
             .ok_or(Error::EngineGone)?
-            .get_socket(sid)
+            .get_socket(sid.clone())
             .ok_or(Error::SocketGone(sid.to_string()))?;
         socket.emit(packet.try_into()?)?;
 
@@ -84,10 +84,10 @@ impl<A: Adapter> Client<A> {
     ) -> Result<(), Error> {
         debug!("auth: {:?}", auth);
         let handshake = Handshake::new(auth, socket.req_data.clone());
-        let sid = socket.sid;
+        let sid = socket.sid.clone();
         if let Some(ns) = self.get_ns(&ns_path) {
-            ns.connect(sid, self.clone(), handshake);
-            self.emit(sid, Packet::connect(ns_path, sid), vec![])
+            ns.connect(sid.clone(), self.clone(), handshake);
+            self.emit(sid.clone(), Packet::connect(ns_path, sid.clone()), vec![])
         } else {
             self.emit(sid, Packet::invalid_namespace(ns_path), vec![])
         }
@@ -135,7 +135,7 @@ impl<A: Adapter> EngineIoHandler<A::Sid> for Client<A> {
     fn on_disconnect(self: Arc<Self>, socket: &EIoSocket<Self, A::Sid>) {
         debug!("eio socket disconnect {}", socket.sid);
         self.ns.values().for_each(|ns| {
-            ns.disconnect(socket.sid).ok();
+            ns.disconnect(socket.sid.clone()).ok();
         });
     }
 
@@ -156,7 +156,7 @@ impl<A: Adapter> EngineIoHandler<A::Sid> for Client<A> {
                 self.sock_recv_bin_packet(socket, packet);
                 Ok(())
             }
-            _ => self.sock_propagate_packet(packet, socket.sid),
+            _ => self.sock_propagate_packet(packet, socket.sid.clone()),
         };
         if let Err(err) = res {
             error!("error while processing packet: {}", err);
@@ -170,7 +170,7 @@ impl<A: Adapter> EngineIoHandler<A::Sid> for Client<A> {
     async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &EIoSocket<Self, A::Sid>) {
         if self.apply_payload_on_packet(data, socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
-                if let Err(e) = self.sock_propagate_packet(packet, socket.sid) {
+                if let Err(e) = self.sock_propagate_packet(packet, socket.sid.clone()) {
                     debug!(
                         "error while propagating packet to socket {}: {}",
                         socket.sid, e

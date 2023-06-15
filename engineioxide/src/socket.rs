@@ -57,7 +57,7 @@ impl From<Parts> for SocketReq {
 pub struct Socket<H, Sid>
 where
     H: EngineIoHandler<Sid> + ?Sized,
-    Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
+    Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
 {
     pub sid: Sid,
 
@@ -82,7 +82,7 @@ where
 impl<H, Sid> Drop for Socket<H, Sid>
 where
     H: EngineIoHandler<Sid> + ?Sized,
-    Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
+    Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
 {
     fn drop(&mut self) {
         self.handler.clone().on_disconnect(self);
@@ -92,7 +92,7 @@ where
 impl<H, Sid> Socket<H, Sid>
 where
     H: EngineIoHandler<Sid> + ?Sized,
-    Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
+    Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
 {
     pub(crate) fn new(
         sid: Sid,

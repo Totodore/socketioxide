@@ -10,7 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
-pub trait EngineIoHandler<Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static>:
+pub trait EngineIoHandler<Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static>:
     Send + Sync + 'static
 {
     /// Data associated with the socket.

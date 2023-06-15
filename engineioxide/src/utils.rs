@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use snowflake::SnowflakeIdGenerator;
 
 pub trait Generator: Clone + Sync + Send + 'static + Debug {
-    type Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static;
+    type Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static;
     fn generate_sid(&self) -> Self::Sid;
 }
 
@@ -36,7 +36,7 @@ impl Generator for SnowflakeGenerator {
 
     fn generate_sid(&self) -> Self::Sid {
         let id = self.inner.lock().unwrap().real_time_generate();
-        tracing::debug!("Generating new sid: {}", id);
+        tracing::debug!("Generating new sid: {}", &id);
         id
     }
 }

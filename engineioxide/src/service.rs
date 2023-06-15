@@ -129,13 +129,13 @@ impl FromStr for TransportType {
     }
 }
 
-struct RequestInfo<Sid: Copy + Hash + Eq + Display> {
+struct RequestInfo<Sid: Clone + Hash + Eq + Display> {
     sid: Option<Sid>,
     transport: TransportType,
     method: Method,
 }
 
-impl<Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static> RequestInfo<Sid> {
+impl<Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static> RequestInfo<Sid> {
     fn parse<B>(req: &Request<B>) -> Option<Self> {
         let query = req.uri().query()?;
         if !query.contains("EIO=4") {

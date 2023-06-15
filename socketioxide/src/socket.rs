@@ -172,22 +172,22 @@ impl<A: Adapter> Socket<A> {
 
     /// Join the given rooms.
     pub fn join(&self, rooms: impl RoomParam) {
-        self.ns.adapter.add_all(self.sid, rooms);
+        self.ns.adapter.add_all(self.sid.clone(), rooms);
     }
 
     /// Leave the given rooms.
     pub fn leave(&self, rooms: impl RoomParam) {
-        self.ns.adapter.del(self.sid, rooms);
+        self.ns.adapter.del(self.sid.clone(), rooms);
     }
 
     /// Leave all rooms where the socket is connected.
     pub fn leave_all(&self) {
-        self.ns.adapter.del_all(self.sid);
+        self.ns.adapter.del_all(self.sid.clone());
     }
 
     /// Get all rooms where the socket is connected.
     pub fn rooms(&self) -> Vec<Room> {
-        self.ns.adapter.socket_rooms(self.sid)
+        self.ns.adapter.socket_rooms(self.sid.clone())
     }
 
     // Socket operators
@@ -211,7 +211,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).to(rooms)
+        Operators::new(self.ns.clone(), self.sid.clone()).to(rooms)
     }
 
     /// Select all clients in the given rooms.
@@ -233,7 +233,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).within(rooms)
+        Operators::new(self.ns.clone(), self.sid.clone()).within(rooms)
     }
 
     /// Filter out all clients selected with the previous operators which are in the given rooms.
@@ -255,7 +255,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).except(rooms)
+        Operators::new(self.ns.clone(), self.sid.clone()).except(rooms)
     }
 
     /// Broadcast to all clients only connected on this node (when using multiple nodes).
@@ -271,7 +271,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn local(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).local()
+        Operators::new(self.ns.clone(), self.sid.clone()).local()
     }
 
     /// Set a custom timeout when sending a message with an acknowledgement.
@@ -300,7 +300,7 @@ impl<A: Adapter> Socket<A> {
     /// });
     ///
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).timeout(timeout)
+        Operators::new(self.ns.clone(), self.sid.clone()).timeout(timeout)
     }
 
     /// Add a binary payload to the message.
@@ -315,7 +315,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).bin(binary)
+        Operators::new(self.ns.clone(), self.sid.clone()).bin(binary)
     }
 
     /// Broadcast to all clients without any filtering (except the current socket).
@@ -330,12 +330,12 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn broadcast(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).broadcast()
+        Operators::new(self.ns.clone(), self.sid.clone()).broadcast()
     }
 
     /// Disconnect the socket from the current namespace.
     pub fn disconnect(&self) -> Result<(), Error> {
-        self.ns.disconnect(self.sid)
+        self.ns.disconnect(self.sid.clone())
     }
 
     /// Get the current namespace path.
@@ -344,7 +344,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     pub(crate) fn send(&self, packet: Packet, payload: Vec<Vec<u8>>) -> Result<(), Error> {
-        self.client.emit(self.sid, packet, payload)
+        self.client.emit(self.sid.clone(), packet, payload)
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
@@ -356,7 +356,7 @@ impl<A: Adapter> Socket<A> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.write().unwrap().insert(ack, tx);
-        packet.inner.set_ack_id(ack);
+        packet.inner.set_ack_id(ack.clone());
         self.send(packet, payload)?;
         let timeout = timeout.unwrap_or(self.client.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;

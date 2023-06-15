@@ -49,7 +49,7 @@ impl<S: FromStr> BroadcastOptions<S> {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
-    type Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static;
+    type Sid: Clone + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static;
     type G: Generator<Sid = Self::Sid>;
 
     fn new(ns: Weak<Namespace<Self>>, g: Self::G) -> Self
@@ -127,7 +127,7 @@ impl<G: Generator> Adapter for LocalAdapter<G> {
             rooms_map
                 .entry(room)
                 .or_insert_with(HashSet::new)
-                .insert(sid);
+                .insert(sid.clone());
         }
     }
 
@@ -192,7 +192,7 @@ impl<G: Generator> Adapter for LocalAdapter<G> {
         opts.rooms.extend(rooms.into_room_iter());
         self.apply_opts(opts)
             .into_iter()
-            .map(|socket| socket.sid)
+            .map(|socket| socket.sid.clone())
             .collect()
     }
 
@@ -213,14 +213,14 @@ impl<G: Generator> Adapter for LocalAdapter<G> {
     fn add_sockets(&self, opts: BroadcastOptions<Self::Sid>, rooms: impl RoomParam) {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
-            self.add_all(socket.sid, rooms.clone());
+            self.add_all(socket.sid.clone(), rooms.clone());
         }
     }
 
     fn del_sockets(&self, opts: BroadcastOptions<Self::Sid>, rooms: impl RoomParam) {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
-            self.del(socket.sid, rooms.clone());
+            self.del(socket.sid.clone(), rooms.clone());
         }
     }
 
@@ -249,7 +249,7 @@ impl<G: Generator> LocalAdapter<G> {
                     !except.contains(*sid)
                         && (!opts.flags.contains(&BroadcastFlags::Broadcast) || **sid != opts.sid)
                 })
-                .filter_map(|sid| ns.get_socket(*sid).ok())
+                .filter_map(|sid| ns.get_socket(sid.clone()).ok())
                 .collect()
         } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
             let sockets = ns.get_sockets();
@@ -269,7 +269,7 @@ impl<G: Generator> LocalAdapter<G> {
         let rooms_map = self.rooms.read().unwrap();
         for room in except {
             if let Some(sockets) = rooms_map.get(room) {
-                except_sids.extend(sockets);
+                except_sids.extend(sockets.clone());
             }
         }
         except_sids

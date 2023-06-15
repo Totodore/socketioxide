@@ -71,9 +71,9 @@ where
         let sid = self.sid_generator.generate_sid();
         {
             self.sockets.write().unwrap().insert(
-                sid,
+                sid.clone(),
                 Socket::new(
-                    sid,
+                    sid.clone(),
                     ConnectionType::Http,
                     &self.config,
                     self.handler.clone(),
@@ -82,7 +82,7 @@ where
                 .into(),
             );
         }
-        let socket = self.get_socket(sid).unwrap();
+        let socket = self.get_socket(sid.clone()).unwrap();
         socket.spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
         let packet: String =
             Packet::Open(OpenPacket::new(TransportType::Polling, sid, &self.config)).try_into()?;
@@ -101,7 +101,7 @@ where
         B: Send + 'static,
     {
         let socket = self
-            .get_socket(sid)
+            .get_socket(sid.clone())
             .and_then(|s| s.is_http().then(|| s))
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
 
@@ -112,7 +112,7 @@ where
             Err(_) => {
                 if socket.is_http() {
                     socket.send(Packet::Close)?;
-                    self.close_session(sid);
+                    self.close_session(sid.clone());
                 }
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
@@ -169,7 +169,7 @@ where
         let packets = body.reader().split(b'\x1e');
 
         let socket = self
-            .get_socket(sid)
+            .get_socket(sid.clone())
             .and_then(|s| s.is_http().then(|| s))
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
 
@@ -178,22 +178,23 @@ where
                 Ok(p) => p,
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(sid);
+                    self.close_session(sid.clone());
                     return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
                 }
             };
             match socket.handle_packet(packet).await {
                 ControlFlow::Continue(Err(e)) => {
-                    debug!("[sid={sid}] error handling packet: {:?}", e)
+                    debug!("[sid={}] error handling packet: {:?}", sid.clone(), e)
                 }
                 ControlFlow::Continue(Ok(_)) => (),
-                ControlFlow::Break(Ok(_)) => self.close_session(sid),
+                ControlFlow::Break(Ok(_)) => self.close_session(sid.clone()),
                 ControlFlow::Break(Err(e)) => {
                     debug!(
-                        "[sid={sid}] error handling packet, closing session: {:?}",
+                        "[sid={}] error handling packet, closing session: {:?}",
+                        sid.clone(),
                         e
                     );
-                    self.close_session(sid);
+                    self.close_session(sid.clone());
                 }
             };
         }
@@ -244,10 +245,10 @@ where
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
 
-        let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
+        let socket = if sid.is_none() || self.get_socket(sid.clone().unwrap()).is_none() {
             let sid = self.sid_generator.generate_sid();
             let socket: Arc<Socket<H, G::Sid>> = Socket::new(
-                sid,
+                sid.clone(),
                 ConnectionType::WebSocket,
                 &self.config,
                 self.handler.clone(),
@@ -255,23 +256,23 @@ where
             )
             .into();
             {
-                self.sockets.write().unwrap().insert(sid, socket.clone());
+                self.sockets.write().unwrap().insert(sid.clone(), socket.clone());
             }
             debug!("[sid={sid}] new websocket connection");
-            self.ws_init_handshake(sid, &mut ws).await?;
+            self.ws_init_handshake(sid.clone(), &mut ws).await?;
             socket
                 .clone()
                 .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
             socket
         } else {
-            let sid = sid.unwrap();
-            debug!("[sid={sid}] websocket connection upgrade");
-            if let Some(socket) = self.get_socket(sid) {
+            let sid = sid.clone().unwrap();
+            debug!("[sid={}] websocket connection upgrade", sid.clone());
+            if let Some(socket) = self.get_socket(sid.clone()) {
                 if socket.is_ws() {
                     return Err(Error::UpgradeError);
                 }
             }
-            self.ws_upgrade_handshake(sid, &mut ws).await?;
+            self.ws_upgrade_handshake(sid.clone(), &mut ws).await?;
             self.get_socket(sid).unwrap()
         };
         let (mut tx, mut rx) = ws.split();
@@ -323,7 +324,7 @@ where
                 }
             }
         }
-        self.close_session(socket.sid);
+        self.close_session(socket.sid.clone());
         rx_handle.abort();
         Ok(())
     }
@@ -356,7 +357,7 @@ where
         sid: G::Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
-        let socket = self.get_socket(sid).unwrap();
+        let socket = self.get_socket(sid.clone()).unwrap();
         // send a NOOP packet to any pending polling request
         socket.send(Packet::Noop)?;
 
@@ -377,7 +378,7 @@ where
             _ => Err(Error::UpgradeError)?,
         };
         match Packet::try_from(msg)? {
-            Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),
+            Packet::Upgrade => debug!("[sid={}] ws upgraded successful",sid.clone()),
             p => Err(Error::BadPacket(p))?,
         };
 
