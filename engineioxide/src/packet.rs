@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose, Engine};
 use bytes::Bytes;
 use serde::{de::Error, Deserialize, Serialize};
+use std::fmt::Display;
 
 use crate::{layer::EngineIoConfig, service::TransportType};
 
@@ -113,7 +114,7 @@ pub struct OpenPacket {
 }
 
 impl OpenPacket {
-    pub fn new(transport: TransportType, sid: i64, config: &EngineIoConfig) -> Self {
+    pub fn new(transport: TransportType, sid: impl Display, config: &EngineIoConfig) -> Self {
         let upgrades = if transport == TransportType::Polling {
             vec!["websocket".to_string()]
         } else {

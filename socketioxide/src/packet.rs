@@ -1,6 +1,7 @@
 use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fmt::Display;
 use tracing::debug;
 
 use crate::errors::Error;
@@ -14,7 +15,7 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn connect(ns: String, sid: i64) -> Self {
+    pub fn connect<Sid: Display>(ns: String, sid: Sid) -> Self {
         let val = serde_json::to_value(ConnectPacket {
             sid: sid.to_string(),
         })

@@ -14,8 +14,9 @@ use crate::{
     packet::{OpenPacket, Packet},
     service::TransportType,
     socket::{ConnectionType, Socket, SocketReq},
-    utils::generate_sid,
+    utils::Generator,
 };
+
 use bytes::Buf;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
@@ -27,33 +28,38 @@ use tokio_tungstenite::{
 };
 use tracing::debug;
 
-type SocketMap<T> = RwLock<HashMap<i64, Arc<T>>>;
+type SocketMap<Sid, T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
-pub struct EngineIo<H>
+pub struct EngineIo<H, G>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<G::Sid> + ?Sized,
+    G: Generator,
 {
-    sockets: SocketMap<Socket<H>>,
+    sockets: SocketMap<G::Sid, Socket<H, G::Sid>>,
     handler: Arc<H>,
     pub config: EngineIoConfig,
+    sid_generator: G,
 }
 
-impl<H> EngineIo<H>
+impl<H, G> EngineIo<H, G>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<G::Sid> + ?Sized,
+    G: Generator,
 {
-    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
+    pub fn from_config(handler: Arc<H>, config: EngineIoConfig, g: G) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
             handler,
+            sid_generator: g,
         }
     }
 }
 
-impl<H> EngineIo<H>
+impl<H, G> EngineIo<H, G>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<G::Sid> + ?Sized,
+    G: Generator,
 {
     pub(crate) async fn on_open_http_req<B, R>(
         self: Arc<Self>,
@@ -62,7 +68,7 @@ where
     where
         B: Send + 'static,
     {
-        let sid = generate_sid();
+        let sid = self.sid_generator.generate_sid();
         {
             self.sockets.write().unwrap().insert(
                 sid,
@@ -71,7 +77,7 @@ where
                     ConnectionType::Http,
                     &self.config,
                     self.handler.clone(),
-                    SocketReq::from(req.into_parts().0)
+                    SocketReq::from(req.into_parts().0),
                 )
                 .into(),
             );
@@ -89,7 +95,7 @@ where
     /// Otherwise it will wait for the next packet to be sent from the socket
     pub(crate) async fn on_polling_http_req<B>(
         self: Arc<Self>,
-        sid: i64,
+        sid: G::Sid,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
@@ -147,7 +153,7 @@ where
     /// Split the body into packets and send them to the internal socket
     pub(crate) async fn on_post_http_req<R, B>(
         self: Arc<Self>,
-        sid: i64,
+        sid: G::Sid,
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
@@ -200,7 +206,7 @@ where
     /// the http polling request is closed and the SID is kept for the websocket
     pub(crate) async fn on_ws_req<R, B>(
         self: Arc<Self>,
-        sid: Option<i64>,
+        sid: Option<G::Sid>,
         req: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error> {
         let (parts, _) = req.into_parts();
@@ -233,19 +239,19 @@ where
     async fn on_ws_req_init(
         self: Arc<Self>,
         conn: Upgraded,
-        sid: Option<i64>,
+        sid: Option<G::Sid>,
         req_data: SocketReq,
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
 
         let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
-            let sid = generate_sid();
-            let socket: Arc<Socket<H>> = Socket::new(
+            let sid = self.sid_generator.generate_sid();
+            let socket: Arc<Socket<H, G::Sid>> = Socket::new(
                 sid,
                 ConnectionType::WebSocket,
                 &self.config,
                 self.handler.clone(),
-                req_data
+                req_data,
             )
             .into();
             {
@@ -347,7 +353,7 @@ where
     /// ```
     async fn ws_upgrade_handshake(
         &self,
-        sid: i64,
+        sid: G::Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
@@ -382,7 +388,7 @@ where
     }
     async fn ws_init_handshake(
         &self,
-        sid: i64,
+        sid: G::Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let msg: String =
@@ -392,7 +398,7 @@ where
 
         Ok(())
     }
-    fn close_session(&self, sid: i64) {
+    fn close_session(&self, sid: G::Sid) {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             socket.close();
         }
@@ -403,7 +409,7 @@ where
      * Get a socket by its sid
      * Clones the socket ref to avoid holding the lock
      */
-    pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
+    pub fn get_socket(&self, sid: G::Sid) -> Option<Arc<Socket<H, G::Sid>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 }

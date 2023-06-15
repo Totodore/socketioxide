@@ -58,7 +58,7 @@ where
         match self.project().inner.project() {
             BodyProj::EmptyResponse => std::task::Poll::Ready(None),
             BodyProj::Body { body } => body.poll_data(cx),
-            BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {})
+            BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
         }
     }
 

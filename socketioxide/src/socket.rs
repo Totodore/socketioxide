@@ -32,7 +32,7 @@ pub struct Socket<A: Adapter> {
     ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     pub handshake: Handshake,
-    pub sid: i64,
+    pub sid: A::Sid,
     pub extensions: Extensions,
 }
 
@@ -41,7 +41,7 @@ impl<A: Adapter> Socket<A> {
         client: Arc<Client<A>>,
         ns: Arc<Namespace<A>>,
         handshake: Handshake,
-        sid: i64,
+        sid: A::Sid,
     ) -> Self {
         Self {
             client,

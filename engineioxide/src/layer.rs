@@ -1,27 +1,32 @@
 use async_trait::async_trait;
 use tower::Layer;
 
+use crate::utils::Generator;
 use crate::{service::EngineIoService, socket::Socket};
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::str::FromStr;
 use std::{sync::Arc, time::Duration};
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
-pub trait EngineIoHandler: Send + Sync + 'static {
-
+pub trait EngineIoHandler<Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static>:
+    Send + Sync + 'static
+{
     /// Data associated with the socket.
     type Data: Default + Send + Sync + 'static;
 
     /// Called when a new socket is connected.
-    fn on_connect(self: Arc<Self>, socket: &Socket<Self>);
+    fn on_connect(self: Arc<Self>, socket: &Socket<Self, Sid>);
 
     /// Called when a socket is disconnected.
-    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self>);
+    fn on_disconnect(self: Arc<Self>, socket: &Socket<Self, Sid>);
 
     /// Called when a message is received from the client.
-    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self>);
+    async fn on_message(self: Arc<Self>, msg: String, socket: &Socket<Self, Sid>);
 
     /// Called when a binary message is received from the client.
-    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self>);
+    async fn on_binary(self: Arc<Self>, data: Vec<u8>, socket: &Socket<Self, Sid>);
 }
 
 #[derive(Debug, Clone)]
@@ -154,39 +159,50 @@ impl Default for EngineIoConfigBuilder {
 }
 
 #[derive(Debug, Clone)]
-pub struct EngineIoLayer<H>
+pub struct EngineIoLayer<H, G>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler<G::Sid>,
+    G: Generator,
 {
     config: EngineIoConfig,
     handler: Arc<H>,
+    g: G,
 }
 
-impl<H> EngineIoLayer<H>
+impl<H, G> EngineIoLayer<H, G>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler<G::Sid>,
+    G: Generator,
 {
-    pub fn new(handler: H) -> Self {
+    pub fn new(handler: H, g: G) -> Self {
         Self {
             config: EngineIoConfig::default(),
             handler: handler.into(),
+            g,
         }
     }
-    pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
+    pub fn from_config(handler: H, config: EngineIoConfig, g: G) -> Self {
         Self {
             config,
             handler: handler.into(),
+            g,
         }
     }
 }
 
-impl<S, H> Layer<S> for EngineIoLayer<H>
+impl<S, H, G> Layer<S> for EngineIoLayer<H, G>
 where
-    H: EngineIoHandler,
+    H: EngineIoHandler<G::Sid>,
+    G: Generator,
 {
-    type Service = EngineIoService<S, H>;
+    type Service = EngineIoService<S, H, G>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        EngineIoService::from_config(inner, self.handler.clone(), self.config.clone())
+        EngineIoService::from_config(
+            inner,
+            self.handler.clone(),
+            self.config.clone(),
+            self.g.clone(),
+        )
     }
 }

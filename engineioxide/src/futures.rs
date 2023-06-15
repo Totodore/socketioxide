@@ -51,7 +51,6 @@ impl<F, B> ResponseFuture<F, B> {
         }
     }
 
-
     pub fn new(future: F) -> Self {
         Self {
             inner: ResponseFutureInner::Future { future },

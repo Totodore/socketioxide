@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Server;
+use engineioxide::utils::SnowflakeGenerator;
 use serde_json::Value;
 use socketioxide::{Namespace, SocketIoConfig, SocketIoLayer};
 use tracing::{info, Level};
@@ -44,9 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .build();
 
+    let g = SnowflakeGenerator::default();
+
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::from_config(config, ns));
+        .layer(SocketIoLayer::from_config(config, ns, g));
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())

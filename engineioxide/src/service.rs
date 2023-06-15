@@ -1,3 +1,4 @@
+use crate::utils::Generator;
 use crate::{
     body::ResponseBody,
     engine::EngineIo,
@@ -7,6 +8,8 @@ use crate::{
 use http::{Method, Request};
 use http_body::Body;
 use hyper::{service::Service, Response};
+use std::fmt::Display;
+use std::hash::Hash;
 use std::{
     fmt::Debug,
     str::FromStr,
@@ -14,38 +17,41 @@ use std::{
     task::{Context, Poll},
 };
 
-pub struct EngineIoService<S, H>
+pub struct EngineIoService<S, H, G>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<G::Sid> + ?Sized,
+    G: Generator,
 {
     inner: S,
-    engine: Arc<EngineIo<H>>,
+    engine: Arc<EngineIo<H, G>>,
 }
 
-impl<S, H> EngineIoService<S, H>
+impl<S, H, G> EngineIoService<S, H, G>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<G::Sid> + ?Sized,
+    G: Generator,
 {
-    pub fn from_config(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
+    pub fn from_config(inner: S, handler: Arc<H>, config: EngineIoConfig, g: G) -> Self {
         EngineIoService {
             inner,
-            engine: EngineIo::from_config(handler, config).into(),
+            engine: EngineIo::from_config(handler, config, g).into(),
         }
     }
 
-    pub fn from_custom_engine(inner: S, engine: Arc<EngineIo<H>>) -> Self {
+    pub fn from_custom_engine(inner: S, engine: Arc<EngineIo<H, G>>) -> Self {
         EngineIoService { inner, engine }
     }
 }
 
-impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<S, H>
+impl<ReqBody, ResBody, S, H, G> Service<Request<ReqBody>> for EngineIoService<S, H, G>
 where
     ResBody: Body + Send + 'static,
     ReqBody: http_body::Body + Send + 'static + Debug,
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<G::Sid> + ?Sized,
+    G: Generator,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
@@ -91,9 +97,10 @@ where
     }
 }
 
-impl<S, H> Clone for EngineIoService<S, H>
+impl<S, H, G> Clone for EngineIoService<S, H, G>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<G::Sid> + ?Sized,
+    G: Generator,
     S: Clone,
 {
     fn clone(&self) -> Self {
@@ -122,13 +129,13 @@ impl FromStr for TransportType {
     }
 }
 
-struct RequestInfo {
-    sid: Option<i64>,
+struct RequestInfo<Sid: Copy + Hash + Eq + Display> {
+    sid: Option<Sid>,
     transport: TransportType,
     method: Method,
 }
 
-impl RequestInfo {
+impl<Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static> RequestInfo<Sid> {
     fn parse<B>(req: &Request<B>) -> Option<Self> {
         let query = req.uri().query()?;
         if !query.contains("EIO=4") {

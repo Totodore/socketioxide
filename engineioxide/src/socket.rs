@@ -1,3 +1,6 @@
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::str::FromStr;
 use std::{
     ops::ControlFlow,
     sync::{
@@ -51,11 +54,12 @@ impl From<Parts> for SocketReq {
     }
 }
 
-pub struct Socket<H>
+pub struct Socket<H, Sid>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<Sid> + ?Sized,
+    Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
 {
-    pub sid: i64,
+    pub sid: Sid,
 
     // The connection type casted to u8
     conn: AtomicU8,
@@ -75,21 +79,23 @@ where
     pub req_data: Arc<SocketReq>,
 }
 
-impl<H> Drop for Socket<H>
+impl<H, Sid> Drop for Socket<H, Sid>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<Sid> + ?Sized,
+    Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
 {
     fn drop(&mut self) {
         self.handler.clone().on_disconnect(self);
     }
 }
 
-impl<H> Socket<H>
+impl<H, Sid> Socket<H, Sid>
 where
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler<Sid> + ?Sized,
+    Sid: Copy + Hash + Eq + Debug + Display + FromStr + Send + Sync + 'static,
 {
     pub(crate) fn new(
-        sid: i64,
+        sid: Sid,
         conn: ConnectionType,
         config: &EngineIoConfig,
         handler: Arc<H>,

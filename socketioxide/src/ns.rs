@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use engineioxide::utils::Generator;
 use futures::Future;
 use futures_core::future::BoxFuture;
 
@@ -24,11 +25,11 @@ pub struct Namespace<A: Adapter> {
     pub path: String,
     pub(crate) adapter: A,
     callback: EventCallback<A>,
-    sockets: RwLock<HashMap<i64, Arc<Socket<A>>>>,
+    sockets: RwLock<HashMap<A::Sid, Arc<Socket<A>>>>,
 }
 
-impl Namespace<LocalAdapter> {
-    pub fn builder() -> NamespaceBuilder<LocalAdapter> {
+impl<G: Generator> Namespace<LocalAdapter<G>> {
+    pub fn builder() -> NamespaceBuilder<LocalAdapter<G>> {
         NamespaceBuilder::new()
     }
 
@@ -38,7 +39,7 @@ impl Namespace<LocalAdapter> {
 }
 
 impl<A: Adapter> Namespace<A> {
-    pub fn new(path: impl Into<String>, callback: EventCallback<A>) -> Arc<Self> {
+    pub fn new(path: impl Into<String>, callback: EventCallback<A>, g: A::G) -> Arc<Self> {
         let mut path: String = path.into();
         if !path.starts_with('/') {
             path = format!("/{}", path);
@@ -47,39 +48,39 @@ impl<A: Adapter> Namespace<A> {
             path,
             callback,
             sockets: HashMap::new().into(),
-            adapter: A::new(ns.clone()),
+            adapter: A::new(ns.clone(), g.clone()),
         })
     }
 
     /// Connects a socket to a namespace
-    pub fn connect(self: Arc<Self>, sid: i64, client: Arc<Client<A>>, handshake: Handshake) {
+    pub fn connect(self: Arc<Self>, sid: A::Sid, client: Arc<Client<A>>, handshake: Handshake) {
         let socket: Arc<Socket<A>> = Socket::new(client, self.clone(), handshake, sid).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket));
     }
 
-    pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
+    pub fn disconnect(&self, sid: A::Sid) -> Result<(), Error> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             self.adapter.del_all(sid);
             socket.send(Packet::disconnect(self.path.clone()), vec![])?;
         }
         Ok(())
     }
-    fn remove_socket(&self, sid: i64) {
+    fn remove_socket(&self, sid: A::Sid) {
         self.sockets.write().unwrap().remove(&sid);
         self.adapter.del_all(sid);
     }
 
-    pub fn has(&self, sid: i64) -> bool {
+    pub fn has(&self, sid: A::Sid) -> bool {
         self.sockets.read().unwrap().values().any(|s| s.sid == sid)
     }
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket
-    pub fn socket_recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
+    pub fn socket_recv(&self, sid: A::Sid, packet: PacketData) -> Result<(), Error> {
         self.get_socket(sid)?.recv(packet)
     }
 
-    pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
+    pub fn recv(&self, sid: A::Sid, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Disconnect => {
                 self.remove_socket(sid);
@@ -90,13 +91,13 @@ impl<A: Adapter> Namespace<A> {
             packet => self.socket_recv(sid, packet),
         }
     }
-    pub fn get_socket(&self, sid: i64) -> Result<Arc<Socket<A>>, Error> {
+    pub fn get_socket(&self, sid: A::Sid) -> Result<Arc<Socket<A>>, Error> {
         self.sockets
             .read()
             .unwrap()
             .get(&sid)
             .cloned()
-            .ok_or(Error::SocketGone(sid))
+            .ok_or(Error::SocketGone(sid.to_string()))
     }
     pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
         self.sockets.read().unwrap().values().cloned().collect()

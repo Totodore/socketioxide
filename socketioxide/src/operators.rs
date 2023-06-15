@@ -49,13 +49,13 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
 /// Operators are used to select clients to send a packet to, or to configure the packet that will be emitted.
 #[derive(Debug)]
 pub struct Operators<A: Adapter> {
-    opts: BroadcastOptions,
+    opts: BroadcastOptions<A::Sid>,
     ns: Arc<Namespace<A>>,
     binary: Vec<Vec<u8>>,
 }
 
 impl<A: Adapter> Operators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: i64) -> Self {
+    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: A::Sid) -> Self {
         Self {
             opts: BroadcastOptions::new(sid),
             ns,
