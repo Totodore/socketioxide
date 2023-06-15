@@ -278,12 +278,12 @@ impl<G: Generator> LocalAdapter<G> {
 
 #[cfg(test)]
 mod test {
-
+    use engineioxide::utils::SnowflakeGenerator;
     use super::*;
 
     #[test]
     fn test_server_count() {
-        let ns = Namespace::new_dummy([]);
+        let ns = Namespace::new_dummy([], SnowflakeGenerator::default());
         let adapter: LocalAdapter<_> = LocalAdapter::new(Arc::downgrade(&ns), Default::default());
         assert_eq!(adapter.server_count(), 1);
     }
@@ -291,8 +291,9 @@ mod test {
     #[test]
     fn test_add_all() {
         const SOCKET: i64 = 1;
-        let ns = Namespace::new_dummy([SOCKET]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+        let ns = Namespace::new_dummy([SOCKET], g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns), g.clone());
         adapter.add_all(SOCKET, ["room1", "room2"]);
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
@@ -303,8 +304,9 @@ mod test {
     #[test]
     fn test_del() {
         const SOCKET: i64 = 1;
-        let ns = Namespace::new_dummy([SOCKET]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+        let ns = Namespace::new_dummy([SOCKET],g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns),g);
         adapter.add_all(SOCKET, ["room1", "room2"]);
         adapter.del(SOCKET, "room1");
         let rooms_map = adapter.rooms.read().unwrap();
@@ -316,8 +318,9 @@ mod test {
     #[test]
     fn test_del_all() {
         const SOCKET: i64 = 1;
-        let ns = Namespace::new_dummy([SOCKET]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+        let ns = Namespace::new_dummy([SOCKET],g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns),g);
         adapter.add_all(SOCKET, ["room1", "room2"]);
         adapter.del_all(SOCKET);
         let rooms_map = adapter.rooms.read().unwrap();
@@ -328,8 +331,9 @@ mod test {
 
     #[test]
     fn test_socket_room() {
-        let ns = Namespace::new_dummy([1, 2, 3]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+        let ns = Namespace::new_dummy([1, 2, 3],g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns),g);
         adapter.add_all(1, ["room1", "room2"]);
         adapter.add_all(2, ["room1"]);
         adapter.add_all(3, ["room2"]);
@@ -342,8 +346,9 @@ mod test {
     #[test]
     fn test_add_socket() {
         const SOCKET: i64 = 0;
-        let ns = Namespace::new_dummy([SOCKET]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+        let ns = Namespace::new_dummy([SOCKET], g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns), g);
         adapter.add_all(SOCKET, ["room1"]);
 
         let mut opts = BroadcastOptions::new(SOCKET);
@@ -359,8 +364,10 @@ mod test {
     #[test]
     fn test_del_socket() {
         const SOCKET: i64 = 0;
-        let ns = Namespace::new_dummy([SOCKET]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+
+        let ns = Namespace::new_dummy([SOCKET], g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns),g);
         adapter.add_all(SOCKET, ["room1"]);
 
         let mut opts = BroadcastOptions::new(SOCKET);
@@ -393,8 +400,10 @@ mod test {
         const SOCKET0: i64 = 0;
         const SOCKET1: i64 = 1;
         const SOCKET2: i64 = 2;
-        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+
+        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2], g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns), g);
         adapter.add_all(SOCKET0, ["room1", "room2"]);
         adapter.add_all(SOCKET1, ["room1", "room3"]);
         adapter.add_all(SOCKET2, ["room2", "room3"]);
@@ -420,8 +429,10 @@ mod test {
         const SOCKET0: i64 = 0;
         const SOCKET1: i64 = 1;
         const SOCKET2: i64 = 2;
-        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+
+        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2], g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns),g);
         adapter.add_all(SOCKET0, ["room1", "room2", "room4"]);
         adapter.add_all(SOCKET1, ["room1", "room3", "room5"]);
         adapter.add_all(SOCKET2, ["room2", "room3", "room6"]);
@@ -446,8 +457,10 @@ mod test {
         const SOCKET0: i64 = 0;
         const SOCKET1: i64 = 1;
         const SOCKET2: i64 = 2;
-        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let g = SnowflakeGenerator::default();
+
+        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2],g.clone());
+        let adapter = LocalAdapter::new(Arc::downgrade(&ns),g);
         // Add socket 0 to room1 and room2
         adapter.add_all(SOCKET0, ["room1", "room2"]);
         // Add socket 1 to room1 and room3
