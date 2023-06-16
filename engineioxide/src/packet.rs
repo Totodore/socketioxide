@@ -6,7 +6,7 @@ use crate::{service::TransportType, config::EngineIoConfig};
 
 /// A Packet type to use when sending data to the client from the public API
 ///
-/// This is a subset of the [Packet] enum, which is used internally
+/// This is a subset of the Packet enum, which is used internally
 #[derive(Debug)]
 pub enum SendPacket {
     Message(String),

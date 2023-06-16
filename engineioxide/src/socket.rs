@@ -56,7 +56,7 @@ impl From<Parts> for SocketReq {
 /// A [`Socket`] represents a connection to the server.
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 /// It handles :
-/// * the packet communication between with the [`Engine`](crate::engine)
+/// * the packet communication between with the `Engine`
 /// and the user defined [`Handler`](crate::handler::EngineIoHandler).
 /// * the user defined [`Data`](crate::handler::EngineIoHandler::Data) bound to the socket.
 /// * the heartbeat job that verify that the connection is still up by sending packets periodically.
@@ -230,7 +230,7 @@ where
     }
 
     /// Immediately closes the socket and the underlying connection.
-    /// The socket will be removed from the [`Engine`](crate::engine) and the [`Handler`](crate::layer::EngineIoHandler) will be notified.
+    /// The socket will be removed from the `Engine` and the [`Handler`](crate::handler::EngineIoHandler) will be notified.
     pub fn close(&self) {
         (self.close_fn)(self.sid);
         self.send(Packet::Close).ok();

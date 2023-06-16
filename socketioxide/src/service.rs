@@ -36,7 +36,7 @@ where
 
 impl<A: Adapter> SocketIoService<A, NotFoundService> {
     /// Create a new [`SocketIoService`] with a [`NotFoundService`] as the inner service.
-    /// If the request is not an [`EngineIo`](crate::engine::EngineIo) request, it will always return a 404 response.
+    /// If the request is not an `EngineIo` request, it will always return a 404 response.
     pub fn new(ns_handlers: NsHandlers<A>) -> Self {
         SocketIoService::with_config(ns_handlers, SocketIoConfig::default())
     }

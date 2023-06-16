@@ -15,8 +15,8 @@ use std::{
     task::{Context, Poll},
 };
 
-/// A [`Service`] that handles [`EngineIo`](crate::engine::EngineIo) requests as a middleware.
-/// If the request is not an [`EngineIo`](crate::engine::EngineIo) request, it forwards it to the inner service.
+/// A [`Service`] that handles `EngineIo` requests as a middleware.
+/// If the request is not an `EngineIo` request, it forwards it to the inner service.
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 ///
 /// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
@@ -32,7 +32,7 @@ where
     H: EngineIoHandler + ?Sized,
 {
     /// Create a new [`EngineIoService`] with a [`NotFoundService`] as the inner service.
-    /// If the request is not an [`EngineIo`](crate::engine::EngineIo) request, it will always return a 404 response.
+    /// If the request is not an `EngineIo` request, it will always return a 404 response.
     pub fn new(handler: Arc<H>) -> Self {
         EngineIoService {
             inner: NotFoundService,
@@ -100,7 +100,7 @@ where
 
     /// Handle the request.
     /// Each request is parsed to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    /// If the request is an [`EngineIo`](crate::engine::EngineIo) request, it is handled by the [`EngineIo`](crate::engine::EngineIo) engine.
+    /// If the request is an `EngineIo` request, it is handled by the `EngineIo` engine.
     /// Otherwise, it is forwarded to the inner service.
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with(&self.engine.config.req_path) {
