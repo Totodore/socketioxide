@@ -59,13 +59,17 @@
                             socket.emit("leave", input.split(" ")[1]);
                             break;
                         case "msg":
+                            const [_, to, ...msg] = input.split(" ");
+                            appendLog(`[info]: Sent message to ${to} : ${msg.join(" ")}`);
+                            socket.emit("message", [to, msg.join(" ")]);
                             break;
                         case "list":
                             appendLog(`[info]: Listing rooms`);
                             socket.emit("list", input.split(" ")[1]);
                             break;
                         case "quit":
-                            break;
+                            appendLog(`[info]: Disconnected from server`);
+                            socket.disconnect();
                         default:
                             appendLog("[info]: Unknown command");
                     }
@@ -85,7 +89,7 @@ Help :
 /nick <name> - change nickname
 /join <room> - join room
 /leave <room> - leave room
-/msg <name> <message> - send private message
+/msg <name|room>? <message> - send a message
 /list - list all rooms
 /list <room> - list all users in room
 /quit - disconnect

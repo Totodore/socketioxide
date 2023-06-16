@@ -25,14 +25,29 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
         return;
     }
 
-    socket.on("message", |socket, message: String, _, _| async move {
-        let Nickname(ref nickname) = *socket.extensions.get().unwrap();
-        info!("Message received from {}: {}", nickname, message);
-        socket
-            .to("default")
-            .emit("message", format!("{}: {}", nickname, message))
-            .ok();
-    });
+    socket.on(
+        "message",
+        |socket, (room, message): (String, String), _, _| async move {
+            let Nickname(ref nickname) = *socket.extensions.get().unwrap();
+            info!("transfering message from {nickname} to {room}: {message}");
+            info!("Sockets in room: {:?}", socket.local().sockets());
+            if let Some(dest) = socket.to("default").sockets().iter().find(|s| {
+                s.extensions
+                    .get::<Nickname>()
+                    .map(|n| n.0 == room)
+                    .unwrap_or_default()
+            }) {
+                info!("Sending message to {}", room);
+                dest.emit("message", format!("{}: {}", nickname, message))
+                    .ok();
+            }
+
+            socket
+                .to(room)
+                .emit("message", format!("{}: {}", nickname, message))
+                .ok();
+        },
+    );
 
     socket.on("join", |socket, room: String, _, _| async move {
         info!("Joining room {}", room);
@@ -52,15 +67,13 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
                 .sockets()
                 .iter()
                 .filter_map(|s| s.extensions.get::<Nickname>())
-                .fold("".to_string(), |mut a, b| {
-                    a.push_str(", ");
-                    a.push_str(&b.0);
-                    a
-                });
+                .fold("".to_string(), |a, b| a + &b.0 + ", ")
+                .trim_end_matches(", ")
+                .to_string();
             socket.emit("message", sockets).ok();
         } else {
-            info!("Listing rooms");
             let rooms = socket.rooms();
+            info!("Listing rooms: {:?}", &rooms);
             socket.emit("message", rooms).ok();
         }
     });
