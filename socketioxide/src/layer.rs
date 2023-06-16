@@ -1,7 +1,6 @@
-use engineioxide::service::EngineIoService;
 use tower::Layer;
 
-use crate::{adapter::Adapter, client::Client, config::SocketIoConfig, ns::NsHandlers};
+use crate::{adapter::Adapter, config::SocketIoConfig, ns::NsHandlers, SocketIoService};
 
 pub struct SocketIoLayer<A: Adapter> {
     config: SocketIoConfig,
@@ -33,10 +32,9 @@ impl<A: Adapter> SocketIoLayer<A> {
 }
 
 impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
-    type Service = EngineIoService<Client<A>, S>;
+    type Service = SocketIoService<A, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        let client = Client::new(self.config.clone(), self.ns_handlers.clone());
-        EngineIoService::with_config_inner(inner, client.into(), self.config.engine_config.clone())
+        SocketIoService::with_config_inner(inner, self.ns_handlers.clone(), self.config.clone())
     }
 }

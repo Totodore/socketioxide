@@ -1163,6 +1163,8 @@ dependencies = [
  "dashmap",
  "engineioxide",
  "futures",
+ "http",
+ "http-body",
  "itertools",
  "serde",
  "serde_json",

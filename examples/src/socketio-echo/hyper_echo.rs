@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use axum::routing::get;
-use axum::Server;
+use hyper::Server;
 use serde_json::Value;
-use socketioxide::{Namespace, SocketIoConfig, SocketIoLayer};
+use socketioxide::{Namespace, SocketIoConfig, SocketIoService};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -21,6 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
     info!("Starting server");
+
     let ns = Namespace::builder()
         .add("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
@@ -43,13 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             socket.emit("auth", data).ok();
         })
         .build();
-
-    let app = axum::Router::new()
-        .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::from_config(config, ns));
-
+    
+    let svc = SocketIoService::with_config(ns, config);
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app.into_make_service())
+        .serve(svc.into_make_service())
         .await?;
 
     Ok(())
