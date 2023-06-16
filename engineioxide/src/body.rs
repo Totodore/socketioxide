@@ -30,6 +30,12 @@ impl<B> ResponseBody<B> {
     }
 }
 
+impl<B> Default for ResponseBody<B> {
+    fn default() -> Self {
+        Self::empty_response()
+    }
+}
+
 #[pin_project(project = BodyProj)]
 enum ResponseBodyInner<B> {
     EmptyResponse,
