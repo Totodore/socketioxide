@@ -16,12 +16,11 @@
             const form = document.querySelector("form");
 
             const nickname = prompt("Enter your name");
-            const socket = io({
+            const socket = io("http://localhost:3000", {
                 auth: {
                     nickname
                 }
             });
-
             function appendLog(val) {
                 logs.value += `${val}\n`;
                 logs.scrollTop = logs.scrollHeight;
