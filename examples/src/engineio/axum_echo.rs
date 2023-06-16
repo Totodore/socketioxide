@@ -14,7 +14,7 @@ use tracing_subscriber::FmtSubscriber;
 struct MyHandler;
 
 #[engineioxide::async_trait]
-impl EngineIoHandler<i64> for MyHandler {
+impl EngineIoHandler for MyHandler {
     type Data = ();
 
     fn on_connect(self: Arc<Self>, socket: &Socket<Self, i64>) {

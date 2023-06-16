@@ -1,4 +1,4 @@
-use engineioxide::utils::{Generator, Sid};
+use engineioxide::utils::{Generator, Sid, SnowflakeGenerator};
 use futures::{stream, StreamExt};
 use futures_core::stream::BoxStream;
 use itertools::Itertools;
@@ -95,7 +95,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
 }
 
 #[derive(Debug)]
-pub struct LocalAdapter<G: Generator> {
+pub struct LocalAdapter<G: Generator = SnowflakeGenerator> {
     rooms: RwLock<HashMap<Room, HashSet<G::Sid>>>,
     ns: Weak<Namespace<Self>>,
     g: G,

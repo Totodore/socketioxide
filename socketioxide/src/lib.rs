@@ -24,7 +24,8 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let subscriber = FmtSubscriber::builder().finish();
+//!     use engineioxide::utils::SnowflakeGenerator;
+//! let subscriber = FmtSubscriber::builder().finish();
 //!     tracing::subscriber::set_global_default(subscriber)?;
 //!
 //!     info!("Starting server");
@@ -52,9 +53,10 @@
 //!         })
 //!         .build();
 //!
+//!     let g = SnowflakeGenerator::default();
 //!     let app = axum::Router::new()
 //!         .route("/", get(|| async { "Hello, World!" }))
-//!         .layer(SocketIoLayer::new(ns));
+//!         .layer(SocketIoLayer::new(ns, g));
 //!
 //!     Server::bind(&"0.0.0.0:3000".parse().unwrap())
 //!         .serve(app.into_make_service())

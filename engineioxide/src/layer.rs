@@ -14,7 +14,7 @@ use std::{
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
-pub trait EngineIoHandler<S: Sid>:
+pub trait EngineIoHandler<S: Sid = i64>:
     Send + Sync + 'static
 {
     /// Data associated with the socket.
@@ -118,7 +118,7 @@ impl EngineIoConfigBuilder {
     /// struct MyHandler;
     ///
     /// #[engineioxide::async_trait]
-    /// impl EngineIoHandler for MyHandler {
+    /// impl EngineIoHandler<i64> for MyHandler {
     ///
     ///     type Data = ();
     ///     fn on_connect(self: Arc<Self>, socket: &Socket<Self>) {

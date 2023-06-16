@@ -127,7 +127,7 @@ impl FromStr for TransportType {
     }
 }
 
-struct RequestInfo<S: Sid> {
+struct RequestInfo<S: Sid = i64> {
     sid: Option<S>,
     transport: TransportType,
     method: Method,

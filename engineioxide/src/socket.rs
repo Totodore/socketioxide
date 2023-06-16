@@ -53,7 +53,7 @@ impl From<Parts> for SocketReq {
     }
 }
 
-pub struct Socket<H, S>
+pub struct Socket<H, S = i64>
 where
     H: EngineIoHandler<S> + ?Sized,
     S: Sid,
