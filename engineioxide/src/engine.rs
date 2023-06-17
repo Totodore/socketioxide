@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::sid_generator::Sid;
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
@@ -13,8 +14,8 @@ use crate::{
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
     service::TransportType,
+    sid_generator::generate_sid,
     socket::{ConnectionType, Socket, SocketReq},
-    utils::generate_sid,
 };
 use bytes::Buf;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
@@ -27,7 +28,7 @@ use tokio_tungstenite::{
 };
 use tracing::debug;
 
-type SocketMap<T> = RwLock<HashMap<i64, Arc<T>>>;
+type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
 pub struct EngineIo<H>
@@ -74,7 +75,7 @@ where
         B: Send + 'static,
     {
         let engine = self.clone();
-        let close_fn = Box::new(move |sid: i64| engine.close_session(sid));
+        let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
@@ -103,7 +104,7 @@ where
     /// Otherwise it will wait for the next packet to be sent from the socket
     pub(crate) async fn on_polling_http_req<B>(
         self: Arc<Self>,
-        sid: i64,
+        sid: Sid,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
@@ -152,7 +153,7 @@ where
     /// Split the body into packets and send them to the internal socket
     pub(crate) async fn on_post_http_req<R, B>(
         self: Arc<Self>,
-        sid: i64,
+        sid: Sid,
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
@@ -215,7 +216,7 @@ where
     /// the http polling request is closed and the SID is kept for the websocket
     pub(crate) fn on_ws_req<R, B>(
         self: Arc<Self>,
-        sid: Option<i64>,
+        sid: Option<Sid>,
         req: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error> {
         let (parts, _) = req.into_parts();
@@ -248,7 +249,7 @@ where
     async fn on_ws_req_init(
         self: Arc<Self>,
         conn: Upgraded,
-        sid: Option<i64>,
+        sid: Option<Sid>,
         req_data: SocketReq,
     ) -> Result<(), Error> {
         let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
@@ -256,7 +257,7 @@ where
         let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
             let sid = generate_sid();
             let engine = self.clone();
-            let close_fn = Box::new(move |sid: i64| engine.close_session(sid));
+            let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
             let socket = Socket::new(
                 sid,
                 ConnectionType::WebSocket,
@@ -378,7 +379,7 @@ where
     /// ```
     async fn ws_upgrade_handshake(
         &self,
-        sid: i64,
+        sid: Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
@@ -418,7 +419,7 @@ where
     /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
     async fn ws_init_handshake(
         &self,
-        sid: i64,
+        sid: Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config));
@@ -428,7 +429,7 @@ where
 
     /// Close an engine.io session by removing the socket from the socket map and closing the socket
     /// It should be the only way to close a session and to remove a socket from the socket map
-    fn close_session(&self, sid: i64) {
+    fn close_session(&self, sid: Sid) {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
             self.handler.on_disconnect(&socket);
@@ -444,7 +445,7 @@ where
 
     /// Get a socket by its sid
     /// Clones the socket ref to avoid holding the lock
-    pub fn get_socket(&self, sid: i64) -> Option<Arc<Socket<H>>> {
+    pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 }

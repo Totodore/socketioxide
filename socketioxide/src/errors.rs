@@ -1,3 +1,4 @@
+use engineioxide::sid_generator::Sid;
 use tokio::sync::oneshot;
 use tower::BoxError;
 
@@ -19,7 +20,7 @@ pub enum Error {
     EngineGone,
 
     #[error("cannot find socketio socket")]
-    SocketGone(i64),
+    SocketGone(Sid),
 
     #[error("engineio error: {0}")]
     EngineIoError(#[from] engineioxide::errors::Error),

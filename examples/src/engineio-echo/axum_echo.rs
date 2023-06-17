@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Server;
-use engineioxide::{layer::EngineIoLayer, socket::Socket, handler::EngineIoHandler, config::EngineIoConfig};
+use engineioxide::{
+    config::EngineIoConfig, handler::EngineIoHandler, layer::EngineIoLayer, socket::Socket,
+};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 

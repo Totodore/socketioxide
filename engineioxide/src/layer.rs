@@ -33,7 +33,7 @@ where
 impl<S, H> Layer<S> for EngineIoLayer<H>
 where
     H: EngineIoHandler,
-    S: Clone
+    S: Clone,
 {
     type Service = EngineIoService<H, S>;
 

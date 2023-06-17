@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             socket.emit("auth", data).ok();
         })
         .build();
-    
+
     let svc = SocketIoService::with_config(ns, config);
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(svc.into_make_service())

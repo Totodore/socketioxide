@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
     /// The path to listen for engine.io requests on.

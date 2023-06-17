@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::errors::Error;
+use engineioxide::sid_generator::Sid;
 use engineioxide::SendPacket as EnginePacket;
 
 /// The socket.io packet type.
@@ -15,7 +16,7 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn connect(ns: String, sid: i64) -> Self {
+    pub fn connect(ns: String, sid: Sid) -> Self {
         let val = serde_json::to_value(ConnectPacket {
             sid: sid.to_string(),
         })
