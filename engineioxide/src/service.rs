@@ -249,12 +249,12 @@ impl RequestInfo {
             .and_then(|s| s.split('=').nth(1).map(|s1| s1.parse().ok()))
             .flatten();
 
-        let transport = query
+        let transport: TransportType = query
             .split('&')
             .find(|s| s.starts_with("transport="))
             .and_then(|s| s.split('=').nth(1))
             .ok_or(UnknownTransport)
-            .map(|t| t.parse())??;
+            .and_then(|t| t.parse())?;
 
         Ok(RequestInfo {
             sid,
