@@ -58,11 +58,15 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .unwrap(),
             Error::UnsupportedProtocolVersion => Response::builder()
                 .status(400)
-                .body(ResponseBody::custom_response("{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}".into()))
+                .body(ResponseBody::custom_response(
+                    "{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}".into(),
+                ))
                 .unwrap(),
             Error::UnknownTransport => Response::builder()
                 .status(400)
-                .body(ResponseBody::custom_response("{\"code\":\"0\",\"message\":\"Transport unknown\"}".into()))
+                .body(ResponseBody::custom_response(
+                    "{\"code\":\"0\",\"message\":\"Transport unknown\"}".into(),
+                ))
                 .unwrap(),
             e => {
                 debug!("uncaught error {e:?}");

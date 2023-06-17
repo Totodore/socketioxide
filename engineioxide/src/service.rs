@@ -1,14 +1,14 @@
 use crate::{
-    errors::{
-        Error,
-        Error::{UnknownTransport, UnsupportedProtocolVersion}
-    },
-    sid_generator::Sid,
     body::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
+    errors::{
+        Error,
+        Error::{UnknownTransport, UnsupportedProtocolVersion},
+    },
     futures::ResponseFuture,
-    handler::EngineIoHandler
+    handler::EngineIoHandler,
+    sid_generator::Sid,
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -252,8 +252,9 @@ impl RequestInfo {
         let transport = query
             .split('&')
             .find(|s| s.starts_with("transport="))
-            .and_then(|s| s.split('=').nth(1)).ok_or(UnknownTransport).map(|t| t.parse())??;
-
+            .and_then(|s| s.split('=').nth(1))
+            .ok_or(UnknownTransport)
+            .map(|t| t.parse())??;
 
         Ok(RequestInfo {
             sid,
