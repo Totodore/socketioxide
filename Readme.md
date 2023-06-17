@@ -21,10 +21,7 @@ It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and 
 * Extensions on socket to add custom data to sockets
 
 ### Planned features :
-* Improving the documentation
-* Adding more tests & benchmars 
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
-* Better error handling
 * State recovery when a socket reconnects
 * SocketIo v3 support (currently only v4 is supported)
 
