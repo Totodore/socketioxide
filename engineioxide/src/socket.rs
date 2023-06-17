@@ -13,6 +13,7 @@ use tokio::{
 };
 use tracing::debug;
 
+use crate::sid_generator::Sid;
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
     utils::forward_map_chan, SendPacket,
@@ -65,7 +66,7 @@ where
     H: EngineIoHandler + ?Sized,
 {
     /// The socket id
-    pub sid: i64,
+    pub sid: Sid,
 
     /// The connection type represented as a bitfield
     /// It is represented as a bitfield to allow the use of an [`AtomicU8`] so it can be shared between threads
@@ -95,7 +96,7 @@ where
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
     /// Function to call when the socket is closed
-    close_fn: Box<dyn Fn(i64) + Send + Sync>,
+    close_fn: Box<dyn Fn(Sid) + Send + Sync>,
     /// User data bound to the socket
     pub data: H::Data,
 
@@ -108,11 +109,11 @@ where
     H: EngineIoHandler + ?Sized,
 {
     pub(crate) fn new(
-        sid: i64,
+        sid: Sid,
         conn: ConnectionType,
         config: &EngineIoConfig,
         req_data: SocketReq,
-        close_fn: Box<dyn Fn(i64) + Send + Sync>,
+        close_fn: Box<dyn Fn(Sid) + Send + Sync>,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
@@ -251,7 +252,7 @@ where
 
 #[cfg(test)]
 impl<H: EngineIoHandler> Socket<H> {
-    pub fn new_dummy(sid: i64, close_fn: Box<dyn Fn(i64) + Send + Sync>) -> Socket<H> {
+    pub fn new_dummy(sid: Sid, close_fn: Box<dyn Fn(Sid) + Send + Sync>) -> Socket<H> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (tx, rx) = mpsc::channel(200);
         let (pong_tx, pong_rx) = mpsc::channel(1);

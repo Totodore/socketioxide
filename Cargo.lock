@@ -87,6 +87,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
 
 [[package]]
+name = "base64id"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ee811b26e66feca46f378d4d7baa0deefeaff934befd14c46a9de9dda565a1a"
+dependencies = [
+ "rand",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -331,6 +340,7 @@ version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64",
+ "base64id",
  "bytes",
  "criterion",
  "futures",
@@ -339,6 +349,7 @@ dependencies = [
  "hyper",
  "lazy_static",
  "pin-project",
+ "rand",
  "rs-snowflake",
  "serde",
  "serde_json",

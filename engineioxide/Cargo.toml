@@ -30,6 +30,8 @@ tokio = "1.26.0"
 tokio-tungstenite = "0.19.0"
 tower = "0.4.13"
 tracing = "0.1.37"
+rand = "0.8.5"
+base64id = { version = "0.3.1", features = ["std", "rand"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }

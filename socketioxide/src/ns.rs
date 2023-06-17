@@ -11,6 +11,7 @@ use crate::{
     socket::Socket,
     SocketIoConfig,
 };
+use engineioxide::sid_generator::Sid;
 use engineioxide::SendPacket as EnginePacket;
 use futures::{future::BoxFuture, Future};
 use tokio::sync::mpsc;
@@ -24,7 +25,7 @@ pub struct Namespace<A: Adapter> {
     pub path: String,
     pub(crate) adapter: A,
     callback: EventCallback<A>,
-    sockets: RwLock<HashMap<i64, Arc<Socket<A>>>>,
+    sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
 }
 
 impl Namespace<LocalAdapter> {
@@ -54,7 +55,7 @@ impl<A: Adapter> Namespace<A> {
     /// Connects a socket to a namespace
     pub fn connect(
         self: Arc<Self>,
-        sid: i64,
+        sid: Sid,
         tx: mpsc::Sender<EnginePacket>,
         handshake: Handshake,
         config: Arc<SocketIoConfig>,
@@ -65,28 +66,28 @@ impl<A: Adapter> Namespace<A> {
         socket
     }
 
-    pub fn disconnect(&self, sid: i64) -> Result<(), Error> {
+    pub fn disconnect(&self, sid: Sid) -> Result<(), Error> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             self.adapter.del_all(sid);
             socket.send(Packet::disconnect(self.path.clone()))?;
         }
         Ok(())
     }
-    fn remove_socket(&self, sid: i64) {
+    fn remove_socket(&self, sid: Sid) {
         self.sockets.write().unwrap().remove(&sid);
         self.adapter.del_all(sid);
     }
 
-    pub fn has(&self, sid: i64) -> bool {
+    pub fn has(&self, sid: Sid) -> bool {
         self.sockets.read().unwrap().values().any(|s| s.sid == sid)
     }
 
     /// Called when a namespace receive a particular packet that should be transmitted to the socket
-    pub fn socket_recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
+    pub fn socket_recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
         self.get_socket(sid)?.recv(packet)
     }
 
-    pub fn recv(&self, sid: i64, packet: PacketData) -> Result<(), Error> {
+    pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Disconnect => {
                 self.remove_socket(sid);
@@ -97,7 +98,7 @@ impl<A: Adapter> Namespace<A> {
             packet => self.socket_recv(sid, packet),
         }
     }
-    pub fn get_socket(&self, sid: i64) -> Result<Arc<Socket<A>>, Error> {
+    pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {
         self.sockets
             .read()
             .unwrap()
@@ -112,7 +113,7 @@ impl<A: Adapter> Namespace<A> {
 
 #[cfg(test)]
 impl<A: Adapter> Namespace<A> {
-    pub fn new_dummy<const S: usize>(sockets: [i64; S]) -> Arc<Self> {
+    pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
         use futures::future::FutureExt;
         let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
         for sid in sockets {

@@ -2,7 +2,8 @@ use base64::{engine::general_purpose, Engine};
 use bytes::Bytes;
 use serde::{de::Error, Deserialize, Serialize};
 
-use crate::{service::TransportType, config::EngineIoConfig};
+use crate::sid_generator::Sid;
+use crate::{config::EngineIoConfig, service::TransportType};
 
 /// A Packet type to use when sending data to the client from the public API
 ///
@@ -152,7 +153,7 @@ pub struct OpenPacket {
 impl OpenPacket {
     /// Create a new [OpenPacket]
     /// If the current transport is polling, the server will always allow the client to upgrade to websocket
-    pub fn new(transport: TransportType, sid: i64, config: &EngineIoConfig) -> Self {
+    pub fn new(transport: TransportType, sid: Sid, config: &EngineIoConfig) -> Self {
         let upgrades = if transport == TransportType::Polling {
             vec!["websocket".to_string()]
         } else {
@@ -179,11 +180,11 @@ mod tests {
     fn test_open_packet() {
         let packet = Packet::Open(OpenPacket::new(
             TransportType::Polling,
-            1,
+            1i64.into(),
             &EngineIoConfig::default(),
         ));
         let packet_str: String = packet.try_into().unwrap();
-        assert_eq!(packet_str, "0{\"sid\":\"1\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}");
+        assert_eq!(packet_str, "0{\"sid\":\"AAAAAAAAAAE\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}");
     }
 
     #[test]

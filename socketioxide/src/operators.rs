@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use engineioxide::sid_generator::Sid;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
@@ -55,7 +56,7 @@ pub struct Operators<A: Adapter> {
 }
 
 impl<A: Adapter> Operators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: i64) -> Self {
+    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
         Self {
             opts: BroadcastOptions::new(sid),
             ns,

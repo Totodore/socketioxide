@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use engineioxide::sid_generator::Sid;
 use engineioxide::SendPacket as EnginePacket;
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
@@ -34,13 +35,13 @@ pub struct Socket<A: Adapter> {
     ack_counter: AtomicI64,
     tx: tokio::sync::mpsc::Sender<EnginePacket>,
     pub handshake: Handshake,
-    pub sid: i64,
+    pub sid: Sid,
     pub extensions: Extensions,
 }
 
 impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
-        sid: i64,
+        sid: Sid,
         ns: Arc<Namespace<A>>,
         handshake: Handshake,
         tx: tokio::sync::mpsc::Sender<EnginePacket>,
@@ -439,7 +440,7 @@ impl<A: Adapter> Debug for Socket<A> {
 
 #[cfg(test)]
 impl<A: Adapter> Socket<A> {
-    pub fn new_dummy(sid: i64, ns: Arc<Namespace<A>>) -> Socket<A> {
+    pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         tokio::spawn(async move {
             while let Some(packet) = rx.recv().await {

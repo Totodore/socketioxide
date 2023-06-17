@@ -5,6 +5,7 @@ use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::Socket as EIoSocket;
 use serde_json::Value;
 
+use engineioxide::sid_generator::Sid;
 use tracing::debug;
 use tracing::error;
 
@@ -88,7 +89,7 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Propagate a packet to a its target namespace
-    fn sock_propagate_packet(&self, packet: Packet, sid: i64) -> Result<(), Error> {
+    fn sock_propagate_packet(&self, packet: Packet, sid: Sid) -> Result<(), Error> {
         if let Some(ns) = self.ns.get(&packet.ns) {
             ns.recv(sid, packet.inner)
         } else {
