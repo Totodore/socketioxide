@@ -26,6 +26,7 @@ It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and 
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
 * Better error handling
 * State recovery when a socket reconnects
+* SocketIo v3 support (currently only v4 is supported)
 
 ### Examples :
 * [Chat app with Axum](./examples/src/chat)
@@ -35,7 +36,7 @@ use axum::routing::get;
 use axum::Server;
 use serde::{Serialize, Deserialize};
 use socketioxide::{Namespace, SocketIoLayer};
-use tracing::info;
+use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MyData {
@@ -46,28 +47,28 @@ struct MyData {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    info!("Starting server");
+    println!("Starting server");
 
     let ns = Namespace::builder()
         .add("/", |socket| async move {
-            info!("Socket connected on / namespace with id: {}", socket.sid);
+            println!("Socket connected on / namespace with id: {}", socket.sid);
 
             // Add a callback triggered when the socket receive an 'abc' event
             // The json data will be deserialized to MyData
             socket.on("abc", |socket, data: MyData, bin, _| async move {
-                info!("Received abc event: {:?} {:?}", data, bin);
+                println!("Received abc event: {:?} {:?}", data, bin);
                 socket.bin(bin).emit("abc", data).ok();
             });
 
             // Add a callback triggered when the socket receive an 'acb' event
             // Ackknowledge the message with the ack callback
             socket.on("acb", |_, data: Value, bin, ack| async move {
-                info!("Received acb event: {:?} {:?}", data, bin);
+                println!("Received acb event: {:?} {:?}", data, bin);
                 ack.bin(bin).send(data).ok();
             });
         })
         .add("/custom", |socket| async move {
-            info!("Socket connected on /custom namespace with id: {}", socket.sid);
+            println!("Socket connected on /custom namespace with id: {}", socket.sid);
         })
         .build();
 

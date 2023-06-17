@@ -7,7 +7,8 @@ use tower::Service;
 use crate::{adapter::Adapter, client::Client, ns::NsHandlers, SocketIoConfig};
 
 /// The service for Socket.IO
-/// It is a wrapper around the Engine.IO service
+/// 
+/// It is a wrapper around the Engine.IO service. 
 /// Its main purpose is to be able to use it as standalone Socket.IO service
 pub struct SocketIoService<A: Adapter, S: Clone> {
     engine_svc: EngineIoService<Client<A>, S>,

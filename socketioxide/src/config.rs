@@ -68,9 +68,13 @@ impl Default for SocketIoConfigBuilder {
     }
 }
 
+/// Configuration for Socket.IO & Engine.IO
 #[derive(Debug, Clone)]
 pub struct SocketIoConfig {
+    /// The inner Engine.IO config
     pub(crate) engine_config: EngineIoConfig,
+
+    /// The amount of time the server will wait for an acknowledgement from the client before closing the connection.
     pub(crate) ack_timeout: Duration,
 }
 

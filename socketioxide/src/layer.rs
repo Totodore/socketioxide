@@ -2,6 +2,7 @@ use tower::Layer;
 
 use crate::{adapter::Adapter, config::SocketIoConfig, ns::NsHandlers, SocketIoService};
 
+/// A [`Layer`] for [`SocketIoService`], acting as a middleware.
 pub struct SocketIoLayer<A: Adapter> {
     config: SocketIoConfig,
     ns_handlers: NsHandlers<A>,

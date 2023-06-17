@@ -1,3 +1,8 @@
+//! Adapters are responsible for managing the state of the server.
+//! When a socket joins or leaves a room, the adapter is responsible for updating the state.
+//! The default adapter is the [`LocalAdapter`], which stores the state in memory.
+//! Other adapters can be made to share the state between multiple servers.
+
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock, Weak},
@@ -21,19 +26,30 @@ use crate::{
     socket::Socket,
 };
 
+/// A room identifier
 pub type Room = String;
 
+/// Flags that can be used to modify the behavior of the broadcast methods.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum BroadcastFlags {
+    /// Broadcast only to the current server
     Local,
+    /// Broadcast to all servers
     Broadcast,
+    /// Add a custom timeout to the ack callback
     Timeout(Duration),
 }
+
+/// Options that can be used to modify the behavior of the broadcast methods.
 #[derive(Clone, Debug)]
 pub struct BroadcastOptions {
+    /// The flags to apply to the broadcast.
     pub flags: HashSet<BroadcastFlags>,
+    /// The rooms to broadcast to.
     pub rooms: Vec<Room>,
+    /// The rooms to exclude from the broadcast.
     pub except: Vec<Room>,
+    /// The socket id of the sender.
     pub sid: Sid,
 }
 impl BroadcastOptions {
@@ -49,34 +65,53 @@ impl BroadcastOptions {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
+
+    /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
         Self: Sized;
+
+    /// Initialize the adapter.
     fn init(&self);
+    /// Close the adapter.
     fn close(&self);
 
+    /// Return the number of servers.
     fn server_count(&self) -> u16;
 
+    /// Add the socket to all the rooms.
     fn add_all(&self, sid: Sid, rooms: impl RoomParam);
+    /// Remove the socket from the rooms.
     fn del(&self, sid: Sid, rooms: impl RoomParam);
+    /// Remove the socket from all the rooms.
     fn del_all(&self, sid: Sid);
 
+    /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
     fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error>;
 
+    /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
+    /// Return the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Vec<Sid>;
+
+    /// Return the rooms of the socket.
     fn socket_rooms(&self, sid: Sid) -> Vec<Room>;
 
+    /// Return the sockets that match the [`BroadcastOptions`].
     fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>>
     where
         Self: Sized;
+
+    /// Add the sockets that match the [`BroadcastOptions`] to the rooms.
     fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
+    /// Remove the sockets that match the [`BroadcastOptions`] from the rooms.
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
+    /// Disconnect the sockets that match the [`BroadcastOptions`].
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error>;
 
     //TODO: implement
@@ -85,6 +120,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     // fn restore_session(&self, sid: i64) -> Session;
 }
 
+/// The default adapter. store the state in memory.
 #[derive(Debug)]
 pub struct LocalAdapter {
     rooms: RwLock<HashMap<Room, HashSet<Sid>>>,

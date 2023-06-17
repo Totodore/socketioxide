@@ -1,8 +1,10 @@
 use base64id::Id64;
 use rand::Rng;
 
+/// A session id type
 pub type Sid = Id64;
 
+/// Generate a new session id (base64 10 chars)
 pub fn generate_sid() -> Sid {
     let id: Id64 = rand::thread_rng().gen();
 

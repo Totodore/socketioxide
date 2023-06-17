@@ -27,6 +27,8 @@ use crate::{
     SocketIoConfig,
 };
 
+/// A Socket represents a client connected to a namespace.
+/// It is used to send and receive messages from the client, join and leave rooms, etc.
 pub struct Socket<A: Adapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
