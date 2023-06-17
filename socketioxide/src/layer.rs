@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
-use engineioxide::{engine::EngineIo, service::EngineIoService};
 use tower::Layer;
 
-use crate::{adapter::Adapter, client::Client, config::SocketIoConfig, ns::NsHandlers};
+use crate::{adapter::Adapter, config::SocketIoConfig, ns::NsHandlers, SocketIoService};
 
+/// A [`Layer`] for [`SocketIoService`], acting as a middleware.
 pub struct SocketIoLayer<A: Adapter> {
     config: SocketIoConfig,
     ns_handlers: NsHandlers<A>,
@@ -34,15 +32,10 @@ impl<A: Adapter> SocketIoLayer<A> {
     }
 }
 
-impl<S, A: Adapter> Layer<S> for SocketIoLayer<A> {
-    type Service = EngineIoService<S, Client<A>>;
+impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
+    type Service = SocketIoService<A, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        let engine: Arc<EngineIo<Client<A>>> = Arc::new_cyclic(|e| {
-            let client = Client::new(self.config.clone(), e.clone(), self.ns_handlers.clone());
-            EngineIo::from_config(client.into(), self.config.engine_config.clone())
-        });
-
-        EngineIoService::from_custom_engine(inner, engine)
+        SocketIoService::with_config_inner(inner, self.ns_handlers.clone(), self.config.clone())
     }
 }

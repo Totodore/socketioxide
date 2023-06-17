@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use futures_core::stream::BoxStream;
+use engineioxide::sid_generator::Sid;
+use futures::stream::BoxStream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -55,7 +56,7 @@ pub struct Operators<A: Adapter> {
 }
 
 impl<A: Adapter> Operators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: i64) -> Self {
+    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
         Self {
             opts: BroadcastOptions::new(sid),
             ns,
@@ -224,9 +225,13 @@ impl<A: Adapter> Operators<A> {
     ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn emit(self, event: impl Into<String>, data: impl serde::Serialize) -> Result<(), Error> {
+    pub fn emit(
+        mut self,
+        event: impl Into<String>,
+        data: impl serde::Serialize,
+    ) -> Result<(), Error> {
         let packet = self.get_packet(event, data)?;
-        self.ns.adapter.broadcast(packet, self.binary, self.opts)
+        self.ns.adapter.broadcast(packet, self.opts)
     }
 
     /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.
@@ -254,15 +259,12 @@ impl<A: Adapter> Operators<A> {
     /// });
     ///
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
-        self,
+        mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Error> {
         let packet = self.get_packet(event, data)?;
-        Ok(self
-            .ns
-            .adapter
-            .broadcast_with_ack(packet, self.binary, self.opts))
+        Ok(self.ns.adapter.broadcast_with_ack(packet, self.opts))
     }
 
     /// Get all sockets selected with the previous operators.
@@ -286,13 +288,18 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Create a packet with the given event and data.
-    fn get_packet(&self, event: impl Into<String>, data: impl Serialize) -> Result<Packet, Error> {
+    fn get_packet(
+        &mut self,
+        event: impl Into<String>,
+        data: impl Serialize,
+    ) -> Result<Packet, Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns.path.clone(), event.into(), data)
         } else {
-            Packet::bin_event(ns.path.clone(), event.into(), data, self.binary.len())
+            let binary = std::mem::take(&mut self.binary);
+            Packet::bin_event(ns.path.clone(), event.into(), data, binary)
         };
         Ok(packet)
     }

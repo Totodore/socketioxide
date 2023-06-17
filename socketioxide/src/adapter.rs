@@ -1,11 +1,19 @@
+//! Adapters are responsible for managing the state of the server.
+//! When a socket joins or leaves a room, the adapter is responsible for updating the state.
+//! The default adapter is the [`LocalAdapter`], which stores the state in memory.
+//! Other adapters can be made to share the state between multiple servers.
+
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock, Weak},
     time::Duration,
 };
 
-use futures::{stream, StreamExt};
-use futures_core::stream::BoxStream;
+use engineioxide::sid_generator::Sid;
+use futures::{
+    stream::{self, BoxStream},
+    StreamExt,
+};
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
@@ -18,23 +26,34 @@ use crate::{
     socket::Socket,
 };
 
+/// A room identifier
 pub type Room = String;
 
+/// Flags that can be used to modify the behavior of the broadcast methods.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum BroadcastFlags {
+    /// Broadcast only to the current server
     Local,
+    /// Broadcast to all servers
     Broadcast,
+    /// Add a custom timeout to the ack callback
     Timeout(Duration),
 }
+
+/// Options that can be used to modify the behavior of the broadcast methods.
 #[derive(Clone, Debug)]
 pub struct BroadcastOptions {
+    /// The flags to apply to the broadcast.
     pub flags: HashSet<BroadcastFlags>,
+    /// The rooms to broadcast to.
     pub rooms: Vec<Room>,
+    /// The rooms to exclude from the broadcast.
     pub except: Vec<Room>,
-    pub sid: i64,
+    /// The socket id of the sender.
+    pub sid: Sid,
 }
 impl BroadcastOptions {
-    pub fn new(sid: i64) -> Self {
+    pub fn new(sid: Sid) -> Self {
         Self {
             flags: HashSet::new(),
             rooms: Vec::new(),
@@ -46,40 +65,53 @@ impl BroadcastOptions {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
+
+    /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
         Self: Sized;
+
+    /// Initialize the adapter.
     fn init(&self);
+    /// Close the adapter.
     fn close(&self);
 
+    /// Return the number of servers.
     fn server_count(&self) -> u16;
 
-    fn add_all(&self, sid: i64, rooms: impl RoomParam);
-    fn del(&self, sid: i64, rooms: impl RoomParam);
-    fn del_all(&self, sid: i64);
+    /// Add the socket to all the rooms.
+    fn add_all(&self, sid: Sid, rooms: impl RoomParam);
+    /// Remove the socket from the rooms.
+    fn del(&self, sid: Sid, rooms: impl RoomParam);
+    /// Remove the socket from all the rooms.
+    fn del_all(&self, sid: Sid);
 
-    fn broadcast(
-        &self,
-        packet: Packet,
-        binary: Vec<Vec<u8>>,
-        opts: BroadcastOptions,
-    ) -> Result<(), Error>;
+    /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error>;
 
+    /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
 
-    fn sockets(&self, rooms: impl RoomParam) -> Vec<i64>;
-    fn socket_rooms(&self, sid: i64) -> Vec<Room>;
+    /// Return the sockets ids that match the [`BroadcastOptions`].
+    fn sockets(&self, rooms: impl RoomParam) -> Vec<Sid>;
 
+    /// Return the rooms of the socket.
+    fn socket_rooms(&self, sid: Sid) -> Vec<Room>;
+
+    /// Return the sockets that match the [`BroadcastOptions`].
     fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>>
     where
         Self: Sized;
+
+    /// Add the sockets that match the [`BroadcastOptions`] to the rooms.
     fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
+    /// Remove the sockets that match the [`BroadcastOptions`] from the rooms.
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
+    /// Disconnect the sockets that match the [`BroadcastOptions`].
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error>;
 
     //TODO: implement
@@ -88,9 +120,10 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     // fn restore_session(&self, sid: i64) -> Session;
 }
 
+/// The default adapter. store the state in memory.
 #[derive(Debug)]
 pub struct LocalAdapter {
-    rooms: RwLock<HashMap<Room, HashSet<i64>>>,
+    rooms: RwLock<HashMap<Room, HashSet<Sid>>>,
     ns: Weak<Namespace<Self>>,
 }
 
@@ -110,7 +143,7 @@ impl Adapter for LocalAdapter {
         1
     }
 
-    fn add_all(&self, sid: i64, rooms: impl RoomParam) {
+    fn add_all(&self, sid: Sid, rooms: impl RoomParam) {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms.into_room_iter() {
             rooms_map
@@ -120,7 +153,7 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn del(&self, sid: i64, rooms: impl RoomParam) {
+    fn del(&self, sid: Sid, rooms: impl RoomParam) {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms.into_room_iter() {
             if let Some(room) = rooms_map.get_mut(&room) {
@@ -129,31 +162,25 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn del_all(&self, sid: i64) {
+    fn del_all(&self, sid: Sid) {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms_map.values_mut() {
             room.remove(&sid);
         }
     }
 
-    fn broadcast(
-        &self,
-        packet: Packet,
-        binary: Vec<Vec<u8>>,
-        opts: BroadcastOptions,
-    ) -> Result<(), Error> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error> {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
         sockets
             .into_iter()
-            .try_for_each(|socket| socket.send(packet.clone(), binary.clone()))
+            .try_for_each(|socket| socket.send(packet.clone()))
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
-        binary: Vec<Vec<u8>>,
         opts: BroadcastOptions,
     ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
@@ -169,15 +196,13 @@ impl Adapter for LocalAdapter {
         let count = sockets.len();
         let ack_futs = sockets.into_iter().map(move |socket| {
             let packet = packet.clone();
-            let binary = binary.clone();
-            async move { socket.clone().send_with_ack(packet, binary, duration).await }
+            async move { socket.clone().send_with_ack(packet, duration).await }
         });
         stream::iter(ack_futs).buffer_unordered(count).boxed()
     }
 
-    fn sockets(&self, rooms: impl RoomParam) -> Vec<i64> {
-        // TODO: fix this depending on the utilisation of the function
-        let mut opts = BroadcastOptions::new(0);
+    fn sockets(&self, rooms: impl RoomParam) -> Vec<Sid> {
+        let mut opts = BroadcastOptions::new(0i64.into());
         opts.rooms.extend(rooms.into_room_iter());
         self.apply_opts(opts)
             .into_iter()
@@ -186,7 +211,7 @@ impl Adapter for LocalAdapter {
     }
 
     //TODO: make this operation O(1)
-    fn socket_rooms(&self, sid: i64) -> Vec<Room> {
+    fn socket_rooms(&self, sid: Sid) -> Vec<Room> {
         let rooms_map = self.rooms.read().unwrap();
         rooms_map
             .iter()
@@ -253,7 +278,7 @@ impl LocalAdapter {
         }
     }
 
-    fn get_except_sids(&self, except: &Vec<Room>) -> HashSet<i64> {
+    fn get_except_sids(&self, except: &Vec<Room>) -> HashSet<Sid> {
         let mut except_sids = HashSet::new();
         let rooms_map = self.rooms.read().unwrap();
         for room in except {
@@ -270,89 +295,89 @@ mod test {
 
     use super::*;
 
-    #[test]
-    fn test_server_count() {
+    #[tokio::test]
+    async fn test_server_count() {
         let ns = Namespace::new_dummy([]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         assert_eq!(adapter.server_count(), 1);
     }
 
-    #[test]
-    fn test_add_all() {
-        const SOCKET: i64 = 1;
-        let ns = Namespace::new_dummy([SOCKET]);
+    #[tokio::test]
+    async fn test_add_all() {
+        let socket: Sid = 1i64.into();
+        let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(SOCKET, ["room1", "room2"]);
+        adapter.add_all(socket, ["room1", "room2"]);
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
         assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
         assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
     }
 
-    #[test]
-    fn test_del() {
-        const SOCKET: i64 = 1;
-        let ns = Namespace::new_dummy([SOCKET]);
+    #[tokio::test]
+    async fn test_del() {
+        let socket: Sid = 1i64.into();
+        let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(SOCKET, ["room1", "room2"]);
-        adapter.del(SOCKET, "room1");
+        adapter.add_all(socket, ["room1", "room2"]);
+        adapter.del(socket, "room1");
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
         assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
         assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
     }
 
-    #[test]
-    fn test_del_all() {
-        const SOCKET: i64 = 1;
-        let ns = Namespace::new_dummy([SOCKET]);
+    #[tokio::test]
+    async fn test_del_all() {
+        let socket: Sid = 1i64.into();
+        let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(SOCKET, ["room1", "room2"]);
-        adapter.del_all(SOCKET);
+        adapter.add_all(socket, ["room1", "room2"]);
+        adapter.del_all(socket);
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
         assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
         assert_eq!(rooms_map.get("room2").unwrap().len(), 0);
     }
 
-    #[test]
-    fn test_socket_room() {
-        let ns = Namespace::new_dummy([1, 2, 3]);
+    #[tokio::test]
+    async fn test_socket_room() {
+        let ns = Namespace::new_dummy([1i64, 2, 3].map(Into::into));
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(1, ["room1", "room2"]);
-        adapter.add_all(2, ["room1"]);
-        adapter.add_all(3, ["room2"]);
-        assert!(adapter.socket_rooms(1).contains(&"room1".into()));
-        assert!(adapter.socket_rooms(1).contains(&"room2".into()));
-        assert_eq!(adapter.socket_rooms(2), ["room1"]);
-        assert_eq!(adapter.socket_rooms(3), ["room2"]);
+        adapter.add_all(1i64.into(), ["room1", "room2"]);
+        adapter.add_all(2i64.into(), ["room1"]);
+        adapter.add_all(3i64.into(), ["room2"]);
+        assert!(adapter.socket_rooms(1i64.into()).contains(&"room1".into()));
+        assert!(adapter.socket_rooms(1i64.into()).contains(&"room2".into()));
+        assert_eq!(adapter.socket_rooms(2i64.into()), ["room1"]);
+        assert_eq!(adapter.socket_rooms(3i64.into()), ["room2"]);
     }
 
-    #[test]
-    fn test_add_socket() {
-        const SOCKET: i64 = 0;
-        let ns = Namespace::new_dummy([SOCKET]);
+    #[tokio::test]
+    async fn test_add_socket() {
+        let socket: Sid = 0i64.into();
+        let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(SOCKET, ["room1"]);
+        adapter.add_all(socket, ["room1"]);
 
-        let mut opts = BroadcastOptions::new(SOCKET);
+        let mut opts = BroadcastOptions::new(socket);
         opts.rooms = vec!["room1".to_string()];
         adapter.add_sockets(opts, "room2");
         let rooms_map = adapter.rooms.read().unwrap();
 
         assert_eq!(rooms_map.len(), 2);
-        assert!(rooms_map.get("room1").unwrap().contains(&SOCKET));
-        assert!(rooms_map.get("room2").unwrap().contains(&SOCKET));
+        assert!(rooms_map.get("room1").unwrap().contains(&socket));
+        assert!(rooms_map.get("room2").unwrap().contains(&socket));
     }
 
-    #[test]
-    fn test_del_socket() {
-        const SOCKET: i64 = 0;
-        let ns = Namespace::new_dummy([SOCKET]);
+    #[tokio::test]
+    async fn test_del_socket() {
+        let socket: Sid = 0i64.into();
+        let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(SOCKET, ["room1"]);
+        adapter.add_all(socket, ["room1"]);
 
-        let mut opts = BroadcastOptions::new(SOCKET);
+        let mut opts = BroadcastOptions::new(socket);
         opts.rooms = vec!["room1".to_string()];
         adapter.add_sockets(opts, "room2");
 
@@ -360,11 +385,11 @@ mod test {
             let rooms_map = adapter.rooms.read().unwrap();
 
             assert_eq!(rooms_map.len(), 2);
-            assert!(rooms_map.get("room1").unwrap().contains(&SOCKET));
-            assert!(rooms_map.get("room2").unwrap().contains(&SOCKET));
+            assert!(rooms_map.get("room1").unwrap().contains(&socket));
+            assert!(rooms_map.get("room2").unwrap().contains(&socket));
         }
 
-        let mut opts = BroadcastOptions::new(SOCKET);
+        let mut opts = BroadcastOptions::new(socket);
         opts.rooms = vec!["room1".to_string()];
         adapter.del_sockets(opts, "room2");
 
@@ -372,50 +397,50 @@ mod test {
             let rooms_map = adapter.rooms.read().unwrap();
 
             assert_eq!(rooms_map.len(), 2);
-            assert!(rooms_map.get("room1").unwrap().contains(&SOCKET));
+            assert!(rooms_map.get("room1").unwrap().contains(&socket));
             assert!(rooms_map.get("room2").unwrap().is_empty());
         }
     }
 
-    #[test]
-    fn test_sockets() {
-        const SOCKET0: i64 = 0;
-        const SOCKET1: i64 = 1;
-        const SOCKET2: i64 = 2;
-        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
+    #[tokio::test]
+    async fn test_sockets() {
+        let socket0: Sid = 0i64.into();
+        let socket1: Sid = 1i64.into();
+        let socket2: Sid = 2i64.into();
+        let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(SOCKET0, ["room1", "room2"]);
-        adapter.add_all(SOCKET1, ["room1", "room3"]);
-        adapter.add_all(SOCKET2, ["room2", "room3"]);
+        adapter.add_all(socket0, ["room1", "room2"]);
+        adapter.add_all(socket1, ["room1", "room3"]);
+        adapter.add_all(socket2, ["room2", "room3"]);
 
         let sockets = adapter.sockets("room1");
         assert_eq!(sockets.len(), 2);
-        assert!(sockets.contains(&SOCKET0));
-        assert!(sockets.contains(&SOCKET1));
+        assert!(sockets.contains(&socket0));
+        assert!(sockets.contains(&socket1));
 
         let sockets = adapter.sockets("room2");
         assert_eq!(sockets.len(), 2);
-        assert!(sockets.contains(&SOCKET0));
-        assert!(sockets.contains(&SOCKET2));
+        assert!(sockets.contains(&socket0));
+        assert!(sockets.contains(&socket2));
 
         let sockets = adapter.sockets("room3");
         assert_eq!(sockets.len(), 2);
-        assert!(sockets.contains(&SOCKET1));
-        assert!(sockets.contains(&SOCKET2));
+        assert!(sockets.contains(&socket1));
+        assert!(sockets.contains(&socket2));
     }
 
-    #[test]
-    fn test_disconnect_socket() {
-        const SOCKET0: i64 = 0;
-        const SOCKET1: i64 = 1;
-        const SOCKET2: i64 = 2;
-        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
+    #[tokio::test]
+    async fn test_disconnect_socket() {
+        let socket0: Sid = 0i64.into();
+        let socket1: Sid = 1i64.into();
+        let socket2: Sid = 2i64.into();
+        let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(SOCKET0, ["room1", "room2", "room4"]);
-        adapter.add_all(SOCKET1, ["room1", "room3", "room5"]);
-        adapter.add_all(SOCKET2, ["room2", "room3", "room6"]);
+        adapter.add_all(socket0, ["room1", "room2", "room4"]);
+        adapter.add_all(socket1, ["room1", "room3", "room5"]);
+        adapter.add_all(socket2, ["room2", "room3", "room6"]);
 
-        let mut opts = BroadcastOptions::new(SOCKET0);
+        let mut opts = BroadcastOptions::new(socket0);
         opts.rooms = vec!["room5".to_string()];
         match adapter.disconnect_socket(opts) {
             Err(Error::EngineGone) | Ok(_) => {}
@@ -427,43 +452,43 @@ mod test {
 
         let sockets = adapter.sockets("room2");
         assert_eq!(sockets.len(), 2);
-        assert!(sockets.contains(&SOCKET2));
-        assert!(sockets.contains(&SOCKET0));
+        assert!(sockets.contains(&socket2));
+        assert!(sockets.contains(&socket0));
     }
-    #[test]
-    fn test_apply_opts() {
-        const SOCKET0: i64 = 0;
-        const SOCKET1: i64 = 1;
-        const SOCKET2: i64 = 2;
-        let ns = Namespace::new_dummy([SOCKET0, SOCKET1, SOCKET2]);
+    #[tokio::test]
+    async fn test_apply_opts() {
+        let socket0: Sid = 0i64.into();
+        let socket1: Sid = 1i64.into();
+        let socket2: Sid = 2i64.into();
+        let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         // Add socket 0 to room1 and room2
-        adapter.add_all(SOCKET0, ["room1", "room2"]);
+        adapter.add_all(socket0, ["room1", "room2"]);
         // Add socket 1 to room1 and room3
-        adapter.add_all(SOCKET1, ["room1", "room3"]);
+        adapter.add_all(socket1, ["room1", "room3"]);
         // Add socket 2 to room2 and room3
-        adapter.add_all(SOCKET2, ["room1", "room2", "room3"]);
+        adapter.add_all(socket2, ["room1", "room2", "room3"]);
 
-        // Socket 2 is the sender
-        let mut opts = BroadcastOptions::new(SOCKET2);
+        // socket 2 is the sender
+        let mut opts = BroadcastOptions::new(socket2);
         opts.rooms = vec!["room1".to_string()];
         opts.except = vec!["room2".to_string()];
         let sockets = adapter.fetch_sockets(opts);
         assert_eq!(sockets.len(), 1);
-        assert_eq!(sockets[0].sid, SOCKET1);
+        assert_eq!(sockets[0].sid, socket1);
 
-        let mut opts = BroadcastOptions::new(SOCKET2);
+        let mut opts = BroadcastOptions::new(socket2);
         opts.flags.insert(BroadcastFlags::Broadcast);
         opts.except = vec!["room2".to_string()];
         let sockets = adapter.fetch_sockets(opts);
         assert_eq!(sockets.len(), 1);
 
-        let opts = BroadcastOptions::new(SOCKET2);
+        let opts = BroadcastOptions::new(socket2);
         let sockets = adapter.fetch_sockets(opts);
         assert_eq!(sockets.len(), 1);
-        assert_eq!(sockets[0].sid, SOCKET2);
+        assert_eq!(sockets[0].sid, socket2);
 
-        let opts = BroadcastOptions::new(10000);
+        let opts = BroadcastOptions::new(10000i64.into());
         let sockets = adapter.fetch_sockets(opts);
         assert_eq!(sockets.len(), 0);
     }

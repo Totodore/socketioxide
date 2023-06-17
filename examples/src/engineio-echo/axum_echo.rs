@@ -1,17 +1,20 @@
-## Engineioxide does the heavy lifting for [Socketioxide](https://docs.rs/socketioxide/latest/socketioxide/), a SocketIO server implementation in Rust which integrates with the [tower](https://docs.rs/tower/latest/tower/) stack.
+use std::time::Duration;
 
-### It can also be used as a standalone server for [EngineIO clients](https://github.com/socketio/engine.io-client).
+use axum::routing::get;
+use axum::Server;
+use engineioxide::{
+    config::EngineIoConfig, handler::EngineIoHandler, layer::EngineIoLayer, socket::Socket,
+};
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
 
-### Engine.IO example echo implementation with Axum :
-```rust
-
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct MyHandler;
 
 #[engineioxide::async_trait]
 impl EngineIoHandler for MyHandler {
     type Data = ();
-    
+
     fn on_connect(&self, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
     }
@@ -32,13 +35,21 @@ impl EngineIoHandler for MyHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder().finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_line_number(true)
+        .with_max_level(Level::DEBUG)
+        .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
+    let config = EngineIoConfig::builder()
+        .ping_interval(Duration::from_millis(300))
+        .ping_timeout(Duration::from_millis(200))
+        .max_payload(1e6 as u64)
+        .build();
     info!("Starting server");
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(EngineIoLayer::new(MyHandler));
+        .layer(EngineIoLayer::from_config(MyHandler, config));
 
     Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
@@ -46,4 +57,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-```
