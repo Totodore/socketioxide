@@ -20,9 +20,7 @@ futures = "0.3.27"
 http = "0.2.9"
 http-body = "0.4.5"
 hyper = { version = "0.14.25", features = ["http1", "http2", "server", "stream", "runtime"] }
-lazy_static = "1.4.0"
 pin-project = "1.0.12"
-rs-snowflake = "0.6.0"
 serde = { version = "1.0.155", features = ["derive"] }
 serde_json = "1.0.94"
 thiserror = "1.0.40"
@@ -31,7 +29,7 @@ tokio-tungstenite = "0.19.0"
 tower = "0.4.13"
 tracing = "0.1.37"
 rand = "0.8.5"
-base64id = { version = "0.3.1", features = ["std", "rand"] }
+base64id = { version = "0.3.1", features = ["std", "rand", "serde"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }

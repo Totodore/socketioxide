@@ -93,6 +93,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ee811b26e66feca46f378d4d7baa0deefeaff934befd14c46a9de9dda565a1a"
 dependencies = [
  "rand",
+ "serde",
 ]
 
 [[package]]
@@ -347,10 +348,8 @@ dependencies = [
  "http",
  "http-body",
  "hyper",
- "lazy_static",
  "pin-project",
  "rand",
- "rs-snowflake",
  "serde",
  "serde_json",
  "thiserror",
@@ -1012,12 +1011,6 @@ name = "regex-syntax"
 version = "0.6.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
-
-[[package]]
-name = "rs-snowflake"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e60ef3b82994702bbe4e134d98aadca4b49ed04440148985678d415c68127666"
 
 [[package]]
 name = "rustix"

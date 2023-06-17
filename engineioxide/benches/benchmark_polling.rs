@@ -1,4 +1,5 @@
 use std::{sync::Arc, time::Duration};
+use std::str::FromStr;
 
 use bytes::{Buf, Bytes};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -8,6 +9,7 @@ use http::Request;
 use http_body::{Empty, Full};
 use serde::{Deserialize, Serialize};
 use tower::Service;
+use engineioxide::sid_generator::Sid;
 
 /// An OpenPacket is used to initiate a connection
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -46,7 +48,7 @@ fn create_open_poll_req() -> Request<http_body::Empty<Bytes>> {
         .unwrap()
 }
 
-async fn prepare_ping_pong(mut svc: EngineIoService<Client>) -> i64 {
+async fn prepare_ping_pong(mut svc: EngineIoService<Client>) -> Sid {
     let mut res = svc.call(create_open_poll_req()).await.unwrap();
     let body = hyper::body::aggregate(res.body_mut()).await.unwrap();
     let body: String = String::from_utf8(body.chunk().to_vec())
@@ -56,7 +58,7 @@ async fn prepare_ping_pong(mut svc: EngineIoService<Client>) -> i64 {
         .collect();
     let open_packet: OpenPacket = serde_json::from_str(&body).unwrap();
     let sid = open_packet.sid;
-    sid.parse().unwrap()
+    Sid::from_str(&sid).unwrap()
 }
 fn create_poll_req(sid: Sid) -> Request<http_body::Empty<Bytes>> {
     http::Request::builder()
