@@ -1264,6 +1264,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "socketioxide-e2e"
+version = "0.3.0"
+dependencies = [
+ "engineioxide",
+ "futures",
+ "hyper",
+ "serde_json",
+ "socketioxide",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "socketioxide-examples"
 version = "0.2.0"
 dependencies = [
