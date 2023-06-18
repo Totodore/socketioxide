@@ -3,6 +3,7 @@ use serde_json::Value;
 use socketioxide::{Namespace, SocketIoService};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use warp::Filter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,9 +32,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .build();
 
+    let filter = warp::any().map(|| "Hello From Warp!");
+    let warp_svc = warp::service(filter);
+
     info!("Starting server");
 
-    let svc = SocketIoService::new(ns);
+    let svc = SocketIoService::with_inner(warp_svc, ns);
     Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(svc.into_make_service())
         .await?;
