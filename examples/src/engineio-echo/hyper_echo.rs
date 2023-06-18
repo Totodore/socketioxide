@@ -1,10 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
-use engineioxide::{
-    config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, socket::Socket,
-};
+use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
 use hyper::Server;
-use tracing::{info, Level};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Debug, Clone)]
@@ -34,24 +32,14 @@ impl EngineIoHandler for MyHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .with_max_level(Level::INFO)
-        .finish();
-
-    let config = EngineIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
-        .build();
+    tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
     // We'll bind to 127.0.0.1:3000
-    let addr = &"0.0.0.0:3000".parse().unwrap();
+    let addr = &"127.0.0.1:3000".parse().unwrap();
     let handler = Arc::new(MyHandler);
-    let svc = EngineIoService::with_config(handler, config);
+    let svc = EngineIoService::new(handler);
 
     let server = Server::bind(&addr).serve(svc.into_make_service());
-    tracing::subscriber::set_global_default(subscriber)?;
 
     info!("Starting server");
 

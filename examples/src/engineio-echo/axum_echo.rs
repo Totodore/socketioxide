@@ -1,11 +1,7 @@
-use std::time::Duration;
-
 use axum::routing::get;
 use axum::Server;
-use engineioxide::{
-    config::EngineIoConfig, handler::EngineIoHandler, layer::EngineIoLayer, socket::Socket,
-};
-use tracing::{info, Level};
+use engineioxide::{handler::EngineIoHandler, layer::EngineIoLayer, socket::Socket};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Debug, Clone)]
@@ -35,23 +31,14 @@ impl EngineIoHandler for MyHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .with_max_level(Level::DEBUG)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    let config = EngineIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
-        .build();
     info!("Starting server");
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(EngineIoLayer::from_config(MyHandler, config));
+        .layer(EngineIoLayer::new(MyHandler));
 
-    Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(app.into_make_service())
         .await?;
 

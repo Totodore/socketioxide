@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let warp_svc = warp::service(filter);
 
     // We'll bind to 127.0.0.1:3000
-    let addr = &"0.0.0.0:3000".parse().unwrap();
+    let addr = &"127.0.0.1:3000".parse().unwrap();
     let handler = Arc::new(MyHandler);
     let svc = EngineIoService::with_inner(warp_svc, handler);
 

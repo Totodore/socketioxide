@@ -9,8 +9,6 @@ use warp::Filter;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    info!("Starting server");
-
     let ns = Namespace::builder()
         .add("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
@@ -37,8 +35,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filter = warp::any().map(|| "Hello From Warp!");
     let warp_svc = warp::service(filter);
 
+    info!("Starting server");
+
     let svc = SocketIoService::with_inner(warp_svc, ns);
-    Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(svc.into_make_service())
         .await?;
 
