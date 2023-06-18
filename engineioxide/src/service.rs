@@ -109,21 +109,25 @@ where
             let engine = self.engine.clone();
             match RequestInfo::parse(&req) {
                 Some(RequestInfo {
+                    protocol: _,
                     sid: None,
                     transport: TransportType::Polling,
                     method: Method::GET,
                 }) => ResponseFuture::ready(engine.on_open_http_req(req)),
                 Some(RequestInfo {
+                    protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::GET,
-                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_http_req(sid))),
+                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_http_req(protocol, sid))),
                 Some(RequestInfo {
+                    protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
-                }) => ResponseFuture::async_response(Box::pin(engine.on_post_http_req(sid, req))),
+                }) => ResponseFuture::async_response(Box::pin(engine.on_post_http_req(protocol, sid, req))),
                 Some(RequestInfo {
+                    protocol: _,
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
@@ -220,6 +224,8 @@ impl FromStr for TransportType {
 
 /// The request information extracted from the request URI.
 struct RequestInfo {
+    /// The protocol version used by the client.
+    protocol: ProtocolVersion,
     /// The socket id if present in the request.
     sid: Option<Sid>,
     /// The transport type used by the client.
@@ -241,10 +247,6 @@ impl RequestInfo {
             .parse()
             .ok()?;
 
-        if protocol != ProtocolVersion::V4 && protocol != ProtocolVersion::V3 {
-            return None;
-        }
-
         let sid = query
             .split('&')
             .find(|s| s.starts_with("sid="))
@@ -260,6 +262,7 @@ impl RequestInfo {
             .ok()?;
 
         Some(RequestInfo {
+            protocol,
             sid,
             transport,
             method: req.method().clone(),

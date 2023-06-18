@@ -104,6 +104,7 @@ where
     /// Otherwise it will wait for the next packet to be sent from the socket
     pub(crate) async fn on_polling_http_req<B>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         sid: Sid,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
@@ -134,7 +135,7 @@ where
             debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
             if !data.is_empty() {
-                match self.config.protocol {
+                match protocol {
                     ProtocolVersion::V4 => data.push_str("\x1e"),
                     ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
                 }
@@ -156,6 +157,7 @@ where
     /// Split the body into packets and send them to the internal socket
     pub(crate) async fn on_post_http_req<R, B>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         sid: Sid,
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
@@ -170,7 +172,7 @@ where
             Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
         })?;
 
-        let packets = self.parse_packets(body.reader()).map_err(|e| {
+        let packets = self.parse_packets(body.reader(), protocol).map_err(|e| {
             debug!("error parsing packets: {:?}", e);
             Error::HttpErrorResponse(
                 StatusCode::BAD_REQUEST,
@@ -220,8 +222,8 @@ where
         Ok(http_response(StatusCode::OK, "ok")?)
     }
 
-    fn parse_packets<R: BufRead + 'static>(&self, mut reader: R) -> Result<impl Iterator<Item = Result<Packet, Error>>, String> {
-        match self.config.protocol {
+    fn parse_packets<R: BufRead + 'static>(&self, mut reader: R, protocol: ProtocolVersion) -> Result<impl Iterator<Item = Result<Packet, Error>>, String> {
+        match protocol {
             ProtocolVersion::V4 =>  {
                 let raw_packets = reader
                     .split(b'\x1e')
@@ -543,15 +545,13 @@ mod tests {
 
     #[test]
     fn test_parse_v3_packets() -> Result<(), String> {
+        let protocol = ProtocolVersion::V3;
         let handler = Arc::new(MockHandler);
-        let config = EngineIoConfig::builder()
-            .protocol_version(ProtocolVersion::V3)
-            .build();
-        let engine = Arc::new(EngineIo::from_config(handler, config));
-
+        let engine = Arc::new(EngineIo::new(handler));
+        
         let mut reader = BufReader::new(Cursor::new("6:4hello2:4€"));
         let packets = engine
-            .parse_packets(reader)?.collect::<Result<Vec<Packet>, Error>>()
+            .parse_packets(reader, protocol.clone())?.collect::<Result<Vec<Packet>, Error>>()
             .map_err(|e| e.to_string())?;
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0], Packet::Message("hello".into()));
@@ -559,7 +559,7 @@ mod tests {
 
         reader = BufReader::new(Cursor::new("2:4€10:b4AQIDBA=="));
         let packets = engine
-            .parse_packets(reader)?.collect::<Result<Vec<Packet>, Error>>()
+            .parse_packets(reader, protocol.clone())?.collect::<Result<Vec<Packet>, Error>>()
             .map_err(|e| e.to_string())?;
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0], Packet::Message("€".into()));
