@@ -3,6 +3,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
+use crate::sid_generator::Sid;
 use crate::{body::ResponseBody, packet::Packet};
 
 #[derive(thiserror::Error, Debug)]
@@ -39,8 +40,12 @@ pub enum Error {
 
     #[error("transport unknown")]
     UnknownTransport,
+    #[error("unknown session id")]
+    UnknownSessionID(Sid),
     #[error("bad handshake method")]
     BadHandshakeMethod,
+    #[error("transport mismatch")]
+    TransportMismatch,
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
 }
@@ -68,8 +73,14 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
             Error::UnknownTransport => {
                 conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}")
             }
+            Error::UnknownSessionID(_) => {
+                conn_err_resp("{\"code\":\"1\",\"message\":\"Session ID unknown\"}")
+            }
             Error::BadHandshakeMethod => {
                 conn_err_resp("{\"code\":\"2\",\"message\":\"Bad handshake method\"}")
+            }
+            Error::TransportMismatch => {
+                conn_err_resp("{\"code\":\"3\",\"message\":\"Bad request\"}")
             }
             Error::UnsupportedProtocolVersion => {
                 conn_err_resp("{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}")
