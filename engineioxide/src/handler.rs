@@ -4,7 +4,7 @@ use crate::socket::Socket;
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
-pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
+pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + Clone + 'static {
     /// Data associated with the socket.
     type Data: Default + Send + Sync + std::fmt::Debug + 'static;
 
