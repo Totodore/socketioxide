@@ -69,6 +69,7 @@ where
     /// Send an open packet
     pub(crate) fn on_open_http_req<B, R>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         req: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
@@ -94,7 +95,10 @@ where
         self.handler.on_connect(&socket);
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
-        let packet: String = Packet::Open(packet).try_into()?;
+        let mut packet: String = Packet::Open(packet).try_into()?;
+        if protocol == ProtocolVersion::V3 {
+            packet = format!("{}:{}", packet.chars().count(), packet);
+        }
         http_response(StatusCode::OK, packet).map_err(Error::Http)
     }
 

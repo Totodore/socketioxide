@@ -109,11 +109,11 @@ where
             let engine = self.engine.clone();
             match RequestInfo::parse(&req) {
                 Some(RequestInfo {
-                    protocol: _,
+                    protocol,
                     sid: None,
                     transport: TransportType::Polling,
                     method: Method::GET,
-                }) => ResponseFuture::ready(engine.on_open_http_req(req)),
+                }) => ResponseFuture::ready(engine.on_open_http_req(protocol, req)),
                 Some(RequestInfo {
                     protocol,
                     sid: Some(sid),
