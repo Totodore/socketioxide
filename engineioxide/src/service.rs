@@ -226,6 +226,7 @@ impl FromStr for TransportType {
 }
 
 /// The request information extracted from the request URI.
+#[derive(Debug)]
 struct RequestInfo {
     /// The socket id if present in the request.
     sid: Option<Sid>,
@@ -315,5 +316,25 @@ mod tests {
         assert_eq!(info.sid, Some(123i64.into()));
         assert_eq!(info.transport, TransportType::Websocket);
         assert_eq!(info.method, Method::GET);
+    }
+    #[test]
+    fn transport_unknown_err() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=grpc");
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::UnknownTransport));
+    }
+    #[test]
+    fn unsupported_protocol_version() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=2&transport=polling");
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::UnsupportedProtocolVersion));
+    }
+    #[test]
+    fn bad_handshake_method() {
+        let req = Request::post("http://localhost:3000/socket.io/?EIO=4&transport=polling")
+            .body(())
+            .unwrap();
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::BadHandshakeMethod));
     }
 }

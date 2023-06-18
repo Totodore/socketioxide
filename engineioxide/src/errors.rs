@@ -50,6 +50,12 @@ pub enum Error {
 /// Otherwise, return a 500
 impl<B> From<Error> for Response<ResponseBody<B>> {
     fn from(err: Error) -> Self {
+        let conn_err_resp = |message: &'static str| {
+            Response::builder()
+                .status(400)
+                .body(ResponseBody::custom_response(message.into()))
+                .unwrap()
+        };
         match err {
             Error::HttpErrorResponse(code) => Response::builder()
                 .status(code)
@@ -59,24 +65,15 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .status(400)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-            Error::UnknownTransport => Response::builder()
-                .status(400)
-                .body(ResponseBody::custom_response(
-                    "{\"code\":\"0\",\"message\":\"Transport unknown\"}".into(),
-                ))
-                .unwrap(),
-            Error::BadHandshakeMethod => Response::builder()
-                .status(400)
-                .body(ResponseBody::custom_response(
-                    "{\"code\":\"2\",\"message\":\"Bad handshake method\"}".into(),
-                ))
-                .unwrap(),
-            Error::UnsupportedProtocolVersion => Response::builder()
-                .status(400)
-                .body(ResponseBody::custom_response(
-                    "{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}".into(),
-                ))
-                .unwrap(),
+            Error::UnknownTransport => {
+                conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}")
+            }
+            Error::BadHandshakeMethod => {
+                conn_err_resp("{\"code\":\"2\",\"message\":\"Bad handshake method\"}")
+            }
+            Error::UnsupportedProtocolVersion => {
+                conn_err_resp("{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}")
+            }
             e => {
                 debug!("uncaught error {e:?}");
                 Response::builder()
