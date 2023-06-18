@@ -249,7 +249,7 @@ where
                 
                 let iter = std::iter::from_fn(move || {
                     while i < line.chars().count() {
-                        if let Some(index) = line.chars().skip(i).collect::<String>().find(':') {
+                        if let Some(index) = line.chars().skip(i).position(|c| c == ':') {
                             if let Ok(length) = line.chars().take(i + index).skip(i).collect::<String>().parse::<usize>() {
                                 let start = i + index + 1;
                                 let end = start + length;
