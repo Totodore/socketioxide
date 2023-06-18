@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handler = Arc::new(MyHandler);
     let svc = EngineIoService::with_config(handler, config);
 
-    let server = Server::bind(&addr).serve(svc.into_make_service());
+    let server = Server::bind(addr).serve(svc.into_make_service());
     tracing::subscriber::set_global_default(subscriber)?;
 
     info!("Starting server");

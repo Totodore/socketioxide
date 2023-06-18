@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handler = Arc::new(MyHandler);
     let svc = EngineIoService::with_inner(warp_svc, handler);
 
-    let server = Server::bind(&addr).serve(svc.into_make_service());
+    let server = Server::bind(addr).serve(svc.into_make_service());
 
     info!("Starting server");
 
