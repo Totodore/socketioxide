@@ -29,12 +29,20 @@ name = "engineio-hyper-echo"
 path = "src/engineio-echo/hyper_echo.rs"
 
 [[example]]
+name = "engineio-warp-echo"
+path = "src/engineio-echo/warp_echo.rs"
+
+[[example]]
 name = "socketio-axum-echo"
 path = "src/socketio-echo/axum_echo.rs"
 
 [[example]]
 name = "socketio-hyper-echo"
 path = "src/socketio-echo/hyper_echo.rs"
+
+[[example]]
+name = "socketio-warp-echo"
+path = "src/socketio-echo/warp_echo.rs"
 
 [[example]]
 name = "chat"
