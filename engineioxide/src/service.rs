@@ -255,12 +255,17 @@ impl RequestInfo {
             .and_then(|s| s.split('=').nth(1))
             .ok_or(UnknownTransport)
             .and_then(|t| t.parse())?;
+        let method = req.method().clone();
 
-        Ok(RequestInfo {
-            sid,
-            transport,
-            method: req.method().clone(),
-        })
+        if !matches!(method, Method::GET) && sid.is_none() {
+            Err(Error::BadHandshakeMethod)
+        } else {
+            Ok(RequestInfo {
+                sid,
+                transport,
+                method,
+            })
+        }
     }
 }
 

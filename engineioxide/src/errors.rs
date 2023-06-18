@@ -36,10 +36,13 @@ pub enum Error {
 
     #[error("http error response: {0:?}")]
     HttpErrorResponse(StatusCode),
-    #[error("unsupported protocol version")]
-    UnsupportedProtocolVersion,
+
     #[error("transport unknown")]
     UnknownTransport,
+    #[error("bad handshake method")]
+    BadHandshakeMethod,
+    #[error("unsupported protocol version")]
+    UnsupportedProtocolVersion,
 }
 
 /// Convert an error into an http response
@@ -56,16 +59,22 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .status(400)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-            Error::UnsupportedProtocolVersion => Response::builder()
-                .status(400)
-                .body(ResponseBody::custom_response(
-                    "{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}".into(),
-                ))
-                .unwrap(),
             Error::UnknownTransport => Response::builder()
                 .status(400)
                 .body(ResponseBody::custom_response(
                     "{\"code\":\"0\",\"message\":\"Transport unknown\"}".into(),
+                ))
+                .unwrap(),
+            Error::BadHandshakeMethod => Response::builder()
+                .status(400)
+                .body(ResponseBody::custom_response(
+                    "{\"code\":\"2\",\"message\":\"Bad handshake method\"}".into(),
+                ))
+                .unwrap(),
+            Error::UnsupportedProtocolVersion => Response::builder()
+                .status(400)
+                .body(ResponseBody::custom_response(
+                    "{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}".into(),
                 ))
                 .unwrap(),
             e => {
