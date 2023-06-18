@@ -103,8 +103,8 @@ impl TryFrom<String> for Packet {
             'b' => {
                 let mut packet_data = packet_data;
 
-                if packet_data.starts_with('4') {
-                    packet_data = &packet_data[1..];   
+                if value.starts_with("b4") {
+                    packet_data = &packet_data[1..];
                 }
                 
                 Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?)
