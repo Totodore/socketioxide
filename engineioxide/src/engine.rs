@@ -111,17 +111,15 @@ where
     {
         let socket = self
             .get_socket(sid)
-            .and_then(|s| s.is_http().then(|| s))
-            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
+            .ok_or(Error::UnknownSessionID(sid))
+            .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
         // If the socket is already locked, it means that the socket is being used by another request
         // In case of multiple http polling, session should be closed
         let mut rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                if socket.is_http() {
-                    socket.close();
-                }
+                socket.close();
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         };
@@ -170,38 +168,35 @@ where
 
         let socket = self
             .get_socket(sid)
-            .and_then(|s| s.is_http().then(|| s))
-            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
+            .ok_or(Error::UnknownSessionID(sid))
+            .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
         for packet in packets {
-            let packet = match Packet::try_from(packet?) {
-                Ok(p) => p,
+            match Packet::try_from(packet?) {
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
                     self.close_session(sid);
-                    return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
+                    Err(e)
                 }
-            };
-            match packet {
-                Packet::Close => {
+                Ok(Packet::Close) => {
                     debug!("[sid={sid}] closing session");
                     socket.send(Packet::Noop)?;
                     self.close_session(sid);
                     break;
                 }
-                Packet::Pong => socket
+                Ok(Packet::Pong) => socket
                     .pong_tx
                     .try_send(())
                     .map_err(|_| Error::HeartbeatTimeout),
-                Packet::Message(msg) => {
+                Ok(Packet::Message(msg)) => {
                     self.handler.on_message(msg, &socket);
                     Ok(())
                 }
-                Packet::Binary(bin) => {
+                Ok(Packet::Binary(bin)) => {
                     self.handler.on_binary(bin, &socket);
                     Ok(())
                 }
-                p => {
+                Ok(p) => {
                     debug!("[sid={sid}] bad packet received: {:?}", &p);
                     Err(Error::BadPacket(p))
                 }
@@ -252,9 +247,19 @@ where
         sid: Option<Sid>,
         req_data: SocketReq,
     ) -> Result<(), Error> {
-        let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
-
-        let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
+        let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, None);
+        let (socket, ws) = if let Some(sid) = sid {
+            match self.get_socket(sid) {
+                None => return Err(Error::UnknownSessionID(sid)),
+                Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
+                Some(_) => {
+                    debug!("[sid={sid}] websocket connection upgrade");
+                    let mut ws = ws_init().await;
+                    self.ws_upgrade_handshake(sid, &mut ws).await?;
+                    (self.get_socket(sid).unwrap(), ws)
+                }
+            }
+        } else {
             let sid = generate_sid();
             let engine = self.clone();
             let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
@@ -270,21 +275,12 @@ where
                 self.sockets.write().unwrap().insert(sid, socket.clone());
             }
             debug!("[sid={sid}] new websocket connection");
+            let mut ws = ws_init().await;
             self.ws_init_handshake(sid, &mut ws).await?;
             socket
                 .clone()
                 .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
-            socket
-        } else {
-            let sid = sid.unwrap();
-            debug!("[sid={sid}] websocket connection upgrade");
-            if let Some(socket) = self.get_socket(sid) {
-                if socket.is_ws() {
-                    return Err(Error::UpgradeError);
-                }
-            }
-            self.ws_upgrade_handshake(sid, &mut ws).await?;
-            self.get_socket(sid).unwrap()
+            (socket, ws)
         };
         let (mut tx, rx) = ws.split();
 

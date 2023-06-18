@@ -1,7 +1,14 @@
-use crate::sid_generator::Sid;
 use crate::{
-    body::ResponseBody, config::EngineIoConfig, engine::EngineIo, futures::ResponseFuture,
+    body::ResponseBody,
+    config::EngineIoConfig,
+    engine::EngineIo,
+    errors::{
+        Error,
+        Error::{UnknownTransport, UnsupportedProtocolVersion},
+    },
+    futures::ResponseFuture,
     handler::EngineIoHandler,
+    sid_generator::Sid,
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -107,26 +114,27 @@ where
         if req.uri().path().starts_with(&self.engine.config.req_path) {
             let engine = self.engine.clone();
             match RequestInfo::parse(&req) {
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     sid: None,
                     transport: TransportType::Polling,
                     method: Method::GET,
                 }) => ResponseFuture::ready(engine.on_open_http_req(req)),
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::GET,
                 }) => ResponseFuture::async_response(Box::pin(engine.on_polling_http_req(sid))),
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
                 }) => ResponseFuture::async_response(Box::pin(engine.on_post_http_req(sid, req))),
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
                 }) => ResponseFuture::ready(engine.on_ws_req(sid, req)),
+                Err(e) => ResponseFuture::ready(Ok(e.into())),
                 _ => ResponseFuture::empty_response(400),
             }
         } else {
@@ -206,18 +214,19 @@ pub enum TransportType {
 }
 
 impl FromStr for TransportType {
-    type Err = ();
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "websocket" => Ok(TransportType::Websocket),
             "polling" => Ok(TransportType::Polling),
-            _ => Err(()),
+            _ => Err(UnknownTransport),
         }
     }
 }
 
 /// The request information extracted from the request URI.
+#[derive(Debug)]
 struct RequestInfo {
     /// The socket id if present in the request.
     sid: Option<Sid>,
@@ -229,10 +238,10 @@ struct RequestInfo {
 
 impl RequestInfo {
     /// Parse the request URI to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    fn parse<B>(req: &Request<B>) -> Option<Self> {
-        let query = req.uri().query()?;
+    fn parse<B>(req: &Request<B>) -> Result<Self, Error> {
+        let query = req.uri().query().ok_or(UnknownTransport)?;
         if !query.contains("EIO=4") {
-            return None;
+            return Err(UnsupportedProtocolVersion);
         }
 
         let sid = query
@@ -243,17 +252,21 @@ impl RequestInfo {
 
         let transport: TransportType = query
             .split('&')
-            .find(|s| s.starts_with("transport="))?
-            .split('=')
-            .nth(1)?
-            .parse()
-            .ok()?;
+            .find(|s| s.starts_with("transport="))
+            .and_then(|s| s.split('=').nth(1))
+            .ok_or(UnknownTransport)
+            .and_then(|t| t.parse())?;
+        let method = req.method().clone();
 
-        Some(RequestInfo {
-            sid,
-            transport,
-            method: req.method().clone(),
-        })
+        if !matches!(method, Method::GET) && sid.is_none() {
+            Err(Error::BadHandshakeMethod)
+        } else {
+            Ok(RequestInfo {
+                sid,
+                transport,
+                method,
+            })
+        }
     }
 }
 
@@ -285,7 +298,9 @@ mod tests {
 
     #[test]
     fn request_info_polling_with_sid() {
-        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling&sid=AAAAAAAAAHs");
+        let req = build_request(
+            "http://localhost:3000/socket.io/?EIO=4&transport=polling&sid=AAAAAAAAAHs",
+        );
         let info = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, Some(123i64.into()));
         assert_eq!(info.transport, TransportType::Polling);
@@ -294,11 +309,32 @@ mod tests {
 
     #[test]
     fn request_info_websocket_with_sid() {
-        let req =
-            build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAHs");
+        let req = build_request(
+            "http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAHs",
+        );
         let info = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, Some(123i64.into()));
         assert_eq!(info.transport, TransportType::Websocket);
         assert_eq!(info.method, Method::GET);
+    }
+    #[test]
+    fn transport_unknown_err() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=grpc");
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::UnknownTransport));
+    }
+    #[test]
+    fn unsupported_protocol_version() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=2&transport=polling");
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::UnsupportedProtocolVersion));
+    }
+    #[test]
+    fn bad_handshake_method() {
+        let req = Request::post("http://localhost:3000/socket.io/?EIO=4&transport=polling")
+            .body(())
+            .unwrap();
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::BadHandshakeMethod));
     }
 }

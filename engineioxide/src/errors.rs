@@ -3,6 +3,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
+use crate::sid_generator::Sid;
 use crate::{body::ResponseBody, packet::Packet};
 
 #[derive(thiserror::Error, Debug)]
@@ -36,6 +37,17 @@ pub enum Error {
 
     #[error("http error response: {0:?}")]
     HttpErrorResponse(StatusCode),
+
+    #[error("transport unknown")]
+    UnknownTransport,
+    #[error("unknown session id")]
+    UnknownSessionID(Sid),
+    #[error("bad handshake method")]
+    BadHandshakeMethod,
+    #[error("transport mismatch")]
+    TransportMismatch,
+    #[error("unsupported protocol version")]
+    UnsupportedProtocolVersion,
 }
 
 /// Convert an error into an http response
@@ -43,6 +55,12 @@ pub enum Error {
 /// Otherwise, return a 500
 impl<B> From<Error> for Response<ResponseBody<B>> {
     fn from(err: Error) -> Self {
+        let conn_err_resp = |message: &'static str| {
+            Response::builder()
+                .status(400)
+                .body(ResponseBody::custom_response(message.into()))
+                .unwrap()
+        };
         match err {
             Error::HttpErrorResponse(code) => Response::builder()
                 .status(code)
@@ -52,6 +70,21 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .status(400)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
+            Error::UnknownTransport => {
+                conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}")
+            }
+            Error::UnknownSessionID(_) => {
+                conn_err_resp("{\"code\":\"1\",\"message\":\"Session ID unknown\"}")
+            }
+            Error::BadHandshakeMethod => {
+                conn_err_resp("{\"code\":\"2\",\"message\":\"Bad handshake method\"}")
+            }
+            Error::TransportMismatch => {
+                conn_err_resp("{\"code\":\"3\",\"message\":\"Bad request\"}")
+            }
+            Error::UnsupportedProtocolVersion => {
+                conn_err_resp("{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}")
+            }
             e => {
                 debug!("uncaught error {e:?}");
                 Response::builder()
