@@ -37,8 +37,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build --example socketio-axum-echo --release
-          cargo run --example socketio-axum-echo --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build --bin socketioxide-e2e --release
+          cargo run --bin socketioxide-e2e --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
