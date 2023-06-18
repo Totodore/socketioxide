@@ -63,7 +63,7 @@ where
     pub fn with_config_inner(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
-            engine: Arc::new(EngineIo::from_config(handler, config)),
+            engine: Arc::new(EngineIo::new(handler, config)),
         }
     }
 

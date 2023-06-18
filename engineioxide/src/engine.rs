@@ -44,13 +44,8 @@ impl<H> EngineIo<H>
 where
     H: EngineIoHandler + ?Sized,
 {
-    /// Create a new Engine.IO server with default config
-    pub fn new(handler: Arc<H>) -> Self {
-        Self::from_config(handler, EngineIoConfig::default())
-    }
-
-    /// Create a new Engine.IO server with a custom config
-    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
+    /// Create a new Engine.IO server with a handler and a config
+    pub fn new(handler: Arc<H>, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
