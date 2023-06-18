@@ -1,3 +1,4 @@
+use crate::protocol::ProtocolVersion;
 use crate::sid_generator::Sid;
 use crate::{
     body::ResponseBody, config::EngineIoConfig, engine::EngineIo, futures::ResponseFuture,
@@ -231,7 +232,16 @@ impl RequestInfo {
     /// Parse the request URI to extract the [`TransportType`](crate::service::TransportType) and the socket id.
     fn parse<B>(req: &Request<B>) -> Option<Self> {
         let query = req.uri().query()?;
-        if !query.contains("EIO=4") {
+
+        let protocol: ProtocolVersion = query
+            .split('&')
+            .find(|s| s.starts_with("EIO="))?
+            .split('=')
+            .nth(1)?
+            .parse()
+            .ok()?;
+
+        if protocol != ProtocolVersion::V4 && protocol != ProtocolVersion::V3 {
             return None;
         }
 

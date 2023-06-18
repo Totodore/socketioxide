@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::protocol::ProtocolVersion;
+
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
     /// The path to listen for engine.io requests on.
@@ -22,6 +24,10 @@ pub struct EngineIoConfig {
     /// The maximum number of bytes that can be received per http request.
     /// Defaults to 100kb.
     pub max_payload: u64,
+
+    /// Protocol version.
+    /// Supports version `4` (default) and `3`.
+    pub protocol: ProtocolVersion,
 }
 
 impl Default for EngineIoConfig {
@@ -32,6 +38,7 @@ impl Default for EngineIoConfig {
             ping_timeout: Duration::from_millis(20000),
             max_buffer_size: 128,
             max_payload: 1e5 as u64, // 100kb
+            protocol: ProtocolVersion::V4,
         }
     }
 }
@@ -51,6 +58,14 @@ impl EngineIoConfigBuilder {
             config: EngineIoConfig::default(),
         }
     }
+
+    /// The protocol version to use.
+    /// Defaults to version `4`.
+    pub fn protocol_version(mut self, protocol: ProtocolVersion) -> Self {
+        self.config.protocol = protocol;
+        self
+    }
+
     /// The path to listen for engine.io requests on.
     /// Defaults to "/engine.io".
     pub fn req_path(mut self, req_path: String) -> Self {

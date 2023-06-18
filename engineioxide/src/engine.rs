@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::sid_generator::Sid;
+use crate::{sid_generator::Sid, protocol::ProtocolVersion};
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
@@ -26,7 +26,7 @@ use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
-use tracing::debug;
+use tracing::{debug};
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
@@ -134,7 +134,10 @@ where
             debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
             if !data.is_empty() {
-                data.push('\x1e');
+                match self.config.protocol {
+                    ProtocolVersion::V4 => data.push_str("\x1e"),
+                    ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
+                }
             }
             data.push_str(&packet);
         }
@@ -166,15 +169,21 @@ where
             debug!("error aggregating body: {:?}", e);
             Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
         })?;
-        let packets = body.reader().split(b'\x1e');
+
+        let packets = self.parse_packets(body.reader()).map_err(|e| {
+            debug!("error parsing packets: {:?}", e);
+            Error::HttpErrorResponse(
+                StatusCode::BAD_REQUEST,
+            )
+        })?;
 
         let socket = self
             .get_socket(sid)
             .and_then(|s| s.is_http().then(|| s))
             .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
 
-        for packet in packets {
-            let packet = match Packet::try_from(packet?) {
+        for p in packets {
+            let packet = match p {
                 Ok(p) => p,
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
@@ -182,6 +191,7 @@ where
                     return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
                 }
             };
+
             match packet {
                 Packet::Close => {
                     debug!("[sid={sid}] closing session");
@@ -210,6 +220,52 @@ where
         Ok(http_response(StatusCode::OK, "ok")?)
     }
 
+    fn parse_packets<R: BufRead + 'static>(&self, mut reader: R) -> Result<impl Iterator<Item = Result<Packet, Error>>, String> {
+        match self.config.protocol {
+            ProtocolVersion::V4 =>  {
+                let raw_packets = reader
+                    .split(b'\x1e')
+                    .map(|e| e.unwrap());
+
+                let packets = raw_packets.map(|raw_packet| {
+                    Packet::try_from(raw_packet)
+                });
+
+                Ok(Box::new(packets) as Box<dyn Iterator<Item = Result<Packet, Error>>>)
+            }
+            ProtocolVersion::V3 => {
+                let mut line = String::new();
+                let mut i = 0;
+                
+                if let Some(bytes_read) = reader.read_line(&mut line).map_err(|e| e.to_string()).ok() {
+                    if bytes_read == 0 {
+                        return Err("no bytes read".into());
+                    }
+                } else {
+                    return Err("failed to read line".into());
+                }
+                
+                let iter = std::iter::from_fn(move || {
+                    while i < line.chars().count() {
+                        if let Some(index) = line.chars().skip(i).collect::<String>().find(':') {
+                            if let Ok(length) = line.chars().take(i + index).skip(i).collect::<String>().parse::<usize>() {
+                                let start = i + index + 1;
+                                let end = start + length;
+                                let raw_packet = line.chars().take(end).skip(start).collect::<String>();
+                                i = end;
+                                return Some(Packet::try_from(raw_packet));
+                            }
+                        }
+                        break;
+                    }
+                    None
+                });
+
+                Ok(Box::new(iter) as Box<dyn Iterator<Item = Result<Packet, Error>>>)
+            },
+        }
+    }
+    
     /// Upgrade a websocket request to create a websocket connection.
     ///
     /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
@@ -447,5 +503,68 @@ where
     /// Clones the socket ref to avoid holding the lock
     pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::{io::{BufReader, Cursor}};
+
+    use async_trait::async_trait;
+
+    use super::*;
+
+    #[derive(Debug, Clone)]
+    struct MockHandler;
+
+    #[async_trait]
+    impl EngineIoHandler for MockHandler {
+        type Data = ();
+
+        fn on_connect(&self, socket: &Socket<Self>) {
+            println!("socket connect {}", socket.sid);
+        }
+
+        fn on_disconnect(&self, socket: &Socket<Self>) {
+            println!("socket disconnect {}", socket.sid);
+        }
+
+        fn on_message(&self, msg: String, socket: &Socket<Self>) {
+            println!("Ping pong message {:?}", msg);
+            socket.emit(msg).ok();
+        }
+
+        fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
+            println!("Ping pong binary message {:?}", data);
+            socket.emit_binary(data).ok();
+        }
+    }
+
+    #[test]
+    fn test_parse_v3_packets() -> Result<(), String> {
+        let handler = Arc::new(MockHandler);
+        let config = EngineIoConfig::builder()
+            .protocol_version(ProtocolVersion::V3)
+            .build();
+        let engine = Arc::new(EngineIo::from_config(handler, config));
+
+        let mut reader = BufReader::new(Cursor::new("6:4hello2:4€"));
+        let packets = engine
+            .parse_packets(reader)?.collect::<Result<Vec<Packet>, Error>>()
+            .map_err(|e| e.to_string())?;
+        assert_eq!(packets.len(), 2);
+        assert_eq!(packets[0], Packet::Message("hello".into()));
+        assert_eq!(packets[1], Packet::Message("€".into()));
+
+        reader = BufReader::new(Cursor::new("2:4€10:b4AQIDBA=="));
+        let packets = engine
+            .parse_packets(reader)?.collect::<Result<Vec<Packet>, Error>>()
+            .map_err(|e| e.to_string())?;
+        assert_eq!(packets.len(), 2);
+        assert_eq!(packets[0], Packet::Message("€".into()));
+        assert_eq!(packets[1], Packet::Binary(vec![1, 2, 3, 4]));
+
+        Ok(())
     }
 }

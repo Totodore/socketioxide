@@ -100,12 +100,27 @@ impl TryFrom<String> for Packet {
             '4' => Packet::Message(packet_data.to_string()),
             '5' => Packet::Upgrade,
             '6' => Packet::Noop,
-            'b' => Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?),
+            'b' => {
+                let mut packet_data = packet_data;
+
+                if packet_data.starts_with('4') {
+                    packet_data = &packet_data[1..];   
+                }
+                
+                Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?)
+            },
             c => Err(serde_json::Error::custom(
                 "Invalid packet type ".to_string() + &c.to_string(),
             ))?,
         };
         Ok(res)
+    }
+}
+
+impl TryFrom<&str> for Packet {
+    type Error = crate::errors::Error;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Packet::try_from(value.to_string())
     }
 }
 
