@@ -24,6 +24,7 @@ where
 {
     Response::builder()
         .status(code)
+        .header("Content-Type", "text/plain")
         .body(ResponseBody::custom_response(data.into()))
 }
 
