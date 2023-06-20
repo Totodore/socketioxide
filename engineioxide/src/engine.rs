@@ -73,9 +73,9 @@ where
         let engine = self.clone();
         let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
 
-        let mut lock = self.sockets.write().unwrap();
         let socket = loop {
             let sid = generate_sid();
+            let mut lock = self.sockets.write().unwrap();
             if let Entry::Vacant(entry) = lock.entry(sid) {
                 let socket = Socket::new(
                     sid,
@@ -89,7 +89,6 @@ where
                 break socket;
             }
         };
-        drop(lock);
 
         socket
             .clone()
@@ -266,24 +265,21 @@ where
             let engine = self.clone();
             let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
 
-            let socket = {
+            let socket = loop {
+                let sid = generate_sid();
                 let mut lock = self.sockets.write().unwrap();
-                let socket = loop {
-                    let sid = generate_sid();
-                    if let Entry::Vacant(entry) = lock.entry(sid) {
-                        let socket = Socket::new(
-                            sid,
-                            ConnectionType::WebSocket,
-                            &self.config,
-                            req_data,
-                            close_fn,
-                        );
-                        let socket = Arc::new(socket);
-                        entry.insert(socket.clone());
-                        break socket;
-                    }
-                };
-                socket
+                if let Entry::Vacant(entry) = lock.entry(sid) {
+                    let socket = Socket::new(
+                        sid,
+                        ConnectionType::WebSocket,
+                        &self.config,
+                        req_data,
+                        close_fn,
+                    );
+                    let socket = Arc::new(socket);
+                    entry.insert(socket.clone());
+                    break socket;
+                }
             };
             debug!("[sid={}] new websocket connection", socket.sid);
             let mut ws = ws_init().await;
