@@ -15,6 +15,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+use crate::errors::SendError;
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
@@ -141,7 +142,8 @@ impl<A: Adapter> Socket<A> {
     pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.send(Packet::event(ns, event.into(), data))
+        self.send(Packet::event(ns, event.into(), data))?;
+        Ok(())
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -350,7 +352,7 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), Error> {
+    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError<EnginePacket>> {
         let payload = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 std::mem::take(&mut bin.bin)
@@ -359,10 +361,14 @@ impl<A: Adapter> Socket<A> {
         };
 
         //TODO: fix unwrap
-        self.tx.try_send(packet.try_into()?).unwrap();
+        self.tx
+            .try_send(packet.try_into()?)
+            .map_err(|err| (err, self.sid))?;
 
         for bin in payload {
-            self.tx.try_send(EnginePacket::Binary(bin)).unwrap();
+            self.tx
+                .try_send(EnginePacket::Binary(bin))
+                .map_err(|err| (err, self.sid))?;
         }
         Ok(())
     }
@@ -376,7 +382,14 @@ impl<A: Adapter> Socket<A> {
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.write().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
-        self.send(packet)?;
+        match self.send(packet) {
+            Err(err @ SendError::SocketFull { .. }) => {
+                // todo skip message? return err? try send later? create delayed queue?
+                Err(err)
+            }
+            Err(err) => Err(err),
+            Ok(_) => Ok(()),
+        }?;
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok((serde_json::from_value(v.0)?, v.1))

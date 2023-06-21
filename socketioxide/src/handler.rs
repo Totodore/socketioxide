@@ -4,6 +4,7 @@ use futures::future::BoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
+use crate::errors::SendError;
 use crate::{adapter::Adapter, errors::Error, packet::Packet, Socket};
 
 pub type AckResponse<T> = (T, Vec<Vec<u8>>);
@@ -114,7 +115,14 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.send(packet)
+            match self.socket.send(packet) {
+                Err(err @ SendError::SocketFull { .. }) => {
+                    // todo skip message? return err? try send later? create delayed queue?
+                    Err(err.into())
+                }
+                Err(err) => Err(err.into()),
+                Ok(_) => Ok(()),
+            }
         } else {
             Ok(())
         }

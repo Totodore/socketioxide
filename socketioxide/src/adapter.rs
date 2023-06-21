@@ -17,6 +17,7 @@ use futures::{
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
+use crate::errors::SendError;
 use crate::{
     errors::{AckError, Error},
     handler::AckResponse,
@@ -65,7 +66,6 @@ impl BroadcastOptions {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
-
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
@@ -173,9 +173,14 @@ impl Adapter for LocalAdapter {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
-        sockets
-            .into_iter()
-            .try_for_each(|socket| socket.send(packet.clone()))
+        sockets.into_iter().try_for_each(|socket| {
+            if let Err(SendError::SocketFull { .. }) = socket.send(packet.clone()) {
+                // todo skip message? return err? try send later? create delayed queue?
+                Ok(())
+            } else {
+                Ok(())
+            }
+        })
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(
