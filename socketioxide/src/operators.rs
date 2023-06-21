@@ -231,7 +231,8 @@ impl<A: Adapter> Operators<A> {
         data: impl serde::Serialize,
     ) -> Result<(), Error> {
         let packet = self.get_packet(event, data)?;
-        self.ns.adapter.broadcast(packet, self.opts)
+        self.ns.adapter.broadcast(packet, self.opts)?;
+        Ok(())
     }
 
     /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.

@@ -1,8 +1,9 @@
 use engineioxide::sid_generator::Sid;
 use std::fmt::Debug;
+use std::ops::Deref;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
-use tracing::warn;
+use tracing::debug;
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -28,6 +29,8 @@ pub enum Error {
 
     #[error("send channel error: {0:?}")]
     SendChannel(#[from] SendError<engineioxide::SendPacket>),
+    #[error("broadcast packet error: {0:?}")]
+    BroadcastError(#[from] BroadcastError),
 }
 
 /// Error type for ack responses
@@ -53,6 +56,24 @@ pub enum AckError {
     SendChannel(#[from] SendError<engineioxide::SendPacket>),
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("send channel error: {0:?}")]
+pub struct BroadcastError(Vec<SendError<engineioxide::SendPacket>>);
+
+impl From<Vec<SendError<engineioxide::SendPacket>>> for BroadcastError {
+    fn from(value: Vec<SendError<engineioxide::SendPacket>>) -> Self {
+        Self(value)
+    }
+}
+
+impl Deref for BroadcastError {
+    type Target = Vec<SendError<engineioxide::SendPacket>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// Error type for ack responses
 #[derive(thiserror::Error, Debug)]
 pub enum SendError<T: Debug> {
@@ -68,11 +89,11 @@ impl<T: Debug> From<(TrySendError<T>, Sid)> for SendError<T> {
     fn from((err, sid): (TrySendError<T>, Sid)) -> Self {
         match err {
             TrySendError::Closed(packet) => {
-                warn!("try to send to closed socket, sid: {sid}, packet: {packet:?}");
+                debug!("try to send to closed socket, sid: {sid}, packet: {packet:?}");
                 Self::SocketClosed { sid, packet }
             }
             TrySendError::Full(packet) => {
-                warn!("try to send to full socket, sid: {sid}, packet: {packet:?}");
+                debug!("try to send to full socket, sid: {sid}, packet: {packet:?}");
                 Self::SocketFull { sid, packet }
             }
         }

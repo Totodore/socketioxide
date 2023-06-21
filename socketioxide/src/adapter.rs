@@ -17,9 +17,8 @@ use futures::{
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
-use crate::errors::SendError;
 use crate::{
-    errors::{AckError, Error},
+    errors::{AckError, BroadcastError, Error},
     handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
@@ -87,7 +86,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid);
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error>;
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
@@ -169,18 +168,19 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
-        sockets.into_iter().try_for_each(|socket| {
-            if let Err(SendError::SocketFull { .. }) = socket.send(packet.clone()) {
-                // todo skip message? return err? try send later? create delayed queue?
-                Ok(())
-            } else {
-                Ok(())
-            }
-        })
+        let errors: Vec<_> = sockets
+            .into_iter()
+            .filter_map(|socket| socket.send(packet.clone()).err())
+            .collect();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.into())
+        }
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(
