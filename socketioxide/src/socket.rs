@@ -8,10 +8,12 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
+use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket, SendPacket};
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 
 use crate::errors::SendError;
@@ -351,22 +353,20 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError<EnginePacket>> {
+    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError> {
         let payload = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 std::mem::take(&mut bin.bin)
             }
             _ => vec![],
         };
-
-        self.tx
-            .try_send(packet.try_into()?)
-            .map_err(|err| (err, self.sid))?;
+        let sender: Sender<SendPacket> = self.tx.clone();
+        let packet = packet.try_into()?;
+        internal_send(self.sid, packet, sender)?;
 
         for bin in payload {
-            self.tx
-                .try_send(EnginePacket::Binary(bin))
-                .map_err(|err| (err, self.sid))?;
+            // todo remove unwrap, handle correctly
+            self.tx.try_send(EnginePacket::Binary(bin)).unwrap()
         }
         Ok(())
     }
@@ -432,6 +432,20 @@ impl<A: Adapter> Socket<A> {
     }
 }
 
+fn internal_send(
+    sid: Sid,
+    packet: SendPacket,
+    sender: Sender<SendPacket>,
+) -> Result<(), SendError> {
+    sender.try_send(packet).map_err(|err| match err {
+        TrySendError::Full(packet) => {
+            let resend = Box::new(move || internal_send(sid, packet, sender));
+            SendError::SocketFull { sid, resend }
+        }
+        _ => SendError::SocketClosed { sid },
+    })
+}
+
 impl<A: Adapter> Debug for Socket<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Socket")
@@ -460,5 +474,54 @@ impl<A: Adapter> Socket<A> {
             tx,
             Arc::new(SocketIoConfig::default()),
         )
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crate::adapter::{Adapter, LocalAdapter};
+    use crate::errors::{Error, SendError};
+    use crate::handshake::Handshake;
+    use crate::{Namespace, Socket, SocketIoConfig};
+    use engineioxide::sid_generator::Sid;
+    use engineioxide::SendPacket;
+    use futures::FutureExt;
+    use std::sync::Arc;
+    use tokio::sync::mpsc::Receiver;
+
+    impl<A: Adapter> Socket<A> {
+        pub fn new_rx_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> (Socket<A>, Receiver<SendPacket>) {
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            (
+                Socket::new(
+                    sid,
+                    ns,
+                    Handshake::new_dummy(),
+                    tx,
+                    Arc::new(SocketIoConfig::default()),
+                ),
+                rx,
+            )
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resend() {
+        let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
+        let (sock, mut rx): (Socket<LocalAdapter>, _) =
+            Socket::new_rx_dummy(1i64.into(), ns.clone());
+        sock.emit("lol", "\"someString1\"").unwrap();
+
+        let error = sock.emit("lol", "\"someString2\"").unwrap_err();
+
+        let Error::SendChannel(SendError::SocketFull {  resend, .. }) = error else {
+          panic!("unexpected err");  
+        };
+        let error = resend().unwrap_err();
+        rx.recv().await.unwrap();
+
+        let SendError::SocketFull {  resend, .. } = error else {
+            panic!("unexpected err");
+        };
+        resend().unwrap();
     }
 }

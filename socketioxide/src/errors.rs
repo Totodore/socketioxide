@@ -1,9 +1,8 @@
+use derivative::Derivative;
 use engineioxide::sid_generator::Sid;
 use std::fmt::Debug;
 use std::ops::Deref;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
-use tracing::debug;
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -28,7 +27,7 @@ pub enum Error {
     EngineIoError(#[from] engineioxide::errors::Error),
 
     #[error("send channel error: {0:?}")]
-    SendChannel(#[from] SendError<engineioxide::SendPacket>),
+    SendChannel(#[from] SendError),
     #[error("broadcast packet error: {0:?}")]
     BroadcastError(#[from] BroadcastError),
 }
@@ -53,21 +52,21 @@ pub enum AckError {
     InternalError(#[from] Error),
 
     #[error("send channel error: {0:?}")]
-    SendChannel(#[from] SendError<engineioxide::SendPacket>),
+    SendChannel(#[from] SendError),
 }
 
 #[derive(Debug, thiserror::Error)]
 #[error("send channel error: {0:?}")]
-pub struct BroadcastError(Vec<SendError<engineioxide::SendPacket>>);
+pub struct BroadcastError(Vec<SendError>);
 
-impl From<Vec<SendError<engineioxide::SendPacket>>> for BroadcastError {
-    fn from(value: Vec<SendError<engineioxide::SendPacket>>) -> Self {
+impl From<Vec<SendError>> for BroadcastError {
+    fn from(value: Vec<SendError>) -> Self {
         Self(value)
     }
 }
 
 impl Deref for BroadcastError {
-    type Target = Vec<SendError<engineioxide::SendPacket>>;
+    type Target = Vec<SendError>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -75,27 +74,18 @@ impl Deref for BroadcastError {
 }
 
 /// Error type for ack responses
-#[derive(thiserror::Error, Debug)]
-pub enum SendError<T: Debug> {
-    #[error("sent to full socket chan, sid: {sid}, packet: {packet:?}")]
-    SocketFull { sid: Sid, packet: T },
-    #[error("sent to closed socket chan, sid: {sid}, packet: {packet:?}")]
-    SocketClosed { sid: Sid, packet: T },
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[derive(thiserror::Error)]
+pub enum SendError {
+    #[error("sent to full socket chan, sid: {sid}")]
+    SocketFull {
+        sid: Sid,
+        #[derivative(Debug = "ignore")]
+        resend: Box<dyn FnOnce() -> Result<(), SendError> + Send>,
+    },
+    #[error("sent to closed socket chan, sid: {sid}")]
+    SocketClosed { sid: Sid },
     #[error("error serializing json packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
-}
-
-impl<T: Debug> From<(TrySendError<T>, Sid)> for SendError<T> {
-    fn from((err, sid): (TrySendError<T>, Sid)) -> Self {
-        match err {
-            TrySendError::Closed(packet) => {
-                debug!("try to send to closed socket, sid: {sid}, packet: {packet:?}");
-                Self::SocketClosed { sid, packet }
-            }
-            TrySendError::Full(packet) => {
-                debug!("try to send to full socket, sid: {sid}, packet: {packet:?}");
-                Self::SocketFull { sid, packet }
-            }
-        }
-    }
 }
