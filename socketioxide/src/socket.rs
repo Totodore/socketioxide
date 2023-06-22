@@ -434,44 +434,27 @@ fn internal_send(
     mut bin_payload: VecDeque<Vec<u8>>,
     sender: Sender<SendPacket>,
 ) -> Result<(), SendError> {
-    let res = if let Some(packet) = packet {
-        sender.try_send(packet)
-    } else {
-        Ok(())
-    };
-    if let Err(err) = res {
-        match err {
-            TrySendError::Full(packet) => {
-                let resend =
-                    Box::new(move || internal_send(sid, Some(packet), bin_payload, sender));
-                Err(SendError::SocketFull { sid, resend })
-            }
-            _ => Err(SendError::SocketClosed { sid }),
+    match packet.map(|p| sender.try_send(p)) {
+        Some(Err(TrySendError::Full(packet))) => {
+            let resend = Box::new(move || internal_send(sid, Some(packet), bin_payload, sender));
+            return Err(SendError::SocketFull { sid, resend });
         }
-    } else {
-        loop {
-            let Some(payload) = bin_payload.pop_front() else {
-                break
-            };
-            let res = sender.try_send(EnginePacket::Binary(payload));
-            let Err(err) = res else {
-                continue;
-            };
-
-            let err = match err {
-                TrySendError::Full(SendPacket::Binary(payload)) => {
-                    bin_payload.push_front(payload);
-                    let resend = Box::new(move || internal_send(sid, None, bin_payload, sender));
-                    SendError::SocketFull { sid, resend }
-                }
-                TrySendError::Full(SendPacket::Message(_)) => unreachable!(),
-                _ => SendError::SocketClosed { sid },
-            };
-            return Err(err);
-        }
-
-        Ok(())
+        Some(Err(TrySendError::Closed(_))) => return Err(SendError::SocketClosed { sid }),
+        _ => {}
     }
+    while let Some(payload) = bin_payload.pop_front() {
+        match sender.try_send(EnginePacket::Binary(payload)) {
+            Err(TrySendError::Full(SendPacket::Binary(payload))) => {
+                bin_payload.push_front(payload);
+                let resend = Box::new(move || internal_send(sid, None, bin_payload, sender));
+                return Err(SendError::SocketFull { sid, resend });
+            }
+            Err(TrySendError::Full(SendPacket::Message(_))) => unreachable!(),
+            Err(_) => return Err(SendError::SocketClosed { sid }),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 impl<A: Adapter> Debug for Socket<A> {
