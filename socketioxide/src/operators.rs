@@ -13,6 +13,7 @@ use crate::{
     packet::Packet,
     Socket,
 };
+use crate::errors::{BroadcastError};
 
 /// A trait for types that can be used as a room parameter.
 pub trait RoomParam: 'static {
@@ -229,10 +230,9 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BroadcastError> {
         let packet = self.get_packet(event, data)?;
-        self.ns.adapter.broadcast(packet, self.opts)?;
-        Ok(())
+        self.ns.adapter.broadcast(packet, self.opts)
     }
 
     /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.
@@ -293,7 +293,7 @@ impl<A: Adapter> Operators<A> {
         &mut self,
         event: impl Into<String>,
         data: impl Serialize,
-    ) -> Result<Packet, Error> {
+    ) -> Result<Packet, serde_json::Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {

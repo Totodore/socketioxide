@@ -141,11 +141,10 @@ impl<A: Adapter> Socket<A> {
     ///         socket.emit("test", data);
     ///     });
     /// });
-    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
+    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), SendError> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.send(Packet::event(ns, event.into(), data))?;
-        Ok(())
+        self.send(Packet::event(ns, event.into(), data))
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -508,7 +507,7 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod tests {
     use crate::adapter::{Adapter, LocalAdapter};
-    use crate::errors::{Error, SendError};
+    use crate::errors::{SendError};
     use crate::handshake::Handshake;
     use crate::packet::Packet;
     use crate::socket::internal_send;
@@ -544,7 +543,7 @@ mod tests {
 
         let error = sock.emit("lol", "\"someString2\"").unwrap_err();
 
-        let Error::SendChannel(SendError::SocketFull {  resend, .. }) = error else {
+        let SendError::SocketFull {  resend, .. } = error else {
           panic!("unexpected err");  
         };
         let error = resend().unwrap_err();

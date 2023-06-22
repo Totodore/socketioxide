@@ -1,7 +1,6 @@
 use derivative::Derivative;
 use engineioxide::sid_generator::Sid;
 use std::fmt::Debug;
-use std::ops::Deref;
 use tokio::sync::oneshot;
 
 /// Error type for socketio
@@ -56,20 +55,16 @@ pub enum AckError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("send channel error: {0:?}")]
-pub struct BroadcastError(Vec<SendError>);
+pub enum BroadcastError{
+    #[error("sending error: {0:?}")]
+    SendError(Vec<SendError>),
+    #[error("error serializing json packet: {0:?}")]
+    Serialize(#[from] serde_json::Error),
+}
 
 impl From<Vec<SendError>> for BroadcastError {
     fn from(value: Vec<SendError>) -> Self {
-        Self(value)
-    }
-}
-
-impl Deref for BroadcastError {
-    type Target = Vec<SendError>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        Self::SendError(value)
     }
 }
 
