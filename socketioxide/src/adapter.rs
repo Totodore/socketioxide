@@ -18,7 +18,7 @@ use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    errors::{AckError, Error},
+    errors::{AckError, BroadcastError, Error},
     handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
@@ -65,7 +65,6 @@ impl BroadcastOptions {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
-
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
@@ -87,7 +86,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid);
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error>;
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
@@ -169,13 +168,19 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
-        sockets
+        let errors: Vec<_> = sockets
             .into_iter()
-            .try_for_each(|socket| socket.send(packet.clone()))
+            .filter_map(|socket| socket.send(packet.clone()).err())
+            .collect();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.into())
+        }
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(

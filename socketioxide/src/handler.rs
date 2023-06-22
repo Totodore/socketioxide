@@ -114,7 +114,8 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.send(packet)
+            self.socket.send(packet)?;
+            Ok(())
         } else {
             Ok(())
         }

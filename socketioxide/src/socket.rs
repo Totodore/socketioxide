@@ -8,13 +8,13 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::sid_generator::Sid;
-use engineioxide::SendPacket as EnginePacket;
+use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+use crate::errors::SendError;
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
@@ -141,7 +141,8 @@ impl<A: Adapter> Socket<A> {
     pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.send(Packet::event(ns, event.into(), data))
+        self.send(Packet::event(ns, event.into(), data))?;
+        Ok(())
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -350,7 +351,7 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), Error> {
+    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError<EnginePacket>> {
         let payload = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 std::mem::take(&mut bin.bin)
@@ -358,11 +359,14 @@ impl<A: Adapter> Socket<A> {
             _ => vec![],
         };
 
-        //TODO: fix unwrap
-        self.tx.try_send(packet.try_into()?).unwrap();
+        self.tx
+            .try_send(packet.try_into()?)
+            .map_err(|err| (err, self.sid))?;
 
         for bin in payload {
-            self.tx.try_send(EnginePacket::Binary(bin)).unwrap();
+            self.tx
+                .try_send(EnginePacket::Binary(bin))
+                .map_err(|err| (err, self.sid))?;
         }
         Ok(())
     }
