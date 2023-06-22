@@ -58,6 +58,7 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
         let conn_err_resp = |message: &'static str| {
             Response::builder()
                 .status(400)
+                .header("Content-Type", "application/json")
                 .body(ResponseBody::custom_response(message.into()))
                 .unwrap()
         };
