@@ -440,7 +440,6 @@ fn internal_send(
     } else {
         Ok(())
     };
-    println!("here!");
     if let Err(err) = res {
         match err {
             TrySendError::Full(packet) => {
