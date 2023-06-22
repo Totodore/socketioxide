@@ -24,11 +24,6 @@ pub enum Error {
     /// An engineio error
     #[error("engineio error: {0}")]
     EngineIoError(#[from] engineioxide::errors::Error),
-
-    #[error("send channel error: {0:?}")]
-    SendChannel(#[from] SendError),
-    #[error("broadcast packet error: {0:?}")]
-    BroadcastError(#[from] BroadcastError),
 }
 
 /// Error type for ack responses
@@ -55,7 +50,7 @@ pub enum AckError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum BroadcastError{
+pub enum BroadcastError {
     #[error("sending error: {0:?}")]
     SendError(Vec<SendError>),
     #[error("error serializing json packet: {0:?}")]

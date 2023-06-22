@@ -17,7 +17,7 @@ pub struct EngineIoConfig {
     /// The maximum number of packets that can be buffered per connection before being emitted to the client.
     ///
     /// If the buffer if full the `emit()` method will return an error
-    /// 
+    ///
     /// Defaults to 128 packets
     pub max_buffer_size: usize,
 

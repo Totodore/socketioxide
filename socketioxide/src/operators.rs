@@ -5,6 +5,7 @@ use futures::stream::BoxStream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::errors::BroadcastError;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::{AckError, Error},
@@ -13,7 +14,6 @@ use crate::{
     packet::Packet,
     Socket,
 };
-use crate::errors::{BroadcastError};
 
 /// A trait for types that can be used as a room parameter.
 pub trait RoomParam: 'static {

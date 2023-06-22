@@ -47,7 +47,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
 
-
     let addr = &"127.0.0.1:3000".parse().unwrap();
     let handler = Arc::new(MyHandler);
     let svc = EngineIoService::with_config(handler, config);

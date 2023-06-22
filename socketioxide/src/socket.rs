@@ -344,7 +344,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Disconnect the socket from the current namespace.
-    pub fn disconnect(&self) -> Result<(), Error> {
+    pub fn disconnect(&self) -> Result<(), SendError> {
         self.ns.disconnect(self.sid)
     }
 
@@ -507,7 +507,7 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod tests {
     use crate::adapter::{Adapter, LocalAdapter};
-    use crate::errors::{SendError};
+    use crate::errors::SendError;
     use crate::handshake::Handshake;
     use crate::packet::Packet;
     use crate::socket::internal_send;
