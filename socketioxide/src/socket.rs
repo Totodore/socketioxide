@@ -510,12 +510,14 @@ mod tests {
     use crate::adapter::{Adapter, LocalAdapter};
     use crate::errors::{Error, SendError};
     use crate::handshake::Handshake;
+    use crate::packet::Packet;
+    use crate::socket::internal_send;
     use crate::{Namespace, Socket, SocketIoConfig};
     use engineioxide::sid_generator::Sid;
     use engineioxide::SendPacket;
     use futures::FutureExt;
     use std::sync::Arc;
-    use tokio::sync::mpsc::Receiver;
+    use tokio::sync::mpsc::{channel, Receiver};
 
     impl<A: Adapter> Socket<A> {
         pub fn new_rx_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> (Socket<A>, Receiver<SendPacket>) {
@@ -551,6 +553,42 @@ mod tests {
         let SendError::SocketFull {  resend, .. } = error else {
             panic!("unexpected err");
         };
+        resend().unwrap();
+    }
+    #[tokio::test]
+    async fn test_resend_bin() {
+        let sid = 1i64.into();
+        let (tx, mut rx) = channel(1);
+        let err = internal_send(
+            sid,
+            Some(
+                Packet::event(
+                    "ns".to_string(),
+                    "lol".to_string(),
+                    serde_json::to_value("\"someString2\"").unwrap(),
+                )
+                .try_into()
+                .unwrap(),
+            ),
+            vec![vec![1, 2, 3], vec![4, 5, 6]].into(),
+            tx,
+        )
+        .unwrap_err();
+
+        // only txt message sent
+        let SendError::SocketFull {resend,..}  =err else {
+            panic!("unexpected err");
+        };
+        // read txt
+        rx.recv().await.unwrap();
+        // send first bin, second bin fails
+        let err = resend().unwrap_err();
+        let SendError::SocketFull {resend,..}  =err else {
+            panic!("unexpected err");
+        };
+        // read first bin
+        rx.recv().await.unwrap();
+        // successfully send last part
         resend().unwrap();
     }
 }
