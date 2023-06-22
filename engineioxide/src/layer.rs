@@ -14,13 +14,13 @@ impl<H: EngineIoHandler> EngineIoLayer<H>
     pub fn new(handler: H) -> Self {
         Self {
             config: EngineIoConfig::default(),
-            handler: handler.into(),
+            handler,
         }
     }
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
         Self {
             config,
-            handler: handler.into(),
+            handler,
         }
     }
 }
