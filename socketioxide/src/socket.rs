@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -9,15 +8,15 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket, SendPacket};
+use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 
 use crate::errors::SendError;
+use crate::retryer::Retryer;
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
@@ -360,9 +359,16 @@ impl<A: Adapter> Socket<A> {
             }
             _ => vec![],
         };
-        let sender: Sender<SendPacket> = self.tx.clone();
+        let sender: Sender<EnginePacket> = self.tx.clone();
         let packet = packet.try_into()?;
-        internal_send(self.sid, Some(packet), payload.into(), sender)?;
+        Retryer::new(
+            self.sid,
+            sender.clone(),
+            Some(packet),
+            payload.into(),
+            sender,
+        )
+        .retry()?;
 
         Ok(())
     }
@@ -428,34 +434,34 @@ impl<A: Adapter> Socket<A> {
     }
 }
 
-fn internal_send(
-    sid: Sid,
-    packet: Option<SendPacket>,
-    mut bin_payload: VecDeque<Vec<u8>>,
-    sender: Sender<SendPacket>,
-) -> Result<(), SendError> {
-    match packet.map(|p| sender.try_send(p)) {
-        Some(Err(TrySendError::Full(packet))) => {
-            let resend = Box::new(move || internal_send(sid, Some(packet), bin_payload, sender));
-            return Err(SendError::SocketFull { sid, resend });
-        }
-        Some(Err(TrySendError::Closed(_))) => return Err(SendError::SocketClosed { sid }),
-        _ => {}
-    }
-    while let Some(payload) = bin_payload.pop_front() {
-        match sender.try_send(EnginePacket::Binary(payload)) {
-            Err(TrySendError::Full(SendPacket::Binary(payload))) => {
-                bin_payload.push_front(payload);
-                let resend = Box::new(move || internal_send(sid, None, bin_payload, sender));
-                return Err(SendError::SocketFull { sid, resend });
-            }
-            Err(TrySendError::Full(SendPacket::Message(_))) => unreachable!(),
-            Err(_) => return Err(SendError::SocketClosed { sid }),
-            _ => {}
-        }
-    }
-    Ok(())
-}
+// fn internal_send(
+//     sid: Sid,
+//     packet: Option<EnginePacket>,
+//     mut bin_payload: VecDeque<Vec<u8>>,
+//     sender: Sender<EnginePacket>,
+// ) -> Result<(), SendError> {
+//     match packet.map(|p| sender.try_send(p)) {
+//         Some(Err(TrySendError::Full(packet))) => {
+//             let resend = Box::new(move || internal_send(sid, Some(packet), bin_payload, sender));
+//             return Err(SendError::SocketFull { sid, resend });
+//         }
+//         Some(Err(TrySendError::Closed(_))) => return Err(SendError::SocketClosed { sid }),
+//         _ => {}
+//     }
+//     while let Some(payload) = bin_payload.pop_front() {
+//         match sender.try_send(EnginePacket::Binary(payload)) {
+//             Err(TrySendError::Full(EnginePacket::Binary(payload))) => {
+//                 bin_payload.push_front(payload);
+//                 let resend = Box::new(move || internal_send(sid, None, bin_payload, sender));
+//                 return Err(SendError::SocketFull { sid, resend });
+//             }
+//             Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
+//             Err(_) => return Err(SendError::SocketClosed { sid }),
+//             _ => {}
+//         }
+//     }
+//     Ok(())
+// }
 
 impl<A: Adapter> Debug for Socket<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -487,19 +493,18 @@ impl<A: Adapter> Socket<A> {
         )
     }
 }
+
 #[cfg(test)]
 mod tests {
     use crate::adapter::{Adapter, LocalAdapter};
-    use crate::errors::SendError;
+    use crate::errors::{RetryerError, SendError};
     use crate::handshake::Handshake;
-    use crate::packet::Packet;
-    use crate::socket::internal_send;
     use crate::{Namespace, Socket, SocketIoConfig};
     use engineioxide::sid_generator::Sid;
     use engineioxide::SendPacket;
     use futures::FutureExt;
     use std::sync::Arc;
-    use tokio::sync::mpsc::{channel, Receiver};
+    use tokio::sync::mpsc::Receiver;
 
     impl<A: Adapter> Socket<A> {
         pub fn new_rx_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> (Socket<A>, Receiver<SendPacket>) {
@@ -526,51 +531,15 @@ mod tests {
 
         let error = sock.emit("lol", "\"someString2\"").unwrap_err();
 
-        let SendError::SocketFull {  resend, .. } = error else {
+        let SendError::RetryerError(RetryerError::Remaining(retryer)) = error else {
           panic!("unexpected err");  
         };
-        let error = resend().unwrap_err();
+        let error = retryer.retry().unwrap_err();
         rx.recv().await.unwrap();
 
-        let SendError::SocketFull {  resend, .. } = error else {
+        let RetryerError::Remaining(retryer) = error else {
             panic!("unexpected err");
         };
-        resend().unwrap();
-    }
-    #[tokio::test]
-    async fn test_resend_bin() {
-        let sid = 1i64.into();
-        let (tx, mut rx) = channel(1);
-        let err = internal_send(
-            sid,
-            Some(
-                Packet::event(
-                    "ns".to_string(),
-                    "lol".to_string(),
-                    serde_json::to_value("\"someString2\"").unwrap(),
-                )
-                .try_into()
-                .unwrap(),
-            ),
-            vec![vec![1, 2, 3], vec![4, 5, 6]].into(),
-            tx,
-        )
-        .unwrap_err();
-
-        // only txt message sent
-        let SendError::SocketFull {resend,..}  =err else {
-            panic!("unexpected err");
-        };
-        // read txt
-        rx.recv().await.unwrap();
-        // send first bin, second bin fails
-        let err = resend().unwrap_err();
-        let SendError::SocketFull {resend,..}  =err else {
-            panic!("unexpected err");
-        };
-        // read first bin
-        rx.recv().await.unwrap();
-        // successfully send last part
-        resend().unwrap();
+        retryer.retry().unwrap();
     }
 }

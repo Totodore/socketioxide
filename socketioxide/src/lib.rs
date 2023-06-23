@@ -61,6 +61,7 @@
 //! ```
 
 pub mod adapter;
+pub mod retryer;
 
 pub use config::{SocketIoConfig, SocketIoConfigBuilder};
 pub use errors::{AckError, Error as SocketError};

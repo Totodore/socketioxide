@@ -1,5 +1,6 @@
-use derivative::Derivative;
+use crate::retryer::Retryer;
 use engineioxide::sid_generator::Sid;
+use engineioxide::SendPacket;
 use std::fmt::Debug;
 use tokio::sync::oneshot;
 
@@ -64,18 +65,18 @@ impl From<Vec<SendError>> for BroadcastError {
 }
 
 /// Error type for ack responses
-#[derive(Derivative)]
-#[derivative(Debug)]
-#[derive(thiserror::Error)]
+#[derive(thiserror::Error, Debug)]
 pub enum SendError {
-    #[error("sent to full socket chan, sid: {sid}")]
-    SocketFull {
-        sid: Sid,
-        #[derivative(Debug = "ignore")]
-        resend: Box<dyn FnOnce() -> Result<(), SendError> + Send>,
-    },
-    #[error("sent to closed socket chan, sid: {sid}")]
-    SocketClosed { sid: Sid },
     #[error("error serializing json packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
+    #[error("send error: {0:?}")]
+    RetryerError(#[from] RetryerError<SendPacket>),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum RetryerError<T: Debug> {
+    #[error("sent to closed socket chan, sid: {sid}")]
+    SocketClosed { sid: Sid },
+    #[error("sent to full socket chan")]
+    Remaining(Retryer<T>),
 }
