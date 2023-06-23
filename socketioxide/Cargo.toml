@@ -31,7 +31,6 @@ tracing = "0.1.37"
 thiserror = "1.0.40"
 itertools = "0.10.5"
 dashmap = "5.4.0"
-derivative = "2.2.0"
 
 [dev-dependencies]
 axum = "0.6.18"
