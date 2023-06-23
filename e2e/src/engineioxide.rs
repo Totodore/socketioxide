@@ -1,6 +1,6 @@
 //! This a end to end test server used with this [test suite](https://github.com/socketio/engine.io-protocol)
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use engineioxide::{
     config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, socket::Socket,
@@ -48,8 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     let addr = &"127.0.0.1:3000".parse().unwrap();
-    let handler = Arc::new(MyHandler);
-    let svc = EngineIoService::with_config(handler, config);
+    let svc = EngineIoService::with_config(MyHandler, config);
 
     let server = Server::bind(addr).serve(svc.into_make_service());
     tracing::subscriber::set_global_default(subscriber)?;

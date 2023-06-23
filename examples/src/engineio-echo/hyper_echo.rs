@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
 use hyper::Server;
 use tracing::info;
@@ -36,8 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // We'll bind to 127.0.0.1:3000
     let addr = &"127.0.0.1:3000".parse().unwrap();
-    let handler = Arc::new(MyHandler);
-    let svc = EngineIoService::new(handler);
+    let svc = EngineIoService::new(MyHandler);
 
     let server = Server::bind(addr).serve(svc.into_make_service());
 

@@ -62,7 +62,7 @@ impl<A: Adapter, S: Clone> SocketIoService<A, S> {
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
     pub fn with_config_inner(inner: S, ns_handlers: NsHandlers<A>, config: SocketIoConfig) -> Self {
         let client = Client::new(config.clone(), ns_handlers.clone());
-        let svc = EngineIoService::with_config_inner(inner, client.into(), config.engine_config);
+        let svc = EngineIoService::with_config_inner(inner, client, config.engine_config);
         Self { engine_svc: svc }
     }
 }

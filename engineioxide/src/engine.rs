@@ -31,21 +31,17 @@ use tracing::debug;
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
-pub struct EngineIo<H>
-where
-    H: EngineIoHandler + ?Sized,
+pub struct EngineIo<H: EngineIoHandler>
 {
     sockets: SocketMap<Socket<H>>,
-    handler: Arc<H>,
+    handler: H,
     pub config: EngineIoConfig,
 }
 
-impl<H> EngineIo<H>
-where
-    H: EngineIoHandler + ?Sized,
+impl<H: EngineIoHandler> EngineIo<H>
 {
     /// Create a new Engine.IO server with a handler and a config
-    pub fn new(handler: Arc<H>, config: EngineIoConfig) -> Self {
+    pub fn new(handler: H, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
@@ -54,9 +50,7 @@ where
     }
 }
 
-impl<H> EngineIo<H>
-where
-    H: EngineIoHandler + ?Sized,
+impl<H: EngineIoHandler> EngineIo<H>
 {
     /// Handle Open request
     /// Create a new socket and add it to the socket map

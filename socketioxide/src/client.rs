@@ -177,3 +177,12 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 }
+
+impl<A: Adapter> Clone for Client<A> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            ns: self.ns.clone(),
+        }
+    }
+}

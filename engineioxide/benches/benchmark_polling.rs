@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use bytes::{Buf, Bytes};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -22,7 +22,7 @@ struct OpenPacket {
     max_payload: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Client;
 impl EngineIoHandler for Client {
     type Data = ();
@@ -89,8 +89,7 @@ fn create_post_bin_req(sid: Sid) -> Request<http_body::Full<Bytes>> {
 }
 pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("polling open request", |b| {
-        let client = Arc::new(Client);
-        let svc = EngineIoService::new(client);
+        let svc = EngineIoService::new(Client);
         b.to_async(tokio::runtime::Runtime::new().unwrap())
             .iter_batched(
                 create_open_poll_req,
@@ -100,8 +99,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("ping/pong text", |b| {
-        let client = Arc::new(Client);
-        let svc = EngineIoService::new(client);
+        let svc = EngineIoService::new(Client);
         b.to_async(tokio::runtime::Runtime::new().unwrap())
             .iter_custom(|r| {
                 let svc = svc.clone();
@@ -129,8 +127,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("ping/pong binary", |b| {
-        let client = Arc::new(Client);
-        let svc = EngineIoService::new(client);
+        let svc = EngineIoService::new(Client);
         b.to_async(tokio::runtime::Runtime::new().unwrap())
             .iter_custom(|r| {
                 let svc = svc.clone();

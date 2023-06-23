@@ -1,39 +1,31 @@
 use tower::Layer;
 
 use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
-use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct EngineIoLayer<H>
-where
-    H: EngineIoHandler,
+pub struct EngineIoLayer<H: EngineIoHandler>
 {
     config: EngineIoConfig,
-    handler: Arc<H>,
+    handler: H,
 }
 
-impl<H> EngineIoLayer<H>
-where
-    H: EngineIoHandler,
+impl<H: EngineIoHandler> EngineIoLayer<H>
 {
     pub fn new(handler: H) -> Self {
         Self {
             config: EngineIoConfig::default(),
-            handler: handler.into(),
+            handler,
         }
     }
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
         Self {
             config,
-            handler: handler.into(),
+            handler,
         }
     }
 }
 
-impl<S, H> Layer<S> for EngineIoLayer<H>
-where
-    H: EngineIoHandler,
-    S: Clone,
+impl<S: Clone, H: EngineIoHandler> Layer<S> for EngineIoLayer<H>
 {
     type Service = EngineIoService<H, S>;
 

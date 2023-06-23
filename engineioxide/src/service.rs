@@ -28,39 +28,30 @@ use std::{
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 ///
 /// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
-pub struct EngineIoService<H, S = NotFoundService>
-where
-    H: EngineIoHandler + ?Sized,
-{
+pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
     inner: S,
     engine: Arc<EngineIo<H>>,
 }
-impl<H> EngineIoService<H, NotFoundService>
-where
-    H: EngineIoHandler + ?Sized,
-{
+
+impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
     /// Create a new [`EngineIoService`] with a [`NotFoundService`] as the inner service.
     /// If the request is not an `EngineIo` request, it will always return a 404 response.
-    pub fn new(handler: Arc<H>) -> Self {
+    pub fn new(handler: H) -> Self {
         EngineIoService::with_config(handler, EngineIoConfig::default())
     }
     /// Create a new [`EngineIoService`] with a custom config
-    pub fn with_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
+    pub fn with_config(handler: H, config: EngineIoConfig) -> Self {
         EngineIoService::with_config_inner(NotFoundService, handler, config)
     }
 }
-impl<S, H> EngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-    S: Clone,
-{
+impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
     /// Create a new [`EngineIoService`] with a custom inner service.
-    pub fn with_inner(inner: S, handler: Arc<H>) -> Self {
+    pub fn with_inner(inner: S, handler: H) -> Self {
         EngineIoService::with_config_inner(inner, handler, EngineIoConfig::default())
     }
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub fn with_config_inner(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
+    pub fn with_config_inner(inner: S, handler: H, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
             engine: Arc::new(EngineIo::new(handler, config)),
@@ -74,11 +65,7 @@ where
     }
 }
 
-impl<S, H> Clone for EngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-    S: Clone,
-{
+impl<S: Clone, H: EngineIoHandler> Clone for EngineIoService<H, S> {
     fn clone(&self) -> Self {
         EngineIoService {
             inner: self.inner.clone(),
@@ -95,7 +82,7 @@ where
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
@@ -142,29 +129,25 @@ where
     }
 }
 
+impl<H: EngineIoHandler, S> Debug for EngineIoService<H, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineIoService").finish()
+    }
+}
+
 /// A MakeService that always returns a clone of the [`EngineIoService`] it was created with.
-pub struct MakeEngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-{
+pub struct MakeEngineIoService<H: EngineIoHandler, S> {
     svc: EngineIoService<H, S>,
 }
 
-impl<H, S> MakeEngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-{
+impl<H: EngineIoHandler, S> MakeEngineIoService<H, S> {
     /// Create a new [`MakeEngineIoService`] with a custom inner service.
     pub fn new(svc: EngineIoService<H, S>) -> Self {
         MakeEngineIoService { svc }
     }
 }
 
-impl<H, S, T> Service<T> for MakeEngineIoService<H, S>
-where
-    H: EngineIoHandler,
-    S: Clone,
-{
+impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
     type Response = EngineIoService<H, S>;
 
     type Error = Infallible;
