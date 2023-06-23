@@ -49,15 +49,12 @@ impl Retryer {
     /// - `Ok(())` if all packets were successfully sent.
     /// - `Err(RetryerError)` if there are remaining packets to be sent or the socket is closed.
     pub fn retry(mut self) -> Result<(), RetryerError> {
+        let packet = self.packet.take();
         // Retry sending the main packet
-        match self.packet.map(|p| self.sender.try_send(p)) {
+        match packet.map(|p| self.sender.try_send(p)) {
             Some(Err(TrySendError::Full(packet))) => {
-                return Err(RetryerError::Remaining(Retryer::new(
-                    self.sid,
-                    self.sender,
-                    Some(packet),
-                    self.bin_payload,
-                )));
+                self.packet = Some(packet);
+                return Err(RetryerError::Remaining(self));
             }
             Some(Err(TrySendError::Closed(_))) => {
                 return Err(RetryerError::SocketClosed { sid: self.sid })
@@ -70,12 +67,7 @@ impl Retryer {
             match self.sender.try_send(SendPacket::Binary(payload)) {
                 Err(TrySendError::Full(SendPacket::Binary(payload))) => {
                     self.bin_payload.push_front(payload);
-                    return Err(RetryerError::Remaining(Retryer::new(
-                        self.sid,
-                        self.sender,
-                        None,
-                        self.bin_payload,
-                    )));
+                    return Err(RetryerError::Remaining(self));
                 }
                 Err(TrySendError::Full(SendPacket::Message(_))) => unreachable!(),
                 Err(_) => return Err(RetryerError::SocketClosed { sid: self.sid }),
