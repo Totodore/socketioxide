@@ -5,6 +5,7 @@ use futures::stream::BoxStream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::errors::BroadcastError;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::{AckError, Error},
@@ -229,7 +230,7 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BroadcastError> {
         let packet = self.get_packet(event, data)?;
         self.ns.adapter.broadcast(packet, self.opts)
     }
@@ -292,7 +293,7 @@ impl<A: Adapter> Operators<A> {
         &mut self,
         event: impl Into<String>,
         data: impl Serialize,
-    ) -> Result<Packet, Error> {
+    ) -> Result<Packet, serde_json::Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {

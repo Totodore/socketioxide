@@ -8,13 +8,14 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::sid_generator::Sid;
-use engineioxide::SendPacket as EnginePacket;
+use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+use crate::errors::SendError;
+use crate::retryer::Retryer;
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
@@ -138,7 +139,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.emit("test", data);
     ///     });
     /// });
-    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), Error> {
+    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), SendError> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         self.send(Packet::event(ns, event.into(), data))
@@ -341,7 +342,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Disconnect the socket from the current namespace.
-    pub fn disconnect(&self) -> Result<(), Error> {
+    pub fn disconnect(&self) -> Result<(), SendError> {
         self.ns.disconnect(self.sid)
     }
 
@@ -350,20 +351,16 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), Error> {
+    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError> {
         let payload = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 std::mem::take(&mut bin.bin)
             }
             _ => vec![],
         };
+        let packet = packet.try_into()?;
+        Retryer::new(self.sid, self.tx.clone(), Some(packet), payload.into()).retry()?;
 
-        //TODO: fix unwrap
-        self.tx.try_send(packet.try_into()?).unwrap();
-
-        for bin in payload {
-            self.tx.try_send(EnginePacket::Binary(bin)).unwrap();
-        }
         Ok(())
     }
 
@@ -456,5 +453,55 @@ impl<A: Adapter> Socket<A> {
             tx,
             Arc::new(SocketIoConfig::default()),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::adapter::{Adapter, LocalAdapter};
+    use crate::errors::{RetryerError, SendError};
+    use crate::handshake::Handshake;
+    use crate::{Namespace, Socket, SocketIoConfig};
+    use engineioxide::sid_generator::Sid;
+    use engineioxide::SendPacket;
+    use futures::FutureExt;
+    use std::sync::Arc;
+    use tokio::sync::mpsc::Receiver;
+
+    impl<A: Adapter> Socket<A> {
+        pub fn new_rx_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> (Socket<A>, Receiver<SendPacket>) {
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            (
+                Socket::new(
+                    sid,
+                    ns,
+                    Handshake::new_dummy(),
+                    tx,
+                    Arc::new(SocketIoConfig::default()),
+                ),
+                rx,
+            )
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resend() {
+        let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
+        let (sock, mut rx): (Socket<LocalAdapter>, _) =
+            Socket::new_rx_dummy(1i64.into(), ns.clone());
+        sock.emit("lol", "\"someString1\"").unwrap();
+
+        let error = sock.emit("lol", "\"someString2\"").unwrap_err();
+
+        let SendError::RetryerError(RetryerError::Remaining(retryer)) = error else {
+          panic!("unexpected err");  
+        };
+        let error = retryer.retry().unwrap_err();
+        rx.recv().await.unwrap();
+
+        let RetryerError::Remaining(retryer) = error else {
+            panic!("unexpected err");
+        };
+        retryer.retry().unwrap();
     }
 }

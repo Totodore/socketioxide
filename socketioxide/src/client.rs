@@ -10,6 +10,7 @@ use tracing::debug;
 use tracing::error;
 
 use crate::adapter::Adapter;
+use crate::errors::SendError;
 use crate::handshake::Handshake;
 use crate::{
     config::SocketIoConfig,
@@ -61,7 +62,7 @@ impl<A: Adapter> Client<A> {
         auth: Value,
         ns_path: String,
         socket: &EIoSocket<Self>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SendError> {
         debug!("auth: {:?}", auth);
         let handshake = Handshake::new(auth, socket.req_data.clone());
         let sid = socket.sid;
@@ -135,16 +136,26 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             }
         };
         debug!("Packet: {:?}", packet);
-        let res = match packet.inner {
-            PacketData::Connect(auth) => self.sock_connect(auth, packet.ns, socket),
+
+        #[derive(Debug)]
+        enum CurrentError {
+            SendError(SendError),
+            CommonError(Error),
+        }
+        let res: Result<(), CurrentError> = match packet.inner {
+            PacketData::Connect(auth) => self
+                .sock_connect(auth, packet.ns, socket)
+                .map_err(CurrentError::SendError),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(socket, packet);
                 Ok(())
             }
-            _ => self.sock_propagate_packet(packet, socket.sid),
+            _ => self
+                .sock_propagate_packet(packet, socket.sid)
+                .map_err(CurrentError::CommonError),
         };
         if let Err(err) = res {
-            error!("error while processing packet: {}", err);
+            error!("error while processing packet: {:?}", err);
             socket.close();
         }
     }
