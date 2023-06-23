@@ -1,15 +1,15 @@
-use std::{sync::Arc, time::Duration};
 use std::str::FromStr;
+use std::{sync::Arc, time::Duration};
 
 use bytes::{Buf, Bytes};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
 
+use engineioxide::sid_generator::Sid;
 use http::Request;
 use http_body::{Empty, Full};
 use serde::{Deserialize, Serialize};
 use tower::Service;
-use engineioxide::sid_generator::Sid;
 
 /// An OpenPacket is used to initiate a connection
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
