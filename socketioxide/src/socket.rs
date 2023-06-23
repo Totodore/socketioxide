@@ -434,35 +434,6 @@ impl<A: Adapter> Socket<A> {
     }
 }
 
-// fn internal_send(
-//     sid: Sid,
-//     packet: Option<EnginePacket>,
-//     mut bin_payload: VecDeque<Vec<u8>>,
-//     sender: Sender<EnginePacket>,
-// ) -> Result<(), SendError> {
-//     match packet.map(|p| sender.try_send(p)) {
-//         Some(Err(TrySendError::Full(packet))) => {
-//             let resend = Box::new(move || internal_send(sid, Some(packet), bin_payload, sender));
-//             return Err(SendError::SocketFull { sid, resend });
-//         }
-//         Some(Err(TrySendError::Closed(_))) => return Err(SendError::SocketClosed { sid }),
-//         _ => {}
-//     }
-//     while let Some(payload) = bin_payload.pop_front() {
-//         match sender.try_send(EnginePacket::Binary(payload)) {
-//             Err(TrySendError::Full(EnginePacket::Binary(payload))) => {
-//                 bin_payload.push_front(payload);
-//                 let resend = Box::new(move || internal_send(sid, None, bin_payload, sender));
-//                 return Err(SendError::SocketFull { sid, resend });
-//             }
-//             Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
-//             Err(_) => return Err(SendError::SocketClosed { sid }),
-//             _ => {}
-//         }
-//     }
-//     Ok(())
-// }
-
 impl<A: Adapter> Debug for Socket<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Socket")
