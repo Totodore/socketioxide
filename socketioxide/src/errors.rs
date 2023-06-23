@@ -50,33 +50,51 @@ pub enum AckError {
     SendChannel(#[from] SendError),
 }
 
+/// Error type for broadcast operations.
 #[derive(Debug, thiserror::Error)]
 pub enum BroadcastError {
-    #[error("sending error: {0:?}")]
+    /// An error occurred while sending packets.
+    #[error("Sending error: {0:?}")]
     SendError(Vec<SendError>),
-    #[error("error serializing json packet: {0:?}")]
+
+    /// An error occurred while serializing the JSON packet.
+    #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 }
 
 impl From<Vec<SendError>> for BroadcastError {
+    /// Converts a vector of `SendError` into a `BroadcastError`.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A vector of `SendError` representing the sending errors.
+    ///
+    /// # Returns
+    ///
+    /// A `BroadcastError` containing the sending errors.
     fn from(value: Vec<SendError>) -> Self {
         Self::SendError(value)
     }
 }
 
-/// Error type for ack responses
+/// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
 pub enum SendError {
-    #[error("error serializing json packet: {0:?}")]
+    /// An error occurred while serializing the JSON packet.
+    #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
-    #[error("send error: {0:?}")]
+    /// An error occurred during the retry process in the `Retryer`.
+    #[error("Send error: {0:?}")]
     RetryerError(#[from] RetryerError<SendPacket>),
 }
 
+/// Error type for the `Retryer` struct indicating various failure scenarios during the retry process.
 #[derive(thiserror::Error, Debug)]
 pub enum RetryerError<T: Debug> {
-    #[error("sent to closed socket chan, sid: {sid}")]
+    /// The packet was sent to a closed socket channel.
+    #[error("Sent to a closed socket channel, sid: {sid}")]
     SocketClosed { sid: Sid },
-    #[error("sent to full socket chan")]
+    /// There are remaining packets to be sent, indicating that the socket channel is full.
+    #[error("Sent to a full socket channel")]
     Remaining(Retryer<T>),
 }

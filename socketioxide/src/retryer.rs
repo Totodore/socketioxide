@@ -2,8 +2,11 @@ use crate::errors::RetryerError;
 use engineioxide::{sid_generator::Sid, SendPacket};
 use std::{collections::VecDeque, fmt::Debug};
 use tokio::{sync::mpsc::error::TrySendError, sync::mpsc::Sender};
+
 // todo bin payload and payload should be in one VecDeque,
 // todo sender should be the same for both types of SendPacket
+
+/// The `Retryer` struct represents a retry mechanism for sending packets.
 #[derive(Debug)]
 pub struct Retryer<T: Debug> {
     sid: Sid,
@@ -14,6 +17,19 @@ pub struct Retryer<T: Debug> {
 }
 
 impl<T: Debug> Retryer<T> {
+    /// Creates a new `Retryer` instance with the specified parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `sid` - The identifier for the network connection.
+    /// * `sender` - The sender channel used for sending packets.
+    /// * `packet` - An optional packet to be sent initially.
+    /// * `bin_payload` - A queue of binary payloads to be sent.
+    /// * `bin_sender` - The sender channel used for sending binary packets.
+    ///
+    /// # Returns
+    ///
+    /// A new `Retryer` instance.
     pub(crate) fn new(
         sid: Sid,
         sender: Sender<T>,
@@ -30,7 +46,14 @@ impl<T: Debug> Retryer<T> {
         }
     }
 
+    /// Retries sending the packet and binary payloads.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if all packets were successfully sent.
+    /// - `Err(RetryerError)` if there are remaining packets to be sent or the socket is closed.
     pub fn retry(mut self) -> Result<(), RetryerError<T>> {
+        // Retry sending the main packet
         match self.packet.map(|p| self.sender.try_send(p)) {
             Some(Err(TrySendError::Full(packet))) => {
                 return Err(RetryerError::Remaining(Retryer::new(
@@ -47,6 +70,7 @@ impl<T: Debug> Retryer<T> {
             _ => {}
         };
 
+        // Retry sending binary payloads
         while let Some(payload) = self.bin_payload.pop_front() {
             match self.bin_sender.try_send(SendPacket::Binary(payload)) {
                 Err(TrySendError::Full(SendPacket::Binary(payload))) => {
