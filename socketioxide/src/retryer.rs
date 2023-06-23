@@ -3,20 +3,18 @@ use engineioxide::{sid_generator::Sid, SendPacket};
 use std::{collections::VecDeque, fmt::Debug};
 use tokio::{sync::mpsc::error::TrySendError, sync::mpsc::Sender};
 
-// todo bin payload and payload should be in one VecDeque,
-// todo sender should be the same for both types of SendPacket
+// todo bin payload and payload should be in one VecDeque
 
 /// The `Retryer` struct represents a retry mechanism for sending packets.
 #[derive(Debug)]
-pub struct Retryer<T: Debug> {
+pub struct Retryer {
     sid: Sid,
-    sender: Sender<T>,
-    packet: Option<T>,
+    sender: Sender<SendPacket>,
+    packet: Option<SendPacket>,
     bin_payload: VecDeque<Vec<u8>>,
-    bin_sender: Sender<SendPacket>,
 }
 
-impl<T: Debug> Retryer<T> {
+impl Retryer {
     /// Creates a new `Retryer` instance with the specified parameters.
     ///
     /// # Arguments
@@ -32,17 +30,15 @@ impl<T: Debug> Retryer<T> {
     /// A new `Retryer` instance.
     pub(crate) fn new(
         sid: Sid,
-        sender: Sender<T>,
-        packet: Option<T>,
+        sender: Sender<SendPacket>,
+        packet: Option<SendPacket>,
         bin_payload: VecDeque<Vec<u8>>,
-        bin_sender: Sender<SendPacket>,
-    ) -> Self {
+    ) -> Retryer {
         Self {
             sid,
             sender,
             packet,
             bin_payload,
-            bin_sender,
         }
     }
 
@@ -52,7 +48,7 @@ impl<T: Debug> Retryer<T> {
     ///
     /// - `Ok(())` if all packets were successfully sent.
     /// - `Err(RetryerError)` if there are remaining packets to be sent or the socket is closed.
-    pub fn retry(mut self) -> Result<(), RetryerError<T>> {
+    pub fn retry(mut self) -> Result<(), RetryerError> {
         // Retry sending the main packet
         match self.packet.map(|p| self.sender.try_send(p)) {
             Some(Err(TrySendError::Full(packet))) => {
@@ -61,8 +57,7 @@ impl<T: Debug> Retryer<T> {
                     self.sender,
                     Some(packet),
                     self.bin_payload,
-                    self.bin_sender,
-                )))
+                )));
             }
             Some(Err(TrySendError::Closed(_))) => {
                 return Err(RetryerError::SocketClosed { sid: self.sid })
@@ -72,7 +67,7 @@ impl<T: Debug> Retryer<T> {
 
         // Retry sending binary payloads
         while let Some(payload) = self.bin_payload.pop_front() {
-            match self.bin_sender.try_send(SendPacket::Binary(payload)) {
+            match self.sender.try_send(SendPacket::Binary(payload)) {
                 Err(TrySendError::Full(SendPacket::Binary(payload))) => {
                     self.bin_payload.push_front(payload);
                     return Err(RetryerError::Remaining(Retryer::new(
@@ -80,7 +75,6 @@ impl<T: Debug> Retryer<T> {
                         self.sender,
                         None,
                         self.bin_payload,
-                        self.bin_sender,
                     )));
                 }
                 Err(TrySendError::Full(SendPacket::Message(_))) => unreachable!(),
@@ -115,7 +109,6 @@ mod tests {
                 .unwrap(),
             ),
             vec![vec![1, 2, 3], vec![4, 5, 6]].into(),
-            tx,
         )
         .retry()
         .unwrap_err();

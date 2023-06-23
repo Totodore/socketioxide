@@ -12,7 +12,6 @@ use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 
 use crate::errors::SendError;
@@ -359,16 +358,8 @@ impl<A: Adapter> Socket<A> {
             }
             _ => vec![],
         };
-        let sender: Sender<EnginePacket> = self.tx.clone();
         let packet = packet.try_into()?;
-        Retryer::new(
-            self.sid,
-            sender.clone(),
-            Some(packet),
-            payload.into(),
-            sender,
-        )
-        .retry()?;
+        Retryer::new(self.sid, self.tx.clone(), Some(packet), payload.into()).retry()?;
 
         Ok(())
     }
