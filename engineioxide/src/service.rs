@@ -1,8 +1,14 @@
-use crate::protocol::ProtocolVersion;
-use crate::sid_generator::Sid;
 use crate::{
-    body::ResponseBody, config::EngineIoConfig, engine::EngineIo, futures::ResponseFuture,
+    body::ResponseBody,
+    config::EngineIoConfig,
+    engine::EngineIo,
+    errors::{
+        Error,
+        Error::{UnknownTransport},
+    },
+    futures::ResponseFuture,
     handler::EngineIoHandler,
+    sid_generator::Sid, protocol::{ProtocolVersion},
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -22,43 +28,33 @@ use std::{
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 ///
 /// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
-pub struct EngineIoService<H, S = NotFoundService>
-where
-    H: EngineIoHandler + ?Sized,
-{
+pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
     inner: S,
     engine: Arc<EngineIo<H>>,
 }
-impl<H> EngineIoService<H, NotFoundService>
-where
-    H: EngineIoHandler + ?Sized,
-{
+
+impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
     /// Create a new [`EngineIoService`] with a [`NotFoundService`] as the inner service.
     /// If the request is not an `EngineIo` request, it will always return a 404 response.
-    pub fn new(handler: Arc<H>) -> Self {
-        EngineIoService {
-            inner: NotFoundService,
-            engine: Arc::new(EngineIo::new(handler)),
-        }
+    pub fn new(handler: H) -> Self {
+        EngineIoService::with_config(handler, EngineIoConfig::default())
     }
     /// Create a new [`EngineIoService`] with a custom config
-    pub fn with_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
-        EngineIoService {
-            inner: NotFoundService,
-            engine: Arc::new(EngineIo::from_config(handler, config)),
-        }
+    pub fn with_config(handler: H, config: EngineIoConfig) -> Self {
+        EngineIoService::with_config_inner(NotFoundService, handler, config)
     }
 }
-impl<S, H> EngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-    S: Clone,
-{
+impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
+    /// Create a new [`EngineIoService`] with a custom inner service.
+    pub fn with_inner(inner: S, handler: H) -> Self {
+        EngineIoService::with_config_inner(inner, handler, EngineIoConfig::default())
+    }
+
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub fn with_config_inner(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
+    pub fn with_config_inner(inner: S, handler: H, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
-            engine: Arc::new(EngineIo::from_config(handler, config)),
+            engine: Arc::new(EngineIo::new(handler, config)),
         }
     }
 
@@ -69,11 +65,7 @@ where
     }
 }
 
-impl<S, H> Clone for EngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-    S: Clone,
-{
+impl<S: Clone, H: EngineIoHandler> Clone for EngineIoService<H, S> {
     fn clone(&self) -> Self {
         EngineIoService {
             inner: self.inner.clone(),
@@ -90,7 +82,7 @@ where
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    H: EngineIoHandler + ?Sized,
+    H: EngineIoHandler,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
@@ -108,30 +100,31 @@ where
         if req.uri().path().starts_with(&self.engine.config.req_path) {
             let engine = self.engine.clone();
             match RequestInfo::parse(&req) {
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     protocol,
                     sid: None,
                     transport: TransportType::Polling,
                     method: Method::GET,
                 }) => ResponseFuture::ready(engine.on_open_http_req(protocol, req)),
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::GET,
                 }) => ResponseFuture::async_response(Box::pin(engine.on_polling_http_req(protocol, sid))),
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
                 }) => ResponseFuture::async_response(Box::pin(engine.on_post_http_req(protocol, sid, req))),
-                Some(RequestInfo {
+                Ok(RequestInfo {
                     protocol,
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
                 }) => ResponseFuture::ready(engine.on_ws_req(protocol, sid, req)),
+                Err(e) => ResponseFuture::ready(Ok(e.into())),
                 _ => ResponseFuture::empty_response(400),
             }
         } else {
@@ -140,29 +133,25 @@ where
     }
 }
 
+impl<H: EngineIoHandler, S> Debug for EngineIoService<H, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineIoService").finish()
+    }
+}
+
 /// A MakeService that always returns a clone of the [`EngineIoService`] it was created with.
-pub struct MakeEngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-{
+pub struct MakeEngineIoService<H: EngineIoHandler, S> {
     svc: EngineIoService<H, S>,
 }
 
-impl<H, S> MakeEngineIoService<H, S>
-where
-    H: EngineIoHandler + ?Sized,
-{
+impl<H: EngineIoHandler, S> MakeEngineIoService<H, S> {
     /// Create a new [`MakeEngineIoService`] with a custom inner service.
     pub fn new(svc: EngineIoService<H, S>) -> Self {
         MakeEngineIoService { svc }
     }
 }
 
-impl<H, S, T> Service<T> for MakeEngineIoService<H, S>
-where
-    H: EngineIoHandler,
-    S: Clone,
-{
+impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
     type Response = EngineIoService<H, S>;
 
     type Error = Infallible;
@@ -211,18 +200,19 @@ pub enum TransportType {
 }
 
 impl FromStr for TransportType {
-    type Err = ();
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "websocket" => Ok(TransportType::Websocket),
             "polling" => Ok(TransportType::Polling),
-            _ => Err(()),
+            _ => Err(UnknownTransport),
         }
     }
 }
 
 /// The request information extracted from the request URI.
+#[derive(Debug)]
 struct RequestInfo {
     /// The protocol version used by the client.
     protocol: ProtocolVersion,
@@ -236,16 +226,15 @@ struct RequestInfo {
 
 impl RequestInfo {
     /// Parse the request URI to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    fn parse<B>(req: &Request<B>) -> Option<Self> {
-        let query = req.uri().query()?;
+    fn parse<B>(req: &Request<B>) -> Result<Self, Error> {
+        let query = req.uri().query().ok_or(UnknownTransport)?;
 
         let protocol: ProtocolVersion = query
             .split('&')
-            .find(|s| s.starts_with("EIO="))?
-            .split('=')
-            .nth(1)?
-            .parse()
-            .ok()?;
+            .find(|s| s.starts_with("EIO="))
+            .and_then(|s| s.split('=').nth(1))
+            .ok_or(UnknownTransport)
+            .and_then(|t| t.parse())?;
 
         let sid = query
             .split('&')
@@ -255,18 +244,23 @@ impl RequestInfo {
 
         let transport: TransportType = query
             .split('&')
-            .find(|s| s.starts_with("transport="))?
-            .split('=')
-            .nth(1)?
-            .parse()
-            .ok()?;
+            .find(|s| s.starts_with("transport="))
+            .and_then(|s| s.split('=').nth(1))
+            .ok_or(UnknownTransport)
+            .and_then(|t| t.parse())?;
 
-        Some(RequestInfo {
-            protocol,
-            sid,
-            transport,
-            method: req.method().clone(),
-        })
+        let method = req.method().clone();
+
+        if !matches!(method, Method::GET) && sid.is_none() {
+            Err(Error::BadHandshakeMethod)
+        } else {
+            Ok(RequestInfo {
+                protocol,
+                sid,
+                transport,
+                method,
+            })
+        }
     }
 }
 
@@ -298,7 +292,9 @@ mod tests {
 
     #[test]
     fn request_info_polling_with_sid() {
-        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling&sid=AAAAAAAAAHs");
+        let req = build_request(
+            "http://localhost:3000/socket.io/?EIO=4&transport=polling&sid=AAAAAAAAAHs",
+        );
         let info = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, Some(123i64.into()));
         assert_eq!(info.transport, TransportType::Polling);
@@ -307,11 +303,32 @@ mod tests {
 
     #[test]
     fn request_info_websocket_with_sid() {
-        let req =
-            build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAHs");
+        let req = build_request(
+            "http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAHs",
+        );
         let info = RequestInfo::parse(&req).unwrap();
         assert_eq!(info.sid, Some(123i64.into()));
         assert_eq!(info.transport, TransportType::Websocket);
         assert_eq!(info.method, Method::GET);
+    }
+    #[test]
+    fn transport_unknown_err() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=grpc");
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::UnknownTransport));
+    }
+    #[test]
+    fn unsupported_protocol_version() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=2&transport=polling");
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::UnsupportedProtocolVersion));
+    }
+    #[test]
+    fn bad_handshake_method() {
+        let req = Request::post("http://localhost:3000/socket.io/?EIO=4&transport=polling")
+            .body(())
+            .unwrap();
+        let err = RequestInfo::parse(&req).unwrap_err();
+        assert!(matches!(err, Error::BadHandshakeMethod));
     }
 }

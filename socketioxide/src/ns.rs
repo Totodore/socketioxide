@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::errors::SendError;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::Error,
@@ -66,7 +67,7 @@ impl<A: Adapter> Namespace<A> {
         socket
     }
 
-    pub fn disconnect(&self, sid: Sid) -> Result<(), Error> {
+    pub fn disconnect(&self, sid: Sid) -> Result<(), SendError> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
             self.adapter.del_all(sid);
             socket.send(Packet::disconnect(self.path.clone()))?;

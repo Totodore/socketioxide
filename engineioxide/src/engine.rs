@@ -31,26 +31,17 @@ use tracing::debug;
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
-pub struct EngineIo<H>
-where
-    H: EngineIoHandler + ?Sized,
+pub struct EngineIo<H: EngineIoHandler>
 {
     sockets: SocketMap<Socket<H>>,
-    handler: Arc<H>,
+    handler: H,
     pub config: EngineIoConfig,
 }
 
-impl<H> EngineIo<H>
-where
-    H: EngineIoHandler + ?Sized,
+impl<H: EngineIoHandler> EngineIo<H>
 {
-    /// Create a new Engine.IO server with default config
-    pub fn new(handler: Arc<H>) -> Self {
-        Self::from_config(handler, EngineIoConfig::default())
-    }
-
-    /// Create a new Engine.IO server with a custom config
-    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
+    /// Create a new Engine.IO server with a handler and a config
+    pub fn new(handler: H, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
@@ -59,9 +50,7 @@ where
     }
 }
 
-impl<H> EngineIo<H>
-where
-    H: EngineIoHandler + ?Sized,
+impl<H: EngineIoHandler> EngineIo<H>
 {
     /// Handle Open request
     /// Create a new socket and add it to the socket map
@@ -116,17 +105,15 @@ where
     {
         let socket = self
             .get_socket(sid)
-            .and_then(|s| s.is_http().then(|| s))
-            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
+            .ok_or(Error::UnknownSessionID(sid))
+            .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
         // If the socket is already locked, it means that the socket is being used by another request
         // In case of multiple http polling, session should be closed
         let mut rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                if socket.is_http() {
-                    socket.close();
-                }
+                socket.close();
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         };
@@ -188,8 +175,8 @@ where
 
         let socket = self
             .get_socket(sid)
-            .and_then(|s| s.is_http().then(|| s))
-            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?;
+            .ok_or(Error::UnknownSessionID(sid))
+            .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
         for p in packets {
             let packet = match p {
@@ -197,7 +184,7 @@ where
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
                     self.close_session(sid);
-                    return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
+                    return Err(e);
                 }
             };
 
@@ -321,9 +308,19 @@ where
         sid: Option<Sid>,
         req_data: SocketReq,
     ) -> Result<(), Error> {
-        let mut ws = WebSocketStream::from_raw_socket(conn, Role::Server, None).await;
-
-        let socket = if sid.is_none() || self.get_socket(sid.unwrap()).is_none() {
+        let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, None);
+        let (socket, ws) = if let Some(sid) = sid {
+            match self.get_socket(sid) {
+                None => return Err(Error::UnknownSessionID(sid)),
+                Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
+                Some(_) => {
+                    debug!("[sid={sid}] websocket connection upgrade");
+                    let mut ws = ws_init().await;
+                    self.ws_upgrade_handshake(sid, &mut ws).await?;
+                    (self.get_socket(sid).unwrap(), ws)
+                }
+            }
+        } else {
             let sid = generate_sid();
             let engine = self.clone();
             let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
@@ -339,21 +336,12 @@ where
                 self.sockets.write().unwrap().insert(sid, socket.clone());
             }
             debug!("[sid={sid}] new websocket connection");
+            let mut ws = ws_init().await;
             self.ws_init_handshake(sid, &mut ws).await?;
             socket
                 .clone()
                 .spawn_heartbeat(protocol.clone(), self.config.ping_interval, self.config.ping_timeout);
-            socket
-        } else {
-            let sid = sid.unwrap();
-            debug!("[sid={sid}] websocket connection upgrade");
-            if let Some(socket) = self.get_socket(sid) {
-                if socket.is_ws() {
-                    return Err(Error::UpgradeError);
-                }
-            }
-            self.ws_upgrade_handshake(sid, &mut ws).await?;
-            self.get_socket(sid).unwrap()
+            (socket, ws)
         };
         let (mut tx, rx) = ws.split();
 
@@ -569,12 +557,13 @@ mod tests {
     #[test]
     fn test_parse_v3_packets() -> Result<(), String> {
         let protocol = ProtocolVersion::V3;
-        let handler = Arc::new(MockHandler);
-        let engine = Arc::new(EngineIo::new(handler));
+        let handler = MockHandler;
+        let engine = EngineIo::new(handler, Default::default());
         
         let mut reader = BufReader::new(Cursor::new("6:4hello2:4€"));
         let packets = engine
-            .parse_packets(reader, protocol.clone())?.collect::<Result<Vec<Packet>, Error>>()
+            .parse_packets(reader, protocol.clone())?
+            .collect::<Result<Vec<Packet>, Error>>()
             .map_err(|e| e.to_string())?;
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0], Packet::Message("hello".into()));
@@ -582,7 +571,8 @@ mod tests {
 
         reader = BufReader::new(Cursor::new("2:4€10:b4AQIDBA=="));
         let packets = engine
-            .parse_packets(reader, protocol.clone())?.collect::<Result<Vec<Packet>, Error>>()
+            .parse_packets(reader, protocol.clone())?
+            .collect::<Result<Vec<Packet>, Error>>()
             .map_err(|e| e.to_string())?;
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0], Packet::Message("€".into()));

@@ -7,8 +7,8 @@ use tower::Service;
 use crate::{adapter::Adapter, client::Client, ns::NsHandlers, SocketIoConfig};
 
 /// The service for Socket.IO
-/// 
-/// It is a wrapper around the Engine.IO service. 
+///
+/// It is a wrapper around the Engine.IO service.
 /// Its main purpose is to be able to use it as standalone Socket.IO service
 pub struct SocketIoService<A: Adapter, S: Clone> {
     engine_svc: EngineIoService<Client<A>, S>,
@@ -44,9 +44,7 @@ impl<A: Adapter> SocketIoService<A, NotFoundService> {
 
     /// Create a new [`SocketIoService`] with a custom config
     pub fn with_config(ns_handlers: NsHandlers<A>, config: SocketIoConfig) -> Self {
-        let client = Client::new(config.clone(), ns_handlers.clone());
-        let svc = EngineIoService::with_config(client.into(), config.engine_config);
-        Self { engine_svc: svc }
+        SocketIoService::with_config_inner(NotFoundService, ns_handlers, config)
     }
 }
 
@@ -55,10 +53,16 @@ impl<A: Adapter, S: Clone> SocketIoService<A, S> {
     pub fn into_make_service(self) -> MakeEngineIoService<Client<A>, S> {
         self.engine_svc.into_make_service()
     }
+
+    /// Create a new [`EngineIoService`] with a custom inner service.
+    pub fn with_inner(inner: S, ns_handlers: NsHandlers<A>) -> Self {
+        SocketIoService::with_config_inner(inner, ns_handlers, SocketIoConfig::default())
+    }
+
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
     pub fn with_config_inner(inner: S, ns_handlers: NsHandlers<A>, config: SocketIoConfig) -> Self {
         let client = Client::new(config.clone(), ns_handlers.clone());
-        let svc = EngineIoService::with_config_inner(inner, client.into(), config.engine_config);
+        let svc = EngineIoService::with_config_inner(inner, client, config.engine_config);
         Self { engine_svc: svc }
     }
 }

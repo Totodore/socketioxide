@@ -1,6 +1,12 @@
-use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
+//! This a end to end test server used with this [test suite](https://github.com/socketio/engine.io-protocol)
+
+use std::time::Duration;
+
+use engineioxide::{
+    config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, socket::Socket,
+};
 use hyper::Server;
-use tracing::info;
+use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Debug, Clone)]
@@ -30,13 +36,22 @@ impl EngineIoHandler for MyHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing::subscriber::set_global_default(FmtSubscriber::default())?;
+    let subscriber = FmtSubscriber::builder()
+        .with_line_number(true)
+        .with_max_level(Level::DEBUG)
+        .finish();
 
-    // We'll bind to 127.0.0.1:3000
+    let config = EngineIoConfig::builder()
+        .ping_interval(Duration::from_millis(300))
+        .ping_timeout(Duration::from_millis(200))
+        .max_payload(1e6 as u64)
+        .build();
+
     let addr = &"127.0.0.1:3000".parse().unwrap();
-    let svc = EngineIoService::new(MyHandler);
+    let svc = EngineIoService::with_config(MyHandler, config);
 
     let server = Server::bind(addr).serve(svc.into_make_service());
+    tracing::subscriber::set_global_default(subscriber)?;
 
     info!("Starting server");
 

@@ -1,8 +1,8 @@
-use axum::routing::get;
-use axum::Server;
-use engineioxide::{handler::EngineIoHandler, layer::EngineIoLayer, socket::Socket};
+use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
+use hyper::Server;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use warp::Filter;
 
 #[derive(Debug, Clone)]
 struct MyHandler;
@@ -33,14 +33,18 @@ impl EngineIoHandler for MyHandler {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    info!("Starting server");
-    let app = axum::Router::new()
-        .route("/", get(|| async { "Hello, World!" }))
-        .layer(EngineIoLayer::new(MyHandler));
+    let filter = warp::any().map(|| "Hello From Warp!");
+    let warp_svc = warp::service(filter);
 
-    Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await?;
+    // We'll bind to 127.0.0.1:3000
+    let addr = &"127.0.0.1:3000".parse().unwrap();
+    let svc = EngineIoService::with_inner(warp_svc, MyHandler);
+
+    let server = Server::bind(addr).serve(svc.into_make_service());
+
+    info!("Starting server");
+
+    server.await?;
 
     Ok(())
 }

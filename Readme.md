@@ -2,9 +2,9 @@
 [![SocketIO CI](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml)
 ### Socket.IO server implementation as a [tower layer](https://docs.rs/tower/latest/tower/) in Rust
 It integrates with any framework based on tower/hyper, such as:
-* [axum](https://docs.rs/axum/latest/axum/)
-* [warp](https://docs.rs/warp/latest/warp/)
-* [hyper](https://docs.rs/hyper/latest/hyper/)
+* [axum](https://docs.rs/axum/latest/axum/): [echo implementation](./examples/src/socketio-echo/axum_echo.rs)
+* [warp](https://docs.rs/warp/latest/warp/): [echo implementation](./examples/src/socketio-echo/warp_echo.rs)
+* [hyper](https://docs.rs/hyper/latest/hyper/): [echo implementation](./examples/src/socketio-echo/hyper_echo.rs)
 
 It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and [tower-http](https://docs.rs/tower-http/latest/tower_http/) ecosystem of middleware, services, and utilities.
 
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(|| async { "Hello, World!" }))
         .layer(SocketIoLayer::new(ns));
 
-    Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(app.into_make_service())
         .await?;
 

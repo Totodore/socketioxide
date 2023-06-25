@@ -18,12 +18,15 @@ use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    errors::{AckError, Error},
+    errors::{
+        AckError,
+        BroadcastError,
+    },
     handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::Socket,
+    socket::Socket
 };
 
 /// A room identifier
@@ -65,7 +68,6 @@ impl BroadcastOptions {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
-
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
@@ -87,7 +89,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid);
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error>;
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
@@ -112,7 +114,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// Remove the sockets that match the [`BroadcastOptions`] from the rooms.
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
     /// Disconnect the sockets that match the [`BroadcastOptions`].
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error>;
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
@@ -169,13 +171,19 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), Error> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
-        sockets
+        let errors: Vec<_> = sockets
             .into_iter()
-            .try_for_each(|socket| socket.send(packet.clone()))
+            .filter_map(|socket| socket.send(packet.clone()).err())
+            .collect();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.into())
+        }
     }
 
     fn broadcast_with_ack<V: DeserializeOwned>(
@@ -238,10 +246,17 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Error> {
-        self.apply_opts(opts)
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+        let errors: Vec<_> = self
+            .apply_opts(opts)
             .into_iter()
-            .try_for_each(|socket| socket.disconnect())
+            .filter_map(|socket| socket.disconnect().err())
+            .collect();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.into())
+        }
     }
 }
 
@@ -292,7 +307,6 @@ impl LocalAdapter {
 
 #[cfg(test)]
 mod test {
-
     use super::*;
 
     #[tokio::test]
@@ -443,7 +457,8 @@ mod test {
         let mut opts = BroadcastOptions::new(socket0);
         opts.rooms = vec!["room5".to_string()];
         match adapter.disconnect_socket(opts) {
-            Err(Error::EngineGone) | Ok(_) => {}
+            // todo it returns Ok, in previous commits it also returns Ok
+            Err(BroadcastError::SendError(_)) | Ok(_) => {}
             e => panic!(
                 "should return an EngineGone error as it is a stub namespace: {:?}",
                 e

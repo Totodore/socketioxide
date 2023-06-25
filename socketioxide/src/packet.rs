@@ -187,7 +187,7 @@ impl BinaryPacket {
 }
 
 impl TryInto<String> for Packet {
-    type Error = Error;
+    type Error = serde_json::Error;
 
     fn try_into(self) -> Result<String, Self::Error> {
         let mut res = self.inner.index().to_string();
@@ -371,8 +371,8 @@ impl TryFrom<String> for Packet {
 }
 
 impl TryInto<EnginePacket> for Packet {
-    type Error = Error;
-    fn try_into(self) -> Result<EnginePacket, Error> {
+    type Error = serde_json::Error;
+    fn try_into(self) -> Result<EnginePacket, Self::Error> {
         Ok(EnginePacket::Message(self.try_into()?))
     }
 }
