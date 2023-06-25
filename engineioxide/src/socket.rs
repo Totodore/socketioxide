@@ -13,11 +13,11 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::sid_generator::Sid;
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
     utils::forward_map_chan, SendPacket,
 };
+use crate::{protocol::ProtocolVersion, sid_generator::Sid};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -156,11 +156,16 @@ where
     /// Spawn the heartbeat job
     ///
     /// Keep a handle to the job so that it can be aborted when the socket is closed
-    pub(crate) fn spawn_heartbeat(self: Arc<Self>, interval: Duration, timeout: Duration) {
+    pub(crate) fn spawn_heartbeat(
+        self: Arc<Self>,
+        protocol: ProtocolVersion,
+        interval: Duration,
+        timeout: Duration,
+    ) {
         let socket = self.clone();
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = socket.heartbeat_job(interval, timeout).await {
+            if let Err(e) = socket.heartbeat_job(protocol, interval, timeout).await {
                 socket.close();
                 debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
             }
@@ -174,32 +179,53 @@ where
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
-    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
+    async fn heartbeat_job(
+        &self,
+        protocol: ProtocolVersion,
+        interval: Duration,
+        timeout: Duration,
+    ) -> Result<(), Error> {
         let mut pong_rx = self
             .pong_rx
             .try_lock()
             .expect("Pong rx should be locked only once");
-        let instant = tokio::time::Instant::now();
-        let mut interval_tick = tokio::time::interval(interval);
-        interval_tick.tick().await;
-        // Sleep for an interval minus the time it took to get here
-        tokio::time::sleep(interval.saturating_sub(Duration::from_millis(
-            15 + instant.elapsed().as_millis() as u64,
-        )))
-        .await;
-        debug!("[sid={}] heartbeat routine started", self.sid);
-        loop {
-            // Some clients send the pong packet in first. If that happens, we should consume it.
-            pong_rx.try_recv().ok();
 
-            self.internal_tx
-                .try_send(Packet::Ping)
-                .map_err(|_| Error::HeartbeatTimeout)?;
-            tokio::time::timeout(timeout, pong_rx.recv())
-                .await
-                .map_err(|_| Error::HeartbeatTimeout)?
-                .ok_or(Error::HeartbeatTimeout)?;
-            interval_tick.tick().await;
+        match protocol {
+            ProtocolVersion::V3 => {
+                debug!("[sid={}] heartbeat receiver routine started", self.sid);
+                loop {
+                    if pong_rx.recv().await.is_some() {
+                        debug!("[sid={}] ping received, sending pong", self.sid);
+                        self.internal_tx
+                            .try_send(Packet::Pong)
+                            .map_err(|_| Error::HeartbeatTimeout)?;
+                    }
+                }
+            }
+            ProtocolVersion::V4 => {
+                let instant = tokio::time::Instant::now();
+                let mut interval_tick = tokio::time::interval(interval);
+                interval_tick.tick().await;
+                // Sleep for an interval minus the time it took to get here
+                tokio::time::sleep(interval.saturating_sub(Duration::from_millis(
+                    15 + instant.elapsed().as_millis() as u64,
+                )))
+                .await;
+                debug!("[sid={}] heartbeat sender routine started", self.sid);
+                loop {
+                    // Some clients send the pong packet in first. If that happens, we should consume it.
+                    pong_rx.try_recv().ok();
+
+                    self.internal_tx
+                        .try_send(Packet::Ping)
+                        .map_err(|_| Error::HeartbeatTimeout)?;
+                    tokio::time::timeout(timeout, pong_rx.recv())
+                        .await
+                        .map_err(|_| Error::HeartbeatTimeout)?
+                        .ok_or(Error::HeartbeatTimeout)?;
+                    interval_tick.tick().await;
+                }
+            }
         }
     }
 

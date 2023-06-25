@@ -26,7 +26,7 @@ use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
-use tracing::{debug};
+use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
@@ -91,7 +91,7 @@ where
         }
         socket
             .clone()
-            .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
+            .spawn_heartbeat(protocol.clone(), self.config.ping_interval, self.config.ping_timeout);
         self.handler.on_connect(&socket);
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
@@ -151,6 +151,9 @@ where
         if data.is_empty() {
             let packet = rx.recv().await.ok_or(Error::Aborted)?;
             let packet: String = packet.try_into().unwrap();
+            if protocol == ProtocolVersion::V3 {
+                data.push_str(&format!("{}:", packet.chars().count()));
+            }
             data.push_str(&packet);
         }
         Ok(http_response(StatusCode::OK, data)?)
@@ -205,10 +208,12 @@ where
                     self.close_session(sid);
                     break;
                 }
-                Packet::Pong => socket
-                    .pong_tx
-                    .try_send(())
-                    .map_err(|_| Error::HeartbeatTimeout),
+                Packet::Pong | Packet::Ping => {
+                    socket
+                        .pong_tx
+                        .try_send(())
+                        .map_err(|_| Error::HeartbeatTimeout)
+                },
                 Packet::Message(msg) => {
                     self.handler.on_message(msg, &socket);
                     Ok(())
@@ -278,6 +283,7 @@ where
     /// the http polling request is closed and the SID is kept for the websocket
     pub(crate) fn on_ws_req<R, B>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         sid: Option<Sid>,
         req: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error> {
@@ -292,7 +298,7 @@ where
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
-                Ok(conn) => match self.on_ws_req_init(conn, sid, req_data).await {
+                Ok(conn) => match self.on_ws_req_init(conn, protocol, sid, req_data).await {
                     Ok(_) => debug!("ws closed"),
                     Err(e) => debug!("ws closed with error: {:?}", e),
                 },
@@ -311,6 +317,7 @@ where
     async fn on_ws_req_init(
         self: Arc<Self>,
         conn: Upgraded,
+        protocol: ProtocolVersion,
         sid: Option<Sid>,
         req_data: SocketReq,
     ) -> Result<(), Error> {
@@ -335,7 +342,7 @@ where
             self.ws_init_handshake(sid, &mut ws).await?;
             socket
                 .clone()
-                .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
+                .spawn_heartbeat(protocol.clone(), self.config.ping_interval, self.config.ping_timeout);
             socket
         } else {
             let sid = sid.unwrap();
@@ -359,7 +366,10 @@ where
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
                     _ => {
-                        let packet: String = item.try_into().unwrap();
+                        let mut packet: String = item.try_into().unwrap();
+                        if protocol.clone() == ProtocolVersion::V3 {
+                            packet = format!("{}:{}", packet.chars().count(), packet)
+                        }
                         tx.send(Message::Text(packet)).await
                     }
                 };
@@ -389,16 +399,18 @@ where
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             match msg {
-                Message::Text(msg) => match Packet::try_from(msg)? {
+                Message::Text(msg) => match Packet::try_from(msg.clone())? {
                     Packet::Close => {
                         debug!("[sid={}] closing session", socket.sid);
                         self.close_session(socket.sid);
                         break;
                     }
-                    Packet::Pong => socket
-                        .pong_tx
-                        .try_send(())
-                        .map_err(|_| Error::HeartbeatTimeout),
+                    Packet::Pong | Packet::Ping => {                        
+                        socket
+                            .pong_tx
+                            .try_send(())
+                            .map_err(|_| Error::HeartbeatTimeout)
+                    },
                     Packet::Message(msg) => {
                         self.handler.on_message(msg, socket);
                         Ok(())
@@ -465,7 +477,14 @@ where
         // Fetch the next packet from the ws stream, it should be an Upgrade packet
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
-            _ => Err(Error::UpgradeError)?,
+            Some(Ok(Message::Close(_))) => {
+                debug!("ws stream closed before upgrade");
+                Err(Error::UpgradeError)?
+            },
+            _ => {
+                debug!("unexpected ws message before upgrade");
+                Err(Error::UpgradeError)?
+            },
         };
         match Packet::try_from(msg)? {
             Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),

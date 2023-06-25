@@ -127,11 +127,11 @@ where
                     method: Method::POST,
                 }) => ResponseFuture::async_response(Box::pin(engine.on_post_http_req(protocol, sid, req))),
                 Some(RequestInfo {
-                    protocol: _,
+                    protocol,
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
-                }) => ResponseFuture::ready(engine.on_ws_req(sid, req)),
+                }) => ResponseFuture::ready(engine.on_ws_req(protocol, sid, req)),
                 _ => ResponseFuture::empty_response(400),
             }
         } else {
