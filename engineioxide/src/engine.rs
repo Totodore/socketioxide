@@ -316,7 +316,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                 Some(_) => {
                     debug!("[sid={sid}] websocket connection upgrade");
                     let mut ws = ws_init().await;
-                    self.ws_upgrade_handshake(sid, &mut ws).await?;
+                    self.ws_upgrade_handshake(protocol.clone(), sid, &mut ws).await?;
                     (self.get_socket(sid).unwrap(), ws)
                 }
             }
@@ -355,7 +355,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                     Packet::Close => tx.send(Message::Close(None)).await,
                     _ => {
                         let mut packet: String = item.try_into().unwrap();
-                        if protocol.clone() == ProtocolVersion::V3 {
+                        if protocol == ProtocolVersion::V3 {
                             packet = format!("{}:{}", packet.chars().count(), packet)
                         }
                         tx.send(Message::Text(packet)).await
@@ -441,12 +441,16 @@ impl<H: EngineIoHandler> EngineIo<H>
     /// ```
     async fn ws_upgrade_handshake(
         &self,
+        protocol: ProtocolVersion,
         sid: Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
-        // send a NOOP packet to any pending polling request so it closes gracefully
-        socket.send(Packet::Noop)?;
+
+        // send a NOOP packet to any pending polling request so it closes gracefully'
+        if protocol == ProtocolVersion::V4 {
+            socket.send(Packet::Noop)?;
+        }
 
         // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
         let msg = match ws.next().await {
@@ -461,6 +465,13 @@ impl<H: EngineIoHandler> EngineIo<H>
             }
             p => Err(Error::BadPacket(p))?,
         };
+
+        // send a NOOP packet to any pending polling request so it closes gracefully
+        // V3 protocol introduce _paused_ polling transport which require to close 
+        // the polling request **after** the ping/pong handshake
+        if protocol == ProtocolVersion::V3 {
+            socket.send(Packet::Noop)?;
+        }
 
         // Fetch the next packet from the ws stream, it should be an Upgrade packet
         let msg = match ws.next().await {
