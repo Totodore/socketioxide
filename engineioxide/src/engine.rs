@@ -354,10 +354,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                     Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
                     _ => {
-                        let mut packet: String = item.try_into().unwrap();
-                        if protocol == ProtocolVersion::V3 {
-                            packet = format!("{}:{}", packet.chars().count(), packet)
-                        }
+                        let packet: String = item.try_into().unwrap();
                         tx.send(Message::Text(packet)).await
                     }
                 };
