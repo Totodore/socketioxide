@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     collections::VecDeque,
     fmt::Debug,
-    ops::{Deref, DerefMut},
     sync::Mutex,
     sync::{
         atomic::{AtomicI64, Ordering},
@@ -70,19 +69,15 @@ impl PacketSender {
             };
             Err(GoodNameError::SendMainPacket(packet))
         } else {
-            let main_packet = packet.pop_front();
-            let Some(main_packet) = main_packet else {
-                unreachable!()
-            };
-
+            let main_packet = packet.main_packet.take().unwrap();
             match self.tx.try_send(main_packet) {
                 Err(TrySendError::Full(main_packet)) => {
-                    packet.push_front(main_packet);
+                    packet.main_packet = Some(main_packet);
                     Err(GoodNameError::SendMainPacket(packet))
                 }
                 Err(TrySendError::Closed(_)) => Err(GoodNameError::SocketClosed),
                 _ => {
-                    self.bin_payloads = Some(packet.into());
+                    self.bin_payloads = Some(packet.attachments);
                     self.send_binaries()?;
                     Ok(())
                 }
@@ -106,9 +101,12 @@ impl PacketSender {
             };
             match self.tx.try_send(packet.try_into()?) {
                 Err(TrySendError::Full(packet)) => {
-                    let mut bin_payloads = bin_payloads.unwrap_or(VecDeque::with_capacity(1));
-                    bin_payloads.push_front(packet);
-                    return Err(GoodNameError::SendMainPacket(RetryablePacket(bin_payloads)).into());
+                    let bin_payloads = bin_payloads.unwrap_or(VecDeque::new());
+                    return Err(GoodNameError::SendMainPacket(RetryablePacket {
+                        main_packet: Some(packet),
+                        attachments: bin_payloads,
+                    })
+                    .into());
                 }
                 Err(TrySendError::Closed(_)) => {
                     return Err(GoodNameError::SocketClosed.into());
@@ -144,31 +142,14 @@ impl PacketSender {
 }
 
 #[derive(Debug)]
-pub struct RetryablePacket(VecDeque<EnginePacket>);
-
-impl From<RetryablePacket> for VecDeque<EnginePacket> {
-    fn from(value: RetryablePacket) -> Self {
-        value.0
-    }
+pub struct RetryablePacket {
+    main_packet: Option<EnginePacket>,
+    attachments: VecDeque<EnginePacket>,
 }
 
 impl RetryablePacket {
     pub fn retry<A: Adapter>(self, socket: &Socket<A>) -> Result<(), GoodNameError> {
         socket.sender.lock().unwrap().send_raw(self)
-    }
-}
-
-impl DerefMut for RetryablePacket {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl Deref for RetryablePacket {
-    type Target = VecDeque<EnginePacket>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
