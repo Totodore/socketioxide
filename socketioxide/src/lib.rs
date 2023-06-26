@@ -61,7 +61,8 @@
 //! ```
 
 pub mod adapter;
-pub mod retryer;
+pub mod errors;
+pub mod extensions;
 
 pub use config::{SocketIoConfig, SocketIoConfigBuilder};
 pub use errors::{AckError, Error as SocketError};
@@ -72,8 +73,6 @@ pub use socket::Socket;
 
 mod client;
 mod config;
-mod errors;
-pub mod extensions;
 mod handler;
 mod handshake;
 mod layer;

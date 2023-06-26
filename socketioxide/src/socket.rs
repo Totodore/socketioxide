@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
+    collections::VecDeque,
     fmt::Debug,
+    ops::{Deref, DerefMut},
+    sync::Mutex,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc, RwLock,
@@ -12,10 +15,10 @@ use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
 
-use crate::errors::SendError;
-use crate::retryer::Retryer;
+use crate::errors::{GoodNameError, SendError};
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
@@ -36,10 +39,139 @@ pub struct Socket<A: Adapter> {
     message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
     ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
-    tx: tokio::sync::mpsc::Sender<EnginePacket>,
     pub handshake: Handshake,
     pub sid: Sid,
     pub extensions: Extensions,
+    sender: Mutex<PacketSender>,
+}
+
+struct PacketSender {
+    tx: tokio::sync::mpsc::Sender<EnginePacket>,
+    bin_payloads: Option<VecDeque<EnginePacket>>,
+}
+
+impl PacketSender {
+    fn new(
+        tx: tokio::sync::mpsc::Sender<EnginePacket>,
+        failed_buffer: VecDeque<EnginePacket>,
+    ) -> Self {
+        Self {
+            tx,
+            bin_payloads: (!failed_buffer.is_empty()).then(|| failed_buffer),
+        }
+    }
+
+    fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), GoodNameError> {
+        println!("packet is {:?}", packet);
+
+        if let Err(err) = self.send_binaries() {
+            match err {
+                GoodNameError::SendFailedBinPayloads(None) => {}
+                GoodNameError::SocketClosed => return Err(GoodNameError::SocketClosed),
+                _ => unreachable!(),
+            };
+            Err(GoodNameError::SendMainPacket(packet))
+        } else {
+            let main_packet = packet.pop_front();
+            let Some(main_packet) = main_packet else {
+                unreachable!()
+            };
+
+            match self.tx.try_send(main_packet) {
+                Err(TrySendError::Full(main_packet)) => {
+                    packet.push_front(main_packet);
+                    Err(GoodNameError::SendMainPacket(packet))
+                }
+                Err(TrySendError::Closed(_)) => Err(GoodNameError::SocketClosed),
+                _ => {
+                    self.bin_payloads = Some(packet.into());
+                    self.send_binaries()?;
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    fn send(&mut self, mut packet: Packet) -> Result<(), SendError> {
+        if let Err(err) = self.send_binaries() {
+            Err(err.add_main_packet(packet).into())
+        } else {
+            let bin_payloads = match packet.inner {
+                PacketData::BinaryEvent(_, ref mut bin, _)
+                | PacketData::BinaryAck(ref mut bin, _) => Some(
+                    std::mem::take(&mut bin.bin)
+                        .into_iter()
+                        .map(EnginePacket::Binary)
+                        .collect(),
+                ),
+                _ => None,
+            };
+            match self.tx.try_send(packet.try_into()?) {
+                Err(TrySendError::Full(packet)) => {
+                    let mut bin_payloads = bin_payloads.unwrap_or(VecDeque::with_capacity(1));
+                    bin_payloads.push_front(packet);
+                    return Err(GoodNameError::SendMainPacket(RetryablePacket(bin_payloads)).into());
+                }
+                Err(TrySendError::Closed(_)) => {
+                    return Err(GoodNameError::SocketClosed.into());
+                }
+                _ => {}
+            };
+            self.bin_payloads = bin_payloads;
+            self.send_binaries()?;
+            Ok(())
+        }
+    }
+
+    fn send_binaries(&mut self) -> Result<(), GoodNameError> {
+        let payloads = self.bin_payloads.take();
+        if let Some(mut payloads) = payloads {
+            while let Some(p) = payloads.pop_front() {
+                match self.tx.try_send(p) {
+                    Err(TrySendError::Full(p @ EnginePacket::Binary(_))) => {
+                        payloads.push_front(p);
+                        self.bin_payloads = Some(payloads);
+                        return Err(GoodNameError::SendFailedBinPayloads(None));
+                    }
+                    Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
+                    Err(TrySendError::Closed(_)) => return Err(GoodNameError::SocketClosed),
+                    _ => {}
+                }
+            }
+            Ok(())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RetryablePacket(VecDeque<EnginePacket>);
+
+impl From<RetryablePacket> for VecDeque<EnginePacket> {
+    fn from(value: RetryablePacket) -> Self {
+        value.0
+    }
+}
+
+impl RetryablePacket {
+    pub fn retry<A: Adapter>(self, socket: &Socket<A>) -> Result<(), GoodNameError> {
+        socket.sender.lock().unwrap().send_raw(self)
+    }
+}
+
+impl DerefMut for RetryablePacket {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Deref for RetryablePacket {
+    type Target = VecDeque<EnginePacket>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl<A: Adapter> Socket<A> {
@@ -51,7 +183,6 @@ impl<A: Adapter> Socket<A> {
         config: Arc<SocketIoConfig>,
     ) -> Self {
         Self {
-            tx,
             ns,
             message_handlers: RwLock::new(HashMap::new()),
             ack_message: RwLock::new(HashMap::new()),
@@ -60,6 +191,7 @@ impl<A: Adapter> Socket<A> {
             sid,
             extensions: Extensions::new(),
             config,
+            sender: Mutex::new(PacketSender::new(tx, VecDeque::new())),
         }
     }
 
@@ -143,6 +275,10 @@ impl<A: Adapter> Socket<A> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         self.send(Packet::event(ns, event.into(), data))
+    }
+
+    pub fn retry_failed(&self) -> Result<(), GoodNameError> {
+        self.resend_failed()
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -351,17 +487,11 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError> {
-        let payload = match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                std::mem::take(&mut bin.bin)
-            }
-            _ => vec![],
-        };
-        let packet = packet.try_into()?;
-        Retryer::new(self.sid, self.tx.clone(), Some(packet), payload.into()).retry()?;
-
-        Ok(())
+    pub(crate) fn send(&self, packet: Packet) -> Result<(), SendError> {
+        self.sender.lock().unwrap().send(packet)
+    }
+    pub(crate) fn resend_failed(&self) -> Result<(), GoodNameError> {
+        self.sender.lock().unwrap().send_binaries()
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
@@ -459,17 +589,23 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod tests {
     use crate::adapter::{Adapter, LocalAdapter};
-    use crate::errors::{RetryerError, SendError};
+    use crate::errors::{GoodNameError, SendError};
     use crate::handshake::Handshake;
+    use crate::packet::Packet;
+    use crate::socket::RetryablePacket;
     use crate::{Namespace, Socket, SocketIoConfig};
-    use engineioxide::sid_generator::Sid;
-    use engineioxide::SendPacket;
+    use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
     use futures::FutureExt;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::mpsc::Receiver;
+    use tokio::time::sleep;
 
     impl<A: Adapter> Socket<A> {
-        pub fn new_rx_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> (Socket<A>, Receiver<SendPacket>) {
+        pub fn new_rx_dummy(
+            sid: Sid,
+            ns: Arc<Namespace<A>>,
+        ) -> (Socket<A>, Receiver<EnginePacket>) {
             let (tx, rx) = tokio::sync::mpsc::channel(1);
             (
                 Socket::new(
@@ -491,17 +627,17 @@ mod tests {
             Socket::new_rx_dummy(1i64.into(), ns.clone());
         sock.emit("lol", "\"someString1\"").unwrap();
 
-        let error = sock.emit("lol", "\"someString2\"").unwrap_err();
+        let err = sock.emit("lol", "\"someString2\"").unwrap_err();
 
-        let SendError::RetryerError(RetryerError::Remaining(retryer)) = error else {
+        let SendError::GoodNameError(GoodNameError::SendMainPacket(packet)) = err else {
           panic!("unexpected err");  
         };
-        let error = retryer.retry().unwrap_err();
+        let err = packet.retry(&sock).unwrap_err();
         rx.recv().await.unwrap();
 
-        let RetryerError::Remaining(retryer) = error else {
+        let GoodNameError::SendMainPacket(packet) = err else {
             panic!("unexpected err");
         };
-        retryer.retry().unwrap();
+        packet.retry(&sock).unwrap();
     }
 }
