@@ -82,12 +82,12 @@ pub enum SendError {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
-    /// An error occurred during the retry process in the `Retryer`.
+    /// An error occurred during the sending process, a [`RetryerError`] is provided to retry to send the packet if the channel is full.
     #[error("Send error: {0:?}")]
     RetryerError(#[from] RetryerError),
 }
 
-/// Error type for the `Retryer` struct indicating various failure scenarios during the retry process.
+/// Error type for the [`Retryer`] struct indicating various failure scenarios during the retry process.
 #[derive(thiserror::Error, Debug)]
 pub enum RetryerError {
     /// The packet was sent to a closed socket channel.

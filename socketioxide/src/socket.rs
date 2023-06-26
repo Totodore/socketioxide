@@ -129,6 +129,13 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Emit a message to the client
+    /// 
+    /// ## Errors
+    /// The [`SendError`] happen in two case :
+    /// * It is impossible to serialize the packet ()
+    /// * It is impossible to send something to the socket because:
+    ///   * Socket is closed: [`RetryerError::SocketClosed`](crate::errors::RetryerError::SocketClosed)
+    ///   * Socket channel is full: [`RetryerError::Remaining`](crate::errors::RetryerError::Remaining)
     /// ##### Example
     /// ```
     /// # use socketioxide::Namespace;

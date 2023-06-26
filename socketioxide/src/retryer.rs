@@ -1,9 +1,14 @@
+//! The Retryer struct allows to send a given packet to the client
+//! 
+//! In case of error, if it is due to a [`TrySendError::Full`] a resend closure will be provided to the user.
+//! Thanks to that the pending packet is not lost.
+
 use crate::errors::RetryerError;
 use engineioxide::{sid_generator::Sid, SendPacket};
 use std::{collections::VecDeque, fmt::Debug};
 use tokio::{sync::mpsc::error::TrySendError, sync::mpsc::Sender};
 
-// todo bin payload and payload should be in one VecDeque
+//TODO: bin payload and payload should be in one VecDeque
 
 /// The `Retryer` struct represents a retry mechanism for sending packets.
 #[derive(Debug)]
@@ -23,7 +28,6 @@ impl Retryer {
     /// * `sender` - The sender channel used for sending packets.
     /// * `packet` - An optional packet to be sent initially.
     /// * `bin_payload` - A queue of binary payloads to be sent.
-    /// * `bin_sender` - The sender channel used for sending binary packets.
     ///
     /// # Returns
     ///

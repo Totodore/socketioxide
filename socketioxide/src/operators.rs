@@ -216,6 +216,13 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Emit a message to all clients selected with the previous operators.
+    /// 
+    /// ## Errors
+    /// The [`BroadcastError`] happen in two case :
+    /// * It is impossible to serialize the packet to JSON
+    /// * It was impossible to send something to one or more sockets
+    ///   * In this case it will be represented with a Vec of [`SendError`](crate::errors::SendError)
+    /// 
     /// #### Example
     /// ```
     /// # use socketioxide::Namespace;
@@ -226,6 +233,7 @@ impl<A: Adapter> Operators<A> {
     ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
     ///     });
     /// });
+    /// ```
     pub fn emit(
         mut self,
         event: impl Into<String>,
