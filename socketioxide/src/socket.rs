@@ -62,8 +62,6 @@ impl PacketSender {
     }
 
     fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), GoodNameError> {
-        println!("packet is {:?}", packet);
-
         if let Err(err) = self.send_binaries() {
             match err {
                 GoodNameError::SendFailedBinPayloads(None) => {}
@@ -591,15 +589,11 @@ mod tests {
     use crate::adapter::{Adapter, LocalAdapter};
     use crate::errors::{GoodNameError, SendError};
     use crate::handshake::Handshake;
-    use crate::packet::Packet;
-    use crate::socket::RetryablePacket;
     use crate::{Namespace, Socket, SocketIoConfig};
     use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
     use futures::FutureExt;
     use std::sync::Arc;
-    use std::time::Duration;
     use tokio::sync::mpsc::Receiver;
-    use tokio::time::sleep;
 
     impl<A: Adapter> Socket<A> {
         pub fn new_rx_dummy(
