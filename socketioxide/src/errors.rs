@@ -1,4 +1,4 @@
-use crate::retryer::Retryer;
+use crate::{retryer::Retryer, adapter::Adapter};
 use engineioxide::sid_generator::Sid;
 use std::fmt::Debug;
 use tokio::sync::oneshot;
@@ -54,27 +54,30 @@ pub enum AckError {
 pub enum BroadcastError {
     /// An error occurred while sending packets.
     #[error("Sending error: {0:?}")]
-    SendError(Vec<SendError>),
+    SendError(#[from] Vec<SendError>),
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
+
+    // #[error("Adapter error: {0}")]
+    // AdapterError(#[from] A::Error)
 }
 
-impl From<Vec<SendError>> for BroadcastError {
-    /// Converts a vector of `SendError` into a `BroadcastError`.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - A vector of `SendError` representing the sending errors.
-    ///
-    /// # Returns
-    ///
-    /// A `BroadcastError` containing the sending errors.
-    fn from(value: Vec<SendError>) -> Self {
-        Self::SendError(value)
-    }
-}
+// impl<A: Adapter> From<Vec<SendError>> for BroadcastError<A> {
+//     /// Converts a vector of `SendError` into a `BroadcastError`.
+//     ///
+//     /// # Arguments
+//     ///
+//     /// * `value` - A vector of `SendError` representing the sending errors.
+//     ///
+//     /// # Returns
+//     ///
+//     /// A `BroadcastError` containing the sending errors.
+//     fn from(value: Vec<SendError>) -> Self {
+//         Self::SendError(value)
+//     }
+// }
 
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]

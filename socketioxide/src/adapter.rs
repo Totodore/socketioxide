@@ -5,6 +5,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    convert::Infallible,
     sync::{Arc, RwLock, Weak},
     time::Duration,
 };
@@ -18,15 +19,12 @@ use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    errors::{
-        AckError,
-        BroadcastError,
-    },
+    errors::{AckError, BroadcastError},
     handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::Socket
+    socket::Socket,
 };
 
 /// A room identifier
@@ -68,53 +66,64 @@ impl BroadcastOptions {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
+    type Error: std::error::Error + Send + 'static;
+
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
     where
         Self: Sized;
 
     /// Initialize the adapter.
-    fn init(&self);
+    fn init(&self) -> Result<(), Self::Error>;
     /// Close the adapter.
-    fn close(&self);
+    fn close(&self) -> Result<(), Self::Error>;
 
     /// Return the number of servers.
-    fn server_count(&self) -> u16;
+    fn server_count(&self) -> Result<u16, Self::Error>;
 
     /// Add the socket to all the rooms.
-    fn add_all(&self, sid: Sid, rooms: impl RoomParam);
+    fn add_all(&self, sid: Sid, rooms: impl RoomParam) -> Result<(), Self::Error>;
     /// Remove the socket from the rooms.
-    fn del(&self, sid: Sid, rooms: impl RoomParam);
+    fn del(&self, sid: Sid, rooms: impl RoomParam) -> Result<(), Self::Error>;
     /// Remove the socket from all the rooms.
-    fn del_all(&self, sid: Sid);
+    fn del_all(&self, sid: Sid) -> Result<(), Self::Error>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn broadcast(
+        &self,
+        packet: Packet,
+        opts: BroadcastOptions,
+    ) -> Result<Result<(), BroadcastError<Self>>, Self::Error>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> BoxStream<'static, Result<AckResponse<V>, AckError>>;
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Self::Error>;
 
     /// Return the sockets ids that match the [`BroadcastOptions`].
-    fn sockets(&self, rooms: impl RoomParam) -> Vec<Sid>;
+    fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
 
     /// Return the rooms of the socket.
-    fn socket_rooms(&self, sid: Sid) -> Vec<Room>;
+    fn socket_rooms(&self, sid: Sid) -> Result<Vec<Room>, Self::Error>;
 
     /// Return the sockets that match the [`BroadcastOptions`].
-    fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>>
+    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<Arc<Socket<Self>>>, Self::Error>
     where
         Self: Sized;
 
     /// Add the sockets that match the [`BroadcastOptions`] to the rooms.
-    fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
+    fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam)
+        -> Result<(), Self::Error>;
     /// Remove the sockets that match the [`BroadcastOptions`] from the rooms.
-    fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam);
+    fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam)
+        -> Result<(), Self::Error>;
     /// Disconnect the sockets that match the [`BroadcastOptions`].
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn disconnect_socket(
+        &self,
+        opts: BroadcastOptions,
+    ) -> Result<Result<(), BroadcastError<Self>>, Self::Error>;
 
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
@@ -130,6 +139,8 @@ pub struct LocalAdapter {
 }
 
 impl Adapter for LocalAdapter {
+    type Error = Infallible;
+
     fn new(ns: Weak<Namespace<Self>>) -> Self {
         Self {
             rooms: HashMap::new().into(),
@@ -137,15 +148,15 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn init(&self) {}
+    fn init(&self) -> Result<(), Infallible> { Ok(()) }
 
-    fn close(&self) {}
+    fn close(&self) -> Result<(), Infallible> { Ok(()) }
 
-    fn server_count(&self) -> u16 {
-        1
+    fn server_count(&self) -> Result<u16, Infallible> {
+        Ok(1)
     }
 
-    fn add_all(&self, sid: Sid, rooms: impl RoomParam) {
+    fn add_all(&self, sid: Sid, rooms: impl RoomParam) -> Result<(), Infallible> {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms.into_room_iter() {
             rooms_map
@@ -153,25 +164,28 @@ impl Adapter for LocalAdapter {
                 .or_insert_with(HashSet::new)
                 .insert(sid);
         }
+        Ok(())
     }
 
-    fn del(&self, sid: Sid, rooms: impl RoomParam) {
+    fn del(&self, sid: Sid, rooms: impl RoomParam) -> Result<(), Infallible> {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms.into_room_iter() {
             if let Some(room) = rooms_map.get_mut(&room) {
                 room.remove(&sid);
             }
         }
+        Ok(())
     }
 
-    fn del_all(&self, sid: Sid) {
+    fn del_all(&self, sid: Sid) -> Result<(), Infallible> {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms_map.values_mut() {
             room.remove(&sid);
         }
+        Ok(())
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<Result<(), BroadcastError<Self>>, Infallible> {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
@@ -180,9 +194,9 @@ impl Adapter for LocalAdapter {
             .filter_map(|socket| socket.send(packet.clone()).err())
             .collect();
         if errors.is_empty() {
-            Ok(())
+            Ok(Ok(()))
         } else {
-            Err(errors.into())
+            Ok(Err(errors.into()))
         }
     }
 
@@ -190,7 +204,7 @@ impl Adapter for LocalAdapter {
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> BoxStream<'static, Result<AckResponse<V>, AckError>> {
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Infallible> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,
@@ -206,56 +220,58 @@ impl Adapter for LocalAdapter {
             let packet = packet.clone();
             async move { socket.clone().send_with_ack(packet, duration).await }
         });
-        stream::iter(ack_futs).buffer_unordered(count).boxed()
+        Ok(stream::iter(ack_futs).buffer_unordered(count).boxed())
     }
 
-    fn sockets(&self, rooms: impl RoomParam) -> Vec<Sid> {
+    fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Infallible> {
         let mut opts = BroadcastOptions::new(0i64.into());
         opts.rooms.extend(rooms.into_room_iter());
-        self.apply_opts(opts)
+        Ok(self.apply_opts(opts)
             .into_iter()
             .map(|socket| socket.sid)
-            .collect()
+            .collect())
     }
 
     //TODO: make this operation O(1)
-    fn socket_rooms(&self, sid: Sid) -> Vec<Room> {
+    fn socket_rooms(&self, sid: Sid) -> Result<Vec<String>, Infallible> {
         let rooms_map = self.rooms.read().unwrap();
-        rooms_map
+        Ok(rooms_map
             .iter()
             .filter(|(_, sockets)| sockets.contains(&sid))
             .map(|(room, _)| room.clone())
-            .collect()
+            .collect())
     }
 
-    fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>> {
-        self.apply_opts(opts)
+    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<Arc<Socket<LocalAdapter>>>, Infallible> {
+        Ok(self.apply_opts(opts))
     }
 
-    fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) {
+    fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) -> Result<(), Infallible> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
             self.add_all(socket.sid, rooms.clone());
         }
+        Ok(())
     }
 
-    fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) {
+    fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) -> Result<(), Infallible> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
             self.del(socket.sid, rooms.clone());
         }
+        Ok(())
     }
 
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<Result<(), BroadcastError<Self>>, Infallible> {
         let errors: Vec<_> = self
             .apply_opts(opts)
             .into_iter()
             .filter_map(|socket| socket.disconnect().err())
             .collect();
         if errors.is_empty() {
-            Ok(())
+            Ok(Ok(()))
         } else {
-            Err(errors.into())
+            Ok(Err(errors.into()))
         }
     }
 }
@@ -313,7 +329,7 @@ mod test {
     async fn test_server_count() {
         let ns = Namespace::new_dummy([]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        assert_eq!(adapter.server_count(), 1);
+        assert_eq!(adapter.server_count().unwrap(), 1);
     }
 
     #[tokio::test]
@@ -361,10 +377,10 @@ mod test {
         adapter.add_all(1i64.into(), ["room1", "room2"]);
         adapter.add_all(2i64.into(), ["room1"]);
         adapter.add_all(3i64.into(), ["room2"]);
-        assert!(adapter.socket_rooms(1i64.into()).contains(&"room1".into()));
-        assert!(adapter.socket_rooms(1i64.into()).contains(&"room2".into()));
-        assert_eq!(adapter.socket_rooms(2i64.into()), ["room1"]);
-        assert_eq!(adapter.socket_rooms(3i64.into()), ["room2"]);
+        assert!(adapter.socket_rooms(1i64.into()).unwrap().contains(&"room1".into()));
+        assert!(adapter.socket_rooms(1i64.into()).unwrap().contains(&"room2".into()));
+        assert_eq!(adapter.socket_rooms(2i64.into()).unwrap(), ["room1"]);
+        assert_eq!(adapter.socket_rooms(3i64.into()).unwrap(), ["room2"]);
     }
 
     #[tokio::test]
@@ -427,17 +443,17 @@ mod test {
         adapter.add_all(socket1, ["room1", "room3"]);
         adapter.add_all(socket2, ["room2", "room3"]);
 
-        let sockets = adapter.sockets("room1");
+        let sockets = adapter.sockets("room1").unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket0));
         assert!(sockets.contains(&socket1));
 
-        let sockets = adapter.sockets("room2");
+        let sockets = adapter.sockets("room2").unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket0));
         assert!(sockets.contains(&socket2));
 
-        let sockets = adapter.sockets("room3");
+        let sockets = adapter.sockets("room3").unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket1));
         assert!(sockets.contains(&socket2));
@@ -456,7 +472,7 @@ mod test {
 
         let mut opts = BroadcastOptions::new(socket0);
         opts.rooms = vec!["room5".to_string()];
-        match adapter.disconnect_socket(opts) {
+        match adapter.disconnect_socket(opts).unwrap() {
             // todo it returns Ok, in previous commits it also returns Ok
             Err(BroadcastError::SendError(_)) | Ok(_) => {}
             e => panic!(
@@ -465,7 +481,7 @@ mod test {
             ),
         }
 
-        let sockets = adapter.sockets("room2");
+        let sockets = adapter.sockets("room2").unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket2));
         assert!(sockets.contains(&socket0));
@@ -488,23 +504,23 @@ mod test {
         let mut opts = BroadcastOptions::new(socket2);
         opts.rooms = vec!["room1".to_string()];
         opts.except = vec!["room2".to_string()];
-        let sockets = adapter.fetch_sockets(opts);
+        let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].sid, socket1);
 
         let mut opts = BroadcastOptions::new(socket2);
         opts.flags.insert(BroadcastFlags::Broadcast);
         opts.except = vec!["room2".to_string()];
-        let sockets = adapter.fetch_sockets(opts);
+        let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
 
         let opts = BroadcastOptions::new(socket2);
-        let sockets = adapter.fetch_sockets(opts);
+        let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].sid, socket2);
 
         let opts = BroadcastOptions::new(10000i64.into());
-        let sockets = adapter.fetch_sockets(opts);
+        let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 0);
     }
 }

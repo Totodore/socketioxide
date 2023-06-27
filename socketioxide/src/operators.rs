@@ -230,7 +230,7 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<(), BroadcastError> {
+    ) -> Result<(), BroadcastError<A>> {
         let packet = self.get_packet(event, data)?;
         self.ns.adapter.broadcast(packet, self.opts)
     }
