@@ -130,6 +130,8 @@ impl<H: EngineIoHandler> EngineIo<H>
                     ProtocolVersion::V4 => data.push_str("\x1e"),
                     ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
                 }
+            } else if protocol == ProtocolVersion::V3 {
+                data.push_str(&format!("{}:", packet.chars().count()));
             }
             data.push_str(&packet);
         }
