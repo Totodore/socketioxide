@@ -177,6 +177,7 @@ impl<H: EngineIoHandler> EngineIo<H>
         for p in packets {
             let raw_packet = p.map_err(|e| {
                 debug!("error parsing packets: {:?}", e);
+                self.close_session(sid);
                 Error::HttpErrorResponse(
                     StatusCode::BAD_REQUEST,
                 )
