@@ -91,8 +91,9 @@ pub enum SendError {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
-    #[error("good description")]
-    GoodNameError(#[from] TransportError),
+    /// An error occurred during the transport of the packet.
+    #[error("Transport error: {0:?}")]
+    TransportError(#[from] TransportError),
 
     #[error("Adapter error: {0}")]
     AdapterError(#[from] AdapterError),
@@ -104,7 +105,6 @@ pub enum TransportError {
     SendFailedBinPayloads(Option<Packet>),
     #[error("Sent to a closed socket channel")]
     SocketClosed,
-    /// There are remaining packets to be sent, indicating that the socket channel is full.
     #[error("Failed to send main message")]
     SendMainPacket(RetryablePacket),
 }
@@ -113,7 +113,9 @@ pub enum TransportError {
 pub enum AckSenderError<A: Adapter> {
     #[error("Failed to send ack message")]
     SendError {
+        /// The specific error that occurred while sending the message.
         send_error: SendError,
+        /// The socket associated with the error.
         socket: Arc<Socket<A>>,
     },
 }

@@ -604,7 +604,7 @@ mod tests {
 
         let err = sock.emit("lol", "\"someString2\"").unwrap_err();
 
-        let SendError::GoodNameError(TransportError::SendMainPacket(packet)) = err else {
+        let SendError::TransportError(TransportError::SendMainPacket(packet)) = err else {
           panic!("unexpected err");  
         };
         let err = packet.retry(&sock).unwrap_err();
