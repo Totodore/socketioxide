@@ -194,12 +194,15 @@ where
             ProtocolVersion::V3 => {
                 debug!("[sid={}] heartbeat receiver routine started", self.sid);
                 loop {
-                    if pong_rx.recv().await.is_some() {
-                        debug!("[sid={}] ping received, sending pong", self.sid);
-                        self.internal_tx
-                            .try_send(Packet::Pong)
-                            .map_err(|_| Error::HeartbeatTimeout)?;
-                    }
+                    tokio::time::timeout(timeout, pong_rx.recv())
+                        .await
+                        .map_err(|_| Error::HeartbeatTimeout)?
+                        .ok_or(Error::HeartbeatTimeout)?;
+
+                    debug!("[sid={}] ping received, sending pong", self.sid);
+                    self.internal_tx
+                        .try_send(Packet::Pong)
+                        .map_err(|_| Error::HeartbeatTimeout)?;
                 }
             }
             ProtocolVersion::V4 => {
