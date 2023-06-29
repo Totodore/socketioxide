@@ -17,7 +17,7 @@ use serde_json::Value;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
 
-use crate::errors::{GoodNameError, SendError};
+use crate::errors::{SendError, TransportError};
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
@@ -60,22 +60,22 @@ impl PacketSender {
         }
     }
 
-    fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), GoodNameError> {
+    fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), TransportError> {
         if let Err(err) = self.send_binaries() {
             match err {
-                GoodNameError::SendFailedBinPayloads(None) => {}
-                GoodNameError::SocketClosed => return Err(GoodNameError::SocketClosed),
+                TransportError::SendFailedBinPayloads(None) => {}
+                TransportError::SocketClosed => return Err(TransportError::SocketClosed),
                 _ => unreachable!(),
             };
-            Err(GoodNameError::SendMainPacket(packet))
+            Err(TransportError::SendMainPacket(packet))
         } else {
             let main_packet = packet.main_packet.take().unwrap();
             match self.tx.try_send(main_packet) {
                 Err(TrySendError::Full(main_packet)) => {
                     packet.main_packet = Some(main_packet);
-                    Err(GoodNameError::SendMainPacket(packet))
+                    Err(TransportError::SendMainPacket(packet))
                 }
-                Err(TrySendError::Closed(_)) => Err(GoodNameError::SocketClosed),
+                Err(TrySendError::Closed(_)) => Err(TransportError::SocketClosed),
                 _ => {
                     self.bin_payloads = Some(packet.attachments);
                     self.send_binaries()?;
@@ -102,14 +102,14 @@ impl PacketSender {
             match self.tx.try_send(packet.try_into()?) {
                 Err(TrySendError::Full(packet)) => {
                     let bin_payloads = bin_payloads.unwrap_or(VecDeque::new());
-                    return Err(GoodNameError::SendMainPacket(RetryablePacket {
+                    return Err(TransportError::SendMainPacket(RetryablePacket {
                         main_packet: Some(packet),
                         attachments: bin_payloads,
                     })
                     .into());
                 }
                 Err(TrySendError::Closed(_)) => {
-                    return Err(GoodNameError::SocketClosed.into());
+                    return Err(TransportError::SocketClosed.into());
                 }
                 _ => {}
             };
@@ -119,7 +119,7 @@ impl PacketSender {
         }
     }
 
-    fn send_binaries(&mut self) -> Result<(), GoodNameError> {
+    fn send_binaries(&mut self) -> Result<(), TransportError> {
         let payloads = self.bin_payloads.take();
         if let Some(mut payloads) = payloads {
             while let Some(p) = payloads.pop_front() {
@@ -127,10 +127,10 @@ impl PacketSender {
                     Err(TrySendError::Full(p @ EnginePacket::Binary(_))) => {
                         payloads.push_front(p);
                         self.bin_payloads = Some(payloads);
-                        return Err(GoodNameError::SendFailedBinPayloads(None));
+                        return Err(TransportError::SendFailedBinPayloads(None));
                     }
                     Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
-                    Err(TrySendError::Closed(_)) => return Err(GoodNameError::SocketClosed),
+                    Err(TrySendError::Closed(_)) => return Err(TransportError::SocketClosed),
                     _ => {}
                 }
             }
@@ -148,7 +148,7 @@ pub struct RetryablePacket {
 }
 
 impl RetryablePacket {
-    pub fn retry<A: Adapter>(self, socket: &Socket<A>) -> Result<(), GoodNameError> {
+    pub fn retry<A: Adapter>(self, socket: &Socket<A>) -> Result<(), TransportError> {
         socket.sender.lock().unwrap().send_raw(self)
     }
 }
@@ -256,7 +256,7 @@ impl<A: Adapter> Socket<A> {
         self.send(Packet::event(ns, event.into(), data))
     }
 
-    pub fn retry_failed(&self) -> Result<(), GoodNameError> {
+    pub fn retry_failed(&self) -> Result<(), TransportError> {
         self.resend_failed()
     }
 
@@ -469,7 +469,7 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn send(&self, packet: Packet) -> Result<(), SendError> {
         self.sender.lock().unwrap().send(packet)
     }
-    pub(crate) fn resend_failed(&self) -> Result<(), GoodNameError> {
+    pub(crate) fn resend_failed(&self) -> Result<(), TransportError> {
         self.sender.lock().unwrap().send_binaries()
     }
 
@@ -568,7 +568,7 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod tests {
     use crate::adapter::{Adapter, LocalAdapter};
-    use crate::errors::{GoodNameError, SendError};
+    use crate::errors::{SendError, TransportError};
     use crate::handshake::Handshake;
     use crate::{Namespace, Socket, SocketIoConfig};
     use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
@@ -604,13 +604,13 @@ mod tests {
 
         let err = sock.emit("lol", "\"someString2\"").unwrap_err();
 
-        let SendError::GoodNameError(GoodNameError::SendMainPacket(packet)) = err else {
+        let SendError::GoodNameError(TransportError::SendMainPacket(packet)) = err else {
           panic!("unexpected err");  
         };
         let err = packet.retry(&sock).unwrap_err();
         rx.recv().await.unwrap();
 
-        let GoodNameError::SendMainPacket(packet) = err else {
+        let TransportError::SendMainPacket(packet) = err else {
             panic!("unexpected err");
         };
         packet.retry(&sock).unwrap();

@@ -92,15 +92,14 @@ pub enum SendError {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
     #[error("good description")]
-    GoodNameError(#[from] GoodNameError),
+    GoodNameError(#[from] TransportError),
 
     #[error("Adapter error: {0}")]
     AdapterError(#[from] AdapterError),
 }
 
-// todo Rename error
 #[derive(thiserror::Error, Debug)]
-pub enum GoodNameError {
+pub enum TransportError {
     #[error("Failed to send failed bin payloads")]
     SendFailedBinPayloads(Option<Packet>),
     #[error("Sent to a closed socket channel")]
@@ -119,10 +118,10 @@ pub enum AckSenderError<A: Adapter> {
     },
 }
 
-impl GoodNameError {
+impl TransportError {
     pub(crate) fn add_main_packet(self, packet: Packet) -> Self {
-        if let GoodNameError::SendFailedBinPayloads(_) = self {
-            GoodNameError::SendFailedBinPayloads(Some(packet))
+        if let TransportError::SendFailedBinPayloads(_) = self {
+            TransportError::SendFailedBinPayloads(Some(packet))
         } else {
             self
         }
