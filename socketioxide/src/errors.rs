@@ -64,7 +64,7 @@ pub enum BroadcastError {
     Serialize(#[from] serde_json::Error),
 
     #[error("Adapter error: {0}")]
-    AdapterError(#[from] Box<dyn std::error::Error>),
+    Adapter(#[from] AdapterError),
 }
 
 impl From<Vec<SendError>> for BroadcastError {
@@ -109,7 +109,7 @@ pub enum RetryerError {
 
 /// Error type for the [`Adapter`] trait.
 #[derive(Debug, thiserror::Error)]
-pub struct AdapterError(#[from] pub Box<dyn std::error::Error>);
+pub struct AdapterError(#[from] pub Box<dyn std::error::Error + Send>);
 impl Display for AdapterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.0, f)
