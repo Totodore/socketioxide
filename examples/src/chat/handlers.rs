@@ -18,7 +18,7 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
         info!("Nickname: {:?}", data.nickname);
         socket.extensions.insert(data.nickname);
         socket.emit("message", "Welcome to the chat!").ok();
-        socket.join("default");
+        socket.join("default").unwrap();
     } else {
         info!("No nickname provided, disconnecting...");
         socket.disconnect().ok();
@@ -30,8 +30,8 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
         |socket, (room, message): (String, String), _, _| async move {
             let Nickname(ref nickname) = *socket.extensions.get().unwrap();
             info!("transfering message from {nickname} to {room}: {message}");
-            info!("Sockets in room: {:?}", socket.local().sockets());
-            if let Some(dest) = socket.to("default").sockets().iter().find(|s| {
+            info!("Sockets in room: {:?}", socket.local().sockets().unwrap());
+            if let Some(dest) = socket.to("default").sockets().unwrap().iter().find(|s| {
                 s.extensions
                     .get::<Nickname>()
                     .map(|n| n.0 == room)
@@ -51,12 +51,12 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
 
     socket.on("join", |socket, room: String, _, _| async move {
         info!("Joining room {}", room);
-        socket.join(room);
+        socket.join(room).unwrap();
     });
 
     socket.on("leave", |socket, room: String, _, _| async move {
         info!("Leaving room {}", room);
-        socket.leave(room);
+        socket.leave(room).unwrap();
     });
 
     socket.on("list", |socket, room: Option<String>, _, _| async move {
@@ -65,6 +65,7 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
             let sockets = socket
                 .within(room)
                 .sockets()
+                .unwrap()
                 .iter()
                 .filter_map(|s| s.extensions.get::<Nickname>())
                 .fold("".to_string(), |a, b| a + &b.0 + ", ")
@@ -72,7 +73,7 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
                 .to_string();
             socket.emit("message", sockets).ok();
         } else {
-            let rooms = socket.rooms();
+            let rooms = socket.rooms().unwrap();
             info!("Listing rooms: {:?}", &rooms);
             socket.emit("message", rooms).ok();
         }

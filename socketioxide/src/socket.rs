@@ -179,22 +179,22 @@ impl<A: Adapter> Socket<A> {
     // Room actions
 
     /// Join the given rooms.
-    pub fn join(&self, rooms: impl RoomParam) {
-        self.ns.adapter.add_all(self.sid, rooms);
+    pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.add_all(self.sid, rooms)
     }
 
     /// Leave the given rooms.
-    pub fn leave(&self, rooms: impl RoomParam) {
-        self.ns.adapter.del(self.sid, rooms);
+    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.del(self.sid, rooms)
     }
 
     /// Leave all rooms where the socket is connected.
-    pub fn leave_all(&self) {
-        self.ns.adapter.del_all(self.sid);
+    pub fn leave_all(&self) -> Result<(), A::Error> {
+        self.ns.adapter.del_all(self.sid)
     }
 
     /// Get all rooms where the socket is connected.
-    pub fn rooms(&self) -> Vec<Room> {
+    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
         self.ns.adapter.socket_rooms(self.sid)
     }
 
