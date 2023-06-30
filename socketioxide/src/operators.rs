@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::errors::BroadcastError;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
-    errors::{AckError, Error},
+    errors::AckError,
     handler::AckResponse,
     ns::Namespace,
     packet::Packet,
@@ -230,7 +230,7 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<(), BroadcastError<A>> {
+    ) -> Result<(), BroadcastError> {
         let packet = self.get_packet(event, data)?;
         self.ns.adapter.broadcast(packet, self.opts)
     }
@@ -263,9 +263,9 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Error> {
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         let packet = self.get_packet(event, data)?;
-        Ok(self.ns.adapter.broadcast_with_ack(packet, self.opts))
+        self.ns.adapter.broadcast_with_ack(packet, self.opts)
     }
 
     /// Get all sockets selected with the previous operators.
@@ -284,7 +284,7 @@ impl<A: Adapter> Operators<A> {
     ///     }
     ///   });
     /// });
-    pub fn sockets(self) -> Vec<Arc<Socket<A>>> {
+    pub fn sockets(self) -> Result<Vec<Arc<Socket<A>>>, A::Error> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 

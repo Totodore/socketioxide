@@ -1,6 +1,6 @@
 use crate::{retryer::Retryer, adapter::Adapter};
 use engineioxide::sid_generator::Sid;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use tokio::sync::oneshot;
 
 /// Error type for socketio
@@ -24,6 +24,9 @@ pub enum Error {
     /// An engineio error
     #[error("engineio error: {0}")]
     EngineIoError(#[from] engineioxide::errors::Error),
+
+    #[error("adapter error: {0}")]
+    Adapter(#[from] AdapterError),
 }
 
 /// Error type for ack responses
@@ -54,30 +57,30 @@ pub enum AckError {
 pub enum BroadcastError {
     /// An error occurred while sending packets.
     #[error("Sending error: {0:?}")]
-    SendError(#[from] Vec<SendError>),
+    SendError(Vec<SendError>),
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
-    // #[error("Adapter error: {0}")]
-    // AdapterError(#[from] A::Error)
+    #[error("Adapter error: {0}")]
+    AdapterError(#[from] Box<dyn std::error::Error>),
 }
 
-// impl<A: Adapter> From<Vec<SendError>> for BroadcastError<A> {
-//     /// Converts a vector of `SendError` into a `BroadcastError`.
-//     ///
-//     /// # Arguments
-//     ///
-//     /// * `value` - A vector of `SendError` representing the sending errors.
-//     ///
-//     /// # Returns
-//     ///
-//     /// A `BroadcastError` containing the sending errors.
-//     fn from(value: Vec<SendError>) -> Self {
-//         Self::SendError(value)
-//     }
-// }
+impl From<Vec<SendError>> for BroadcastError {
+    /// Converts a vector of `SendError` into a `BroadcastError`.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A vector of `SendError` representing the sending errors.
+    ///
+    /// # Returns
+    ///
+    /// A `BroadcastError` containing the sending errors.
+    fn from(value: Vec<SendError>) -> Self {
+        Self::SendError(value)
+    }
+}
 
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
@@ -88,6 +91,9 @@ pub enum SendError {
     /// An error occurred during the retry process in the `Retryer`.
     #[error("Send error: {0:?}")]
     RetryerError(#[from] RetryerError),
+
+    #[error("Adapter error: {0}")]
+    AdapterError(#[from] Box<dyn std::error::Error>),
 }
 
 /// Error type for the `Retryer` struct indicating various failure scenarios during the retry process.
@@ -99,4 +105,12 @@ pub enum RetryerError {
     /// There are remaining packets to be sent, indicating that the socket channel is full.
     #[error("Sent to a full socket channel")]
     Remaining(Retryer),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct AdapterError(#[from] Box<dyn std::error::Error>);
+impl Display for AdapterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
 }

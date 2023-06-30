@@ -121,7 +121,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_disconnect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket disconnect {}", socket.sid);
         self.ns.values().for_each(|ns| {
-            ns.disconnect(socket.sid).ok();
+            ns.remove_socket(socket.sid);
         });
     }
 

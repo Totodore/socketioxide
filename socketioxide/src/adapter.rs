@@ -19,7 +19,7 @@ use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    errors::{AckError, BroadcastError},
+    errors::{AckError, BroadcastError, AdapterError},
     handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
@@ -66,7 +66,7 @@ impl BroadcastOptions {
 
 //TODO: Make an AsyncAdapter trait
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
-    type Error: std::error::Error + Send + 'static;
+    type Error: std::error::Error + Into<AdapterError> + Send + 'static;
 
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
@@ -93,14 +93,14 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> Result<Result<(), BroadcastError<Self>>, Self::Error>;
+    ) -> Result<(), BroadcastError>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Self::Error>;
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError>;
 
     /// Return the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
@@ -123,7 +123,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn disconnect_socket(
         &self,
         opts: BroadcastOptions,
-    ) -> Result<Result<(), BroadcastError<Self>>, Self::Error>;
+    ) -> Result<(), BroadcastError>;
 
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
@@ -136,6 +136,12 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
 pub struct LocalAdapter {
     rooms: RwLock<HashMap<Room, HashSet<Sid>>>,
     ns: Weak<Namespace<Self>>,
+}
+
+impl Into<AdapterError> for Infallible {
+    fn into(self) -> AdapterError {
+        unreachable!()
+    }
 }
 
 impl Adapter for LocalAdapter {
@@ -185,7 +191,7 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<Result<(), BroadcastError<Self>>, Infallible> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let sockets = self.apply_opts(opts);
 
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
@@ -194,9 +200,9 @@ impl Adapter for LocalAdapter {
             .filter_map(|socket| socket.send(packet.clone()).err())
             .collect();
         if errors.is_empty() {
-            Ok(Ok(()))
+            Ok(())
         } else {
-            Ok(Err(errors.into()))
+            Err(errors.into())
         }
     }
 
@@ -204,7 +210,7 @@ impl Adapter for LocalAdapter {
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, Infallible> {
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,
@@ -249,7 +255,7 @@ impl Adapter for LocalAdapter {
     fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) -> Result<(), Infallible> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
-            self.add_all(socket.sid, rooms.clone());
+            self.add_all(socket.sid, rooms.clone()).unwrap();
         }
         Ok(())
     }
@@ -257,21 +263,21 @@ impl Adapter for LocalAdapter {
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) -> Result<(), Infallible> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
-            self.del(socket.sid, rooms.clone());
+            self.del(socket.sid, rooms.clone()).unwrap();
         }
         Ok(())
     }
 
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<Result<(), BroadcastError<Self>>, Infallible> {
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let errors: Vec<_> = self
             .apply_opts(opts)
             .into_iter()
             .filter_map(|socket| socket.disconnect().err())
             .collect();
         if errors.is_empty() {
-            Ok(Ok(()))
+            Ok(())
         } else {
-            Ok(Err(errors.into()))
+            Err(errors.into())
         }
     }
 }
@@ -337,7 +343,7 @@ mod test {
         let socket: Sid = 1i64.into();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket, ["room1", "room2"]);
+        adapter.add_all(socket, ["room1", "room2"]).unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
         assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
@@ -349,8 +355,8 @@ mod test {
         let socket: Sid = 1i64.into();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket, ["room1", "room2"]);
-        adapter.del(socket, "room1");
+        adapter.add_all(socket, ["room1", "room2"]).unwrap();
+        adapter.del(socket, "room1").unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
         assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
@@ -362,8 +368,8 @@ mod test {
         let socket: Sid = 1i64.into();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket, ["room1", "room2"]);
-        adapter.del_all(socket);
+        adapter.add_all(socket, ["room1", "room2"]).unwrap();
+        adapter.del_all(socket).unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
         assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
@@ -374,9 +380,9 @@ mod test {
     async fn test_socket_room() {
         let ns = Namespace::new_dummy([1i64, 2, 3].map(Into::into));
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(1i64.into(), ["room1", "room2"]);
-        adapter.add_all(2i64.into(), ["room1"]);
-        adapter.add_all(3i64.into(), ["room2"]);
+        adapter.add_all(1i64.into(), ["room1", "room2"]).unwrap();
+        adapter.add_all(2i64.into(), ["room1"]).unwrap();
+        adapter.add_all(3i64.into(), ["room2"]).unwrap();
         assert!(adapter.socket_rooms(1i64.into()).unwrap().contains(&"room1".into()));
         assert!(adapter.socket_rooms(1i64.into()).unwrap().contains(&"room2".into()));
         assert_eq!(adapter.socket_rooms(2i64.into()).unwrap(), ["room1"]);
@@ -388,11 +394,11 @@ mod test {
         let socket: Sid = 0i64.into();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket, ["room1"]);
+        adapter.add_all(socket, ["room1"]).unwrap();
 
         let mut opts = BroadcastOptions::new(socket);
         opts.rooms = vec!["room1".to_string()];
-        adapter.add_sockets(opts, "room2");
+        adapter.add_sockets(opts, "room2").unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
 
         assert_eq!(rooms_map.len(), 2);
@@ -405,11 +411,11 @@ mod test {
         let socket: Sid = 0i64.into();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket, ["room1"]);
+        adapter.add_all(socket, ["room1"]).unwrap();
 
         let mut opts = BroadcastOptions::new(socket);
         opts.rooms = vec!["room1".to_string()];
-        adapter.add_sockets(opts, "room2");
+        adapter.add_sockets(opts, "room2").unwrap();
 
         {
             let rooms_map = adapter.rooms.read().unwrap();
@@ -421,7 +427,7 @@ mod test {
 
         let mut opts = BroadcastOptions::new(socket);
         opts.rooms = vec!["room1".to_string()];
-        adapter.del_sockets(opts, "room2");
+        adapter.del_sockets(opts, "room2").unwrap();
 
         {
             let rooms_map = adapter.rooms.read().unwrap();
@@ -439,9 +445,9 @@ mod test {
         let socket2: Sid = 2i64.into();
         let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket0, ["room1", "room2"]);
-        adapter.add_all(socket1, ["room1", "room3"]);
-        adapter.add_all(socket2, ["room2", "room3"]);
+        adapter.add_all(socket0, ["room1", "room2"]).unwrap();
+        adapter.add_all(socket1, ["room1", "room3"]).unwrap();
+        adapter.add_all(socket2, ["room2", "room3"]).unwrap();
 
         let sockets = adapter.sockets("room1").unwrap();
         assert_eq!(sockets.len(), 2);
@@ -466,13 +472,13 @@ mod test {
         let socket2: Sid = 2i64.into();
         let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket0, ["room1", "room2", "room4"]);
-        adapter.add_all(socket1, ["room1", "room3", "room5"]);
-        adapter.add_all(socket2, ["room2", "room3", "room6"]);
+        adapter.add_all(socket0, ["room1", "room2", "room4"]).unwrap();
+        adapter.add_all(socket1, ["room1", "room3", "room5"]).unwrap();
+        adapter.add_all(socket2, ["room2", "room3", "room6"]).unwrap();
 
         let mut opts = BroadcastOptions::new(socket0);
         opts.rooms = vec!["room5".to_string()];
-        match adapter.disconnect_socket(opts).unwrap() {
+        match adapter.disconnect_socket(opts) {
             // todo it returns Ok, in previous commits it also returns Ok
             Err(BroadcastError::SendError(_)) | Ok(_) => {}
             e => panic!(
@@ -494,11 +500,11 @@ mod test {
         let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         // Add socket 0 to room1 and room2
-        adapter.add_all(socket0, ["room1", "room2"]);
+        adapter.add_all(socket0, ["room1", "room2"]).unwrap();
         // Add socket 1 to room1 and room3
-        adapter.add_all(socket1, ["room1", "room3"]);
+        adapter.add_all(socket1, ["room1", "room3"]).unwrap();
         // Add socket 2 to room2 and room3
-        adapter.add_all(socket2, ["room1", "room2", "room3"]);
+        adapter.add_all(socket2, ["room1", "room2", "room3"]).unwrap();
 
         // socket 2 is the sender
         let mut opts = BroadcastOptions::new(socket2);

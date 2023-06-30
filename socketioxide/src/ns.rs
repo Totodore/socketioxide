@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::errors::SendError;
+use crate::errors::{SendError, AdapterError};
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::Error,
@@ -74,9 +74,9 @@ impl<A: Adapter> Namespace<A> {
         }
         Ok(())
     }
-    fn remove_socket(&self, sid: Sid) {
+    pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
         self.sockets.write().unwrap().remove(&sid);
-        self.adapter.del_all(sid);
+        self.adapter.del_all(sid).map_err(AdapterError::from)
     }
 
     pub fn has(&self, sid: Sid) -> bool {
@@ -91,8 +91,7 @@ impl<A: Adapter> Namespace<A> {
     pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Disconnect => {
-                self.remove_socket(sid);
-                Ok(())
+                self.remove_socket(sid)
             }
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError(_) => Ok(()),
