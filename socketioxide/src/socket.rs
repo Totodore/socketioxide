@@ -50,33 +50,31 @@ struct PacketSender {
 }
 
 impl PacketSender {
-    fn new(
-        tx: tokio::sync::mpsc::Sender<EnginePacket>,
-        failed_buffer: VecDeque<EnginePacket>,
-    ) -> Self {
+    fn new(tx: tokio::sync::mpsc::Sender<EnginePacket>) -> Self {
         Self {
             tx,
-            bin_payloads: (!failed_buffer.is_empty()).then(|| failed_buffer),
+            bin_payloads: None,
         }
     }
 
     fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), TransportError> {
         if let Err(err) = self.send_binaries() {
             match err {
-                TransportError::SendFailedBinPayloads(None) => {}
-                TransportError::SocketClosed => return Err(TransportError::SocketClosed),
+                TransportError::SendFailedBinPayloads(None) => {
+                    Err(TransportError::SendMainPacket(packet))
+                }
+                TransportError::SocketClosed => Err(TransportError::SocketClosed),
                 _ => unreachable!(),
-            };
-            Err(TransportError::SendMainPacket(packet))
+            }
         } else {
-            let main_packet = packet.main_packet.take().unwrap();
+            let main_packet = packet.main_packet;
             match self.tx.try_send(main_packet) {
                 Err(TrySendError::Full(main_packet)) => {
-                    packet.main_packet = Some(main_packet);
+                    packet.main_packet = main_packet;
                     Err(TransportError::SendMainPacket(packet))
                 }
                 Err(TrySendError::Closed(_)) => Err(TransportError::SocketClosed),
-                _ => {
+                Ok(_) => {
                     self.bin_payloads = Some(packet.attachments);
                     self.send_binaries()?;
                     Ok(())
@@ -103,7 +101,7 @@ impl PacketSender {
                 Err(TrySendError::Full(packet)) => {
                     let bin_payloads = bin_payloads.unwrap_or(VecDeque::new());
                     return Err(TransportError::SendMainPacket(RetryablePacket {
-                        main_packet: Some(packet),
+                        main_packet: packet,
                         attachments: bin_payloads,
                     })
                     .into());
@@ -120,30 +118,24 @@ impl PacketSender {
     }
 
     fn send_binaries(&mut self) -> Result<(), TransportError> {
-        let payloads = self.bin_payloads.take();
-        if let Some(mut payloads) = payloads {
-            while let Some(p) = payloads.pop_front() {
-                match self.tx.try_send(p) {
-                    Err(TrySendError::Full(p @ EnginePacket::Binary(_))) => {
-                        payloads.push_front(p);
-                        self.bin_payloads = Some(payloads);
-                        return Err(TransportError::SendFailedBinPayloads(None));
-                    }
-                    Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
-                    Err(TrySendError::Closed(_)) => return Err(TransportError::SocketClosed),
-                    _ => {}
+        while let Some(p) = self.bin_payloads.as_mut().and_then(|p| p.pop_front()) {
+            match self.tx.try_send(p) {
+                Err(TrySendError::Full(p @ EnginePacket::Binary(_))) => {
+                    self.bin_payloads.as_mut().unwrap().push_front(p);
+                    return Err(TransportError::SendFailedBinPayloads(None));
                 }
+                Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
+                Err(TrySendError::Closed(_)) => return Err(TransportError::SocketClosed),
+                Ok(()) => {}
             }
-            Ok(())
-        } else {
-            Ok(())
         }
+        Ok(())
     }
 }
 
 #[derive(Debug)]
 pub struct RetryablePacket {
-    main_packet: Option<EnginePacket>,
+    main_packet: EnginePacket,
     attachments: VecDeque<EnginePacket>,
 }
 
@@ -170,7 +162,7 @@ impl<A: Adapter> Socket<A> {
             sid,
             extensions: Extensions::new(),
             config,
-            sender: Mutex::new(PacketSender::new(tx, VecDeque::new())),
+            sender: Mutex::new(PacketSender::new(tx)),
         }
     }
 
@@ -257,7 +249,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     pub fn retry_failed(&self) -> Result<(), TransportError> {
-        self.resend_failed()
+        self.sender.lock().unwrap().send_binaries()
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -468,9 +460,6 @@ impl<A: Adapter> Socket<A> {
 
     pub(crate) fn send(&self, packet: Packet) -> Result<(), SendError> {
         self.sender.lock().unwrap().send(packet)
-    }
-    pub(crate) fn resend_failed(&self) -> Result<(), TransportError> {
-        self.sender.lock().unwrap().send_binaries()
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
