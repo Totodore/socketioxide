@@ -128,7 +128,7 @@ impl<A: Adapter> Socket<A> {
     {
         let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
         self.message_handlers
-            .lock()
+            .write()
             .unwrap()
             .insert(event.into(), MessageHandler::boxed(handler));
     }
