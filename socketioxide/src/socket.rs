@@ -12,7 +12,7 @@ use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot};
 
 use crate::errors::{SendError, AdapterError};
 use crate::retryer::Retryer;
@@ -38,7 +38,7 @@ pub struct Socket<A: Adapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
-    ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     tx: tokio::sync::mpsc::Sender<EnginePacket>,
     pub handshake: Handshake,
@@ -59,7 +59,7 @@ impl<A: Adapter> Socket<A> {
             ns,
             message_handlers: RwLock::new(HashMap::new()),
             disconnect_handler: Mutex::new(None),
-            ack_message: RwLock::new(HashMap::new()),
+            ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
             handshake,
             sid,
@@ -128,7 +128,7 @@ impl<A: Adapter> Socket<A> {
     {
         let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
         self.message_handlers
-            .write()
+            .lock()
             .unwrap()
             .insert(event.into(), MessageHandler::boxed(handler));
     }
@@ -404,7 +404,7 @@ impl<A: Adapter> Socket<A> {
     ) -> Result<AckResponse<V>, AckError> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        self.ack_message.write().unwrap().insert(ack, tx);
+        self.ack_message.lock().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
         self.send(packet)?;
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
@@ -454,14 +454,14 @@ impl<A: Adapter> Socket<A> {
     }
 
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
-        if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
+        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
             tx.send((data, vec![])).ok();
         }
         Ok(())
     }
 
     fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
-        if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
+        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
             tx.send((packet.data, packet.bin)).ok();
         }
         Ok(())
