@@ -124,12 +124,11 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            let socket = self.socket;
-            socket
+            self.socket
                 .send(packet)
                 .map_err(|err| AckSenderError::SendError {
                     send_error: err,
-                    socket,
+                    socket: self.socket,
                 })
         } else {
             Ok(())
