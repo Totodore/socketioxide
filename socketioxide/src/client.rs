@@ -121,7 +121,9 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_disconnect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket disconnect {}", socket.sid);
         self.ns.values().for_each(|ns| {
-            ns.remove_socket(socket.sid);
+            if let Err(e) = ns.remove_socket(socket.sid) {
+                error!("Adapter error when disconnecting {}: {}, in a multiple server scenario it could leads to desyncronisation issues", socket.sid, e);
+            }
         });
     }
 
