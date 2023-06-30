@@ -3,13 +3,13 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicI64, Ordering},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
 
 use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
-use futures::Future;
+use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -28,12 +28,16 @@ use crate::{
     SocketIoConfig,
 };
 
+pub type DisconnectCallback<A> =
+    Box<dyn FnOnce(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
+
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 pub struct Socket<A: Adapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
+    disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
     ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     tx: tokio::sync::mpsc::Sender<EnginePacket>,
@@ -54,6 +58,7 @@ impl<A: Adapter> Socket<A> {
             tx,
             ns,
             message_handlers: RwLock::new(HashMap::new()),
+            disconnect_handler: Mutex::new(None),
             ack_message: RwLock::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
             handshake,
@@ -126,6 +131,30 @@ impl<A: Adapter> Socket<A> {
             .write()
             .unwrap()
             .insert(event.into(), MessageHandler::boxed(handler));
+    }
+
+    /// ### Register a disconnect handler.
+    /// The callback will be called when the socket is disconnected from the server or the client or when the underlying connection crashes.
+    /// ##### Example
+    /// ```
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    ///         // Close the current socket
+    ///         socket.disconnect().ok();
+    ///     });
+    ///     socket.on_disconnect(|socket| async move {
+    ///         println!("Socket {} on ns {} disconnected", socket.sid, socket.ns());
+    ///     });
+    /// });
+    pub fn on_disconnect<C, F>(&self, callback: C)
+    where
+        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let handler = Box::new(move |s| Box::pin(callback(s)) as _);
+        *self.disconnect_handler.lock().unwrap() = Some(handler);
     }
 
     /// Emit a message to the client
