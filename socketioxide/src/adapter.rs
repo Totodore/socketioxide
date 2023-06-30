@@ -138,8 +138,8 @@ pub struct LocalAdapter {
     ns: Weak<Namespace<Self>>,
 }
 
-impl Into<AdapterError> for Infallible {
-    fn into(self) -> AdapterError {
+impl From<Infallible> for AdapterError {
+    fn from(_: Infallible) -> AdapterError {
         unreachable!()
     }
 }
