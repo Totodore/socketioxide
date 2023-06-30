@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::Socket as EIoSocket;
-use itertools::Itertools;
 use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
