@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::Socket as EIoSocket;
+use itertools::Itertools;
 use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
@@ -120,11 +121,14 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     }
     fn on_disconnect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket disconnect {}", socket.sid);
-        self.ns.values().for_each(|ns| {
-            if let Err(e) = ns.remove_socket(socket.sid) {
-                error!("Adapter error when disconnecting {}: {}, in a multiple server scenario it could leads to desyncronisation issues", socket.sid, e);
-            }
-        });
+        let data = self
+            .ns
+            .values()
+            .filter_map(|ns| ns.get_socket(socket.sid).ok())
+            .map(|s| s.close());
+        if let Err(e) = data.collect::<Result<Vec<_>, _>>() {
+            error!("Adapter error when disconnecting {}: {}, in a multiple server scenario it could leads to desyncronisation issues", socket.sid, e);
+        }
     }
 
     fn on_message(&self, msg: String, socket: &EIoSocket<Self>) {

@@ -14,7 +14,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use crate::errors::SendError;
+use crate::errors::{SendError, AdapterError};
 use crate::retryer::Retryer;
 use crate::{
     adapter::{Adapter, Room},
@@ -370,9 +370,13 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), self.sid).broadcast()
     }
 
-    /// Disconnect the socket from the current namespace.
-    pub fn disconnect(&self) -> Result<(), SendError> {
-        self.ns.disconnect(self.sid)
+    /// Disconnect the socket from the current namespace,
+    ///
+    /// It will also call the disconnect handler if it is set.
+    pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
+        self.send(Packet::disconnect(self.ns.path.clone()))?;
+        self.close()?;
+        Ok(())
     }
 
     /// Get the current namespace path.
@@ -408,14 +412,24 @@ impl<A: Adapter> Socket<A> {
         Ok((serde_json::from_value(v.0)?, v.1))
     }
 
-    // Receive data from client:
+    /// Called when the socket is gracefully [`disconnect`](Socket::disconnect)ed from the server or the client
+    /// 
+    /// It maybe also closed when the underlying transport is closed or failed.
+    pub(crate) fn close(self: Arc<Self>) -> Result<(), AdapterError> {
+        if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
+            tokio::spawn(handler(self.clone()));
+        }
+        self.ns.remove_socket(self.sid)
+    }
 
+    // Receive data from client:
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Event(e, data, ack) => self.recv_event(e, data, ack),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
             PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(e, packet, ack),
             PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
+            PacketData::Disconnect => self.close().map_err(Error::from),
             _ => unreachable!(),
         }
     }
