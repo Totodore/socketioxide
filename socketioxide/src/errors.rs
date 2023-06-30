@@ -1,4 +1,4 @@
-use crate::{retryer::Retryer, adapter::Adapter};
+use crate::retryer::Retryer;
 use engineioxide::sid_generator::Sid;
 use std::fmt::{Debug, Display};
 use tokio::sync::oneshot;
@@ -93,7 +93,7 @@ pub enum SendError {
     RetryerError(#[from] RetryerError),
 
     #[error("Adapter error: {0}")]
-    AdapterError(#[from] Box<dyn std::error::Error>),
+    AdapterError(#[from] AdapterError),
 }
 
 /// Error type for the `Retryer` struct indicating various failure scenarios during the retry process.
@@ -107,8 +107,9 @@ pub enum RetryerError {
     Remaining(Retryer),
 }
 
+/// Error type for the [`Adapter`] trait.
 #[derive(Debug, thiserror::Error)]
-pub struct AdapterError(#[from] Box<dyn std::error::Error>);
+pub struct AdapterError(#[from] pub Box<dyn std::error::Error>);
 impl Display for AdapterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.0, f)
