@@ -172,7 +172,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             .ok_or(Error::UnknownSessionID(sid))
             .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
-        let packets = Payload::new(body.reader(), protocol);
+        let packets = Payload::new(protocol, body.reader());
 
         for p in packets {
             let raw_packet = p.map_err(|e| {

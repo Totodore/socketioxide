@@ -30,6 +30,7 @@ tower = "0.4.13"
 tracing = "0.1.37"
 rand = "0.8.5"
 base64id = { version = "0.3.1", features = ["std", "rand", "serde"] }
+cfg-if = "1.0.0"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
@@ -37,3 +38,8 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 [[bench]]
 name = "benchmark_polling"
 harness = false
+
+[features]
+default = ["v4"]
+v4 = []
+v3 = []

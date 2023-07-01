@@ -47,3 +47,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+### Supported Protocols
+You can enable support for other EngineIO protocol implementations through feature flags. 
+The latest supported protocol version is enabled by default. 
+
+To add support for another protocol version, adjust your dependency configuration accordingly:
+
+```toml
+[dependencies]
+# Enables the `v3` protocol (`v4` is also implicitly enabled, as it's the default).
+engineioxide = { version = "0.3.0", features = ["v3"] }
+```
+
+To enable *a single protocol version only*, disable default features:
+
+```toml
+[dependencies]
+# Enables the `v3` protocol only.
+engineioxide = { version = "0.3.0", features = ["v3"], default-features = false }
+```

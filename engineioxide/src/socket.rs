@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use cfg_if::cfg_if;
 use http::{request::Parts, Uri};
 use tokio::{
     sync::{mpsc, mpsc::Receiver, Mutex},
@@ -176,12 +177,59 @@ where
             .replace(handle);
     }
 
+    cfg_if! {
+        if #[cfg(all(feature = "v3", feature = "v4"))] {
+            /// Heartbeat is sent every `interval` milliseconds and the client or server (depending on the protocol) is expected to respond within `timeout` milliseconds.
+            ///
+            /// If the client or server does not respond within the timeout, the connection is closed.
+            async fn heartbeat_job(
+                &self,
+                protocol: ProtocolVersion,
+                interval: Duration,
+                timeout: Duration,
+            ) -> Result<(), Error> {
+                match protocol {
+                    ProtocolVersion::V3 => {
+                        self.heartbeat_job_v3(timeout).await
+                    }
+                    ProtocolVersion::V4 => {
+                        self.heartbeat_job_v4(interval, timeout).await
+                    }
+                }
+            }
+        } else if #[cfg(feature = "v3")] {
+            /// Heartbeat is sent every `interval` milliseconds by the client and the server is expected to respond within `timeout` milliseconds.
+            ///
+            /// If the client or server does not respond within the timeout, the connection is closed.
+            async fn heartbeat_job(
+                &self,
+                _: ProtocolVersion,
+                interval: Duration,
+                timeout: Duration,
+            ) -> Result<(), Error> {
+                self.heartbeat_job_v3(timeout)
+            }
+        } else {
+            /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
+            ///
+            /// If the client does not respond within the timeout, the connection is closed.
+            async fn heartbeat_job(
+                &self,
+                _: ProtocolVersion,
+                interval: Duration,
+                timeout: Duration,
+            ) -> Result<(), Error> {   
+                self.heartbeat_job_v4(interval, timeout).await
+            }
+        }
+    }
+
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
-    async fn heartbeat_job(
+    #[cfg(feature = "v4")]
+    async fn heartbeat_job_v4(
         &self,
-        protocol: ProtocolVersion,
         interval: Duration,
         timeout: Duration,
     ) -> Result<(), Error> {
@@ -190,45 +238,54 @@ where
             .try_lock()
             .expect("Pong rx should be locked only once");
 
-        match protocol {
-            ProtocolVersion::V3 => {
-                debug!("[sid={}] heartbeat receiver routine started", self.sid);
-                loop {
-                    tokio::time::timeout(timeout, pong_rx.recv())
-                        .await
-                        .map_err(|_| Error::HeartbeatTimeout)?
-                        .ok_or(Error::HeartbeatTimeout)?;
+        let instant = tokio::time::Instant::now();
+        let mut interval_tick = tokio::time::interval(interval);
+        interval_tick.tick().await;
+        // Sleep for an interval minus the time it took to get here
+        tokio::time::sleep(interval.saturating_sub(Duration::from_millis(
+            15 + instant.elapsed().as_millis() as u64,
+        )))
+        .await;
 
-                    debug!("[sid={}] ping received, sending pong", self.sid);
-                    self.internal_tx
-                        .try_send(Packet::Pong)
-                        .map_err(|_| Error::HeartbeatTimeout)?;
-                }
-            }
-            ProtocolVersion::V4 => {
-                let instant = tokio::time::Instant::now();
-                let mut interval_tick = tokio::time::interval(interval);
-                interval_tick.tick().await;
-                // Sleep for an interval minus the time it took to get here
-                tokio::time::sleep(interval.saturating_sub(Duration::from_millis(
-                    15 + instant.elapsed().as_millis() as u64,
-                )))
-                .await;
-                debug!("[sid={}] heartbeat sender routine started", self.sid);
-                loop {
-                    // Some clients send the pong packet in first. If that happens, we should consume it.
-                    pong_rx.try_recv().ok();
+        debug!("[sid={}] heartbeat sender routine started", self.sid);
+    
+        loop {
+            // Some clients send the pong packet in first. If that happens, we should consume it.
+            pong_rx.try_recv().ok();
 
-                    self.internal_tx
-                        .try_send(Packet::Ping)
-                        .map_err(|_| Error::HeartbeatTimeout)?;
-                    tokio::time::timeout(timeout, pong_rx.recv())
-                        .await
-                        .map_err(|_| Error::HeartbeatTimeout)?
-                        .ok_or(Error::HeartbeatTimeout)?;
-                    interval_tick.tick().await;
-                }
-            }
+            self.internal_tx
+                .try_send(Packet::Ping)
+                .map_err(|_| Error::HeartbeatTimeout)?;
+            tokio::time::timeout(timeout, pong_rx.recv())
+                .await
+                .map_err(|_| Error::HeartbeatTimeout)?
+                .ok_or(Error::HeartbeatTimeout)?;
+            interval_tick.tick().await;
+        }
+    }
+
+    #[cfg(feature = "v3")]
+    async fn heartbeat_job_v3(
+        &self,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let mut pong_rx = self
+            .pong_rx
+            .try_lock()
+            .expect("Pong rx should be locked only once");
+        
+        debug!("[sid={}] heartbeat receiver routine started", self.sid);
+        
+        loop {
+            tokio::time::timeout(timeout, pong_rx.recv())
+                .await
+                .map_err(|_| Error::HeartbeatTimeout)?
+                .ok_or(Error::HeartbeatTimeout)?;
+
+            debug!("[sid={}] ping received, sending pong", self.sid);
+            self.internal_tx
+                .try_send(Packet::Pong)
+                .map_err(|_| Error::HeartbeatTimeout)?;
         }
     }
 
