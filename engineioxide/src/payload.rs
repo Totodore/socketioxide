@@ -3,8 +3,7 @@ use cfg_if::cfg_if;
 
 use crate::protocol::ProtocolVersion;
 
-#[cfg(feature = "v4")]
-const PACKET_SEPARATOR: u8 = b'\x1e';
+pub const PACKET_SEPARATOR: u8 = b'\x1e';
 
 /// A payload is a series of encoded packets tied together.
 /// How packets are tied together depends on the protocol.

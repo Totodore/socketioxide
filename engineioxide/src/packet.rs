@@ -85,7 +85,7 @@ impl TryFrom<String> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
-        let packet_type = chars.next().ok_or(serde_json::Error::custom(
+        let packet_type = chars.next().ok_or_else(|| serde_json::Error::custom(
             "Packet type not found in packet string",
         ))?;
         let packet_data = chars.as_str();
@@ -112,7 +112,7 @@ impl TryFrom<String> for Packet {
             '6' => Packet::Noop,
             'b' => {
                 if value.starts_with("b4") {
-                    Packet::BinaryV3(general_purpose::STANDARD.decode(&packet_data[1..].as_bytes())?)
+                    Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?)
                 } else {
                     Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?)
                 }

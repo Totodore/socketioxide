@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::{sid_generator::Sid, protocol::ProtocolVersion, payload::Payload};
+use crate::{sid_generator::Sid, protocol::ProtocolVersion, payload::{Payload, PACKET_SEPARATOR}};
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
@@ -134,7 +134,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             if !data.is_empty() {
                 match protocol {
                     ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
-                    ProtocolVersion::V4 => data.push_str("\x1e"),
+                    ProtocolVersion::V4 => data.push(std::char::from_u32(PACKET_SEPARATOR as u32).unwrap()),
                 }
             } else if protocol == ProtocolVersion::V3 {
                 data.push_str(&format!("{}:", packet.chars().count()));
