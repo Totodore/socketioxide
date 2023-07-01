@@ -43,22 +43,40 @@ pub struct Socket<A: Adapter> {
     pub extensions: Extensions,
     sender: Mutex<PacketSender>,
 }
-
+/// PacketSender is internal struct, it is used to send/resend messages from the client.
 struct PacketSender {
-    tx: tokio::sync::mpsc::Sender<EnginePacket>,
-    bin_payloads: Option<VecDeque<EnginePacket>>,
+    tx: tokio::sync::mpsc::Sender<EnginePacket>, // Asynchronous sender for EnginePacket
+    bin_payload_buffer: Option<VecDeque<EnginePacket>>, // Optional buffer for binary payloads
 }
 
 impl PacketSender {
+    /// Creates a new PacketSender instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `tx` - Asynchronous sender for EnginePacket.
+    ///
+    /// # Returns
+    ///
+    /// A new PacketSender instance.
     fn new(tx: tokio::sync::mpsc::Sender<EnginePacket>) -> Self {
         Self {
             tx,
-            bin_payloads: None,
+            bin_payload_buffer: None,
         }
     }
 
+    /// Sends a raw RetryablePacket, it's an internal function, should be used from RetryablePacket.retry() method.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet` - The RetryablePacket to be sent.
+    ///
+    /// # Returns
+    ///
+    /// An Ok(()) if the send operation was successful, otherwise returns a TransportError.
     fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), TransportError> {
-        if let Err(err) = self.send_binaries() {
+        if let Err(err) = self.send_buffered_binaries() {
             match err {
                 TransportError::SendFailedBinPayloads(None) => {
                     Err(TransportError::SendMainPacket(packet))
@@ -75,16 +93,24 @@ impl PacketSender {
                 }
                 Err(TrySendError::Closed(_)) => Err(TransportError::SocketClosed),
                 Ok(_) => {
-                    self.bin_payloads = Some(packet.attachments);
-                    self.send_binaries()?;
+                    self.bin_payload_buffer = Some(packet.attachments);
+                    self.send_buffered_binaries()?;
                     Ok(())
                 }
             }
         }
     }
-
+    /// Sends a Packet.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet` - The Packet to be sent.
+    ///
+    /// # Returns
+    ///
+    /// An Ok(()) if the send operation was successful, otherwise returns a SendError.
     fn send(&mut self, mut packet: Packet) -> Result<(), SendError> {
-        if let Err(err) = self.send_binaries() {
+        if let Err(err) = self.send_buffered_binaries() {
             Err(err.add_main_packet(packet).into())
         } else {
             let bin_payloads = match packet.inner {
@@ -111,17 +137,22 @@ impl PacketSender {
                 }
                 _ => {}
             };
-            self.bin_payloads = bin_payloads;
-            self.send_binaries()?;
+            self.bin_payload_buffer = bin_payloads;
+            self.send_buffered_binaries()?;
             Ok(())
         }
     }
 
-    fn send_binaries(&mut self) -> Result<(), TransportError> {
-        while let Some(p) = self.bin_payloads.as_mut().and_then(|p| p.pop_front()) {
+    /// Sends the binary payloads from the failed buffer appeared on the previous attempts of sending.
+    ///
+    /// # Returns
+    ///
+    /// An Ok(()) if the send operation was successful, otherwise returns a TransportError.
+    fn send_buffered_binaries(&mut self) -> Result<(), TransportError> {
+        while let Some(p) = self.bin_payload_buffer.as_mut().and_then(|p| p.pop_front()) {
             match self.tx.try_send(p) {
                 Err(TrySendError::Full(p @ EnginePacket::Binary(_))) => {
-                    self.bin_payloads.as_mut().unwrap().push_front(p);
+                    self.bin_payload_buffer.as_mut().unwrap().push_front(p);
                     return Err(TransportError::SendFailedBinPayloads(None));
                 }
                 Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
@@ -133,6 +164,9 @@ impl PacketSender {
     }
 }
 
+/// The RetryablePacket struct represents a packet that can be retried for sending in case of failure,
+/// It cannot be created from user space. There is only one way to get it:
+/// it can only be returned from the socket send method.
 #[derive(Debug)]
 pub struct RetryablePacket {
     main_packet: EnginePacket,
@@ -140,6 +174,9 @@ pub struct RetryablePacket {
 }
 
 impl RetryablePacket {
+    /// This method attempts to send the packet represented by `self`
+    /// If the sending operation fails, an error of type `TransportError` is returned.
+    /// If the sending operation succeeds, `Ok(())` is returned.
     pub fn retry<A: Adapter>(self, socket: &Socket<A>) -> Result<(), TransportError> {
         socket.sender.lock().unwrap().send_raw(self)
     }
@@ -248,8 +285,18 @@ impl<A: Adapter> Socket<A> {
         self.send(Packet::event(ns, event.into(), data))
     }
 
+    /// Retries sending any failed binary payloads that are currently buffered.
+    ///
+    /// This method attempts to resend any binary payloads that have failed to be sent in previous attempts. It acquires
+    /// a lock on the `PacketSender` associated with the `Socket` and calls the `send_buffered_binaries` method to
+    /// retry sending the failed payloads. If the sending operation fails again, an error of type `TransportError` is
+    /// returned. If the sending operation succeeds, `Ok(())` is returned.
+    ///
+    /// This method is useful in scenarios where binary payloads were not successfully sent due to temporary errors, such
+    /// as a full buffer or a closed socket. By invoking this method, you can retry sending the failed payloads and ensure
+    /// the data is transmitted successfully.
     pub fn retry_failed(&self) -> Result<(), TransportError> {
-        self.sender.lock().unwrap().send_binaries()
+        self.sender.lock().unwrap().send_buffered_binaries()
     }
 
     /// Emit a message to the client and wait for acknowledgement.

@@ -121,6 +121,8 @@ pub enum AckSenderError<A: Adapter> {
 }
 
 impl TransportError {
+    /// If PacketSender::send_buffered_binaries fails before packet deserialization
+    /// It is needed to return this owned packet using the method
     pub(crate) fn add_main_packet(self, packet: Packet) -> Self {
         if let TransportError::SendFailedBinPayloads(_) = self {
             TransportError::SendFailedBinPayloads(Some(packet))
