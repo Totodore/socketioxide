@@ -117,13 +117,6 @@ impl TryFrom<String> for Packet {
     }
 }
 
-impl TryFrom<&str> for Packet {
-    type Error = crate::errors::Error;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Packet::try_from(value.to_string())
-    }
-}
-
 /// Deserialize a Binary Packet variant from a [Vec<u8>] according to the Engine.IO protocol
 /// Used when receiving data from a websocket binary frame
 impl TryFrom<Vec<u8>> for Packet {
