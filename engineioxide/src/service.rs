@@ -8,9 +8,10 @@ use crate::{
     },
     futures::ResponseFuture,
     handler::EngineIoHandler,
-    sid_generator::Sid, protocol::{ProtocolVersion},
+    sid_generator::Sid, protocol::ProtocolVersion,
 };
 use bytes::Bytes;
+use cfg_if::cfg_if;
 use futures::future::{ready, Ready};
 use http::{Method, Request};
 use http_body::{Body, Empty};
@@ -235,6 +236,26 @@ impl RequestInfo {
             .and_then(|s| s.split('=').nth(1))
             .ok_or(UnknownTransport)
             .and_then(|t| t.parse())?;
+
+        cfg_if! {
+            if #[cfg(all(feature = "v3", feature = "v4"))] {
+                if protocol != ProtocolVersion::V3 && protocol != ProtocolVersion::V4 {
+                    return Err(Error::UnsupportedProtocolVersion);
+                }
+            }       
+            else if #[cfg(feature = "v4")] {
+                if protocol != ProtocolVersion::V4 {
+                    return Err(Error::UnsupportedProtocolVersion);
+                }
+            }
+            else if #[cfg(feature = "v3")] {
+                if protocol != ProtocolVersion::V3 {
+                    return Err(Error::UnsupportedProtocolVersion);
+                }
+            } else {
+                compile_error!("At least one protocol version must be enabled");
+            }
+        }
 
         let sid = query
             .split('&')

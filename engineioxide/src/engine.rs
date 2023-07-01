@@ -17,6 +17,7 @@ use crate::{
     socket::{ConnectionType, Socket, SocketReq},
 };
 use bytes::Buf;
+use cfg_if::cfg_if;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
@@ -83,9 +84,14 @@ impl<H: EngineIoHandler> EngineIo<H>
         self.handler.on_connect(&socket);
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
+        #[allow(unused_mut)]
         let mut packet: String = Packet::Open(packet).try_into()?;
-        if protocol == ProtocolVersion::V3 {
-            packet = format!("{}:{}", packet.chars().count(), packet);
+        cfg_if! {
+            if #[cfg(feature = "v3")] {
+                if protocol == ProtocolVersion::V3 {
+                    packet = format!("{}:{}", packet.chars().count(), packet);
+                }
+            }
         }
         http_response(StatusCode::OK, packet).map_err(Error::Http)
     }
@@ -125,12 +131,25 @@ impl<H: EngineIoHandler> EngineIo<H>
             debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
             if !data.is_empty() {
-                match protocol {
-                    ProtocolVersion::V4 => data.push_str("\x1e"),
-                    ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
+                cfg_if! {
+                    if #[cfg(feature = "v3")] {
+                        if protocol == ProtocolVersion::V3 {
+                            data.push_str(&format!("{}:", packet.chars().count()));
+                        }
+                    }
+                    else if #[cfg(feature = "v4")] {
+                        if protocol == ProtocolVersion::V4 {
+                            data.push_str("\x1e");
+                        }
+                    }  
                 }
-            } else if protocol == ProtocolVersion::V3 {
-                data.push_str(&format!("{}:", packet.chars().count()));
+            } 
+            cfg_if! {
+                if #[cfg(feature = "v3")] {
+                    if data.is_empty() && protocol == ProtocolVersion::V3 {
+                        data.push_str(&format!("{}:", packet.chars().count()));
+                    }
+                }
             }
             data.push_str(&packet);
         }
@@ -139,8 +158,12 @@ impl<H: EngineIoHandler> EngineIo<H>
         if data.is_empty() {
             let packet = rx.recv().await.ok_or(Error::Aborted)?;
             let packet: String = packet.try_into().unwrap();
-            if protocol == ProtocolVersion::V3 {
-                data.push_str(&format!("{}:", packet.chars().count()));
+            cfg_if! {
+                if #[cfg(feature = "v3")] {
+                    if protocol == ProtocolVersion::V3 {
+                        data.push_str(&format!("{}:", packet.chars().count()));
+                    }
+                }
             }
             data.push_str(&packet);
         }
@@ -402,9 +425,13 @@ impl<H: EngineIoHandler> EngineIo<H>
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
 
-        // send a NOOP packet to any pending polling request so it closes gracefully'
-        if protocol == ProtocolVersion::V4 {
-            socket.send(Packet::Noop)?;
+        cfg_if! {
+            if #[cfg(feature = "v4")] {
+                // send a NOOP packet to any pending polling request so it closes gracefully'
+                if protocol == ProtocolVersion::V4 {
+                    socket.send(Packet::Noop)?;
+                }
+            }
         }
 
         // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
@@ -421,11 +448,15 @@ impl<H: EngineIoHandler> EngineIo<H>
             p => Err(Error::BadPacket(p))?,
         };
 
-        // send a NOOP packet to any pending polling request so it closes gracefully
-        // V3 protocol introduce _paused_ polling transport which require to close 
-        // the polling request **after** the ping/pong handshake
-        if protocol == ProtocolVersion::V3 {
-            socket.send(Packet::Noop)?;
+        cfg_if! {
+            if #[cfg(feature = "v3")] {
+                // send a NOOP packet to any pending polling request so it closes gracefully
+                // V3 protocol introduce _paused_ polling transport which require to close 
+                // the polling request **after** the ping/pong handshake
+                if protocol == ProtocolVersion::V3 {
+                    socket.send(Packet::Noop)?;
+                }
+            }
         }
 
         // Fetch the next packet from the ws stream, it should be an Upgrade packet
