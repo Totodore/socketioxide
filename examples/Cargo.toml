@@ -47,3 +47,7 @@ path = "src/socketio-echo/warp_echo.rs"
 [[example]]
 name = "chat"
 path = "src/chat/main.rs"
+
+[[example]]
+name = "retry"
+path = "src/socketio-retry/socketio-retry.rs"
