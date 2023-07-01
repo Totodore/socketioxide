@@ -69,6 +69,7 @@ impl<H: EngineIoHandler> EngineIo<H>
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
+            protocol.clone(),
             ConnectionType::Http,
             &self.config,
             SocketReq::from(req.into_parts().0),
@@ -80,7 +81,7 @@ impl<H: EngineIoHandler> EngineIo<H>
         }
         socket
             .clone()
-            .spawn_heartbeat(protocol.clone(), self.config.ping_interval, self.config.ping_timeout);
+            .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
         self.handler.on_connect(&socket);
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
@@ -232,7 +233,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                     self.handler.on_message(msg, &socket);
                     Ok(())
                 }
-                Packet::Binary(bin) => {
+                Packet::Binary(bin) | Packet::BinaryV3(bin) => {
                     self.handler.on_binary(bin, &socket);
                     Ok(())
                 }
@@ -307,6 +308,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
             let socket = Socket::new(
                 sid,
+                protocol.clone(),
                 ConnectionType::WebSocket,
                 &self.config,
                 req_data,
@@ -321,7 +323,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             self.ws_init_handshake(sid, &mut ws).await?;
             socket
                 .clone()
-                .spawn_heartbeat(protocol.clone(), self.config.ping_interval, self.config.ping_timeout);
+                .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
             (socket, ws)
         };
         let (mut tx, rx) = ws.split();
@@ -332,7 +334,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             let mut socket_rx = rx_socket.internal_rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
                 let res = match item {
-                    Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
+                    Packet::Binary(bin) | Packet::BinaryV3(bin) => tx.send(Message::Binary(bin)).await,
                     Packet::Close => tx.send(Message::Close(None)).await,
                     _ => {
                         let packet: String = item.try_into().unwrap();

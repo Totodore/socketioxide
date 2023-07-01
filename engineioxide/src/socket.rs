@@ -69,6 +69,9 @@ where
     /// The socket id
     pub sid: Sid,
 
+    /// The protocol version used by the socket
+    pub protocol: ProtocolVersion,
+
     /// The connection type represented as a bitfield
     /// It is represented as a bitfield to allow the use of an [`AtomicU8`] so it can be shared between threads
     /// without any mutex
@@ -111,6 +114,7 @@ where
 {
     pub(crate) fn new(
         sid: Sid,
+        protocol: ProtocolVersion,
         conn: ConnectionType,
         config: &EngineIoConfig,
         req_data: SocketReq,
@@ -124,6 +128,7 @@ where
 
         Self {
             sid,
+            protocol,
             conn: AtomicU8::new(conn as u8),
 
             internal_rx: Mutex::new(internal_rx),
@@ -159,14 +164,13 @@ where
     /// Keep a handle to the job so that it can be aborted when the socket is closed
     pub(crate) fn spawn_heartbeat(
         self: Arc<Self>,
-        protocol: ProtocolVersion,
         interval: Duration,
         timeout: Duration,
     ) {
         let socket = self.clone();
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = socket.heartbeat_job(protocol, interval, timeout).await {
+            if let Err(e) = socket.heartbeat_job(interval, timeout).await {
                 socket.close();
                 debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
             }
@@ -184,11 +188,10 @@ where
             /// If the client or server does not respond within the timeout, the connection is closed.
             async fn heartbeat_job(
                 &self,
-                protocol: ProtocolVersion,
                 interval: Duration,
                 timeout: Duration,
             ) -> Result<(), Error> {
-                match protocol {
+                match self.protocol {
                     ProtocolVersion::V3 => {
                         self.heartbeat_job_v3(timeout).await
                     }
@@ -203,7 +206,6 @@ where
             /// If the client or server does not respond within the timeout, the connection is closed.
             async fn heartbeat_job(
                 &self,
-                _: ProtocolVersion,
                 interval: Duration,
                 timeout: Duration,
             ) -> Result<(), Error> {
@@ -215,7 +217,6 @@ where
             /// If the client does not respond within the timeout, the connection is closed.
             async fn heartbeat_job(
                 &self,
-                _: ProtocolVersion,
                 interval: Duration,
                 timeout: Duration,
             ) -> Result<(), Error> {   
@@ -331,7 +332,12 @@ where
     ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
     pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
-        self.send(Packet::Binary(data))?;
+        if self.protocol == ProtocolVersion::V3 {
+            self.send(Packet::BinaryV3(data))?;
+        } else {
+            self.send(Packet::Binary(data))?;
+        }
+
         Ok(())
     }
 }
@@ -347,6 +353,7 @@ impl<H: EngineIoHandler> Socket<H> {
 
         Self {
             sid,
+            protocol: ProtocolVersion::V4,
             conn: AtomicU8::new(ConnectionType::WebSocket as u8),
 
             internal_rx: Mutex::new(internal_rx),
