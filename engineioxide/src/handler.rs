@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::socket::Socket;
+use crate::socket::{Socket, DisconnectReason};
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]
@@ -12,7 +12,7 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + Clone + 'static {
     fn on_connect(&self, socket: &Socket<Self>);
 
     /// Called when a socket is disconnected.
-    fn on_disconnect(&self, socket: &Socket<Self>);
+    fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason);
 
     /// Called when a message is received from the client.
     fn on_message(&self, msg: String, socket: &Socket<Self>);
