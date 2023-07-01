@@ -172,8 +172,8 @@ impl<A: Adapter> Socket<A> {
     ///         // Close the current socket
     ///         socket.disconnect().ok();
     ///     });
-    ///     socket.on_disconnect(|socket| async move {
-    ///         println!("Socket {} on ns {} disconnected", socket.sid, socket.ns());
+    ///     socket.on_disconnect(|socket, reason| async move {
+    ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.sid, socket.ns(), reason);
     ///     });
     /// });
     pub fn on_disconnect<C, F>(&self, callback: C)
