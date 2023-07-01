@@ -8,13 +8,15 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
+use engineioxide::{
+    sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason, SendPacket as EnginePacket,
+};
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::{oneshot};
+use tokio::sync::oneshot;
 
-use crate::errors::{SendError, AdapterError};
+use crate::errors::{AdapterError, SendError};
 use crate::retryer::Retryer;
 use crate::{
     adapter::{Adapter, Room},
@@ -28,8 +30,34 @@ use crate::{
     SocketIoConfig,
 };
 
-pub type DisconnectCallback<A> =
-    Box<dyn FnOnce(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
+pub type DisconnectCallback<A> = Box<
+    dyn FnOnce(Arc<Socket<A>>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+>;
+
+/// All the possible reasons for a socket to be disconnected.
+#[derive(Debug, Clone)]
+pub enum DisconnectReason {
+    /// The connection was closed (example: the user has lost connection, or the network was changed from WiFi to 4G)
+    TransportClose,
+    /// The connection has encountered an error
+    TransportError,
+    /// The client did not send a PONG packet in the [ping timeout](crate::SocketIoConfigBuilder) delay
+    HeartbeatTimeout,
+    /// The client has manually disconnected the socket using [`socket.disconnect()`](https://socket.io/fr/docs/v4/client-api/#socketdisconnect)
+    ClientNSDisconnect,
+    /// The socket was forcefully disconnected from the namespace with `Socket::disconnect`
+    ServerNSDisconnect,
+}
+
+impl From<EIoDisconnectReason> for DisconnectReason {
+    fn from(reason: EIoDisconnectReason) -> Self {
+        match reason {
+            EIoDisconnectReason::TransportClose => DisconnectReason::TransportClose,
+            EIoDisconnectReason::TransportError => DisconnectReason::TransportError,
+            EIoDisconnectReason::HeartbeatTimeout => DisconnectReason::HeartbeatTimeout,
+        }
+    }
+}
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
@@ -150,10 +178,10 @@ impl<A: Adapter> Socket<A> {
     /// });
     pub fn on_disconnect<C, F>(&self, callback: C)
     where
-        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
+        C: Fn(Arc<Socket<A>>, DisconnectReason) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        let handler = Box::new(move |s| Box::pin(callback(s)) as _);
+        let handler = Box::new(move |s, r| Box::pin(callback(s, r)) as _);
         *self.disconnect_handler.lock().unwrap() = Some(handler);
     }
 
@@ -375,7 +403,7 @@ impl<A: Adapter> Socket<A> {
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
         self.send(Packet::disconnect(self.ns.path.clone()))?;
-        self.close()?;
+        self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())
     }
 
@@ -412,12 +440,12 @@ impl<A: Adapter> Socket<A> {
         Ok((serde_json::from_value(v.0)?, v.1))
     }
 
-    /// Called when the socket is gracefully [`disconnect`](Socket::disconnect)ed from the server or the client
-    /// 
+    /// Called when the socket is gracefully disconnected from the server or the client
+    ///
     /// It maybe also closed when the underlying transport is closed or failed.
-    pub(crate) fn close(self: Arc<Self>) -> Result<(), AdapterError> {
+    pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
         if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
-            tokio::spawn(handler(self.clone()));
+            tokio::spawn(handler(self.clone(), reason));
         }
         self.ns.remove_socket(self.sid)
     }
@@ -429,7 +457,9 @@ impl<A: Adapter> Socket<A> {
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
             PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(e, packet, ack),
             PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
-            PacketData::Disconnect => self.close().map_err(Error::from),
+            PacketData::Disconnect => self
+                .close(DisconnectReason::ClientNSDisconnect)
+                .map_err(Error::from),
             _ => unreachable!(),
         }
     }

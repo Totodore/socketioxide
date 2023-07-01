@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use engineioxide::handler::EngineIoHandler;
-use engineioxide::socket::Socket as EIoSocket;
+use engineioxide::socket::{Socket as EIoSocket, DisconnectReason as EIoDisconnectReason};
 use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
@@ -118,13 +118,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_connect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket connect {}", socket.sid);
     }
-    fn on_disconnect(&self, socket: &EIoSocket<Self>) {
+    fn on_disconnect(&self, socket: &EIoSocket<Self>, reason: EIoDisconnectReason) {
         debug!("eio socket disconnect {}", socket.sid);
         let data = self
             .ns
             .values()
             .filter_map(|ns| ns.get_socket(socket.sid).ok())
-            .map(|s| s.close());
+            .map(|s| s.close(reason.clone().into()));
         if let Err(e) = data.collect::<Result<Vec<_>, _>>() {
             error!("Adapter error when disconnecting {}: {}, in a multiple server scenario it could leads to desyncronisation issues", socket.sid, e);
         }
@@ -136,7 +136,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             Ok(packet) => packet,
             Err(e) => {
                 debug!("socket serialization error: {}", e);
-                socket.close();
+                socket.close(EIoDisconnectReason::TransportError);
                 return;
             }
         };
@@ -161,7 +161,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         };
         if let Err(err) = res {
             error!("error while processing packet: {:?}", err);
-            socket.close();
+            socket.close(EIoDisconnectReason::TransportError);
         }
     }
 
@@ -176,7 +176,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                         "error while propagating packet to socket {}: {}",
                         socket.sid, e
                     );
-                    socket.close();
+                    socket.close(EIoDisconnectReason::TransportError);
                 }
             }
         }
