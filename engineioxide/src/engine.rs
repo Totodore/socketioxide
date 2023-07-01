@@ -132,25 +132,12 @@ impl<H: EngineIoHandler> EngineIo<H>
             debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
             if !data.is_empty() {
-                cfg_if! {
-                    if #[cfg(feature = "v3")] {
-                        if protocol == ProtocolVersion::V3 {
-                            data.push_str(&format!("{}:", packet.chars().count()));
-                        }
-                    }
-                    else if #[cfg(feature = "v4")] {
-                        if protocol == ProtocolVersion::V4 {
-                            data.push_str("\x1e");
-                        }
-                    }  
+                match protocol {
+                    ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
+                    ProtocolVersion::V4 => data.push_str("\x1e"),
                 }
-            } 
-            cfg_if! {
-                if #[cfg(feature = "v3")] {
-                    if data.is_empty() && protocol == ProtocolVersion::V3 {
-                        data.push_str(&format!("{}:", packet.chars().count()));
-                    }
-                }
+            } else if protocol == ProtocolVersion::V3 {
+                data.push_str(&format!("{}:", packet.chars().count()));
             }
             data.push_str(&packet);
         }
