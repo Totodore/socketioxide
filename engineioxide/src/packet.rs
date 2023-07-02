@@ -47,6 +47,15 @@ pub enum Packet {
     ///
     /// When receiving, it is only used with polling connection, websocket use binary frame
     Binary(Vec<u8>), // Not part of the protocol, used internally
+
+    /// Binary packet used to send binary data to the client
+    /// Converts to a String using base64 encoding when using polling connection
+    /// Or to a websocket binary frame when using websocket connection
+    ///
+    /// When receiving, it is only used with polling connection, websocket use binary frame
+    ///
+    /// This is a special packet, excepionally specific to the V3 protocol.
+    BinaryV3(Vec<u8>), // Not part of the protocol, used internally
 }
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
@@ -66,6 +75,7 @@ impl TryInto<String> for Packet {
             Packet::Upgrade => "5".to_string(),
             Packet::Noop => "6".to_string(),
             Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(data),
+            Packet::BinaryV3(data) => "b4".to_string() + &general_purpose::STANDARD.encode(data),
         };
         Ok(res)
     }
@@ -75,9 +85,9 @@ impl TryFrom<String> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
-        let packet_type = chars.next().ok_or(serde_json::Error::custom(
-            "Packet type not found in packet string",
-        ))?;
+        let packet_type = chars
+            .next()
+            .ok_or_else(|| serde_json::Error::custom("Packet type not found in packet string"))?;
         let packet_data = chars.as_str();
         let is_upgrade = packet_data.starts_with("probe");
         let res = match packet_type {
@@ -100,6 +110,9 @@ impl TryFrom<String> for Packet {
             '4' => Packet::Message(packet_data.to_string()),
             '5' => Packet::Upgrade,
             '6' => Packet::Noop,
+            'b' if value.starts_with("b4") => {
+                Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?)
+            }
             'b' => Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?),
             c => Err(serde_json::Error::custom(
                 "Invalid packet type ".to_string() + &c.to_string(),
@@ -229,6 +242,20 @@ mod tests {
         let packet_str = "bAQID".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
         assert_eq!(packet, Packet::Binary(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_binary_packet_v3() {
+        let packet = Packet::BinaryV3(vec![1, 2, 3]);
+        let packet_str: String = packet.try_into().unwrap();
+        assert_eq!(packet_str, "b4AQID");
+    }
+
+    #[test]
+    fn test_binary_packet_v3_deserialize() {
+        let packet_str = "b4AQID".to_string();
+        let packet: Packet = packet_str.try_into().unwrap();
+        assert_eq!(packet, Packet::BinaryV3(vec![1, 2, 3]));
     }
 
     #[test]

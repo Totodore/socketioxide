@@ -37,3 +37,8 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 [[bench]]
 name = "benchmark_polling"
 harness = false
+
+[features]
+default = ["v4"]
+v4 = []
+v3 = []

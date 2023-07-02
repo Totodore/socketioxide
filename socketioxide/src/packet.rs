@@ -338,7 +338,7 @@ impl TryFrom<String> for Packet {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(deserialize_packet(data)?.unwrap_or(json!({}))),
+            '0' => PacketData::Connect(deserialize_packet(data)?.unwrap_or_else(|| json!({}))),
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(data)?;

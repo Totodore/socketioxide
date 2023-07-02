@@ -1,0 +1,39 @@
+
+name: EngineIO CI
+
+on:
+  push:
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  e2e_v3:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/checkout@v3
+        with:
+          repository: socketio/engine.io-protocol
+          path: engine.io-protocol
+          ref: v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - name: Install deps & run tests 
+        run: |
+          cd engine.io-protocol/test-suite && npm install && cd ../..
+          cargo run --bin engineioxide-e2e --release --features v3 --no-default-features > v3_server.txt & npm --prefix engine.io-protocol/test-suite test > v3_client.txt
+      - name: Server output
+        if: always()
+        run: cat v3_server.txt
+      - name: Client output
+        if: always()
+        run:  cat v3_client.txt

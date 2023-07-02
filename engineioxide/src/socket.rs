@@ -16,7 +16,7 @@ use tracing::debug;
 use crate::sid_generator::Sid;
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
-    utils::forward_map_chan, SendPacket,
+    service::ProtocolVersion, utils::forward_map_chan, SendPacket,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +68,9 @@ where
     /// The socket id
     pub sid: Sid,
 
+    /// The protocol version used by the socket
+    pub protocol: ProtocolVersion,
+
     /// The connection type represented as a bitfield
     /// It is represented as a bitfield to allow the use of an [`AtomicU8`] so it can be shared between threads
     /// without any mutex
@@ -86,12 +89,12 @@ where
     internal_tx: mpsc::Sender<Packet>,
     pub tx: mpsc::Sender<SendPacket>,
 
-    /// Internal channel to receive Pong [`Packets`](Packet) in the heartbeat job
+    /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task
-    pong_rx: Mutex<mpsc::Receiver<()>>,
-    /// Channel to send Ping [`Packets`](Packet) from the connexion to the heartbeat job
+    heartbeat_rx: Mutex<mpsc::Receiver<()>>,
+    /// Channel to send Ping [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) from the connexion to the heartbeat job
     /// which is running in a separate task
-    pub(crate) pong_tx: mpsc::Sender<()>,
+    pub(crate) heartbeat_tx: mpsc::Sender<()>,
     /// Handle to the heartbeat job so that it can be aborted when the socket is closed
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
@@ -110,6 +113,7 @@ where
 {
     pub(crate) fn new(
         sid: Sid,
+        protocol: ProtocolVersion,
         conn: ConnectionType,
         config: &EngineIoConfig,
         req_data: SocketReq,
@@ -117,20 +121,21 @@ where
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
-        let (pong_tx, pong_rx) = mpsc::channel(1);
+        let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
 
         Self {
             sid,
+            protocol,
             conn: AtomicU8::new(conn as u8),
 
             internal_rx: Mutex::new(internal_rx),
             internal_tx,
             tx,
 
-            pong_rx: Mutex::new(pong_rx),
-            pong_tx,
+            heartbeat_rx: Mutex::new(heartbeat_rx),
+            heartbeat_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
@@ -171,14 +176,45 @@ where
             .replace(handle);
     }
 
+    /// Heartbeat is sent every `interval` milliseconds and the client or server (depending on the protocol) is expected to respond within `timeout` milliseconds.
+    ///
+    /// If the client or server does not respond within the timeout, the connection is closed.
+    #[cfg(all(feature = "v3", feature = "v4"))]
+    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
+        match self.protocol {
+            ProtocolVersion::V3 => self.heartbeat_job_v3(timeout).await,
+            ProtocolVersion::V4 => self.heartbeat_job_v4(interval, timeout).await,
+        }
+    }
+
+    /// Heartbeat is sent every `interval` milliseconds by the client and the server is expected to respond within `timeout` milliseconds.
+    ///
+    /// If the client or server does not respond within the timeout, the connection is closed.
+    #[cfg(feature = "v3")]
+    #[cfg(not(feature = "v4"))]
+    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
+        self.heartbeat_job_v3(timeout)
+    }
+
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
+    #[cfg(feature = "v4")]
+    #[cfg(not(feature = "v3"))]
     async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
-        let mut pong_rx = self
-            .pong_rx
+        self.heartbeat_job_v4(interval, timeout).await
+    }
+
+    /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
+    ///
+    /// If the client does not respond within the timeout, the connection is closed.
+    #[cfg(feature = "v4")]
+    async fn heartbeat_job_v4(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
+        let mut heartbeat_rx = self
+            .heartbeat_rx
             .try_lock()
             .expect("Pong rx should be locked only once");
+
         let instant = tokio::time::Instant::now();
         let mut interval_tick = tokio::time::interval(interval);
         interval_tick.tick().await;
@@ -187,19 +223,43 @@ where
             15 + instant.elapsed().as_millis() as u64,
         )))
         .await;
-        debug!("[sid={}] heartbeat routine started", self.sid);
+
+        debug!("[sid={}] heartbeat sender routine started", self.sid);
+
         loop {
             // Some clients send the pong packet in first. If that happens, we should consume it.
-            pong_rx.try_recv().ok();
+            heartbeat_rx.try_recv().ok();
 
             self.internal_tx
                 .try_send(Packet::Ping)
                 .map_err(|_| Error::HeartbeatTimeout)?;
-            tokio::time::timeout(timeout, pong_rx.recv())
+            tokio::time::timeout(timeout, heartbeat_rx.recv())
                 .await
                 .map_err(|_| Error::HeartbeatTimeout)?
                 .ok_or(Error::HeartbeatTimeout)?;
             interval_tick.tick().await;
+        }
+    }
+
+    #[cfg(feature = "v3")]
+    async fn heartbeat_job_v3(&self, timeout: Duration) -> Result<(), Error> {
+        let mut heartbeat_rx = self
+            .heartbeat_rx
+            .try_lock()
+            .expect("Pong rx should be locked only once");
+
+        debug!("[sid={}] heartbeat receiver routine started", self.sid);
+
+        loop {
+            tokio::time::timeout(timeout, heartbeat_rx.recv())
+                .await
+                .map_err(|_| Error::HeartbeatTimeout)?
+                .ok_or(Error::HeartbeatTimeout)?;
+
+            debug!("[sid={}] ping received, sending pong", self.sid);
+            self.internal_tx
+                .try_send(Packet::Pong)
+                .map_err(|_| Error::HeartbeatTimeout)?;
         }
     }
 
@@ -245,7 +305,12 @@ where
     ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
     pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
-        self.send(Packet::Binary(data))?;
+        if self.protocol == ProtocolVersion::V3 {
+            self.send(Packet::BinaryV3(data))?;
+        } else {
+            self.send(Packet::Binary(data))?;
+        }
+
         Ok(())
     }
 }
@@ -255,20 +320,21 @@ impl<H: EngineIoHandler> Socket<H> {
     pub fn new_dummy(sid: Sid, close_fn: Box<dyn Fn(Sid) + Send + Sync>) -> Socket<H> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (tx, rx) = mpsc::channel(200);
-        let (pong_tx, pong_rx) = mpsc::channel(1);
+        let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
 
         Self {
             sid,
+            protocol: ProtocolVersion::V4,
             conn: AtomicU8::new(ConnectionType::WebSocket as u8),
 
             internal_rx: Mutex::new(internal_rx),
             internal_tx,
             tx,
 
-            pong_rx: Mutex::new(pong_rx),
-            pong_tx,
+            heartbeat_rx: Mutex::new(heartbeat_rx),
+            heartbeat_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 

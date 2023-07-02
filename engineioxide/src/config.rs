@@ -53,6 +53,7 @@ impl EngineIoConfigBuilder {
             config: EngineIoConfig::default(),
         }
     }
+
     /// The path to listen for engine.io requests on.
     /// Defaults to "/engine.io".
     pub fn req_path(mut self, req_path: String) -> Self {
