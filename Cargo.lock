@@ -358,7 +358,6 @@ dependencies = [
  "base64 0.21.0",
  "base64id",
  "bytes",
- "cfg-if",
  "criterion",
  "futures",
  "http",

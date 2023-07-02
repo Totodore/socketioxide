@@ -2,13 +2,9 @@ pub use async_trait::async_trait;
 
 /// A Packet type to use when sending data to the client
 pub use packet::SendPacket;
-use cfg_if::cfg_if;
 
-cfg_if! {
-    if #[cfg(not(any(feature = "v3", feature = "v4")))] {
-        compile_error!("At least one protocol version must be enabled");
-    }
-}
+#[cfg(not(any(feature = "v3", feature = "v4")))]
+compile_error!("At least one protocol version must be enabled");
 
 pub mod config;
 pub mod errors;

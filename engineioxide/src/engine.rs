@@ -17,7 +17,6 @@ use crate::{
     socket::{ConnectionType, Socket, SocketReq},
 };
 use bytes::Buf;
-use cfg_if::cfg_if;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
@@ -154,12 +153,10 @@ impl<H: EngineIoHandler> EngineIo<H>
         if data.is_empty() {
             let packet = rx.recv().await.ok_or(Error::Aborted)?;
             let packet: String = packet.try_into().unwrap();
-            cfg_if! {
-                if #[cfg(feature = "v3")] {
-                    // The V3 protocol specifically requires the packet length to be prepended to the packet.
-                    if protocol == ProtocolVersion::V3 {
-                        data.push_str(&format!("{}:", packet.chars().count()));
-                    }
+            #[cfg(feature = "v3")] {
+                // The V3 protocol specifically requires the packet length to be prepended to the packet.
+                if protocol == ProtocolVersion::V3 {
+                    data.push_str(&format!("{}:", packet.chars().count()));
                 }
             }
             data.push_str(&packet);
@@ -419,12 +416,10 @@ impl<H: EngineIoHandler> EngineIo<H>
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
 
-        cfg_if! {
-            if #[cfg(feature = "v4")] {
-                // send a NOOP packet to any pending polling request so it closes gracefully'
-                if protocol == ProtocolVersion::V4 {
-                    socket.send(Packet::Noop)?;
-                }
+        #[cfg(feature = "v4")] {
+            // send a NOOP packet to any pending polling request so it closes gracefully'
+            if protocol == ProtocolVersion::V4 {
+                socket.send(Packet::Noop)?;
             }
         }
 
@@ -442,14 +437,12 @@ impl<H: EngineIoHandler> EngineIo<H>
             p => Err(Error::BadPacket(p))?,
         };
 
-        cfg_if! {
-            if #[cfg(feature = "v3")] {
-                // send a NOOP packet to any pending polling request so it closes gracefully
-                // V3 protocol introduce _paused_ polling transport which require to close 
-                // the polling request **after** the ping/pong handshake
-                if protocol == ProtocolVersion::V3 {
-                    socket.send(Packet::Noop)?;
-                }
+        #[cfg(feature = "v3")] {
+            // send a NOOP packet to any pending polling request so it closes gracefully
+            // V3 protocol introduce _paused_ polling transport which require to close 
+            // the polling request **after** the ping/pong handshake
+            if protocol == ProtocolVersion::V3 {
+                socket.send(Packet::Noop)?;
             }
         }
 
