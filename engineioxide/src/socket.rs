@@ -203,6 +203,7 @@ where
     ///
     /// If the client or server does not respond within the timeout, the connection is closed.
     #[cfg(feature = "v3")]
+    #[cfg(not(feature = "v4"))]
     async fn heartbeat_job(
         &self,
         interval: Duration,
@@ -215,6 +216,7 @@ where
     ///
     /// If the client does not respond within the timeout, the connection is closed.
     #[cfg(feature = "v4")]
+    #[cfg(not(feature = "v3"))]
     async fn heartbeat_job(
         &self,
         interval: Duration,

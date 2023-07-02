@@ -108,11 +108,13 @@ impl<R: BufRead> Iterator for Payload<R> {
     }
 
     #[cfg(feature = "v3")]
+    #[cfg(not(feature = "v4"))]
     fn next(&mut self) -> Option<Self::Item> {
         self.next_v3()
     }
 
     #[cfg(feature = "v4")]
+    #[cfg(not(feature = "v3"))]
     fn next(&mut self) -> Option<Self::Item> {
         self.next_v4()
     }
