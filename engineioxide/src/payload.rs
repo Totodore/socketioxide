@@ -13,7 +13,7 @@ pub struct Payload<R: BufRead> {
     protocol: ProtocolVersion,
 }
 
-type Item = Result<String, Error>;
+type Item = Result<String, Error>; // TODO: refactor to return Result<&str, Error> instead (see TODO's below)
 
 impl<R: BufRead> Payload<R> {
     pub fn new(protocol: ProtocolVersion, data: R) -> Self {
@@ -41,7 +41,7 @@ impl<R: BufRead> Payload<R> {
                 self.reader.read_exact(&mut self.buffer)?;
 
                 let buffer = std::mem::take(&mut self.buffer);
-                String::from_utf8(buffer).map_err(Into::into)
+                String::from_utf8(buffer).map_err(Into::into) // TODO: replace 'String::from_utf8' with 'std::str::from_utf8'
             }),
             Err(e) => Some(Err(Error::Io(e))),
         }
@@ -58,7 +58,7 @@ impl<R: BufRead> Payload<R> {
                     }
                     
                     let buffer = std::mem::take(&mut self.buffer);
-                    Some(String::from_utf8(buffer).map_err(Into::into))
+                    Some(String::from_utf8(buffer).map_err(Into::into)) // TODO: replace 'String::from_utf8' with 'std::str::from_utf8'
                 } else {
                     None
                 }
