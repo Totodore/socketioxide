@@ -1,5 +1,4 @@
 use std::{io::BufRead, vec};
-use cfg_if::cfg_if;
 
 use crate::service::ProtocolVersion;
 
@@ -96,27 +95,26 @@ impl<R: BufRead> Payload<R> {
 impl<R: BufRead> Iterator for Payload<R> {
     type Item = Item;
 
-    cfg_if! {
-        if #[cfg(all(feature = "v3", feature = "v4"))] {
-            fn next(&mut self) -> Option<Self::Item> {
-                match self.protocol {
-                    ProtocolVersion::V3 => {
-                        self.next_v3()
-                    },
-                    ProtocolVersion::V4 => {
-                        self.next_v4()
-                    },
-                }
-            }
-        } else if #[cfg(feature = "v3")] {
-            fn next(&mut self) -> Option<Self::Item> {
+    #[cfg(all(feature = "v3", feature = "v4"))]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.protocol {
+            ProtocolVersion::V3 => {
                 self.next_v3()
-            }
-        } else {
-            fn next(&mut self) -> Option<Self::Item> {
+            },
+            ProtocolVersion::V4 => {
                 self.next_v4()
-            }
+            },
         }
+    }
+
+    #[cfg(feature = "v3")]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_v3()
+    }
+
+    #[cfg(feature = "v4")]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_v4()
     }
 }
 

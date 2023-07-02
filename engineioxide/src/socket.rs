@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-use cfg_if::cfg_if;
 use http::{request::Parts, Uri};
 use tokio::{
     sync::{mpsc, mpsc::Receiver, Mutex},
@@ -181,48 +180,47 @@ where
             .replace(handle);
     }
 
-    cfg_if! {
-        if #[cfg(all(feature = "v3", feature = "v4"))] {
-            /// Heartbeat is sent every `interval` milliseconds and the client or server (depending on the protocol) is expected to respond within `timeout` milliseconds.
-            ///
-            /// If the client or server does not respond within the timeout, the connection is closed.
-            async fn heartbeat_job(
-                &self,
-                interval: Duration,
-                timeout: Duration,
-            ) -> Result<(), Error> {
-                match self.protocol {
-                    ProtocolVersion::V3 => {
-                        self.heartbeat_job_v3(timeout).await
-                    }
-                    ProtocolVersion::V4 => {
-                        self.heartbeat_job_v4(interval, timeout).await
-                    }
-                }
+    /// Heartbeat is sent every `interval` milliseconds and the client or server (depending on the protocol) is expected to respond within `timeout` milliseconds.
+    ///
+    /// If the client or server does not respond within the timeout, the connection is closed.
+    #[cfg(all(feature = "v3", feature = "v4"))]
+    async fn heartbeat_job(
+        &self,
+        interval: Duration,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        match self.protocol {
+            ProtocolVersion::V3 => {
+                self.heartbeat_job_v3(timeout).await
             }
-        } else if #[cfg(feature = "v3")] {
-            /// Heartbeat is sent every `interval` milliseconds by the client and the server is expected to respond within `timeout` milliseconds.
-            ///
-            /// If the client or server does not respond within the timeout, the connection is closed.
-            async fn heartbeat_job(
-                &self,
-                interval: Duration,
-                timeout: Duration,
-            ) -> Result<(), Error> {
-                self.heartbeat_job_v3(timeout)
-            }
-        } else {
-            /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
-            ///
-            /// If the client does not respond within the timeout, the connection is closed.
-            async fn heartbeat_job(
-                &self,
-                interval: Duration,
-                timeout: Duration,
-            ) -> Result<(), Error> {   
+            ProtocolVersion::V4 => {
                 self.heartbeat_job_v4(interval, timeout).await
             }
         }
+    }
+
+    /// Heartbeat is sent every `interval` milliseconds by the client and the server is expected to respond within `timeout` milliseconds.
+    ///
+    /// If the client or server does not respond within the timeout, the connection is closed.
+    #[cfg(feature = "v3")]
+    async fn heartbeat_job(
+        &self,
+        interval: Duration,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        self.heartbeat_job_v3(timeout)
+    }
+
+     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
+    ///
+    /// If the client does not respond within the timeout, the connection is closed.
+    #[cfg(feature = "v4")]
+    async fn heartbeat_job(
+        &self,
+        interval: Duration,
+        timeout: Duration,
+    ) -> Result<(), Error> {   
+        self.heartbeat_job_v4(interval, timeout).await
     }
 
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
