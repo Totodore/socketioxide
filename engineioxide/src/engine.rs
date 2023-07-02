@@ -354,7 +354,7 @@ impl<H: EngineIoHandler> EngineIo<H>
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             match msg {
-                Message::Text(msg) => match Packet::try_from(msg.clone())? {
+                Message::Text(msg) => match Packet::try_from(msg)? {
                     Packet::Close => {
                         debug!("[sid={}] closing session", socket.sid);
                         self.close_session(socket.sid);
