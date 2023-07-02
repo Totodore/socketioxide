@@ -3,14 +3,12 @@ use tower::Layer;
 use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 
 #[derive(Debug, Clone)]
-pub struct EngineIoLayer<H: EngineIoHandler>
-{
+pub struct EngineIoLayer<H: EngineIoHandler> {
     config: EngineIoConfig,
     handler: H,
 }
 
-impl<H: EngineIoHandler> EngineIoLayer<H>
-{
+impl<H: EngineIoHandler> EngineIoLayer<H> {
     pub fn new(handler: H) -> Self {
         Self {
             config: EngineIoConfig::default(),
@@ -18,15 +16,11 @@ impl<H: EngineIoHandler> EngineIoLayer<H>
         }
     }
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
-        Self {
-            config,
-            handler,
-        }
+        Self { config, handler }
     }
 }
 
-impl<S: Clone, H: EngineIoHandler> Layer<S> for EngineIoLayer<H>
-{
+impl<S: Clone, H: EngineIoHandler> Layer<S> for EngineIoLayer<H> {
     type Service = EngineIoService<H, S>;
 
     fn layer(&self, inner: S) -> Self::Service {

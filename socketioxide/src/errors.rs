@@ -1,6 +1,6 @@
 use crate::retryer::Retryer;
 use engineioxide::sid_generator::Sid;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use tokio::sync::oneshot;
 
 /// Error type for socketio
@@ -24,6 +24,9 @@ pub enum Error {
     /// An engineio error
     #[error("engineio error: {0}")]
     EngineIoError(#[from] engineioxide::errors::Error),
+
+    #[error("adapter error: {0}")]
+    Adapter(#[from] AdapterError),
 }
 
 /// Error type for ack responses
@@ -59,6 +62,9 @@ pub enum BroadcastError {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
+
+    #[error("Adapter error: {0}")]
+    Adapter(#[from] AdapterError),
 }
 
 impl From<Vec<SendError>> for BroadcastError {
@@ -85,6 +91,9 @@ pub enum SendError {
     /// An error occurred during the sending process, a [`RetryerError`] is provided to retry to send the packet if the channel is full.
     #[error("Send error: {0:?}")]
     RetryerError(#[from] RetryerError),
+
+    #[error("Adapter error: {0}")]
+    AdapterError(#[from] AdapterError),
 }
 
 /// Error type for the [`Retryer`] struct indicating various failure scenarios during the retry process.
@@ -96,4 +105,13 @@ pub enum RetryerError {
     /// There are remaining packets to be sent, indicating that the socket channel is full.
     #[error("Sent to a full socket channel")]
     Remaining(Retryer),
+}
+
+/// Error type for the [`Adapter`] trait.
+#[derive(Debug, thiserror::Error)]
+pub struct AdapterError(#[from] pub Box<dyn std::error::Error + Send>);
+impl Display for AdapterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
 }
