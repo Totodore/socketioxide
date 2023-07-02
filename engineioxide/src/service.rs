@@ -256,22 +256,10 @@ impl RequestInfo {
             .and_then(|t| t.parse())?;
 
         cfg_if! {
-            if #[cfg(all(feature = "v3", feature = "v4"))] {
+            if #[cfg(any(feature = "v3", feature = "v4"))] {
                 if protocol != ProtocolVersion::V3 && protocol != ProtocolVersion::V4 {
                     return Err(Error::UnsupportedProtocolVersion);
                 }
-            }       
-            else if #[cfg(feature = "v4")] {
-                if protocol != ProtocolVersion::V4 {
-                    return Err(Error::UnsupportedProtocolVersion);
-                }
-            }
-            else if #[cfg(feature = "v3")] {
-                if protocol != ProtocolVersion::V3 {
-                    return Err(Error::UnsupportedProtocolVersion);
-                }
-            } else {
-                compile_error!("At least one protocol version must be enabled");
             }
         }
 
