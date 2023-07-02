@@ -69,7 +69,7 @@ impl<H: EngineIoHandler> EngineIo<H>
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
-            protocol.clone(),
+            protocol,
             ConnectionType::Http,
             &self.config,
             SocketReq::from(req.into_parts().0),
@@ -285,7 +285,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                 Some(_) => {
                     debug!("[sid={sid}] websocket connection upgrade");
                     let mut ws = ws_init().await;
-                    self.ws_upgrade_handshake(protocol.clone(), sid, &mut ws).await?;
+                    self.ws_upgrade_handshake(protocol, sid, &mut ws).await?;
                     (self.get_socket(sid).unwrap(), ws)
                 }
             }
@@ -295,7 +295,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
             let socket = Socket::new(
                 sid,
-                protocol.clone(),
+                protocol,
                 ConnectionType::WebSocket,
                 &self.config,
                 req_data,

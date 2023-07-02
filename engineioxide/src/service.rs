@@ -212,7 +212,7 @@ impl FromStr for TransportType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
     V3 = 3,
     V4 = 4,
