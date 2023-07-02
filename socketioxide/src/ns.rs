@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::errors::SendError;
+use crate::errors::{AdapterError, SendError};
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::Error,
@@ -69,14 +69,18 @@ impl<A: Adapter> Namespace<A> {
 
     pub fn disconnect(&self, sid: Sid) -> Result<(), SendError> {
         if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
-            self.adapter.del_all(sid);
+            self.adapter
+                .del_all(sid)
+                .map_err(|err| AdapterError(Box::new(err)))?;
             socket.send(Packet::disconnect(self.path.clone()))?;
         }
         Ok(())
     }
-    fn remove_socket(&self, sid: Sid) {
+    pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
         self.sockets.write().unwrap().remove(&sid);
-        self.adapter.del_all(sid);
+        self.adapter
+            .del_all(sid)
+            .map_err(|err| AdapterError(Box::new(err)))
     }
 
     pub fn has(&self, sid: Sid) -> bool {
@@ -90,10 +94,9 @@ impl<A: Adapter> Namespace<A> {
 
     pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Disconnect => {
-                self.remove_socket(sid);
-                Ok(())
-            }
+            PacketData::Disconnect => self
+                .remove_socket(sid)
+                .map_err(|err| AdapterError(Box::new(err)).into()),
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError(_) => Ok(()),
             packet => self.socket_recv(sid, packet),
