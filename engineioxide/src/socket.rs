@@ -121,7 +121,7 @@ where
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
-        let (pong_tx, pong_rx) = mpsc::channel(1);
+        let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
 
@@ -134,8 +134,8 @@ where
             internal_tx,
             tx,
 
-            heartbeat_rx: Mutex::new(pong_rx),
-            heartbeat_tx: pong_tx,
+            heartbeat_rx: Mutex::new(heartbeat_rx),
+            heartbeat_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
@@ -234,7 +234,7 @@ where
         interval: Duration,
         timeout: Duration,
     ) -> Result<(), Error> {
-        let mut pong_rx = self
+        let mut heartbeat_rx = self
             .heartbeat_rx
             .try_lock()
             .expect("Pong rx should be locked only once");
@@ -252,12 +252,12 @@ where
     
         loop {
             // Some clients send the pong packet in first. If that happens, we should consume it.
-            pong_rx.try_recv().ok();
+            heartbeat_rx.try_recv().ok();
 
             self.internal_tx
                 .try_send(Packet::Ping)
                 .map_err(|_| Error::HeartbeatTimeout)?;
-            tokio::time::timeout(timeout, pong_rx.recv())
+            tokio::time::timeout(timeout, heartbeat_rx.recv())
                 .await
                 .map_err(|_| Error::HeartbeatTimeout)?
                 .ok_or(Error::HeartbeatTimeout)?;
@@ -270,15 +270,15 @@ where
         &self,
         timeout: Duration,
     ) -> Result<(), Error> {
-        let mut pong_rx = self
-            .pong_rx
+        let mut heartbeat_rx = self
+            .heartbeat_rx
             .try_lock()
             .expect("Pong rx should be locked only once");
         
         debug!("[sid={}] heartbeat receiver routine started", self.sid);
         
         loop {
-            tokio::time::timeout(timeout, pong_rx.recv())
+            tokio::time::timeout(timeout, heartbeat_rx.recv())
                 .await
                 .map_err(|_| Error::HeartbeatTimeout)?
                 .ok_or(Error::HeartbeatTimeout)?;
@@ -347,7 +347,7 @@ impl<H: EngineIoHandler> Socket<H> {
     pub fn new_dummy(sid: Sid, close_fn: Box<dyn Fn(Sid) + Send + Sync>) -> Socket<H> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (tx, rx) = mpsc::channel(200);
-        let (pong_tx, pong_rx) = mpsc::channel(1);
+        let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
 
@@ -360,8 +360,8 @@ impl<H: EngineIoHandler> Socket<H> {
             internal_tx,
             tx,
 
-            heartbeat_rx: Mutex::new(pong_rx),
-            heartbeat_tx: pong_tx,
+            heartbeat_rx: Mutex::new(heartbeat_rx),
+            heartbeat_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
