@@ -27,38 +27,22 @@ impl<R: BufRead> Payload<R> {
     #[cfg(feature = "v3")]
     fn next_v3(&mut self) -> Option<Item> {
         match self.reader.read_until(b':', &mut self.buffer) {
-            Ok(bytes_read) => {
-                if bytes_read > 0 {
-                    // remove trailing separator
-                    if self.buffer.ends_with(&[b':']) {
-                        self.buffer.pop();
-                    }
-
-                    let buffer = std::mem::take(&mut self.buffer);
-                    let length = match String::from_utf8(buffer) {
-                        Ok(s) => {
-                            if let Ok(l) = s.parse::<usize>() {
-                                l
-                            } else {
-                                return Some(Err(Error::InvalidPacketLength));
-                            }
-                        },
-                        Err(_) => return Some(Err(Error::InvalidPacketLength)),
-                    };
-
-                    self.buffer.resize(length, 0);
-
-                    match self.reader.read_exact(&mut self.buffer) {
-                        Ok(_) => {
-                            let buffer = std::mem::take(&mut self.buffer);
-                            Some(String::from_utf8(buffer).map_err(Into::into))
-                        },
-                        Err(e) => Some(Err(Error::Io(e))),
-                    }
-                } else {
-                    None
+            Ok(bytes_read) => (bytes_read > 0).then(|| {
+                if self.buffer.ends_with(&[b':']) {
+                    self.buffer.pop();
                 }
-            }
+
+                let buffer = std::mem::take(&mut self.buffer);
+                let length = String::from_utf8(buffer)
+                    .map_err(|_| Error::InvalidPacketLength)
+                    .and_then(|s| s.parse::<usize>().map_err(|_| Error::InvalidPacketLength))?;
+                
+                self.buffer.resize(length, 0);
+                self.reader.read_exact(&mut self.buffer)?;
+
+                let buffer = std::mem::take(&mut self.buffer);
+                String::from_utf8(buffer).map_err(Into::into)
+            }),
             Err(e) => Some(Err(Error::Io(e))),
         }
     }
