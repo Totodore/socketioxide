@@ -89,6 +89,8 @@ impl<H: EngineIoHandler> EngineIo<H>
         let mut packet: String = Packet::Open(packet).try_into()?;
         cfg_if! {
             if #[cfg(feature = "v3")] {
+                // The V3 protocol requires the packet length to be prepended to the packet.
+                // It doesn't use a packet separator like the V4 protocol (and up).
                 if protocol == ProtocolVersion::V3 {
                     packet = format!("{}:{}", packet.chars().count(), packet);
                 }
@@ -132,6 +134,8 @@ impl<H: EngineIoHandler> EngineIo<H>
             debug!("sending packet: {:?}", packet);
             let packet: String = packet.try_into().unwrap();
             if !data.is_empty() {
+                // The V3 protocol requires the packet length to be prepended to the packet.
+                // The V4 protocol (and up) only requires a packet separator.
                 match protocol {
                     ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
                     ProtocolVersion::V4 => data.push(std::char::from_u32(PACKET_SEPARATOR as u32).unwrap()),
@@ -148,6 +152,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             let packet: String = packet.try_into().unwrap();
             cfg_if! {
                 if #[cfg(feature = "v3")] {
+                    // The V3 protocol specifically requires the packet length to be prepended to the packet.
                     if protocol == ProtocolVersion::V3 {
                         data.push_str(&format!("{}:", packet.chars().count()));
                     }
