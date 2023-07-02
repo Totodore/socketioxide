@@ -19,7 +19,7 @@ use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    errors::{AckError, BroadcastError, AdapterError},
+    errors::{AckError, AdapterError, BroadcastError},
     handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
@@ -89,11 +89,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid) -> Result<(), Self::Error>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(
-        &self,
-        packet: Packet,
-        opts: BroadcastOptions,
-    ) -> Result<(), BroadcastError>;
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
@@ -120,10 +116,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam)
         -> Result<(), Self::Error>;
     /// Disconnect the sockets that match the [`BroadcastOptions`].
-    fn disconnect_socket(
-        &self,
-        opts: BroadcastOptions,
-    ) -> Result<(), BroadcastError>;
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
@@ -154,9 +147,13 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn init(&self) -> Result<(), Infallible> { Ok(()) }
+    fn init(&self) -> Result<(), Infallible> {
+        Ok(())
+    }
 
-    fn close(&self) -> Result<(), Infallible> { Ok(()) }
+    fn close(&self) -> Result<(), Infallible> {
+        Ok(())
+    }
 
     fn server_count(&self) -> Result<u16, Infallible> {
         Ok(1)
@@ -232,7 +229,8 @@ impl Adapter for LocalAdapter {
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Infallible> {
         let mut opts = BroadcastOptions::new(0i64.into());
         opts.rooms.extend(rooms.into_room_iter());
-        Ok(self.apply_opts(opts)
+        Ok(self
+            .apply_opts(opts)
             .into_iter()
             .map(|socket| socket.sid)
             .collect())
@@ -248,7 +246,10 @@ impl Adapter for LocalAdapter {
             .collect())
     }
 
-    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<Arc<Socket<LocalAdapter>>>, Infallible> {
+    fn fetch_sockets(
+        &self,
+        opts: BroadcastOptions,
+    ) -> Result<Vec<Arc<Socket<LocalAdapter>>>, Infallible> {
         Ok(self.apply_opts(opts))
     }
 
@@ -383,8 +384,14 @@ mod test {
         adapter.add_all(1i64.into(), ["room1", "room2"]).unwrap();
         adapter.add_all(2i64.into(), ["room1"]).unwrap();
         adapter.add_all(3i64.into(), ["room2"]).unwrap();
-        assert!(adapter.socket_rooms(1i64.into()).unwrap().contains(&"room1".into()));
-        assert!(adapter.socket_rooms(1i64.into()).unwrap().contains(&"room2".into()));
+        assert!(adapter
+            .socket_rooms(1i64.into())
+            .unwrap()
+            .contains(&"room1".into()));
+        assert!(adapter
+            .socket_rooms(1i64.into())
+            .unwrap()
+            .contains(&"room2".into()));
         assert_eq!(adapter.socket_rooms(2i64.into()).unwrap(), ["room1"]);
         assert_eq!(adapter.socket_rooms(3i64.into()).unwrap(), ["room2"]);
     }
@@ -472,9 +479,15 @@ mod test {
         let socket2: Sid = 2i64.into();
         let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(socket0, ["room1", "room2", "room4"]).unwrap();
-        adapter.add_all(socket1, ["room1", "room3", "room5"]).unwrap();
-        adapter.add_all(socket2, ["room2", "room3", "room6"]).unwrap();
+        adapter
+            .add_all(socket0, ["room1", "room2", "room4"])
+            .unwrap();
+        adapter
+            .add_all(socket1, ["room1", "room3", "room5"])
+            .unwrap();
+        adapter
+            .add_all(socket2, ["room2", "room3", "room6"])
+            .unwrap();
 
         let mut opts = BroadcastOptions::new(socket0);
         opts.rooms = vec!["room5".to_string()];
@@ -504,7 +517,9 @@ mod test {
         // Add socket 1 to room1 and room3
         adapter.add_all(socket1, ["room1", "room3"]).unwrap();
         // Add socket 2 to room2 and room3
-        adapter.add_all(socket2, ["room1", "room2", "room3"]).unwrap();
+        adapter
+            .add_all(socket2, ["room1", "room2", "room3"])
+            .unwrap();
 
         // socket 2 is the sender
         let mut opts = BroadcastOptions::new(socket2);
