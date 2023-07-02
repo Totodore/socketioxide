@@ -33,7 +33,7 @@ impl<R: BufRead> Payload<R> {
                 }
 
                 let buffer = std::mem::take(&mut self.buffer);
-                let length = String::from_utf8(buffer)
+                let length = std::str::from_utf8(&buffer)
                     .map_err(|_| Error::InvalidPacketLength)
                     .and_then(|s| s.parse::<usize>().map_err(|_| Error::InvalidPacketLength))?;
                 
