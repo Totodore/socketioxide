@@ -203,39 +203,35 @@ impl<H: EngineIoHandler> EngineIo<H>
                 )
             })?;
 
-            let packet = match Packet::try_from(raw_packet) {
-                Ok(p) => p,
-                Err(e) => {
-                    debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(sid);
-                    return Err(e);
-                }
-            };
-
-            match packet {
-                Packet::Close => {
+            match Packet::try_from(raw_packet) {
+                Ok(Packet::Close) => {
                     debug!("[sid={sid}] closing session");
                     socket.send(Packet::Noop)?;
                     self.close_session(sid);
                     break;
                 }
-                Packet::Pong | Packet::Ping => {
+                Ok(Packet::Pong) | Ok(Packet::Ping) => {
                     socket
                         .pong_tx
                         .try_send(())
                         .map_err(|_| Error::HeartbeatTimeout)
                 },
-                Packet::Message(msg) => {
+                Ok(Packet::Message(msg)) => {
                     self.handler.on_message(msg, &socket);
                     Ok(())
                 }
-                Packet::Binary(bin) | Packet::BinaryV3(bin) => {
+                Ok(Packet::Binary(bin)) | Ok(Packet::BinaryV3(bin)) => {
                     self.handler.on_binary(bin, &socket);
                     Ok(())
                 }
-                p => {
+                Ok(p) => {
                     debug!("[sid={sid}] bad packet received: {:?}", &p);
                     Err(Error::BadPacket(p))
+                },
+                Err(e) => {
+                    debug!("[sid={sid}] error parsing packet: {:?}", e);
+                    self.close_session(sid);
+                    return Err(e);
                 }
             }?;
         }
