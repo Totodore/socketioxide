@@ -117,6 +117,16 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
     fn on_connect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket connect {}", socket.sid);
+
+        // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
+        #[cfg(feature = "v4")]
+        {
+            if socket.protocol == engineioxide::service::ProtocolVersion::V3 {
+                debug!("Connecting to default namespace");
+                self.sock_connect(serde_json::json!({}), "/".into(), socket)
+                    .unwrap();
+            }
+        }
     }
     fn on_disconnect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket disconnect {}", socket.sid);
