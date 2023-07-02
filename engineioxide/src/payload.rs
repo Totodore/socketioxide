@@ -51,10 +51,7 @@ impl<R: BufRead> Payload<R> {
                     match self.reader.read_exact(&mut self.buffer) {
                         Ok(_) => {
                             let buffer = std::mem::take(&mut self.buffer);
-                            match String::from_utf8(buffer) {
-                                Ok(s) => Some(Ok(s)),
-                                Err(e) => Some(Err(Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))),
-                            }
+                            Some(String::from_utf8(buffer).map_err(Into::into))
                         },
                         Err(e) => Some(Err(Error::Io(e))),
                     }
@@ -77,10 +74,7 @@ impl<R: BufRead> Payload<R> {
                     }
                     
                     let buffer = std::mem::take(&mut self.buffer);
-                    match String::from_utf8(buffer) {
-                        Ok(s) => Some(Ok(s)),
-                        Err(e) => Some(Err(Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))),
-                    }
+                    Some(String::from_utf8(buffer).map_err(Into::into))
                 } else {
                     None
                 }
