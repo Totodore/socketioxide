@@ -16,6 +16,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
+use tracing::debug;
 
 use crate::errors::{SendError, TransportError};
 use crate::{
@@ -279,10 +280,17 @@ impl<A: Adapter> Socket<A> {
     ///         socket.emit("test", data);
     ///     });
     /// });
-    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), SendError> {
+    pub fn emit(
+        &self,
+        event: impl Into<String>,
+        data: impl Serialize,
+    ) -> Result<(), serde_json::Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.send(Packet::event(ns, event.into(), data))
+        if let Err(err) = self.send(Packet::event(ns, event.into(), data)) {
+            debug!("sending error during emit message: {err:?}");
+        }
+        Ok(())
     }
 
     /// Retries sending any failed binary payloads that are currently buffered.
@@ -598,57 +606,5 @@ impl<A: Adapter> Socket<A> {
             tx,
             Arc::new(SocketIoConfig::default()),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::adapter::{Adapter, LocalAdapter};
-    use crate::errors::{SendError, TransportError};
-    use crate::handshake::Handshake;
-    use crate::{Namespace, Socket, SocketIoConfig};
-    use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
-    use futures::FutureExt;
-    use std::sync::Arc;
-    use tokio::sync::mpsc::Receiver;
-
-    impl<A: Adapter> Socket<A> {
-        pub fn new_rx_dummy(
-            sid: Sid,
-            ns: Arc<Namespace<A>>,
-        ) -> (Socket<A>, Receiver<EnginePacket>) {
-            let (tx, rx) = tokio::sync::mpsc::channel(1);
-            (
-                Socket::new(
-                    sid,
-                    ns,
-                    Handshake::new_dummy(),
-                    tx,
-                    Arc::new(SocketIoConfig::default()),
-                ),
-                rx,
-            )
-        }
-    }
-
-    #[tokio::test]
-    async fn test_resend() {
-        let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
-        let (sock, mut rx): (Socket<LocalAdapter>, _) =
-            Socket::new_rx_dummy(1i64.into(), ns.clone());
-        sock.emit("lol", "\"someString1\"").unwrap();
-
-        let err = sock.emit("lol", "\"someString2\"").unwrap_err();
-
-        let SendError::TransportError(TransportError::SendMainPacket(packet)) = err else {
-          panic!("unexpected err");  
-        };
-        let err = packet.retry(&sock).unwrap_err();
-        rx.recv().await.unwrap();
-
-        let TransportError::SendMainPacket(packet) = err else {
-            panic!("unexpected err");
-        };
-        packet.retry(&sock).unwrap();
     }
 }
