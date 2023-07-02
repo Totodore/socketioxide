@@ -85,17 +85,21 @@ impl<H: EngineIoHandler> EngineIo<H>
         self.handler.on_connect(&socket);
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
-        #[allow(unused_mut)]
-        let mut packet: String = Packet::Open(packet).try_into()?;
-        cfg_if! {
-            if #[cfg(feature = "v3")] {
+        let packet: String = Packet::Open(packet).try_into()?;
+        let packet = {
+            #[cfg(feature = "v3")]
+            {
+                let mut packet = packet;
                 // The V3 protocol requires the packet length to be prepended to the packet.
                 // It doesn't use a packet separator like the V4 protocol (and up).
                 if protocol == ProtocolVersion::V3 {
                     packet = format!("{}:{}", packet.chars().count(), packet);
                 }
+                packet
             }
-        }
+            #[cfg(not(feature = "v3"))]
+            packet
+        };
         http_response(StatusCode::OK, packet).map_err(Error::Http)
     }
 
