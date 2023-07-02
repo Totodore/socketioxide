@@ -1,6 +1,6 @@
 use std::{io::BufRead, vec};
 
-use crate::{service::ProtocolVersion, errors::Error};
+use crate::{errors::Error, service::ProtocolVersion};
 
 pub const PACKET_SEPARATOR: u8 = b'\x1e';
 
@@ -36,7 +36,7 @@ impl<R: BufRead> Payload<R> {
                 let length = std::str::from_utf8(&buffer)
                     .map_err(|_| Error::InvalidPacketLength)
                     .and_then(|s| s.parse::<usize>().map_err(|_| Error::InvalidPacketLength))?;
-                
+
                 self.buffer.resize(length, 0);
                 self.reader.read_exact(&mut self.buffer)?;
 
@@ -56,7 +56,7 @@ impl<R: BufRead> Payload<R> {
                     if self.buffer.ends_with(&[PACKET_SEPARATOR]) {
                         self.buffer.pop();
                     }
-                    
+
                     let buffer = std::mem::take(&mut self.buffer);
                     Some(String::from_utf8(buffer).map_err(Into::into)) // TODO: replace 'String::from_utf8' with 'std::str::from_utf8'
                 } else {
@@ -74,12 +74,8 @@ impl<R: BufRead> Iterator for Payload<R> {
     #[cfg(all(feature = "v3", feature = "v4"))]
     fn next(&mut self) -> Option<Self::Item> {
         match self.protocol {
-            ProtocolVersion::V3 => {
-                self.next_v3()
-            },
-            ProtocolVersion::V4 => {
-                self.next_v4()
-            },
+            ProtocolVersion::V3 => self.next_v3(),
+            ProtocolVersion::V4 => self.next_v4(),
         }
     }
 
@@ -98,7 +94,10 @@ impl<R: BufRead> Iterator for Payload<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::{BufReader, Cursor}, vec};
+    use std::{
+        io::{BufReader, Cursor},
+        vec,
+    };
 
     use crate::service::ProtocolVersion;
 
@@ -109,7 +108,14 @@ mod tests {
         assert!(cfg!(feature = "v4"));
 
         let data = BufReader::new(Cursor::new(vec![
-            b'f', b'o', b'o', PACKET_SEPARATOR, b'f', b'o', PACKET_SEPARATOR, b'f',
+            b'f',
+            b'o',
+            b'o',
+            PACKET_SEPARATOR,
+            b'f',
+            b'o',
+            PACKET_SEPARATOR,
+            b'f',
         ]));
         let mut payload = Payload::new(ProtocolVersion::V4, data);
 

@@ -4,7 +4,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::{sid_generator::Sid, payload::{Payload, PACKET_SEPARATOR}, service::ProtocolVersion};
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
@@ -15,6 +14,11 @@ use crate::{
     service::TransportType,
     sid_generator::generate_sid,
     socket::{ConnectionType, Socket, SocketReq},
+};
+use crate::{
+    payload::{Payload, PACKET_SEPARATOR},
+    service::ProtocolVersion,
+    sid_generator::Sid,
 };
 use bytes::Buf;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
@@ -30,15 +34,13 @@ use tracing::debug;
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
-pub struct EngineIo<H: EngineIoHandler>
-{
+pub struct EngineIo<H: EngineIoHandler> {
     sockets: SocketMap<Socket<H>>,
     handler: H,
     pub config: EngineIoConfig,
 }
 
-impl<H: EngineIoHandler> EngineIo<H>
-{
+impl<H: EngineIoHandler> EngineIo<H> {
     /// Create a new Engine.IO server with a handler and a config
     pub fn new(handler: H, config: EngineIoConfig) -> Self {
         Self {
@@ -49,8 +51,7 @@ impl<H: EngineIoHandler> EngineIo<H>
     }
 }
 
-impl<H: EngineIoHandler> EngineIo<H>
-{
+impl<H: EngineIoHandler> EngineIo<H> {
     /// Handle Open request
     /// Create a new socket and add it to the socket map
     /// Start the heartbeat task
@@ -141,7 +142,9 @@ impl<H: EngineIoHandler> EngineIo<H>
                 // The V4 protocol (and up) only requires a packet separator.
                 match protocol {
                     ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
-                    ProtocolVersion::V4 => data.push(std::char::from_u32(PACKET_SEPARATOR as u32).unwrap()),
+                    ProtocolVersion::V4 => {
+                        data.push(std::char::from_u32(PACKET_SEPARATOR as u32).unwrap())
+                    }
                 }
             } else if protocol == ProtocolVersion::V3 {
                 data.push_str(&format!("{}:", packet.chars().count()));
@@ -153,7 +156,8 @@ impl<H: EngineIoHandler> EngineIo<H>
         if data.is_empty() {
             let packet = rx.recv().await.ok_or(Error::Aborted)?;
             let packet: String = packet.try_into().unwrap();
-            #[cfg(feature = "v3")] {
+            #[cfg(feature = "v3")]
+            {
                 // The V3 protocol specifically requires the packet length to be prepended to the packet.
                 if protocol == ProtocolVersion::V3 {
                     data.push_str(&format!("{}:", packet.chars().count()));
@@ -183,7 +187,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             debug!("error aggregating body: {:?}", e);
             Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
         })?;
-        
+
         let socket = self
             .get_socket(sid)
             .ok_or(Error::UnknownSessionID(sid))
@@ -195,9 +199,7 @@ impl<H: EngineIoHandler> EngineIo<H>
             let raw_packet = p.map_err(|e| {
                 debug!("error parsing packets: {:?}", e);
                 self.close_session(sid);
-                Error::HttpErrorResponse(
-                    StatusCode::BAD_REQUEST,
-                )
+                Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
             })?;
 
             match Packet::try_from(raw_packet) {
@@ -207,12 +209,10 @@ impl<H: EngineIoHandler> EngineIo<H>
                     self.close_session(sid);
                     break;
                 }
-                Ok(Packet::Pong) | Ok(Packet::Ping) => {
-                    socket
-                        .heartbeat_tx
-                        .try_send(())
-                        .map_err(|_| Error::HeartbeatTimeout)
-                },
+                Ok(Packet::Pong) | Ok(Packet::Ping) => socket
+                    .heartbeat_tx
+                    .try_send(())
+                    .map_err(|_| Error::HeartbeatTimeout),
                 Ok(Packet::Message(msg)) => {
                     self.handler.on_message(msg, &socket);
                     Ok(())
@@ -224,7 +224,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                 Ok(p) => {
                     debug!("[sid={sid}] bad packet received: {:?}", &p);
                     Err(Error::BadPacket(p))
-                },
+                }
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
                     self.close_session(sid);
@@ -323,7 +323,9 @@ impl<H: EngineIoHandler> EngineIo<H>
             let mut socket_rx = rx_socket.internal_rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
                 let res = match item {
-                    Packet::Binary(bin) | Packet::BinaryV3(bin) => tx.send(Message::Binary(bin)).await,
+                    Packet::Binary(bin) | Packet::BinaryV3(bin) => {
+                        tx.send(Message::Binary(bin)).await
+                    }
                     Packet::Close => tx.send(Message::Close(None)).await,
                     _ => {
                         let packet: String = item.try_into().unwrap();
@@ -362,12 +364,10 @@ impl<H: EngineIoHandler> EngineIo<H>
                         self.close_session(socket.sid);
                         break;
                     }
-                    Packet::Pong | Packet::Ping => {                        
-                        socket
-                            .heartbeat_tx
-                            .try_send(())
-                            .map_err(|_| Error::HeartbeatTimeout)
-                    },
+                    Packet::Pong | Packet::Ping => socket
+                        .heartbeat_tx
+                        .try_send(())
+                        .map_err(|_| Error::HeartbeatTimeout),
                     Packet::Message(msg) => {
                         self.handler.on_message(msg, socket);
                         Ok(())
@@ -416,7 +416,8 @@ impl<H: EngineIoHandler> EngineIo<H>
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
 
-        #[cfg(feature = "v4")] {
+        #[cfg(feature = "v4")]
+        {
             // send a NOOP packet to any pending polling request so it closes gracefully'
             if protocol == ProtocolVersion::V4 {
                 socket.send(Packet::Noop)?;
@@ -437,9 +438,10 @@ impl<H: EngineIoHandler> EngineIo<H>
             p => Err(Error::BadPacket(p))?,
         };
 
-        #[cfg(feature = "v3")] {
+        #[cfg(feature = "v3")]
+        {
             // send a NOOP packet to any pending polling request so it closes gracefully
-            // V3 protocol introduce _paused_ polling transport which require to close 
+            // V3 protocol introduce _paused_ polling transport which require to close
             // the polling request **after** the ping/pong handshake
             if protocol == ProtocolVersion::V3 {
                 socket.send(Packet::Noop)?;
@@ -452,11 +454,11 @@ impl<H: EngineIoHandler> EngineIo<H>
             Some(Ok(Message::Close(_))) => {
                 debug!("ws stream closed before upgrade");
                 Err(Error::UpgradeError)?
-            },
+            }
             _ => {
                 debug!("unexpected ws message before upgrade");
                 Err(Error::UpgradeError)?
-            },
+            }
         };
         match Packet::try_from(msg)? {
             Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),
@@ -502,7 +504,6 @@ impl<H: EngineIoHandler> EngineIo<H>
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

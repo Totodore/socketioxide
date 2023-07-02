@@ -53,7 +53,7 @@ pub enum Packet {
     /// Or to a websocket binary frame when using websocket connection
     ///
     /// When receiving, it is only used with polling connection, websocket use binary frame
-    /// 
+    ///
     /// This is a special packet, excepionally specific to the V3 protocol.
     BinaryV3(Vec<u8>), // Not part of the protocol, used internally
 }
@@ -85,9 +85,9 @@ impl TryFrom<String> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
-        let packet_type = chars.next().ok_or_else(|| serde_json::Error::custom(
-            "Packet type not found in packet string",
-        ))?;
+        let packet_type = chars
+            .next()
+            .ok_or_else(|| serde_json::Error::custom("Packet type not found in packet string"))?;
         let packet_data = chars.as_str();
         let is_upgrade = packet_data.starts_with("probe");
         let res = match packet_type {
@@ -110,7 +110,9 @@ impl TryFrom<String> for Packet {
             '4' => Packet::Message(packet_data.to_string()),
             '5' => Packet::Upgrade,
             '6' => Packet::Noop,
-            'b' if value.starts_with("b4") => Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?),
+            'b' if value.starts_with("b4") => {
+                Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?)
+            }
             'b' => Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?),
             c => Err(serde_json::Error::custom(
                 "Invalid packet type ".to_string() + &c.to_string(),

@@ -2,13 +2,10 @@ use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
-    errors::{
-        Error,
-        Error::{UnknownTransport},
-    },
+    errors::{Error, Error::UnknownTransport},
     futures::ResponseFuture,
     handler::EngineIoHandler,
-    sid_generator::Sid
+    sid_generator::Sid,
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -111,13 +108,17 @@ where
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::GET,
-                }) => ResponseFuture::async_response(Box::pin(engine.on_polling_http_req(protocol, sid))),
+                }) => ResponseFuture::async_response(Box::pin(
+                    engine.on_polling_http_req(protocol, sid),
+                )),
                 Ok(RequestInfo {
                     protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
-                }) => ResponseFuture::async_response(Box::pin(engine.on_post_http_req(protocol, sid, req))),
+                }) => ResponseFuture::async_response(Box::pin(
+                    engine.on_post_http_req(protocol, sid, req),
+                )),
                 Ok(RequestInfo {
                     protocol,
                     sid,

@@ -18,15 +18,12 @@ use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    errors::{
-        AckError,
-        BroadcastError,
-    },
+    errors::{AckError, BroadcastError},
     handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::Socket
+    socket::Socket,
 };
 
 /// A room identifier

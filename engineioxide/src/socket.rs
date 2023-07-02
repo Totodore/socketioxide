@@ -13,11 +13,11 @@ use tokio::{
 };
 use tracing::debug;
 
+use crate::sid_generator::Sid;
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
-    utils::forward_map_chan, SendPacket, service::ProtocolVersion,
+    service::ProtocolVersion, utils::forward_map_chan, SendPacket,
 };
-use crate::sid_generator::Sid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -161,11 +161,7 @@ where
     /// Spawn the heartbeat job
     ///
     /// Keep a handle to the job so that it can be aborted when the socket is closed
-    pub(crate) fn spawn_heartbeat(
-        self: Arc<Self>,
-        interval: Duration,
-        timeout: Duration,
-    ) {
+    pub(crate) fn spawn_heartbeat(self: Arc<Self>, interval: Duration, timeout: Duration) {
         let socket = self.clone();
 
         let handle = tokio::spawn(async move {
@@ -184,18 +180,10 @@ where
     ///
     /// If the client or server does not respond within the timeout, the connection is closed.
     #[cfg(all(feature = "v3", feature = "v4"))]
-    async fn heartbeat_job(
-        &self,
-        interval: Duration,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         match self.protocol {
-            ProtocolVersion::V3 => {
-                self.heartbeat_job_v3(timeout).await
-            }
-            ProtocolVersion::V4 => {
-                self.heartbeat_job_v4(interval, timeout).await
-            }
+            ProtocolVersion::V3 => self.heartbeat_job_v3(timeout).await,
+            ProtocolVersion::V4 => self.heartbeat_job_v4(interval, timeout).await,
         }
     }
 
@@ -204,24 +192,16 @@ where
     /// If the client or server does not respond within the timeout, the connection is closed.
     #[cfg(feature = "v3")]
     #[cfg(not(feature = "v4"))]
-    async fn heartbeat_job(
-        &self,
-        interval: Duration,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         self.heartbeat_job_v3(timeout)
     }
 
-     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
+    /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
     #[cfg(feature = "v4")]
     #[cfg(not(feature = "v3"))]
-    async fn heartbeat_job(
-        &self,
-        interval: Duration,
-        timeout: Duration,
-    ) -> Result<(), Error> {   
+    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         self.heartbeat_job_v4(interval, timeout).await
     }
 
@@ -229,11 +209,7 @@ where
     ///
     /// If the client does not respond within the timeout, the connection is closed.
     #[cfg(feature = "v4")]
-    async fn heartbeat_job_v4(
-        &self,
-        interval: Duration,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    async fn heartbeat_job_v4(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         let mut heartbeat_rx = self
             .heartbeat_rx
             .try_lock()
@@ -249,7 +225,7 @@ where
         .await;
 
         debug!("[sid={}] heartbeat sender routine started", self.sid);
-    
+
         loop {
             // Some clients send the pong packet in first. If that happens, we should consume it.
             heartbeat_rx.try_recv().ok();
@@ -266,17 +242,14 @@ where
     }
 
     #[cfg(feature = "v3")]
-    async fn heartbeat_job_v3(
-        &self,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    async fn heartbeat_job_v3(&self, timeout: Duration) -> Result<(), Error> {
         let mut heartbeat_rx = self
             .heartbeat_rx
             .try_lock()
             .expect("Pong rx should be locked only once");
-        
+
         debug!("[sid={}] heartbeat receiver routine started", self.sid);
-        
+
         loop {
             tokio::time::timeout(timeout, heartbeat_rx.recv())
                 .await
