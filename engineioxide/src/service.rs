@@ -8,7 +8,7 @@ use crate::{
     },
     futures::ResponseFuture,
     handler::EngineIoHandler,
-    sid_generator::Sid, protocol::ProtocolVersion,
+    sid_generator::Sid
 };
 use bytes::Bytes;
 use cfg_if::cfg_if;
@@ -208,6 +208,24 @@ impl FromStr for TransportType {
             "websocket" => Ok(TransportType::Websocket),
             "polling" => Ok(TransportType::Polling),
             _ => Err(UnknownTransport),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProtocolVersion {
+    V3 = 3,
+    V4 = 4,
+}
+
+impl FromStr for ProtocolVersion {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "3" => Ok(ProtocolVersion::V3),
+            "4" => Ok(ProtocolVersion::V4),
+            _ => Err(Error::UnsupportedProtocolVersion),
         }
     }
 }

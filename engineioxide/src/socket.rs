@@ -16,9 +16,9 @@ use tracing::debug;
 
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
-    utils::forward_map_chan, SendPacket,
+    utils::forward_map_chan, SendPacket, service::ProtocolVersion,
 };
-use crate::{protocol::ProtocolVersion, sid_generator::Sid};
+use crate::sid_generator::Sid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {

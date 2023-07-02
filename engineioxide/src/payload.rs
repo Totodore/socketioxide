@@ -1,7 +1,7 @@
 use std::{io::BufRead, vec};
 use cfg_if::cfg_if;
 
-use crate::protocol::ProtocolVersion;
+use crate::service::ProtocolVersion;
 
 pub const PACKET_SEPARATOR: u8 = b'\x1e';
 
@@ -124,7 +124,7 @@ impl<R: BufRead> Iterator for Payload<R> {
 mod tests {
     use std::{io::{BufReader, Cursor}, vec};
 
-    use crate::protocol::ProtocolVersion;
+    use crate::service::ProtocolVersion;
 
     use super::{Payload, PACKET_SEPARATOR};
 

@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::{sid_generator::Sid, protocol::ProtocolVersion, payload::{Payload, PACKET_SEPARATOR}};
+use crate::{sid_generator::Sid, payload::{Payload, PACKET_SEPARATOR}, service::ProtocolVersion};
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,

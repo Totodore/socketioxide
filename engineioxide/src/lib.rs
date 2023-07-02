@@ -10,7 +10,6 @@ pub mod layer;
 pub mod service;
 pub mod sid_generator;
 pub mod socket;
-pub mod protocol;
 
 mod body;
 mod engine;
