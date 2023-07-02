@@ -8,7 +8,7 @@ use std::{
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
-    errors::Error,
+    errors::{Error, TransportError},
     futures::{http_response, ws_response},
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
@@ -106,7 +106,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let mut rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                socket.close(DisconnectReason::TransportError);
+                socket.close(DisconnectReason::TransportError(
+                    TransportError::MultipleHttpPolling,
+                ));
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         };
@@ -162,7 +164,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
             match Packet::try_from(packet?) {
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(sid, DisconnectReason::TransportError);
+                    self.close_session(
+                        sid,
+                        DisconnectReason::TransportError(TransportError::PacketParsing),
+                    );
                     Err(e)
                 }
                 Ok(Packet::Close) => {
@@ -297,8 +302,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
         self.handler.on_connect(&socket);
         if let Err(e) = self.ws_forward_to_handler(rx, &socket).await {
             debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
+            //TODO: error here is not always a PacketParsing error
+            self.close_session(
+                socket.sid,
+                DisconnectReason::TransportError(TransportError::PacketParsing),
+            );
+        } else {
+            self.close_session(socket.sid, DisconnectReason::TransportClose);
         }
-        self.close_session(socket.sid, DisconnectReason::TransportClose);
         rx_handle.abort();
         Ok(())
     }
@@ -309,6 +320,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         mut rx: SplitStream<WebSocketStream<Upgraded>>,
         socket: &Arc<Socket<H>>,
     ) -> Result<(), Error> {
+        //TODO: handle the rx error here
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             match msg {

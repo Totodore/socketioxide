@@ -13,11 +13,11 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::sid_generator::Sid;
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
     utils::forward_map_chan, SendPacket,
 };
+use crate::{errors::TransportError, sid_generator::Sid};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -54,10 +54,10 @@ impl From<Parts> for SocketReq {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum DisconnectReason {
     TransportClose,
-    TransportError,
+    TransportError(TransportError),
     HeartbeatTimeout,
 }
 
