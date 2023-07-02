@@ -1,6 +1,6 @@
 use std::{io::BufRead, vec};
 
-use crate::service::ProtocolVersion;
+use crate::{service::ProtocolVersion, errors::Error};
 
 pub const PACKET_SEPARATOR: u8 = b'\x1e';
 
@@ -13,7 +13,7 @@ pub struct Payload<R: BufRead> {
     protocol: ProtocolVersion,
 }
 
-type Item = Result<String, String>;
+type Item = Result<String, Error>;
 
 impl<R: BufRead> Payload<R> {
     pub fn new(protocol: ProtocolVersion, data: R) -> Self {
@@ -41,10 +41,10 @@ impl<R: BufRead> Payload<R> {
                             if let Ok(l) = s.parse::<usize>() {
                                 l
                             } else {
-                                return Some(Err("Invalid packet length".into()));
+                                return Some(Err(Error::InvalidPacketLength));
                             }
                         },
-                        Err(_) => return Some(Err("Invalid packet length".into())),
+                        Err(_) => return Some(Err(Error::InvalidPacketLength)),
                     };
 
                     self.buffer.clear();
@@ -54,16 +54,16 @@ impl<R: BufRead> Payload<R> {
                         Ok(_) => {
                             match String::from_utf8(self.buffer.clone()) {
                                 Ok(s) => Some(Ok(s)),
-                                Err(_) => Some(Err("Invalid packet data".into())),
+                                Err(e) => Some(Err(Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))),
                             }
                         },
-                        Err(err) => Some(Err(err.to_string())),
+                        Err(e) => Some(Err(Error::Io(e))),
                     }
                 } else {
                     None
                 }
             }
-            Err(err) => Some(Err(err.to_string())),
+            Err(e) => Some(Err(Error::Io(e))),
         }
     }
 
@@ -81,13 +81,13 @@ impl<R: BufRead> Payload<R> {
                     
                     match String::from_utf8( self.buffer.clone()) {
                         Ok(s) => Some(Ok(s)),
-                        Err(_) => Some(Err("Packet is not a valid UTF-8 string".into())),
+                        Err(e) => Some(Err(Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))),
                     }
                 } else {
                     None
                 }
             }
-            Err(err) => Some(Err(err.to_string())),
+            Err(e) => Some(Err(Error::Io(e))),
         }
     }
 }
@@ -135,10 +135,10 @@ mod tests {
         ]));
         let mut payload = Payload::new(ProtocolVersion::V4, data);
 
-        assert_eq!(payload.next(), Some(Ok("foo".into())));
-        assert_eq!(payload.next(), Some(Ok("fo".into())));
-        assert_eq!(payload.next(), Some(Ok("f".into())));
-        assert_eq!(payload.next(), None);
+        assert_eq!(payload.next().unwrap().unwrap(), "foo");
+        assert_eq!(payload.next().unwrap().unwrap(), "fo");
+        assert_eq!(payload.next().unwrap().unwrap(), "f");
+        assert_eq!(payload.next().is_none(), true);
 
         Ok(())
     }
@@ -152,10 +152,10 @@ mod tests {
         ]));
         let mut payload = Payload::new(ProtocolVersion::V3, data);
 
-        assert_eq!(payload.next(), Some(Ok("foo".into())));
-        assert_eq!(payload.next(), Some(Ok("fo".into())));
-        assert_eq!(payload.next(), Some(Ok("f".into())));
-        assert_eq!(payload.next(), None);
+        assert_eq!(payload.next().unwrap().unwrap(), "foo");
+        assert_eq!(payload.next().unwrap().unwrap(), "fo");
+        assert_eq!(payload.next().unwrap().unwrap(), "f");
+        assert_eq!(payload.next().is_none(), true);
 
         Ok(())
     }

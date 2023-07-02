@@ -48,6 +48,9 @@ pub enum Error {
     TransportMismatch,
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
+
+    #[error("Invalid packet length")]
+    InvalidPacketLength,
 }
 
 /// Convert an error into an http response
