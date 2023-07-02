@@ -2,7 +2,7 @@ use crate::body::ResponseBody;
 use crate::errors::Error;
 use bytes::Bytes;
 use futures::ready;
-use http::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
+use http::header::{CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, SEC_WEBSOCKET_ACCEPT, UPGRADE};
 use http::{HeaderValue, Response, StatusCode};
 use http_body::{Body, Full};
 use pin_project::pin_project;
@@ -20,12 +20,14 @@ pub fn http_response<B, D>(
     data: D,
 ) -> Result<Response<ResponseBody<B>>, http::Error>
 where
-    D: Into<Full<Bytes>>,
+    D: Into<Bytes>,
 {
+    let body: Bytes = data.into();
     Response::builder()
         .status(code)
-        .header("Content-Type", "text/plain; charset=UTF-8")
-        .body(ResponseBody::custom_response(data.into()))
+        .header(CONTENT_TYPE, "text/plain; charset=UTF-8")
+        .header(CONTENT_LENGTH, body.len())
+        .body(ResponseBody::custom_response(Full::new(body)))
 }
 
 /// Create a response for websocket upgrade
