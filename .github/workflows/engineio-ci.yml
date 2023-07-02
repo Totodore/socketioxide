@@ -21,10 +21,9 @@ jobs:
           toolchain: stable
       - uses: actions/checkout@v3
         with:
-          # TODO: replace with official repo once https://github.com/socketio/engine.io-protocol/pull/45 has been merged
-          repository: sleeyax/engine.io-protocol
+          repository: socketio/engine.io-protocol
           path: engine.io-protocol
-          ref: v3-testsuite
+          ref: v3
       - uses: actions/setup-node@v3
         with:
           node-version: 16
