@@ -5,11 +5,10 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::sid_generator::Sid;
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
-    errors::Error,
+    errors::{Error, TransportError},
     futures::{http_response, ws_response},
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
@@ -17,6 +16,7 @@ use crate::{
     sid_generator::generate_sid,
     socket::{ConnectionType, Socket, SocketReq},
 };
+use crate::{sid_generator::Sid, socket::DisconnectReason};
 use bytes::Buf;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
@@ -61,7 +61,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
         B: Send + 'static,
     {
         let engine = self.clone();
-        let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
+        let close_fn =
+            Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
@@ -105,7 +106,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let mut rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                socket.close();
+                socket.close(DisconnectReason::TransportError(
+                    TransportError::MultipleHttpPolling,
+                ));
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         };
@@ -161,13 +164,16 @@ impl<H: EngineIoHandler> EngineIo<H> {
             match Packet::try_from(packet?) {
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(sid);
+                    self.close_session(
+                        sid,
+                        DisconnectReason::TransportError(TransportError::PacketParsing),
+                    );
                     Err(e)
                 }
                 Ok(Packet::Close) => {
                     debug!("[sid={sid}] closing session");
                     socket.send(Packet::Noop)?;
-                    self.close_session(sid);
+                    self.close_session(sid, DisconnectReason::TransportClose);
                     break;
                 }
                 Ok(Packet::Pong) => socket
@@ -248,7 +254,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         } else {
             let sid = generate_sid();
             let engine = self.clone();
-            let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
+            let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| {
+                engine.close_session(sid, reason)
+            });
             let socket = Socket::new(
                 sid,
                 ConnectionType::WebSocket,
@@ -294,8 +302,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
         self.handler.on_connect(&socket);
         if let Err(e) = self.ws_forward_to_handler(rx, &socket).await {
             debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
+            //TODO: error here is not always a PacketParsing error
+            self.close_session(
+                socket.sid,
+                DisconnectReason::TransportError(TransportError::PacketParsing),
+            );
+        } else {
+            self.close_session(socket.sid, DisconnectReason::TransportClose);
         }
-        self.close_session(socket.sid);
         rx_handle.abort();
         Ok(())
     }
@@ -306,13 +320,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
         mut rx: SplitStream<WebSocketStream<Upgraded>>,
         socket: &Arc<Socket<H>>,
     ) -> Result<(), Error> {
+        //TODO: handle the rx error here
         while let Ok(msg) = rx.try_next().await {
             let Some(msg) = msg else { continue };
             match msg {
                 Message::Text(msg) => match Packet::try_from(msg)? {
                     Packet::Close => {
                         debug!("[sid={}] closing session", socket.sid);
-                        self.close_session(socket.sid);
+                        self.close_session(socket.sid, DisconnectReason::TransportClose);
                         break;
                     }
                     Packet::Pong => socket
@@ -411,10 +426,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
     /// Close an engine.io session by removing the socket from the socket map and closing the socket
     /// It should be the only way to close a session and to remove a socket from the socket map
-    fn close_session(&self, sid: Sid) {
+    fn close_session(&self, sid: Sid, reason: DisconnectReason) {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
-            self.handler.on_disconnect(&socket);
+            self.handler.on_disconnect(&socket, reason);
             socket.abort_heartbeat();
             debug!(
                 "remaining sockets: {:?}",

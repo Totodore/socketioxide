@@ -13,11 +13,11 @@ use tokio::{
 };
 use tracing::debug;
 
-use crate::sid_generator::Sid;
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
     utils::forward_map_chan, SendPacket,
 };
+use crate::{errors::TransportError, sid_generator::Sid};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -52,6 +52,13 @@ impl From<Parts> for SocketReq {
             headers: parts.headers,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum DisconnectReason {
+    TransportClose,
+    TransportError(TransportError),
+    HeartbeatTimeout,
 }
 
 /// A [`Socket`] represents a connection to the server.
@@ -96,7 +103,7 @@ where
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
     /// Function to call when the socket is closed
-    close_fn: Box<dyn Fn(Sid) + Send + Sync>,
+    close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     /// User data bound to the socket
     pub data: H::Data,
 
@@ -113,7 +120,7 @@ where
         conn: ConnectionType,
         config: &EngineIoConfig,
         req_data: SocketReq,
-        close_fn: Box<dyn Fn(Sid) + Send + Sync>,
+        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
@@ -161,7 +168,7 @@ where
 
         let handle = tokio::spawn(async move {
             if let Err(e) = socket.heartbeat_job(interval, timeout).await {
-                socket.close();
+                socket.close(DisconnectReason::HeartbeatTimeout);
                 debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
             }
         });
@@ -232,8 +239,8 @@ where
 
     /// Immediately closes the socket and the underlying connection.
     /// The socket will be removed from the `Engine` and the [`Handler`](crate::handler::EngineIoHandler) will be notified.
-    pub fn close(&self) {
-        (self.close_fn)(self.sid);
+    pub fn close(&self, reason: DisconnectReason) {
+        (self.close_fn)(self.sid, reason);
         self.send(Packet::Close).ok();
     }
 
@@ -252,7 +259,10 @@ where
 
 #[cfg(test)]
 impl<H: EngineIoHandler> Socket<H> {
-    pub fn new_dummy(sid: Sid, close_fn: Box<dyn Fn(Sid) + Send + Sync>) -> Socket<H> {
+    pub fn new_dummy(
+        sid: Sid,
+        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+    ) -> Socket<H> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (tx, rx) = mpsc::channel(200);
         let (pong_tx, pong_rx) = mpsc::channel(1);

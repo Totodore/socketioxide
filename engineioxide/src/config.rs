@@ -81,7 +81,7 @@ impl EngineIoConfigBuilder {
     /// # use engineioxide::{
     ///     layer::EngineIoLayer,
     ///     handler::EngineIoHandler,
-    ///     socket::Socket,
+    ///     socket::{Socket, DisconnectReason},
     /// };
     /// # use std::sync::Arc;
     /// #[derive(Debug, Clone)]
@@ -94,7 +94,7 @@ impl EngineIoConfigBuilder {
     ///     fn on_connect(&self, socket: &Socket<Self>) {
     ///         println!("socket connect {}", socket.sid);
     ///     }
-    ///     fn on_disconnect(&self, socket: &Socket<Self>) {
+    ///     fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
     ///         println!("socket disconnect {}", socket.sid);
     ///     }
     ///

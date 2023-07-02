@@ -1,4 +1,8 @@
-use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
+use engineioxide::{
+    handler::EngineIoHandler,
+    service::EngineIoService,
+    socket::{DisconnectReason, Socket},
+};
 use hyper::Server;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
@@ -14,8 +18,8 @@ impl EngineIoHandler for MyHandler {
     fn on_connect(&self, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
     }
-    fn on_disconnect(&self, socket: &Socket<Self>) {
-        println!("socket disconnect {}", socket.sid);
+    fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
+        println!("socket disconnect {}: {:?}", socket.sid, reason);
     }
 
     fn on_message(&self, msg: String, socket: &Socket<Self>) {
