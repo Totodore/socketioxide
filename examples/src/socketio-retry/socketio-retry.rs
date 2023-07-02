@@ -1,11 +1,13 @@
-//! This a end to end test server used with this [test suite](https://github.com/socketio/socket.io-protocol)
+//! This an example how to manually handle failed sent Packets
 
 use std::time::Duration;
 
 use hyper::Server;
 use serde_json::Value;
-use socketioxide::errors::{AckSenderError, BroadcastError, SendError, TransportError};
-use socketioxide::{Namespace, SocketIoConfig, SocketIoService};
+use socketioxide::{
+    AckSenderError, BroadcastError, Namespace, SendError, SocketIoConfig, SocketIoService,
+    TransportError,
+};
 use tokio::time::sleep;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -19,9 +21,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     let config = SocketIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
         // set buffer size, it will force TransportError
         .max_buffer_size(1usize)
         .build();
