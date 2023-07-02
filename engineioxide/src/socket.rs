@@ -89,12 +89,12 @@ where
     internal_tx: mpsc::Sender<Packet>,
     pub tx: mpsc::Sender<SendPacket>,
 
-    /// Internal channel to receive Pong [`Packets`](Packet) in the heartbeat job
+    /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task
-    pong_rx: Mutex<mpsc::Receiver<()>>,
-    /// Channel to send Ping [`Packets`](Packet) from the connexion to the heartbeat job
+    heartbeat_rx: Mutex<mpsc::Receiver<()>>,
+    /// Channel to send Ping [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) from the connexion to the heartbeat job
     /// which is running in a separate task
-    pub(crate) pong_tx: mpsc::Sender<()>,
+    pub(crate) heartbeat_tx: mpsc::Sender<()>,
     /// Handle to the heartbeat job so that it can be aborted when the socket is closed
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
@@ -134,8 +134,8 @@ where
             internal_tx,
             tx,
 
-            pong_rx: Mutex::new(pong_rx),
-            pong_tx,
+            heartbeat_rx: Mutex::new(pong_rx),
+            heartbeat_tx: pong_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
@@ -235,7 +235,7 @@ where
         timeout: Duration,
     ) -> Result<(), Error> {
         let mut pong_rx = self
-            .pong_rx
+            .heartbeat_rx
             .try_lock()
             .expect("Pong rx should be locked only once");
 
@@ -360,8 +360,8 @@ impl<H: EngineIoHandler> Socket<H> {
             internal_tx,
             tx,
 
-            pong_rx: Mutex::new(pong_rx),
-            pong_tx,
+            heartbeat_rx: Mutex::new(pong_rx),
+            heartbeat_tx: pong_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 

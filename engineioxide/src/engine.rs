@@ -212,7 +212,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                 }
                 Ok(Packet::Pong) | Ok(Packet::Ping) => {
                     socket
-                        .pong_tx
+                        .heartbeat_tx
                         .try_send(())
                         .map_err(|_| Error::HeartbeatTimeout)
                 },
@@ -367,7 +367,7 @@ impl<H: EngineIoHandler> EngineIo<H>
                     }
                     Packet::Pong | Packet::Ping => {                        
                         socket
-                            .pong_tx
+                            .heartbeat_tx
                             .try_send(())
                             .map_err(|_| Error::HeartbeatTimeout)
                     },
