@@ -11,7 +11,6 @@ use crate::{
     sid_generator::Sid
 };
 use bytes::Bytes;
-use cfg_if::cfg_if;
 use futures::future::{ready, Ready};
 use http::{Method, Request};
 use http_body::{Body, Empty};
@@ -221,10 +220,29 @@ pub enum ProtocolVersion {
 impl FromStr for ProtocolVersion {
     type Err = Error;
 
+    #[cfg(all(feature = "v3", feature = "v4"))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "3" => Ok(ProtocolVersion::V3),
             "4" => Ok(ProtocolVersion::V4),
+            _ => Err(Error::UnsupportedProtocolVersion),
+        }
+    }
+
+    #[cfg(feature = "v4")]
+    #[cfg(not(feature = "v3"))]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "4" => Ok(ProtocolVersion::V4),
+            _ => Err(Error::UnsupportedProtocolVersion),
+        }
+    }
+
+    #[cfg(feature = "v3")]
+    #[cfg(not(feature = "v4"))]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "3" => Ok(ProtocolVersion::V3),
             _ => Err(Error::UnsupportedProtocolVersion),
         }
     }
@@ -254,14 +272,6 @@ impl RequestInfo {
             .and_then(|s| s.split('=').nth(1))
             .ok_or(UnknownTransport)
             .and_then(|t| t.parse())?;
-
-        cfg_if! {
-            if #[cfg(any(feature = "v3", feature = "v4"))] {
-                if protocol != ProtocolVersion::V3 && protocol != ProtocolVersion::V4 {
-                    return Err(Error::UnsupportedProtocolVersion);
-                }
-            }
-        }
 
         let sid = query
             .split('&')
