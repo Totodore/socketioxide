@@ -110,13 +110,8 @@ impl TryFrom<String> for Packet {
             '4' => Packet::Message(packet_data.to_string()),
             '5' => Packet::Upgrade,
             '6' => Packet::Noop,
-            'b' => {
-                if value.starts_with("b4") {
-                    Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?)
-                } else {
-                    Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?)
-                }
-            },
+            'b' if value.starts_with("b4") => Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?),
+            'b' => Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?),
             c => Err(serde_json::Error::custom(
                 "Invalid packet type ".to_string() + &c.to_string(),
             ))?,
