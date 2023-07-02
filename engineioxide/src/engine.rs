@@ -5,7 +5,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::{sid_generator::Sid, socket::DisconnectReason};
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
@@ -17,6 +16,7 @@ use crate::{
     sid_generator::generate_sid,
     socket::{ConnectionType, Socket, SocketReq},
 };
+use crate::{sid_generator::Sid, socket::DisconnectReason};
 use bytes::Buf;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
@@ -61,7 +61,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
         B: Send + 'static,
     {
         let engine = self.clone();
-        let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
+        let close_fn =
+            Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
@@ -248,7 +249,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         } else {
             let sid = generate_sid();
             let engine = self.clone();
-            let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
+            let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| {
+                engine.close_session(sid, reason)
+            });
             let socket = Socket::new(
                 sid,
                 ConnectionType::WebSocket,

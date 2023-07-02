@@ -68,7 +68,7 @@ pub use errors::{AckError, Error as SocketError};
 pub use layer::SocketIoLayer;
 pub use ns::Namespace;
 pub use service::SocketIoService;
-pub use socket::{Socket, DisconnectReason};
+pub use socket::{DisconnectReason, Socket};
 
 mod client;
 mod config;

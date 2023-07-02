@@ -259,7 +259,10 @@ where
 
 #[cfg(test)]
 impl<H: EngineIoHandler> Socket<H> {
-    pub fn new_dummy(sid: Sid, close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>) -> Socket<H> {
+    pub fn new_dummy(
+        sid: Sid,
+        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+    ) -> Socket<H> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (tx, rx) = mpsc::channel(200);
         let (pong_tx, pong_rx) = mpsc::channel(1);

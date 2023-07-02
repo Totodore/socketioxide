@@ -1,4 +1,8 @@
-use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::{Socket, DisconnectReason}};
+use engineioxide::{
+    handler::EngineIoHandler,
+    service::EngineIoService,
+    socket::{DisconnectReason, Socket},
+};
 use hyper::Server;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;

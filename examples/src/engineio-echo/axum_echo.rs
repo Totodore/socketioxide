@@ -1,6 +1,10 @@
 use axum::routing::get;
 use axum::Server;
-use engineioxide::{handler::EngineIoHandler, layer::EngineIoLayer, socket::{Socket, DisconnectReason}};
+use engineioxide::{
+    handler::EngineIoHandler,
+    layer::EngineIoLayer,
+    socket::{DisconnectReason, Socket},
+};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 

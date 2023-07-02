@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::socket::{Socket, DisconnectReason};
+use crate::socket::{DisconnectReason, Socket};
 
 /// An handler for engine.io events for each sockets.
 #[async_trait]

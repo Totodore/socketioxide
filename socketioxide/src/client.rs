@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use engineioxide::handler::EngineIoHandler;
-use engineioxide::socket::{Socket as EIoSocket, DisconnectReason as EIoDisconnectReason};
+use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
 use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
