@@ -10,6 +10,15 @@ on:
       - develop
 
 jobs:
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+        - uses: actions/checkout@v3
+        - uses: actions-rs/toolchain@v1
+          with:
+            toolchain: stable
+        - run: cargo fmt --all -- --check
   test:
     runs-on: ubuntu-latest
     
