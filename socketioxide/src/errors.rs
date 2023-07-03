@@ -1,6 +1,9 @@
-use crate::retryer::Retryer;
+use crate::{adapter::Adapter, packet::Packet, socket::RetryablePacket, Socket};
 use engineioxide::sid_generator::Sid;
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 use tokio::sync::oneshot;
 
 /// Error type for socketio
@@ -88,23 +91,45 @@ pub enum SendError {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
-    /// An error occurred during the retry process in the `Retryer`.
-    #[error("Send error: {0:?}")]
-    RetryerError(#[from] RetryerError),
+    /// An error occurred during the transport of the packet.
+    #[error("Transport error: {0:?}")]
+    TransportError(#[from] TransportError),
 
     #[error("Adapter error: {0}")]
     AdapterError(#[from] AdapterError),
 }
 
-/// Error type for the `Retryer` struct indicating various failure scenarios during the retry process.
 #[derive(thiserror::Error, Debug)]
-pub enum RetryerError {
-    /// The packet was sent to a closed socket channel.
-    #[error("Sent to a closed socket channel, sid: {sid}")]
-    SocketClosed { sid: Sid },
-    /// There are remaining packets to be sent, indicating that the socket channel is full.
-    #[error("Sent to a full socket channel")]
-    Remaining(Retryer),
+pub enum TransportError {
+    #[error("Failed to send failed bin payloads")]
+    SendFailedBinPayloads(Option<Packet>),
+    #[error("Sent to a closed socket channel")]
+    SocketClosed,
+    #[error("Failed to send main message")]
+    SendMainPacket(RetryablePacket),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum AckSenderError<A: Adapter> {
+    #[error("Failed to send ack message")]
+    SendError {
+        /// The specific error that occurred while sending the message.
+        send_error: SendError,
+        /// The socket associated with the error.
+        socket: Arc<Socket<A>>,
+    },
+}
+
+impl TransportError {
+    /// If PacketSender::send_buffered_binaries fails before packet deserialization
+    /// It is needed to return this owned packet using the method
+    pub(crate) fn add_main_packet(self, packet: Packet) -> Self {
+        if let TransportError::SendFailedBinPayloads(_) = self {
+            TransportError::SendFailedBinPayloads(Some(packet))
+        } else {
+            self
+        }
+    }
 }
 
 /// Error type for the [`Adapter`] trait.
