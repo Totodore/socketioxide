@@ -67,8 +67,9 @@ impl<A: Adapter> Client<A> {
         let handshake = Handshake::new(auth, socket.req_data.clone());
         let sid = socket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
+            let protocol = socket.protocol;
             let socket = ns.connect(sid, socket.tx.clone(), handshake, self.config.clone());
-            socket.send(Packet::connect(ns_path.clone(), sid))?;
+            socket.send(Packet::connect(ns_path.clone(), sid, protocol))?;
             Ok(())
         } else {
             socket
@@ -156,7 +157,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
         let res: Result<(), CurrentError> = match packet.inner {
             PacketData::Connect(auth) => self
-                .sock_connect(auth, packet.ns, socket)
+                .sock_connect(auth.unwrap(), packet.ns, socket)
                 .map_err(CurrentError::SendError),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(socket, packet);

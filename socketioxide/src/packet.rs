@@ -1,3 +1,4 @@
+use engineioxide::service::ProtocolVersion;
 use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -16,16 +17,49 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn connect(ns: String, sid: Sid) -> Self {
+    #[cfg(all(feature = "v5", feature = "v4"))]
+    pub fn connect(ns: String, sid: Sid, protocol: ProtocolVersion) -> Self {
+        // Decide which SocketIO packet format to use based on the current EngineIO protocol version.
+        match protocol {
+            ProtocolVersion::V3 => Self::connect_v4(ns, sid),
+            ProtocolVersion::V4 => Self::connect_v5(ns, sid),
+        }
+    }
+
+    #[cfg(feature = "v5")]
+    #[cfg(not(feature = "v4"))]
+    pub fn connect(ns: String, sid: Sid, _: ProtocolVersion) -> Self {
+        Self::connect_v5(ns, sid)
+    }
+
+    #[cfg(feature = "v4")]
+    #[cfg(not(feature = "v5"))]
+    pub fn connect(ns: String, sid: Sid, _: ProtocolVersion) -> Self {
+        Self::connect_v4(ns, sid)
+    }
+
+    /// Sends a connect packet without payload.
+    #[cfg(feature = "v4")]
+    fn connect_v4(ns: String, sid: Sid) -> Self {
+        Self {
+            inner: PacketData::Connect(None),
+            ns,
+        }
+    }
+
+    /// Sends a connect packet with payload.
+    #[cfg(feature = "v5")]
+    fn connect_v5(ns: String, sid: Sid) -> Self {
         let val = serde_json::to_value(ConnectPacket {
             sid: sid.to_string(),
         })
         .unwrap();
         Self {
-            inner: PacketData::Connect(val),
+            inner: PacketData::Connect(Some(val)),
             ns,
         }
     }
+
     pub fn disconnect(ns: String) -> Self {
         Self {
             inner: PacketData::Disconnect,
@@ -88,7 +122,7 @@ impl Packet {
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq)]
 pub enum PacketData {
-    Connect(Value),
+    Connect(Option<Value>),
     Disconnect,
     Event(String, Value, Option<i64>),
     EventAck(Value, i64),
@@ -196,7 +230,11 @@ impl TryInto<String> for Packet {
         }
 
         match self.inner {
-            PacketData::Connect(data) => res.push_str(&serde_json::to_string(&data)?),
+            PacketData::Connect(data) => {
+                if let Some(payload) = data {
+                    res.push_str(&serde_json::to_string(&payload)?);
+                }
+            }
             PacketData::Disconnect => (),
             PacketData::Event(event, data, ack) => {
                 if let Some(ack) = ack {
@@ -338,7 +376,9 @@ impl TryFrom<String> for Packet {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(deserialize_packet(data)?.unwrap_or_else(|| json!({}))),
+            '0' => {
+                PacketData::Connect(Some(deserialize_packet(data)?.unwrap_or_else(|| json!({}))))
+            }
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(data)?;
@@ -404,7 +444,7 @@ mod test {
         assert_eq!(
             Packet {
                 ns: "/".to_string(),
-                inner: PacketData::Connect(json!({ "token": "123"}))
+                inner: PacketData::Connect(Some(json!({ "token": "123"})))
             },
             packet.unwrap()
         );
@@ -417,7 +457,7 @@ mod test {
         assert_eq!(
             Packet {
                 ns: "/admin™".to_owned(),
-                inner: PacketData::Connect(json!({ "token™": "123" }))
+                inner: PacketData::Connect(Some(json!({ "token™": "123" })))
             },
             packet.unwrap()
         );
