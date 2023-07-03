@@ -18,7 +18,7 @@ license = "MIT"
 readme = "../Readme.md"
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.3.0" }
+engineioxide = { path = "../engineioxide", version = "0.3.0", default-features = false }
 futures = "0.3.27"
 tokio = "1.26.0"
 serde = { version = "1.0.155", features = ["derive"] }
@@ -35,3 +35,8 @@ dashmap = "5.4.0"
 [dev-dependencies]
 axum = "0.6.18"
 tracing-subscriber = "0.3.17"
+
+[features]
+default = ["v5"]
+v5 = ["engineioxide/v4"]
+v4 = ["engineioxide/v3"]

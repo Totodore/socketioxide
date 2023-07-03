@@ -59,7 +59,7 @@ impl<A: Adapter> Client<A> {
     /// Called when a socket connects to a new namespace
     fn sock_connect(
         &self,
-        auth: Value,
+        auth: Option<Value>,
         ns_path: String,
         socket: &EIoSocket<Self>,
     ) -> Result<(), SendError> {
@@ -67,8 +67,9 @@ impl<A: Adapter> Client<A> {
         let handshake = Handshake::new(auth, socket.req_data.clone());
         let sid = socket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
+            let protocol = socket.protocol;
             let socket = ns.connect(sid, socket.tx.clone(), handshake, self.config.clone());
-            socket.send(Packet::connect(ns_path.clone(), sid))?;
+            socket.send(Packet::connect(ns_path.clone(), sid, protocol))?;
             Ok(())
         } else {
             socket
@@ -117,6 +118,15 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
     fn on_connect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket connect {}", socket.sid);
+
+        // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
+        #[cfg(feature = "v4")]
+        {
+            if socket.protocol == engineioxide::service::ProtocolVersion::V3 {
+                debug!("Connecting to default namespace");
+                self.sock_connect(None, "/".into(), socket).unwrap();
+            }
+        }
     }
     fn on_disconnect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket disconnect {}", socket.sid);
