@@ -132,8 +132,10 @@ mod tests {
             b'o',
             PACKET_SEPARATOR_V4,
             b'4',
+            0xe2,
+            0x82,
+            0xac, // € on three bytes
             b'f',
-            b'o',
             PACKET_SEPARATOR_V4,
             b'4',
             b'f',
@@ -146,7 +148,7 @@ mod tests {
         ));
         assert!(matches!(
             payload.next().unwrap().unwrap(),
-            Packet::Message(msg) if msg == "fo"
+            Packet::Message(msg) if msg == "€f"
         ));
         assert!(matches!(
             payload.next().unwrap().unwrap(),
