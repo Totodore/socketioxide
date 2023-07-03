@@ -21,7 +21,7 @@ impl Packet {
     pub fn connect(ns: String, sid: Sid, protocol: ProtocolVersion) -> Self {
         // Decide which SocketIO packet format to use based on the current EngineIO protocol version.
         match protocol {
-            ProtocolVersion::V3 => Self::connect_v4(ns, sid),
+            ProtocolVersion::V3 => Self::connect_v4(ns),
             ProtocolVersion::V4 => Self::connect_v5(ns, sid),
         }
     }
@@ -34,13 +34,13 @@ impl Packet {
 
     #[cfg(feature = "v4")]
     #[cfg(not(feature = "v5"))]
-    pub fn connect(ns: String, sid: Sid, _: ProtocolVersion) -> Self {
-        Self::connect_v4(ns, sid)
+    pub fn connect(ns: String, _: Sid, _: ProtocolVersion) -> Self {
+        Self::connect_v4(ns)
     }
 
     /// Sends a connect packet without payload.
     #[cfg(feature = "v4")]
-    fn connect_v4(ns: String, sid: Sid) -> Self {
+    fn connect_v4(ns: String) -> Self {
         Self {
             inner: PacketData::Connect(None),
             ns,
