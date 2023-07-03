@@ -193,7 +193,7 @@ where
     #[cfg(feature = "v3")]
     #[cfg(not(feature = "v4"))]
     async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
-        self.heartbeat_job_v3(timeout)
+        self.heartbeat_job_v3(timeout).await
     }
 
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
