@@ -59,7 +59,7 @@ impl<A: Adapter> Client<A> {
     /// Called when a socket connects to a new namespace
     fn sock_connect(
         &self,
-        auth: Value,
+        auth: Option<Value>,
         ns_path: String,
         socket: &EIoSocket<Self>,
     ) -> Result<(), SendError> {
@@ -124,8 +124,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         {
             if socket.protocol == engineioxide::service::ProtocolVersion::V3 {
                 debug!("Connecting to default namespace");
-                self.sock_connect(serde_json::json!({}), "/".into(), socket)
-                    .unwrap();
+                self.sock_connect(None, "/".into(), socket).unwrap();
             }
         }
     }
@@ -157,7 +156,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
         let res: Result<(), CurrentError> = match packet.inner {
             PacketData::Connect(auth) => self
-                .sock_connect(auth.unwrap(), packet.ns, socket)
+                .sock_connect(auth, packet.ns, socket)
                 .map_err(CurrentError::SendError),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(socket, packet);

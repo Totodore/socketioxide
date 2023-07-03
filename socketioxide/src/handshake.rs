@@ -8,13 +8,13 @@ use crate::errors::Error;
 /// Handshake informations bound to a socket
 #[derive(Debug)]
 pub struct Handshake {
-    pub(crate) auth: serde_json::Value,
+    pub(crate) auth: Option<serde_json::Value>,
     pub issued: SystemTime,
     pub req: Arc<SocketReq>,
 }
 
 impl Handshake {
-    pub(crate) fn new(auth: serde_json::Value, req: Arc<SocketReq>) -> Self {
+    pub(crate) fn new(auth: Option<serde_json::Value>, req: Arc<SocketReq>) -> Self {
         Self {
             auth,
             req,
@@ -24,8 +24,12 @@ impl Handshake {
     /// Extract the data from the handshake.
     ///
     /// It is cloned and deserialized from a json::Value to the given type.
-    pub fn data<T: DeserializeOwned>(&self) -> Result<T, Error> {
-        Ok(serde_json::from_value(self.auth.clone())?)
+    pub fn data<T: DeserializeOwned>(&self) -> Option<Result<T, Error>> {
+        if let Some(auth) = &self.auth {
+            Some(serde_json::from_value(auth.clone()).map_err(Error::from))
+        } else {
+            None
+        }
     }
 }
 
@@ -33,7 +37,7 @@ impl Handshake {
 impl Handshake {
     pub fn new_dummy() -> Self {
         Self {
-            auth: serde_json::json!({}),
+            auth: Some(serde_json::json!({})),
             issued: SystemTime::now(),
             req: Arc::new(SocketReq {
                 headers: Default::default(),

@@ -14,7 +14,7 @@ struct Auth {
 
 pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
     info!("Socket connected on / with id: {}", socket.sid);
-    if let Ok(data) = socket.handshake.data::<Auth>() {
+    if let Some(Ok(data)) = socket.handshake.data::<Auth>() {
         info!("Nickname: {:?}", data.nickname);
         socket.extensions.insert(data.nickname);
         socket.emit("message", "Welcome to the chat!").ok();
