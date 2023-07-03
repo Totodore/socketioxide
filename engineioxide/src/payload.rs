@@ -1,47 +1,57 @@
 use std::{io::BufRead, vec};
 
-use crate::{errors::Error, service::ProtocolVersion};
+use crate::{errors::Error, packet::Packet, service::ProtocolVersion};
 
-pub const PACKET_SEPARATOR: u8 = b'\x1e';
+pub const PACKET_SEPARATOR_V4: u8 = b'\x1e';
+pub const PACKET_SEPARATOR_V3: u8 = b':';
 
-/// A payload is a series of encoded packets tied together.
-/// How packets are tied together depends on the protocol.
 pub struct Payload<R: BufRead> {
-    reader: R,
     buffer: Vec<u8>,
+    reader: R,
     #[allow(dead_code)]
     protocol: ProtocolVersion,
 }
 
-type Item = Result<String, Error>; // TODO: refactor to return Result<&str, Error> instead (see TODO's below)
+type Item = Result<Packet, Error>;
 
 impl<R: BufRead> Payload<R> {
-    pub fn new(protocol: ProtocolVersion, data: R) -> Self {
-        Payload {
-            reader: data,
+    pub fn new(protocol: ProtocolVersion, reader: R) -> Self {
+        Self {
             buffer: vec![],
+            reader,
             protocol,
         }
     }
+}
 
+impl<R: BufRead> Payload<R> {
     #[cfg(feature = "v3")]
     fn next_v3(&mut self) -> Option<Item> {
-        match self.reader.read_until(b':', &mut self.buffer) {
+        self.buffer.clear();
+        match self
+            .reader
+            .read_until(PACKET_SEPARATOR_V3, &mut self.buffer)
+        {
             Ok(bytes_read) => (bytes_read > 0).then(|| {
-                if self.buffer.ends_with(&[b':']) {
+                if self.buffer.ends_with(&[PACKET_SEPARATOR_V3]) {
                     self.buffer.pop();
                 }
-
-                let buffer = std::mem::take(&mut self.buffer);
-                let length = std::str::from_utf8(&buffer)
+                let char_len = std::str::from_utf8(&self.buffer)
                     .map_err(|_| Error::InvalidPacketLength)
                     .and_then(|s| s.parse::<usize>().map_err(|_| Error::InvalidPacketLength))?;
 
-                self.buffer.resize(length, 0);
+                println!("length: {}", char_len);
+
+                self.buffer.clear();
+                self.buffer.resize(char_len, 0);
                 self.reader.read_exact(&mut self.buffer)?;
 
-                let buffer = std::mem::take(&mut self.buffer);
-                String::from_utf8(buffer).map_err(Into::into) // TODO: replace 'String::from_utf8' with 'std::str::from_utf8'
+                println!("buffer: {:?}", std::str::from_utf8(self.buffer.as_slice()));
+
+                match std::str::from_utf8(&self.buffer) {
+                    Ok(packet) => Packet::try_from(packet),
+                    Err(e) => Err(e.into()),
+                }
             }),
             Err(e) => Some(Err(Error::Io(e))),
         }
@@ -49,16 +59,23 @@ impl<R: BufRead> Payload<R> {
 
     #[cfg(feature = "v4")]
     fn next_v4(&mut self) -> Option<Item> {
-        match self.reader.read_until(PACKET_SEPARATOR, &mut self.buffer) {
+        self.buffer.clear();
+        match self
+            .reader
+            .read_until(PACKET_SEPARATOR_V4, &mut self.buffer)
+        {
             Ok(bytes_read) => {
                 if bytes_read > 0 {
-                    // remove trailing separator
-                    if self.buffer.ends_with(&[PACKET_SEPARATOR]) {
-                        self.buffer.pop();
-                    }
+                    let buffer_ref: &[u8] = if self.buffer.ends_with(&[PACKET_SEPARATOR_V4]) {
+                        &self.buffer[..self.buffer.len() - 1]
+                    } else {
+                        &self.buffer[..]
+                    };
 
-                    let buffer = std::mem::take(&mut self.buffer);
-                    Some(String::from_utf8(buffer).map_err(Into::into)) // TODO: replace 'String::from_utf8' with 'std::str::from_utf8'
+                    match std::str::from_utf8(buffer_ref) {
+                        Ok(packet) => Some(Packet::try_from(packet)),
+                        Err(e) => Some(Err(e.into())),
+                    }
                 } else {
                     None
                 }
@@ -99,32 +116,43 @@ mod tests {
         vec,
     };
 
-    use crate::service::ProtocolVersion;
+    use crate::{packet::Packet, payload::Payload, service::ProtocolVersion};
 
-    use super::{Payload, PACKET_SEPARATOR};
+    use super::PACKET_SEPARATOR_V3;
+    use super::PACKET_SEPARATOR_V4;
 
     #[test]
-    fn test_payload_iterator_v4() -> Result<(), String> {
+    fn test_payload_iterator_v4() {
         assert!(cfg!(feature = "v4"));
 
         let data = BufReader::new(Cursor::new(vec![
+            b'4',
             b'f',
             b'o',
             b'o',
-            PACKET_SEPARATOR,
+            PACKET_SEPARATOR_V4,
+            b'4',
             b'f',
             b'o',
-            PACKET_SEPARATOR,
+            PACKET_SEPARATOR_V4,
+            b'4',
             b'f',
         ]));
         let mut payload = Payload::new(ProtocolVersion::V4, data);
 
-        assert_eq!(payload.next().unwrap().unwrap(), "foo");
-        assert_eq!(payload.next().unwrap().unwrap(), "fo");
-        assert_eq!(payload.next().unwrap().unwrap(), "f");
+        assert!(matches!(
+            payload.next().unwrap().unwrap(),
+            Packet::Message(msg) if msg == "foo"
+        ));
+        assert!(matches!(
+            payload.next().unwrap().unwrap(),
+            Packet::Message(msg) if msg == "fo"
+        ));
+        assert!(matches!(
+            payload.next().unwrap().unwrap(),
+            Packet::Message(msg) if msg == "f"
+        ));
         assert_eq!(payload.next().is_none(), true);
-
-        Ok(())
     }
 
     #[test]
@@ -132,13 +160,40 @@ mod tests {
         assert!(cfg!(feature = "v3"));
 
         let data = BufReader::new(Cursor::new(vec![
-            b'3', b':', b'f', b'o', b'o', b'2', b':', b'f', b'o', b'1', b':', b'f',
+            // First packet
+            b'4',
+            PACKET_SEPARATOR_V3,
+            b'4',
+            b'f',
+            b'o',
+            b'o',
+            // Second packet
+            b'3',
+            PACKET_SEPARATOR_V3,
+            b'4',
+            0xe2,
+            0x82,
+            0xac, // € on three bytes
+            b'f',
+            // Third packet
+            b'2',
+            PACKET_SEPARATOR_V3,
+            b'4',
+            b'f',
         ]));
         let mut payload = Payload::new(ProtocolVersion::V3, data);
-
-        assert_eq!(payload.next().unwrap().unwrap(), "foo");
-        assert_eq!(payload.next().unwrap().unwrap(), "fo");
-        assert_eq!(payload.next().unwrap().unwrap(), "f");
+        assert!(matches!(
+            payload.next().unwrap().unwrap(),
+            Packet::Message(msg) if msg == "foo"
+        ));
+        assert!(matches!(
+            payload.next().unwrap().unwrap(),
+            Packet::Message(msg) if msg == "€f"
+        ));
+        assert!(matches!(
+            payload.next().unwrap().unwrap(),
+            Packet::Message(msg) if msg == "f"
+        ));
         assert_eq!(payload.next().is_none(), true);
 
         Ok(())

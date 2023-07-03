@@ -9,7 +9,11 @@ description = "Engine IO server implementation in rust as a Tower Service."
 repository = "https://github.com/totodore/socketioxide"
 homepage = "https://github.com/totodore/socketioxide"
 keywords = ["engineio", "tower", "axum", "hyper", "websocket"]
-categories = ["asynchronous", "network-programming", "web-programming::websocket"]
+categories = [
+    "asynchronous",
+    "network-programming",
+    "web-programming::websocket",
+]
 license = "MIT"
 
 [dependencies]
@@ -19,7 +23,13 @@ bytes = "1.4.0"
 futures = "0.3.27"
 http = "0.2.9"
 http-body = "0.4.5"
-hyper = { version = "0.14.25", features = ["http1", "http2", "server", "stream", "runtime"] }
+hyper = { version = "0.14.25", features = [
+    "http1",
+    "http2",
+    "server",
+    "stream",
+    "runtime",
+] }
 pin-project = "1.0.12"
 serde = { version = "1.0.155", features = ["derive"] }
 serde_json = "1.0.94"

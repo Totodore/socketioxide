@@ -11,15 +11,12 @@ use crate::{
     futures::{http_response, ws_response},
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
+    payload::{Payload, PACKET_SEPARATOR_V3, PACKET_SEPARATOR_V4},
     service::TransportType,
     sid_generator::generate_sid,
     socket::{ConnectionType, Socket, SocketReq},
 };
-use crate::{
-    payload::{Payload, PACKET_SEPARATOR},
-    service::ProtocolVersion,
-    sid_generator::Sid,
-};
+use crate::{service::ProtocolVersion, sid_generator::Sid};
 use bytes::Buf;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
@@ -141,13 +138,21 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 // The V3 protocol requires the packet length to be prepended to the packet.
                 // The V4 protocol (and up) only requires a packet separator.
                 match protocol {
-                    ProtocolVersion::V3 => data.push_str(&format!("{}:", packet.chars().count())),
+                    ProtocolVersion::V3 => data.push_str(&format!(
+                        "{}{}",
+                        packet.chars().count(),
+                        PACKET_SEPARATOR_V3 as char
+                    )),
                     ProtocolVersion::V4 => {
-                        data.push(std::char::from_u32(PACKET_SEPARATOR as u32).unwrap())
+                        data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap())
                     }
                 }
             } else if protocol == ProtocolVersion::V3 {
-                data.push_str(&format!("{}:", packet.chars().count()));
+                data.push_str(&format!(
+                    "{}{}",
+                    packet.chars().count(),
+                    PACKET_SEPARATOR_V3 as char
+                ));
             }
             data.push_str(&packet);
         }
@@ -193,16 +198,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
             .ok_or(Error::UnknownSessionID(sid))
             .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
-        let packets = Payload::new(protocol, body.reader());
+        let reader = body.reader();
+        let packets = Payload::new(protocol, reader);
 
-        for p in packets {
-            let raw_packet = p.map_err(|e| {
-                debug!("error parsing packets: {:?}", e);
-                self.close_session(sid);
-                Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
-            })?;
-
-            match Packet::try_from(raw_packet) {
+        for packet in packets.into_iter() {
+            match packet {
                 Ok(Packet::Close) => {
                     debug!("[sid={sid}] closing session");
                     socket.send(Packet::Noop)?;
