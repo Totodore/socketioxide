@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose, Engine};
-use bytes::Bytes;
 use serde::{de::Error, Deserialize, Serialize};
 
 use crate::sid_generator::Sid;

@@ -1,6 +1,7 @@
 use std::{io::BufRead, vec};
 
 use crate::{errors::Error, packet::Packet, service::ProtocolVersion};
+use utf8_chars::BufReadCharsExt;
 
 pub const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 pub const PACKET_SEPARATOR_V3: u8 = b':';
@@ -40,18 +41,18 @@ impl<R: BufRead> Payload<R> {
                     .map_err(|_| Error::InvalidPacketLength)
                     .and_then(|s| s.parse::<usize>().map_err(|_| Error::InvalidPacketLength))?;
 
-                println!("length: {}", char_len);
-
+                let mut cursor = 0;
                 self.buffer.clear();
-                self.buffer.resize(char_len, 0);
-                self.reader.read_exact(&mut self.buffer)?;
-
-                println!("buffer: {:?}", std::str::from_utf8(self.buffer.as_slice()));
-
-                match std::str::from_utf8(&self.buffer) {
-                    Ok(packet) => Packet::try_from(packet),
-                    Err(e) => Err(e.into()),
+                self.buffer.resize(char_len * 4, 0);
+                for char in self.reader.chars().take(char_len) {
+                    let char = char?;
+                    char.encode_utf8(&mut self.buffer[cursor..]);
+                    cursor += char.len_utf8();
                 }
+
+                // There is no need to recheck the buffer length here, since it is already checked with the chars() iterator
+                let buffer_ref = unsafe { std::str::from_utf8_unchecked(&self.buffer[..cursor]) };
+                Packet::try_from(buffer_ref)
             }),
             Err(e) => Some(Err(Error::Io(e))),
         }
