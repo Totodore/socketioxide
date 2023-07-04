@@ -182,7 +182,7 @@ where
     #[cfg(all(feature = "v3", feature = "v4"))]
     async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         match self.protocol {
-            ProtocolVersion::V3 => self.heartbeat_job_v3(timeout).await,
+            ProtocolVersion::V3 => self.heartbeat_job_v3(interval, timeout).await,
             ProtocolVersion::V4 => self.heartbeat_job_v4(interval, timeout).await,
         }
     }
@@ -193,7 +193,7 @@ where
     #[cfg(feature = "v3")]
     #[cfg(not(feature = "v4"))]
     async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
-        self.heartbeat_job_v3(timeout).await
+        self.heartbeat_job_v3(interval, timeout).await
     }
 
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
@@ -242,7 +242,7 @@ where
     }
 
     #[cfg(feature = "v3")]
-    async fn heartbeat_job_v3(&self, timeout: Duration) -> Result<(), Error> {
+    async fn heartbeat_job_v3(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         let mut heartbeat_rx = self
             .heartbeat_rx
             .try_lock()
@@ -251,7 +251,7 @@ where
         debug!("[sid={}] heartbeat receiver routine started", self.sid);
 
         loop {
-            tokio::time::timeout(timeout, heartbeat_rx.recv())
+            tokio::time::timeout(interval + timeout, heartbeat_rx.recv())
                 .await
                 .map_err(|_| Error::HeartbeatTimeout)?
                 .ok_or(Error::HeartbeatTimeout)?;
