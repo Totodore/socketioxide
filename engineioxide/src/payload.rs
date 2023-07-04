@@ -1,7 +1,6 @@
 use std::{io::BufRead, vec};
 
 use crate::{errors::Error, packet::Packet, service::ProtocolVersion};
-use utf8_chars::BufReadCharsExt;
 
 pub const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 pub const PACKET_SEPARATOR_V3: u8 = b':';
@@ -28,6 +27,7 @@ impl<R: BufRead> Payload<R> {
 impl<R: BufRead> Payload<R> {
     #[cfg(feature = "v3")]
     fn next_v3(&mut self) -> Option<Item> {
+        use utf8_chars::BufReadCharsExt;
         self.buffer.clear();
         match self
             .reader
