@@ -369,6 +369,7 @@ dependencies = [
  "http",
  "http-body",
  "hyper",
+ "memchr",
  "pin-project",
  "rand",
  "serde",
