@@ -11,13 +11,12 @@ use crate::{
     futures::{http_response, ws_response},
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    payload::{Payload, PACKET_SEPARATOR_V3, PACKET_SEPARATOR_V4},
+    payload::{self, PACKET_SEPARATOR_V3, PACKET_SEPARATOR_V4},
     service::TransportType,
     sid_generator::generate_sid,
     socket::{ConnectionType, Socket, SocketReq},
 };
 use crate::{service::ProtocolVersion, sid_generator::Sid};
-use bytes::Buf;
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
@@ -183,25 +182,20 @@ impl<H: EngineIoHandler> EngineIo<H> {
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
-        R: http_body::Body + std::marker::Send + 'static,
+        R: http_body::Body + std::marker::Send + Unpin + 'static,
         <R as http_body::Body>::Error: Debug,
         <R as http_body::Body>::Data: std::marker::Send,
         B: Send + 'static,
     {
-        let body = hyper::body::aggregate(body).await.map_err(|e| {
-            debug!("error aggregating body: {:?}", e);
-            Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
-        })?;
-
         let socket = self
             .get_socket(sid)
             .ok_or(Error::UnknownSessionID(sid))
             .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
-        let reader = body.reader();
-        let packets = Payload::new(protocol, reader);
+        let packets = payload::body_parser(body, protocol);
+        futures::pin_mut!(packets);
 
-        for packet in packets.into_iter() {
+        while let Some(packet) = packets.next().await {
             match packet {
                 Ok(Packet::Close) => {
                     debug!("[sid={sid}] closing session");
