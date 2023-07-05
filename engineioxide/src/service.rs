@@ -75,7 +75,7 @@ impl<S: Clone, H: EngineIoHandler> Clone for EngineIoService<H, S> {
 impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,
-    ReqBody: http_body::Body + Send + 'static + Debug,
+    ReqBody: http_body::Body + Send + Unpin + 'static + Debug,
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,

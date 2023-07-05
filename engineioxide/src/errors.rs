@@ -13,7 +13,7 @@ pub enum Error {
     #[error("error decoding binary packet from polling request: {0:?}")]
     Base64(#[from] base64::DecodeError),
     #[error("error decoding packet: {0:?}")]
-    Utf8(#[from] std::string::FromUtf8Error),
+    StrUtf8(#[from] std::str::Utf8Error),
     #[error("io error: {0:?}")]
     Io(#[from] std::io::Error),
     #[error("bad packet received")]

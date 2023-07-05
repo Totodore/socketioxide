@@ -16,7 +16,7 @@ pub struct SocketIoService<A: Adapter, S: Clone> {
 impl<A: Adapter, ReqBody, ResBody, S> Service<Request<ReqBody>> for SocketIoService<A, S>
 where
     ResBody: Body + Send + 'static,
-    ReqBody: http_body::Body + Send + 'static + std::fmt::Debug,
+    ReqBody: http_body::Body + Send + 'static + std::fmt::Debug + Unpin,
     <ReqBody as http_body::Body>::Error: std::fmt::Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone,
