@@ -298,7 +298,7 @@ mod tests {
     #[tokio::test]
     async fn test_payload_stream_v3() {
         assert!(cfg!(feature = "v3"));
-        const DATA: &[u8] = "4:4foo3:4€f9:4baaaaaar".as_bytes();
+        const DATA: &[u8] = "4:4foo3:4€f11:4baaaaaaaar".as_bytes();
 
         let stream = hyper::Body::wrap_stream(futures::stream::iter(
             DATA.chunks(2).map(Ok::<_, std::convert::Infallible>),
@@ -316,7 +316,7 @@ mod tests {
         ));
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "baaaaaar"
+            Packet::Message(msg) if msg == "baaaaaaaar"
         ));
         assert_eq!(payload.next().await.is_none(), true);
     }
