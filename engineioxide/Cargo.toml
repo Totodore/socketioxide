@@ -53,5 +53,5 @@ harness = false
 
 [features]
 default = ["v4"]
-v4 = ["unicode-segmentation"]
+v4 = []
 v3 = ["unicode-segmentation"]
