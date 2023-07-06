@@ -98,6 +98,7 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                             Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
                             Err(e) => return Some((Err(Error::Io(e)), state)),
                         };
+                        let old_len = packet_buf.len();
                         packet_buf.extend_from_slice(available);
                         // Find the position of the packet separator
                         match memchr::memchr(PACKET_SEPARATOR_V3, &packet_buf) {
@@ -113,11 +114,14 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                                         return Some((Err(Error::InvalidPacketLength), state))
                                     }
                                 };
-                                packet_buf.drain(0..i + 1);
-                                (true, i + 1) // Mark as done and set the used bytes count
+                                dbg!(std::str::from_utf8(&packet_buf));
+                                packet_buf.clear();
+                                dbg!(std::str::from_utf8(&packet_buf));
+
+                                dbg!((true, i + 1 - old_len)) // Mark as done and set the used bytes count
                             }
                             None if end_of_stream => return None, // Reached end of stream without finding the separator
-                            None => (false, available.len()),     // Continue reading more data
+                            None => dbg!((false, available.len())), // Continue reading more data
                         }
                     };
                     reader.consume(used); // Consume the used bytes from the buffer
@@ -135,17 +139,19 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
             let data: &[u8] = reader.fill_buf().unwrap();
 
             let old_len = packet_buf.len();
-
+            dbg!(data.len());
             packet_buf.extend_from_slice(data);
 
             let byte_read = match std::str::from_utf8(&packet_buf) {
                 Ok(fulldata) => {
-                    let i = fulldata
+                    let i = dbg!(fulldata)
                         .grapheme_indices(true)
-                        .nth(packet_graphemes_len)
+                        .nth(dbg!(packet_graphemes_len))
                         .map(|(i, _)| i);
                     if let Some(i) = i {
+                        dbg!(std::str::from_utf8(&packet_buf));
                         packet_buf.truncate(i);
+                        dbg!(std::str::from_utf8(&packet_buf));
                         packet_buf.len() - old_len
                     } else {
                         data.len()
@@ -158,7 +164,9 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                         .nth(packet_graphemes_len)
                         .map(|(i, _)| i);
                     if let Some(i) = i {
+                        dbg!(&packet_buf);
                         packet_buf.truncate(i);
+                        dbg!(&packet_buf);
                         packet_buf.len() - old_len
                     } else {
                         data.len()
@@ -267,7 +275,7 @@ mod tests {
     async fn test_payload_iterator_v3() {
         assert!(cfg!(feature = "v3"));
 
-        let data = Full::new(Bytes::from("4:4foo3:4€f2:4f"));
+        let data = Full::new(Bytes::from("4:4foo3:4€f10:4faaaaaaaaa"));
         let payload = body_parser_v3(data);
         futures::pin_mut!(payload);
         assert!(matches!(
@@ -278,9 +286,10 @@ mod tests {
             payload.next().await.unwrap().unwrap(),
             Packet::Message(msg) if msg == "€f"
         ));
+        let m = dbg!(payload.next().await.unwrap().unwrap());
         assert!(matches!(
-            payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "f"
+            m,
+            Packet::Message(msg) if msg == "faaaaaaaa"
         ));
         assert_eq!(payload.next().await.is_none(), true);
     }
