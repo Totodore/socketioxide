@@ -6,6 +6,9 @@ use std::io::BufRead;
 
 use self::buf::BufList;
 
+#[cfg(feature = "v3")]
+use unicode_segmentation::UnicodeSegmentation;
+
 mod buf;
 pub const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 pub const PACKET_SEPARATOR_V3: u8 = b':';
@@ -72,8 +75,9 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
 
     futures::stream::unfold(state, |mut state| async move {
         let mut packet_buf: Vec<u8> = Vec::new();
-        let mut packet_len: usize = 0;
+        let mut packet_graphemes_len: usize = 0;
         let mut end_of_stream = false;
+
         loop {
             // Read data from the body stream into the buffer
             if !end_of_stream {
@@ -83,11 +87,10 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                     Err(_) => todo!(), // Handle the error case
                 }
             }
-
             let mut reader = (&mut state.buffer).reader();
 
             // Read the packet length from the buffer
-            if packet_len == 0 {
+            if packet_graphemes_len == 0 {
                 loop {
                     let (done, used) = {
                         let available = match reader.fill_buf() {
@@ -95,12 +98,12 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                             Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
                             Err(e) => return Some((Err(Error::Io(e)), state)),
                         };
-
+                        packet_buf.extend_from_slice(available);
                         // Find the position of the packet separator
-                        match memchr::memchr(PACKET_SEPARATOR_V3, available) {
+                        match memchr::memchr(PACKET_SEPARATOR_V3, &packet_buf) {
                             Some(i) => {
                                 // Extract the packet length from the available data
-                                packet_len = match std::str::from_utf8(&available[..i])
+                                packet_graphemes_len = match std::str::from_utf8(&packet_buf[..i])
                                     .map_err(|_| Error::InvalidPacketLength)
                                     .and_then(|s| {
                                         s.parse::<usize>().map_err(|_| Error::InvalidPacketLength)
@@ -110,10 +113,11 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                                         return Some((Err(Error::InvalidPacketLength), state))
                                     }
                                 };
+                                packet_buf.drain(0..i + 1);
                                 (true, i + 1) // Mark as done and set the used bytes count
                             }
                             None if end_of_stream => return None, // Reached end of stream without finding the separator
-                            None => (false, 0),                   // Continue reading more data
+                            None => (false, 1),                   // Continue reading more data
                         }
                     };
                     reader.consume(used); // Consume the used bytes from the buffer
@@ -123,45 +127,50 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                 }
             }
 
-            if packet_len == 0 {
+            if packet_graphemes_len == 0 {
                 continue; // No packet length, continue to read more data
             }
 
             // Read bytes from the buffer until the packet length is reached
-            let byte_read = {
-                let data = reader.fill_buf().unwrap();
-                match std::str::from_utf8(data) {
-                    Ok(chunk) => {
-                        let i = chunk.char_indices().nth(packet_len).map(|(i, _)| i);
-                        if let Some(i) = i {
-                            packet_buf.extend_from_slice(chunk[..i].as_bytes());
-                            i
-                        } else {
-                            packet_buf.extend_from_slice(chunk.as_bytes());
-                            chunk.len()
-                        }
+            let data: &[u8] = reader.fill_buf().unwrap();
+
+            let old_len = packet_buf.len();
+
+            packet_buf.extend_from_slice(data);
+
+            let byte_read = match std::str::from_utf8(&packet_buf) {
+                Ok(fulldata) => {
+                    let i = fulldata
+                        .grapheme_indices(true)
+                        .nth(packet_graphemes_len)
+                        .map(|(i, _)| i);
+                    if let Some(i) = i {
+                        packet_buf.truncate(i);
+                        packet_buf.len() - old_len
+                    } else {
+                        data.len()
                     }
-                    Err(e) => {
-                        let chunk =
-                            unsafe { std::str::from_utf8_unchecked(&data[..e.valid_up_to()]) };
-                        let i = chunk.char_indices().nth(packet_len).map(|(i, _)| i);
-                        if let Some(i) = i {
-                            packet_buf.extend_from_slice(chunk[..i].as_bytes());
-                            i
-                        } else {
-                            packet_buf.extend_from_slice(data);
-                            data.len()
-                        }
+                }
+                Err(e) => {
+                    let chunk = unsafe { std::str::from_utf8_unchecked(&data[..e.valid_up_to()]) };
+                    let i = chunk
+                        .char_indices()
+                        .nth(packet_graphemes_len)
+                        .map(|(i, _)| i);
+                    if let Some(i) = i {
+                        packet_buf.truncate(i);
+                        packet_buf.len() - old_len
+                    } else {
+                        data.len()
                     }
                 }
             };
-            reader.consume(byte_read); // Consume the bytes read from the buffer
 
+            reader.consume(byte_read);
             let packet_str = std::str::from_utf8(&packet_buf);
-
             // Check if the packet length matches the number of characters
             if packet_str
-                .map(|p| p.chars().count() == packet_len)
+                .map(|p| p.graphemes(true).count() == packet_graphemes_len)
                 .unwrap_or_default()
             {
                 break Some((
@@ -280,14 +289,16 @@ mod tests {
     #[tokio::test]
     async fn test_payload_stream_v3() {
         assert!(cfg!(feature = "v3"));
-        const DATA: &[u8] = "4:4foo3:4€f2:4fo".as_bytes();
+        const DATA: &[u8] = "4:4foo3:4€f5:4baar".as_bytes();
+
         let stream = hyper::Body::wrap_stream(futures::stream::iter(
             DATA.chunks(2).map(Ok::<_, std::convert::Infallible>),
         ));
         let payload = body_parser_v3(stream);
         futures::pin_mut!(payload);
+        let packet = payload.next().await.unwrap().unwrap();
         assert!(matches!(
-            payload.next().await.unwrap().unwrap(),
+            packet,
             Packet::Message(msg) if msg == "foo"
         ));
         assert!(matches!(
@@ -296,7 +307,7 @@ mod tests {
         ));
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "fo"
+            Packet::Message(msg) if msg == "baar"
         ));
         assert_eq!(payload.next().await.is_none(), true);
     }
