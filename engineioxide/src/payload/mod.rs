@@ -117,7 +117,7 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                                 (true, i + 1) // Mark as done and set the used bytes count
                             }
                             None if end_of_stream => return None, // Reached end of stream without finding the separator
-                            None => (false, 1),                   // Continue reading more data
+                            None => (false, available.len()),     // Continue reading more data
                         }
                     };
                     reader.consume(used); // Consume the used bytes from the buffer
@@ -289,7 +289,7 @@ mod tests {
     #[tokio::test]
     async fn test_payload_stream_v3() {
         assert!(cfg!(feature = "v3"));
-        const DATA: &[u8] = "4:4foo3:4€f5:4baar".as_bytes();
+        const DATA: &[u8] = "4:4foo3:4€f9:4baaaaaar".as_bytes();
 
         let stream = hyper::Body::wrap_stream(futures::stream::iter(
             DATA.chunks(2).map(Ok::<_, std::convert::Infallible>),
@@ -307,7 +307,7 @@ mod tests {
         ));
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "baar"
+            Packet::Message(msg) if msg == "baaaaaar"
         ));
         assert_eq!(payload.next().await.is_none(), true);
     }
