@@ -121,7 +121,7 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                     Ok(chunk) => {
                         let i = chunk.char_indices().nth(packet_len).map(|(i, _)| i);
                         if let Some(i) = i {
-                            packet_buf.extend_from_slice(&chunk[..i].as_bytes());
+                            packet_buf.extend_from_slice(chunk[..i].as_bytes());
                             i
                         } else {
                             packet_buf.extend_from_slice(chunk.as_bytes());
@@ -134,7 +134,7 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
 
                         let i = chunk.char_indices().nth(packet_len).map(|(i, _)| i);
                         if let Some(i) = i {
-                            packet_buf.extend_from_slice(&chunk[..i].as_bytes());
+                            packet_buf.extend_from_slice(chunk[..i].as_bytes());
                             i
                         } else {
                             packet_buf.extend_from_slice(data);
@@ -152,7 +152,7 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
             {
                 break Some((
                     Packet::try_from(unsafe { std::str::from_utf8_unchecked(&packet_buf) })
-                        .map_err(|e| Error::InvalidPacketLength),
+                        .map_err(|_| Error::InvalidPacketLength),
                     state,
                 ));
             } else if end_of_stream && state.buffer.remaining() == 0 {
@@ -161,22 +161,25 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
         }
     })
 }
-#[cfg(all(feature = "v3", feature = "v4"))]
 pub fn body_parser(
     body: impl http_body::Body + Unpin,
     #[allow(unused_variables)] protocol: ProtocolVersion,
 ) -> impl Stream<Item = Result<Packet, Error>> {
     #[cfg(all(feature = "v3", feature = "v4"))]
-    return match protocol {
-        ProtocolVersion::V4 => body_parser_v4(body),
-        ProtocolVersion::V3 => body_parser_v3(body),
-    };
-
-    #[cfg(feature = "v4")]
-    return body_parser_v4(body);
-
-    #[cfg(feature = "v3")]
-    return body_parser_v3(body);
+    {
+        match protocol {
+            ProtocolVersion::V4 => futures::future::Either::Left(body_parser_v4(body)),
+            ProtocolVersion::V3 => futures::future::Either::Right(body_parser_v3(body)),
+        }
+    }
+    #[cfg(all(feature = "v3", not(feature = "v4")))]
+    {
+        body_parser_v3(body)
+    }
+    #[cfg(all(feature = "v4", not(feature = "v3")))]
+    {
+        body_parser_v4(body)
+    }
 }
 
 #[cfg(test)]
