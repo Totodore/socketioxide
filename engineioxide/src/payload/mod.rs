@@ -25,31 +25,37 @@ fn body_parser_v4(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
         let mut packet_buf: Vec<u8> = Vec::new();
         let mut end_of_stream = false;
         loop {
+            // Read data from the body stream into the buffer
             if !end_of_stream {
                 match state.body.data().await.transpose() {
                     Ok(Some(data)) => state.buffer.push(data),
                     Ok(None) => end_of_stream = true,
-                    Err(_) => todo!(),
+                    Err(_) => todo!(), // Handle the error case
                 }
             }
 
+            // Read from the buffer until the packet separator is found
             (&mut state.buffer)
                 .reader()
                 .read_until(PACKET_SEPARATOR_V4, &mut packet_buf)
                 .unwrap();
+
             let separator_found = packet_buf.ends_with(&[PACKET_SEPARATOR_V4]);
+
             if separator_found {
-                packet_buf.pop();
+                packet_buf.pop(); // Remove the separator from the packet buffer
             }
+
+            // Check if a complete packet is found or reached end of stream with remaining data
             if separator_found
                 || (end_of_stream && state.buffer.remaining() == 0 && !packet_buf.is_empty())
             {
                 let packet = std::str::from_utf8(&packet_buf)
                     .map_err(|_| Error::InvalidPacketLength)
-                    .and_then(Packet::try_from);
-                break Some((packet, state));
+                    .and_then(Packet::try_from); // Convert the packet buffer to a Packet object
+                break Some((packet, state)); // Emit the packet and the updated state
             } else if end_of_stream && state.buffer.remaining() == 0 {
-                break None;
+                break None; // Reached end of stream with no more data, end the stream
             }
         }
     })
@@ -69,15 +75,18 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
         let mut packet_len: usize = 0;
         let mut end_of_stream = false;
         loop {
+            // Read data from the body stream into the buffer
             if !end_of_stream {
                 match state.body.data().await.transpose() {
                     Ok(Some(data)) => state.buffer.push(data),
                     Ok(None) => end_of_stream = true,
-                    Err(_) => todo!(),
+                    Err(_) => todo!(), // Handle the error case
                 }
             }
 
             let mut reader = (&mut state.buffer).reader();
+
+            // Read the packet length from the buffer
             if packet_len == 0 {
                 loop {
                     let (done, used) = {
@@ -86,8 +95,11 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                             Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
                             Err(e) => return Some((Err(Error::Io(e)), state)),
                         };
+
+                        // Find the position of the packet separator
                         match memchr::memchr(PACKET_SEPARATOR_V3, available) {
                             Some(i) => {
+                                // Extract the packet length from the available data
                                 packet_len = match std::str::from_utf8(&available[..i])
                                     .map_err(|_| Error::InvalidPacketLength)
                                     .and_then(|s| {
@@ -98,23 +110,24 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                                         return Some((Err(Error::InvalidPacketLength), state))
                                     }
                                 };
-                                (true, i + 1)
+                                (true, i + 1) // Mark as done and set the used bytes count
                             }
-                            None if end_of_stream => return None,
-                            None => (false, 0),
+                            None if end_of_stream => return None, // Reached end of stream without finding the separator
+                            None => (false, 0),                   // Continue reading more data
                         }
                     };
-                    reader.consume(used);
+                    reader.consume(used); // Consume the used bytes from the buffer
                     if done || used == 0 {
-                        break;
+                        break; // Break the loop if done or no more data used
                     }
                 }
             }
 
             if packet_len == 0 {
-                continue;
+                continue; // No packet length, continue to read more data
             }
 
+            // Read bytes from the buffer until the packet length is reached
             let byte_read = {
                 let data = reader.fill_buf().unwrap();
                 match std::str::from_utf8(data) {
@@ -131,7 +144,6 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                     Err(e) => {
                         let chunk =
                             unsafe { std::str::from_utf8_unchecked(&data[..e.valid_up_to()]) };
-
                         let i = chunk.char_indices().nth(packet_len).map(|(i, _)| i);
                         if let Some(i) = i {
                             packet_buf.extend_from_slice(chunk[..i].as_bytes());
@@ -143,9 +155,11 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                     }
                 }
             };
-            reader.consume(byte_read);
+            reader.consume(byte_read); // Consume the bytes read from the buffer
 
             let packet_str = std::str::from_utf8(&packet_buf);
+
+            // Check if the packet length matches the number of characters
             if packet_str
                 .map(|p| p.chars().count() == packet_len)
                 .unwrap_or_default()
@@ -154,9 +168,9 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                     Packet::try_from(unsafe { std::str::from_utf8_unchecked(&packet_buf) })
                         .map_err(|_| Error::InvalidPacketLength),
                     state,
-                ));
+                )); // Emit the packet and the updated state
             } else if end_of_stream && state.buffer.remaining() == 0 {
-                break None;
+                break None; // Reached end of stream with no more data, end the stream
             }
         }
     })
