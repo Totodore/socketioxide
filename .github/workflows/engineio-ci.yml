@@ -48,7 +48,7 @@ jobs:
         with:
           repository: socketio/engine.io-protocol
           path: engine.io-protocol
-          ref: v3
+          ref: main
       - uses: actions/setup-node@v3
         with:
           node-version: 16
