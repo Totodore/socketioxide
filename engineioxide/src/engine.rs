@@ -284,11 +284,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
             match self.get_socket(sid) {
                 None => return Err(Error::UnknownSessionID(sid)),
                 Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
-                Some(_) => {
+                Some(socket) => {
                     debug!("[sid={sid}] websocket connection upgrade");
                     let mut ws = ws_init().await;
                     self.ws_upgrade_handshake(protocol, sid, &mut ws).await?;
-                    (self.get_socket(sid).unwrap(), ws)
+                    (socket, ws)
                 }
             }
         } else {
