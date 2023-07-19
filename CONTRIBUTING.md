@@ -45,8 +45,8 @@ Before you submit an issue, please search the issue tracker, maybe an issue for 
 
 We want to fix all the issues as soon as possible, but before fixing a bug we need to reproduce and confirm it. In order to reproduce bugs we will systematically ask you to provide a minimal reproduction scenario using a repository or [Gist](https://gist.github.com/). Having a live, reproducible scenario gives us wealth of important information without going back & forth to you with additional questions like:
 
-- version of NestJS used
-- 3rd-party libraries and their versions
+- version of socketioxide used
+- version of socket.io protocol used
 - and most importantly - a use-case that fails
 
 Unfortunately, we are not able to investigate / fix bugs without a minimal reproduction, so if we don't hear back from you we are going to close an issue that doesn't have enough info to be reproduced.
@@ -134,17 +134,45 @@ from the main (upstream) repository:
 
 You will need [rustc and cargo](www.rust-lang.org/tools/install).
 
-1. After cloning the repo, run:
+1. Clone the socketioxide repository:
 
-```bash
-$ cargo run
-```
+    ```shell
+    git clone https://github.com/totodore/socketioxide
+    ```
+
+2. Depending on what you want to change, clone the [socketio/engine.io-protocol](https://github.com/socketio/engine.io-protocol) repo or the [socketio/socket.io-protocol](https://github.com/socketio/socket.io-protocol) repo or both
+    ```shell
+    git clone https://github.com/socketio/engine.io-protocol
+    ```
+
+3. Install dependencies for the two test-suite repos with npm install (or yarn install)
+    ```shell
+    cd engine.io-protocol/test-suite
+    npm install
+    cd ../../socket.io-protocol/test-suite
+    npm install
+    ```
+4. Run the e2e test server you want (in socketioxide/e2e)
+    ```shell
+    cargo run --bin engineioxide-e2e --features v3,v4
+    ```
+    ```shell
+    cargo run --bin socketioxide-e2e --features v3,v4
+    ```
+5. Run the corresponding test suite (in socketio/engine.io-protocol/test-suites or socketio/socket.io-protocol/test-suites)
+    ```shell
+    cd engine.io-protocol/test-suite && npm test
+    ```
+    ```shell
+    cd socket.io-protocol/test-suite && npm test
+    ```
+
 
 ## <a name="rules"></a> Coding Rules
 
 To ensure consistency throughout the source code, keep these rules in mind as you are working:
 
-- All features or bug fixes **must be tested** by one or more specs (unit-tests).
+- All features or bug fixes **must be tested** by one or more unit-test.
 - The code must adhere to the rustfmt style guide. Run `cargo fmt` to check your code (all PRs with bad-formated code won't pass CI).
 
 ## <a name="commit"></a> Commit Message Guidelines
