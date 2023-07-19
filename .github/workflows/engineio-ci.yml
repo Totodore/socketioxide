@@ -86,7 +86,8 @@ jobs:
           node-version: 16
       - name: Install deps & run tests 
         run: |
-          cd engine.io-protocol/test-suite && npm install && cd ../..
+          cd engine.io-protocol-v3/test-suite && npm install && cd ../..
+          cd engine.io-protocol-v4/test-suite && npm install && cd ../..
           cargo build --bin engineioxide-e2e --release --features v3,v4 --no-default-features
           cargo run --bin engineioxide-e2e --release --features v3,v4 --no-default-features > server.txt & npm --prefix engine.io-protocol-v4/test-suite test > client_v4.txt & npm --prefix engine.io-protocol-v3/test-suite test > client_v3.txt
       - name: Server output
