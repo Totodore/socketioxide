@@ -115,11 +115,9 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                                         return Some((Err(Error::InvalidPacketLength), state))
                                     }
                                 };
-                                dbg!(std::str::from_utf8(&packet_buf));
                                 packet_buf.clear();
-                                dbg!(std::str::from_utf8(&packet_buf));
 
-                                dbg!((true, i + 1 - old_len)) // Mark as done and set the used bytes count
+                                (true, i + 1 - old_len) // Mark as done and set the used bytes count
                             }
                             None if state.end_of_stream && remaining - available.len() == 0 => {
                                 return None;
@@ -142,19 +140,15 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
             let data: &[u8] = reader.fill_buf().unwrap();
 
             let old_len = packet_buf.len();
-            dbg!(data.len());
             packet_buf.extend_from_slice(data);
-
             let byte_read = match std::str::from_utf8(&packet_buf) {
                 Ok(fulldata) => {
-                    let i = dbg!(fulldata)
+                    let i = fulldata
                         .grapheme_indices(true)
-                        .nth(dbg!(packet_graphemes_len))
+                        .nth(packet_graphemes_len)
                         .map(|(i, _)| i);
                     if let Some(i) = i {
-                        dbg!(std::str::from_utf8(&packet_buf));
                         packet_buf.truncate(i);
-                        dbg!(std::str::from_utf8(&packet_buf));
                         packet_buf.len() - old_len
                     } else {
                         data.len()
@@ -168,19 +162,20 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                         .nth(packet_graphemes_len)
                         .map(|(i, _)| i);
                     if let Some(i) = i {
-                        dbg!(&packet_buf);
                         packet_buf.truncate(i);
-                        dbg!(&packet_buf);
                         packet_buf.len() - old_len
                     } else {
                         data.len()
                     }
                 }
             };
-
             reader.consume(byte_read);
-            let packet_str = std::str::from_utf8(&packet_buf);
             // Check if the packet length matches the number of characters
+            if let Ok(packet) = std::str::from_utf8(&packet_buf) {
+                if packet.graphemes(true).count() == packet_graphemes_len {
+                    let packet = Packet::try_from(packet).map_err(|_| Error::InvalidPacketLength);
+                    break Some((packet, state)); // Emit the packet and the updated state
+                }
             } else if state.end_of_stream && state.buffer.remaining() == 0 {
                 break None; // Reached end of stream with no more data, end the stream
             }
