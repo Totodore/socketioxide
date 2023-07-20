@@ -6,9 +6,6 @@ use std::io::BufRead;
 
 use self::buf::BufList;
 
-#[cfg(feature = "v3")]
-use unicode_segmentation::UnicodeSegmentation;
-
 mod buf;
 pub const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 pub const PACKET_SEPARATOR_V3: u8 = b':';
@@ -68,6 +65,7 @@ fn body_parser_v4(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
 #[cfg(feature = "v3")]
 fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Result<Packet, Error>> {
     use std::io::ErrorKind;
+    use unicode_segmentation::UnicodeSegmentation;
 
     let state = Payload {
         body,
