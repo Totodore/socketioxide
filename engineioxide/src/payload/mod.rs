@@ -158,7 +158,7 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                     let chunk =
                         unsafe { std::str::from_utf8_unchecked(&packet_buf[..e.valid_up_to()]) };
                     let i = chunk
-                        .char_indices()
+                        .grapheme_indices(true)
                         .nth(packet_graphemes_len)
                         .map(|(i, _)| i);
                     if let Some(i) = i {
