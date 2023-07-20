@@ -93,6 +93,7 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
             if packet_graphemes_len == 0 {
                 loop {
                     let (done, used) = {
+                        let remaining = reader.get_ref().remaining();
                         let available = match reader.fill_buf() {
                             Ok(n) => n,
                             Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
@@ -121,6 +122,9 @@ fn body_parser_v3(body: impl http_body::Body + Unpin) -> impl Stream<Item = Resu
                                 dbg!((true, i + 1 - old_len)) // Mark as done and set the used bytes count
                             }
                             None if state.end_of_stream && remaining - available.len() == 0 => {
+                                return None;
+                            } // Reached end of stream and end of bufferered chunks without finding the separator
+                            None => (false, available.len()), // Continue reading more data
                         }
                     };
                     reader.consume(used); // Consume the used bytes from the buffer
