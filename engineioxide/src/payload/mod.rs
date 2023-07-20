@@ -225,7 +225,7 @@ mod tests {
     use super::*;
     #[cfg(feature = "v4")]
     #[tokio::test]
-    async fn test_payload_v4() {
+    async fn test_payload_iterator_v4() {
         assert!(cfg!(feature = "v4"));
         let data = Full::new(Bytes::from("4foo\x1e4€f\x1e4f"));
         let payload = body_parser_v4(data);
@@ -250,24 +250,27 @@ mod tests {
     async fn test_payload_stream_v4() {
         assert!(cfg!(feature = "v4"));
         const DATA: &[u8] = "4foo\x1e4€f\x1e4fo".as_bytes();
-        let stream = hyper::Body::wrap_stream(futures::stream::iter(
-            DATA.chunks(2).map(Ok::<_, std::convert::Infallible>),
-        ));
-        let payload = body_parser_v4(stream);
-        futures::pin_mut!(payload);
-        assert!(matches!(
-            payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "foo"
-        ));
-        assert!(matches!(
-            payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "€f"
-        ));
-        assert!(matches!(
-            payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "fo"
-        ));
-        assert_eq!(payload.next().await.is_none(), true);
+        for i in 1..DATA.len() {
+            println!("payload stream v4 chunk size: {i}");
+            let stream = hyper::Body::wrap_stream(futures::stream::iter(
+                DATA.chunks(i).map(Ok::<_, std::convert::Infallible>),
+            ));
+            let payload = body_parser_v4(stream);
+            futures::pin_mut!(payload);
+            assert!(matches!(
+                payload.next().await.unwrap().unwrap(),
+                Packet::Message(msg) if msg == "foo"
+            ));
+            assert!(matches!(
+                payload.next().await.unwrap().unwrap(),
+                Packet::Message(msg) if msg == "€f"
+            ));
+            assert!(matches!(
+                payload.next().await.unwrap().unwrap(),
+                Packet::Message(msg) if msg == "fo"
+            ));
+            assert_eq!(payload.next().await.is_none(), true);
+        }
     }
 
     #[cfg(feature = "v3")]
@@ -286,9 +289,8 @@ mod tests {
             payload.next().await.unwrap().unwrap(),
             Packet::Message(msg) if msg == "€f"
         ));
-        let m = dbg!(payload.next().await.unwrap().unwrap());
         assert!(matches!(
-            m,
+            payload.next().await.unwrap().unwrap(),
             Packet::Message(msg) if msg == "faaaaaaaa"
         ));
         assert_eq!(payload.next().await.is_none(), true);
@@ -299,25 +301,27 @@ mod tests {
     async fn test_payload_stream_v3() {
         assert!(cfg!(feature = "v3"));
         const DATA: &[u8] = "4:4foo3:4€f11:4baaaaaaaar".as_bytes();
-
-        let stream = hyper::Body::wrap_stream(futures::stream::iter(
-            DATA.chunks(2).map(Ok::<_, std::convert::Infallible>),
-        ));
-        let payload = body_parser_v3(stream);
-        futures::pin_mut!(payload);
-        let packet = payload.next().await.unwrap().unwrap();
-        assert!(matches!(
-            packet,
-            Packet::Message(msg) if msg == "foo"
-        ));
-        assert!(matches!(
-            payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "€f"
-        ));
-        assert!(matches!(
-            payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "baaaaaaaar"
-        ));
-        assert_eq!(payload.next().await.is_none(), true);
+        for i in 1..DATA.len() {
+            println!("payload stream v3 chunk size: {i}");
+            let stream = hyper::Body::wrap_stream(futures::stream::iter(
+                DATA.chunks(i).map(Ok::<_, std::convert::Infallible>),
+            ));
+            let payload = body_parser_v3(stream);
+            futures::pin_mut!(payload);
+            let packet = payload.next().await.unwrap().unwrap();
+            assert!(matches!(
+                packet,
+                Packet::Message(msg) if msg == "foo"
+            ));
+            assert!(matches!(
+                payload.next().await.unwrap().unwrap(),
+                Packet::Message(msg) if msg == "€f"
+            ));
+            assert!(matches!(
+                payload.next().await.unwrap().unwrap(),
+                Packet::Message(msg) if msg == "baaaaaaaar"
+            ));
+            assert_eq!(payload.next().await.is_none(), true);
+        }
     }
 }
