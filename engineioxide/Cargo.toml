@@ -40,18 +40,18 @@ tower = "0.4.13"
 tracing = "0.1.37"
 rand = "0.8.5"
 base64id = { version = "0.3.1", features = ["std", "rand", "serde"] }
-utf8-chars = "3.0.0"
-memchr = "2.5.0"
+memchr = { version = "2.5.0", optional = true }
 unicode-segmentation = { version = "1.10.1", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 tokio = { version = "1.26.0", features = ["macros"] }
+
+[features]
+default = ["v4", "v3"]
+v4 = []
+v3 = ["memchr", "unicode-segmentation"]
+
 [[bench]]
 name = "benchmark_polling"
 harness = false
-
-[features]
-default = ["v4"]
-v4 = []
-v3 = ["unicode-segmentation"]

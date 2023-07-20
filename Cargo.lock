@@ -15,12 +15,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41ed9a86bf92ae6580e0a31281f65a1b1d867c0cc68d5346e2ae128dddfa6a7d"
 
 [[package]]
-name = "arrayvec"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
-
-[[package]]
 name = "async-trait"
 version = "0.1.67"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -380,7 +374,6 @@ dependencies = [
  "tower",
  "tracing",
  "unicode-segmentation",
- "utf8-chars",
 ]
 
 [[package]]
@@ -1695,15 +1688,6 @@ name = "utf-8"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
-
-[[package]]
-name = "utf8-chars"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0264d875626af0ca1580edc9a6a528c218b3a336c65cb2c4842572c484c2aa62"
-dependencies = [
- "arrayvec",
-]
 
 [[package]]
 name = "valuable"
