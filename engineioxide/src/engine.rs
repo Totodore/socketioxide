@@ -192,7 +192,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             .ok_or(Error::UnknownSessionID(sid))
             .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
-        let packets = payload::body_parser(body, protocol);
+        let packets = payload::body_parser(body, protocol, self.config.max_payload);
         futures::pin_mut!(packets);
 
         while let Some(packet) = packets.next().await {

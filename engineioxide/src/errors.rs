@@ -48,6 +48,8 @@ pub enum Error {
     TransportMismatch,
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
+    #[error("payload too large")]
+    PayloadTooLarge,
 
     #[error("Invalid packet length")]
     InvalidPacketLength,
@@ -72,6 +74,10 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .unwrap(),
             Error::BadPacket(_) => Response::builder()
                 .status(400)
+                .body(ResponseBody::empty_response())
+                .unwrap(),
+            Error::PayloadTooLarge => Response::builder()
+                .status(413)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
             Error::UnknownTransport => {
