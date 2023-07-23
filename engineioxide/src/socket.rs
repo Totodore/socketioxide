@@ -105,6 +105,10 @@ where
 
     /// Http Request data used to create a socket
     pub req_data: Arc<SocketReq>,
+
+    /// If the client supports binary packets (via polling XHR2)
+    #[cfg(feature = "v3")]
+    pub supports_binary: bool,
 }
 
 impl<H> Socket<H>
@@ -118,6 +122,7 @@ where
         config: &EngineIoConfig,
         req_data: SocketReq,
         close_fn: Box<dyn Fn(Sid) + Send + Sync>,
+        #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
@@ -141,6 +146,9 @@ where
 
             data: H::Data::default(),
             req_data: req_data.into(),
+
+            #[cfg(feature = "v3")]
+            supports_binary,
         }
     }
 
@@ -344,6 +352,9 @@ impl<H: EngineIoHandler> Socket<H> {
                 uri: Uri::default(),
             }
             .into(),
+
+            #[cfg(feature = "v3")]
+            supports_binary: true,
         }
     }
 }

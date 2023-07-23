@@ -102,12 +102,20 @@ where
                     sid: None,
                     transport: TransportType::Polling,
                     method: Method::GET,
-                }) => ResponseFuture::ready(engine.on_open_http_req(protocol, req)),
+                    #[cfg(feature = "v3")]
+                    b64,
+                }) => ResponseFuture::ready(engine.on_open_http_req(
+                    protocol,
+                    req,
+                    #[cfg(feature = "v3")]
+                    !b64,
+                )),
                 Ok(RequestInfo {
                     protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::GET,
+                    ..
                 }) => ResponseFuture::async_response(Box::pin(
                     engine.on_polling_http_req(protocol, sid),
                 )),
@@ -116,6 +124,7 @@ where
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
+                    ..
                 }) => ResponseFuture::async_response(Box::pin(
                     engine.on_post_http_req(protocol, sid, req),
                 )),
@@ -124,6 +133,7 @@ where
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
+                    ..
                 }) => ResponseFuture::ready(engine.on_ws_req(protocol, sid, req)),
                 Err(e) => ResponseFuture::ready(Ok(e.into())),
                 _ => ResponseFuture::empty_response(400),
@@ -260,6 +270,9 @@ struct RequestInfo {
     transport: TransportType,
     /// The request method.
     method: Method,
+    /// If the client asked for base64 encoding only.
+    #[cfg(feature = "v3")]
+    b64: bool,
 }
 
 impl RequestInfo {
@@ -287,8 +300,14 @@ impl RequestInfo {
             .ok_or(UnknownTransport)
             .and_then(|t| t.parse())?;
 
-        let method = req.method().clone();
+        #[cfg(feature = "v3")]
+        let b64: bool = query
+            .split('&')
+            .find(|s| s.starts_with("b64="))
+            .map(|_| true)
+            .unwrap_or_default();
 
+        let method = req.method().clone();
         if !matches!(method, Method::GET) && sid.is_none() {
             Err(Error::BadHandshakeMethod)
         } else {
@@ -297,6 +316,8 @@ impl RequestInfo {
                 sid,
                 transport,
                 method,
+                #[cfg(feature = "v3")]
+                b64,
             })
         }
     }
@@ -353,6 +374,25 @@ mod tests {
         assert_eq!(info.protocol, ProtocolVersion::V3);
         assert_eq!(info.method, Method::GET);
     }
+
+    #[test]
+    #[cfg(feature = "v3")]
+    fn request_info_polling_with_bin_by_default() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=3&transport=polling");
+        let req = RequestInfo::parse(&req).unwrap();
+        assert_eq!(req.b64, false);
+    }
+
+    #[test]
+    #[cfg(feature = "v3")]
+    fn request_info_polling_withb64() {
+        assert!(cfg!(feature = "v3"));
+
+        let req = build_request("http://localhost:3000/socket.io/?EIO=3&transport=polling&b64=1");
+        let req = RequestInfo::parse(&req).unwrap();
+        assert_eq!(req.b64, true);
+    }
+
     #[test]
     fn transport_unknown_err() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=grpc");

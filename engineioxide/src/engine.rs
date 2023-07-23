@@ -60,6 +60,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         self: Arc<Self>,
         protocol: ProtocolVersion,
         req: Request<R>,
+        #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
@@ -74,6 +75,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
             &self.config,
             SocketReq::from(req.into_parts().0),
             close_fn,
+            #[cfg(feature = "v3")]
+            supports_binary,
         );
         let socket = Arc::new(socket);
         {
@@ -165,6 +168,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             }
             data.push_str(&packet);
         }
+        debug!("[sid={sid}] sending data: {:?}", data);
         Ok(http_response(StatusCode::OK, data)?)
     }
 
@@ -302,6 +306,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 &self.config,
                 req_data,
                 close_fn,
+                #[cfg(feature = "v3")]
+                true, // supports_binary
             );
             let socket = Arc::new(socket);
             {
