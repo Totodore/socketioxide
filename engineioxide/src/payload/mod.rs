@@ -13,7 +13,7 @@ const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 const PACKET_SEPARATOR_V3: u8 = b':';
 
 pub fn decoder(
-    body: impl http_body::Body + Unpin,
+    body: impl http_body::Body<Error = impl std::fmt::Debug> + Unpin,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, Error>> {

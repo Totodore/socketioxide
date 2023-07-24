@@ -36,7 +36,7 @@ impl<B: http_body::Body> Payload<B> {
 /// Polls the body stream for data and adds it to the chunk list in the state
 /// Returns an error if the packet length exceeds the maximum allowed payload size
 async fn poll_body(
-    state: &mut Payload<impl http_body::Body + Unpin>,
+    state: &mut Payload<impl http_body::Body<Error = impl std::fmt::Debug> + Unpin>,
     max_payload: u64,
 ) -> Result<(), Error> {
     match state.body.data().await.transpose() {
@@ -59,7 +59,7 @@ async fn poll_body(
 
 #[cfg(feature = "v4")]
 pub fn v4_decoder(
-    body: impl http_body::Body + Unpin,
+    body: impl http_body::Body<Error = impl std::fmt::Debug> + Unpin,
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, Error>> {
     use super::PACKET_SEPARATOR_V4;
@@ -105,7 +105,7 @@ pub fn v4_decoder(
 
 #[cfg(feature = "v3")]
 pub fn v3_decoder(
-    body: impl http_body::Body + Unpin,
+    body: impl http_body::Body<Error = impl std::fmt::Debug> + Unpin,
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, Error>> {
     use std::io::ErrorKind;
