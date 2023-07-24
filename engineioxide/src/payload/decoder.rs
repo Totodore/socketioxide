@@ -6,6 +6,8 @@
 //!
 
 use futures::Stream;
+use http::StatusCode;
+use tracing::debug;
 
 use crate::{errors::Error, packet::Packet};
 use bytes::Buf;
@@ -48,7 +50,10 @@ async fn poll_body(
             state.end_of_stream = true;
             Ok(())
         }
-        Err(_) => todo!(), // Handle the error case
+        Err(e) => {
+            debug!("error reading body stream: {:?}", e);
+            Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))
+        }
     }
 }
 
