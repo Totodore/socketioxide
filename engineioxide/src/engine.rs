@@ -11,7 +11,7 @@ use crate::{
     futures::{http_response, ws_response},
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    payload::{self, PACKET_SEPARATOR_V3, PACKET_SEPARATOR_V4},
+    payload::{self},
     service::TransportType,
     sid_generator::generate_sid,
     socket::{ConnectionType, Socket, SocketReq},
@@ -121,7 +121,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
         // If the socket is already locked, it means that the socket is being used by another request
         // In case of multiple http polling, session should be closed
-        let mut rx = match socket.internal_rx.try_lock() {
+        let rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
                 socket.close();
@@ -130,50 +130,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
         };
 
         debug!("[sid={sid}] polling request");
-        let mut data = String::new();
 
-        // Send all packets in the buffer
-        while let Ok(packet) = rx.try_recv() {
-            debug!("sending packet: {:?}", packet);
-            let packet: String = packet.try_into().unwrap();
-            if !data.is_empty() {
-                // The V3 protocol requires the packet length to be prepended to the packet.
-                // The V4 protocol (and up) only requires a packet separator.
-                match protocol {
-                    ProtocolVersion::V3 => data.push_str(&format!(
-                        "{}{}",
-                        packet.chars().count(),
-                        PACKET_SEPARATOR_V3 as char
-                    )),
-                    ProtocolVersion::V4 => {
-                        data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap())
-                    }
-                }
-            } else if protocol == ProtocolVersion::V3 {
-                data.push_str(&format!(
-                    "{}{}",
-                    packet.chars().count(),
-                    PACKET_SEPARATOR_V3 as char
-                ));
-            }
-            data.push_str(&packet);
-        }
+        #[cfg(feature = "v3")]
+        let payload = payload::encoder(rx, protocol, socket.supports_binary).await?;
+        #[cfg(not(feature = "v3"))]
+        let payload = payload::encoder(rx, protocol).await?;
 
-        // If there is no packet in the buffer, wait for the next packet
-        if data.is_empty() {
-            let packet = rx.recv().await.ok_or(Error::Aborted)?;
-            let packet: String = packet.try_into().unwrap();
-            #[cfg(feature = "v3")]
-            {
-                // The V3 protocol specifically requires the packet length to be prepended to the packet.
-                if protocol == ProtocolVersion::V3 {
-                    data.push_str(&format!("{}:", packet.chars().count()));
-                }
-            }
-            data.push_str(&packet);
-        }
-        debug!("[sid={sid}] sending data: {:?}", data);
-        Ok(http_response(StatusCode::OK, data)?)
+        debug!("[sid={sid}] sending data: {:?}", payload);
+        Ok(http_response(StatusCode::OK, payload)?)
     }
 
     /// Handle http polling post request
@@ -196,7 +160,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             .ok_or(Error::UnknownSessionID(sid))
             .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
-        let packets = payload::body_parser(body, protocol, self.config.max_payload);
+        let packets = payload::decoder(body, protocol, self.config.max_payload);
         futures::pin_mut!(packets);
 
         while let Some(packet) = packets.next().await {
