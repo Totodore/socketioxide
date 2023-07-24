@@ -66,7 +66,7 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), E
             data.put_slice(&len.to_be_bytes()[leading_zero_bytes as usize..]);
 
             data.push(0xff); // separator
-            data.extend_from_slice(&packet.as_bytes()); // packet
+            data.extend_from_slice(packet.as_bytes()); // packet
         }
     };
     Ok(())
