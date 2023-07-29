@@ -46,14 +46,17 @@ pub async fn v4_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<
 #[cfg(feature = "v3")]
 pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), Error> {
     use bytes::BufMut;
+
+    use crate::payload::BINARY_PACKET_SEPARATOR_V3;
     match packet {
         Packet::BinaryV3(bin) => {
             data.push(0x1);
 
-            let len = bin.len() + 1;
-            let leading_zero_bytes = len.leading_zeros() / 8;
-            data.put_slice(&len.to_be_bytes()[leading_zero_bytes as usize..]);
-            data.push(0xff); // separator
+            let len = (bin.len() + 1).to_string();
+            for char in len.chars() {
+                data.push(char as u8 - 48);
+            }
+            data.push(BINARY_PACKET_SEPARATOR_V3); // separator
             data.push(0x04); // message packet type
             data.extend_from_slice(&bin); // raw data
         }
@@ -61,11 +64,10 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), E
             let packet: String = packet.try_into()?;
             data.push(0x0); // 0 = string
 
-            let len = packet.len();
-            let leading_zero_bytes = len.leading_zeros() / 8;
-            data.put_slice(&len.to_be_bytes()[leading_zero_bytes as usize..]);
+            let len = packet.len().to_string();
+            data.put_slice(len.as_bytes());
 
-            data.push(0xff); // separator
+            data.push(BINARY_PACKET_SEPARATOR_V3); // separator
             data.extend_from_slice(packet.as_bytes()); // packet
         }
     };
@@ -76,12 +78,12 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), E
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub fn v3_string_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), Error> {
-    use crate::payload::PACKET_SEPARATOR_V3;
+    use crate::payload::STRING_PACKET_SEPARATOR_V3;
     let packet: String = packet.try_into()?;
     let packet = format!(
         "{}{}{}",
         packet.chars().count(),
-        PACKET_SEPARATOR_V3 as char,
+        STRING_PACKET_SEPARATOR_V3 as char,
         packet
     );
     data.extend_from_slice(packet.as_bytes());
@@ -128,7 +130,7 @@ pub async fn v3_binary_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Resu
             }
         };
     }
-
+    debug!("sending packet: {:?}", &data);
     Ok(data)
 }
 
