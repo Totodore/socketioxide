@@ -160,7 +160,7 @@ pub fn v3_binary_decoder(
                         .iter()
                         .map(|b| (b + 48) as char)
                         .collect::<String>();
-                    if let Ok(size) = u64::from_str_radix(size_str, 10) {
+                    if let Ok(size) = size_str.parse() {
                         packet_size = size;
                     } else {
                         break Some((Err(Error::InvalidPacketLength), state));
