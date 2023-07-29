@@ -161,14 +161,14 @@ mod tests {
     #[cfg(feature = "v4")]
     #[tokio::test]
     async fn encode_v4_payload() {
-        const PAYLOAD: &'static str = "4hello\x1ebAQIDBA==\x1e4hello";
+        const PAYLOAD: &'static str = "4hello€\x1ebAQIDBA==\x1e4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(rx);
         let rx = mutex.lock().await;
 
-        tx.try_send(Packet::Message("hello".into())).unwrap();
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::Binary(vec![1, 2, 3, 4])).unwrap();
-        tx.try_send(Packet::Message("hello".into())).unwrap();
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
         let res = v4_encoder(rx).await.unwrap();
         assert_eq!(res, PAYLOAD.as_bytes());
     }
@@ -176,14 +176,14 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn encode_v3b64_payload() {
-        const PAYLOAD: &'static str = "6:4hello10:b4AQIDBA==6:4hello";
+        const PAYLOAD: &'static str = "7:4hello€10:b4AQIDBA==7:4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(rx);
         let rx = mutex.lock().await;
 
-        tx.try_send(Packet::Message("hello".into())).unwrap();
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
-        tx.try_send(Packet::Message("hello".into())).unwrap();
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
         let res = v3_string_encoder(rx).await.unwrap();
         assert_eq!(res, PAYLOAD.as_bytes());
     }
@@ -191,14 +191,14 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn encode_v3binary_payload() {
-        const PAYLOAD: [u8; 17] = [
-            0, 6, 255, 52, 104, 101, 108, 108, 111, 1, 5, 255, 4, 1, 2, 3, 4,
+        const PAYLOAD: [u8; 20] = [
+            0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
         ];
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(rx);
         let rx = mutex.lock().await;
 
-        tx.try_send(Packet::Message("hello".into())).unwrap();
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
         let res = v3_binary_encoder(rx).await.unwrap();
         assert_eq!(res, PAYLOAD);
