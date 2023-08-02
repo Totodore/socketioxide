@@ -25,7 +25,9 @@ pub fn decoder(
 ) -> impl Stream<Item = Result<Packet, Error>> {
     #[cfg(all(feature = "v3", feature = "v4"))]
     {
-        debug!("decoding payload {:?}", body.headers().get(CONTENT_TYPE));
+        use futures::future::Either;
+        use http::header::CONTENT_TYPE;
+        tracing::debug!("decoding payload {:?}", body.headers().get(CONTENT_TYPE));
         let is_binary =
             body.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
         match protocol {
@@ -41,6 +43,7 @@ pub fn decoder(
 
     #[cfg(all(feature = "v3", not(feature = "v4")))]
     {
+        use futures::future::Either;
         if is_binary {
             Either::Left(decoder::v3_binary_decoder(body, max_payload))
         } else {
