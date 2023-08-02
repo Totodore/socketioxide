@@ -1,10 +1,8 @@
 use axum::routing::get;
 use axum::Server;
 use engineioxide::{handler::EngineIoHandler, layer::EngineIoLayer, socket::Socket};
-use tower::ServiceBuilder;
-use tower_http::cors::CorsLayer;
-use tracing::{info, Level};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+use tracing::info;
+use tracing_subscriber::FmtSubscriber;
 
 #[derive(Debug, Clone)]
 struct MyHandler;
@@ -33,22 +31,12 @@ impl EngineIoHandler for MyHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing::subscriber::set_global_default(
-        FmtSubscriber::builder()
-            .with_line_number(true)
-            .with_max_level(Level::DEBUG)
-            .with_env_filter(EnvFilter::from_default_env())
-            .finish(),
-    )?;
+    tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
     info!("Starting server");
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(
-            ServiceBuilder::new()
-                .layer(CorsLayer::very_permissive()) // Enable CORS policy
-                .layer(EngineIoLayer::new(MyHandler)),
-        );
+        .layer(EngineIoLayer::new(MyHandler));
 
     Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(app.into_make_service())
