@@ -78,10 +78,12 @@ pub fn v4_decoder(
             }
 
             // Read from the buffer until the packet separator is found
-            (&mut state.buffer)
+            if let Err(e) = (&mut state.buffer)
                 .reader()
                 .read_until(PACKET_SEPARATOR_V4, &mut packet_buf)
-                .unwrap();
+            {
+                break Some((Err(Error::Io(e)), state));
+            }
 
             let separator_found = packet_buf.ends_with(&[PACKET_SEPARATOR_V4]);
 
@@ -134,10 +136,12 @@ pub fn v3_binary_decoder(
             // If there is no packet_type found
             if packet_type.is_none() && state.buffer.remaining() > 0 {
                 // Read from the buffer until the packet separator is found
-                (&mut state.buffer)
+                if let Err(e) = (&mut state.buffer)
                     .reader()
                     .read_until(BINARY_PACKET_SEPARATOR_V3, &mut packet_buf)
-                    .unwrap();
+                {
+                    break Some((Err(Error::Io(e)), state));
+                }
 
                 // Extract packet_type and packet_size
                 if packet_buf.ends_with(&[BINARY_PACKET_SEPARATOR_V3]) {
