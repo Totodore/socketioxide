@@ -4,7 +4,7 @@ use futures::future::BoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
-use crate::errors::SendError;
+use crate::errors::AckSenderError;
 use crate::{adapter::Adapter, errors::Error, packet::Packet, Socket};
 
 pub type AckResponse<T> = (T, Vec<Vec<u8>>);
@@ -106,16 +106,30 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Send the ack response to the client.
-    pub fn send(self, data: impl Serialize) -> Result<(), SendError> {
+    pub fn send(self, data: impl Serialize) -> Result<(), AckSenderError<A>> {
         if let Some(ack_id) = self.ack_id {
             let ns = self.socket.ns().clone();
-            let data = serde_json::to_value(&data)?;
+            let data = match serde_json::to_value(&data) {
+                Err(err) => {
+                    return Err(AckSenderError::SendError {
+                        send_error: err.into(),
+                        socket: self.socket,
+                    })
+                }
+                Ok(data) => data,
+            };
+
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.send(packet)
+            self.socket
+                .send(packet)
+                .map_err(|err| AckSenderError::SendError {
+                    send_error: err,
+                    socket: self.socket,
+                })
         } else {
             Ok(())
         }

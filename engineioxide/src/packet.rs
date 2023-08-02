@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose, Engine};
-use bytes::Bytes;
 use serde::{de::Error, Deserialize, Serialize};
 
 use crate::sid_generator::Sid;
@@ -58,6 +57,13 @@ pub enum Packet {
     BinaryV3(Vec<u8>), // Not part of the protocol, used internally
 }
 
+impl Packet {
+    /// Check if the packet is a binary packet
+    pub fn is_binary(&self) -> bool {
+        matches!(self, Packet::Binary(_) | Packet::BinaryV3(_))
+    }
+}
+
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
 impl TryInto<String> for Packet {
     type Error = crate::errors::Error;
@@ -81,9 +87,9 @@ impl TryInto<String> for Packet {
     }
 }
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
-impl TryFrom<String> for Packet {
+impl TryFrom<&str> for Packet {
     type Error = crate::errors::Error;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         let mut chars = value.chars();
         let packet_type = chars
             .next()
@@ -122,23 +128,10 @@ impl TryFrom<String> for Packet {
     }
 }
 
-/// Deserialize a Binary Packet variant from a [Vec<u8>] according to the Engine.IO protocol
-/// Used when receiving data from a websocket binary frame
-impl TryFrom<Vec<u8>> for Packet {
+impl TryFrom<String> for Packet {
     type Error = crate::errors::Error;
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let value = String::from_utf8(value)?;
-        Packet::try_from(value)
-    }
-}
-
-/// Deserialize a Binary Packet from [Bytes] according to the Engine.IO protocol
-/// Used when receiving data from a polling connection as a [Bytes] object (in an http body)
-impl TryFrom<Bytes> for Packet {
-    type Error = crate::errors::Error;
-    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        let value = String::from_utf8(value.into())?;
-        Packet::try_from(value)
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Packet::try_from(value.as_str())
     }
 }
 
