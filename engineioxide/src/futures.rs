@@ -18,16 +18,21 @@ pub(crate) type BoxFuture<B> =
 pub fn http_response<B, D>(
     code: StatusCode,
     data: D,
+    is_binary: bool,
 ) -> Result<Response<ResponseBody<B>>, http::Error>
 where
     D: Into<Bytes>,
 {
     let body: Bytes = data.into();
-    Response::builder()
+    let res = Response::builder()
         .status(code)
-        .header(CONTENT_TYPE, "text/plain; charset=UTF-8")
-        .header(CONTENT_LENGTH, body.len())
-        .body(ResponseBody::custom_response(Full::new(body)))
+        .header(CONTENT_LENGTH, body.len());
+    if is_binary {
+        res.header(CONTENT_TYPE, "application/octet-stream")
+    } else {
+        res.header(CONTENT_TYPE, "text/plain; charset=UTF-8")
+    }
+    .body(ResponseBody::custom_response(Full::new(body)))
 }
 
 /// Create a response for websocket upgrade

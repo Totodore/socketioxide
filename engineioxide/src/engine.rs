@@ -99,7 +99,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             #[cfg(not(feature = "v3"))]
             packet
         };
-        http_response(StatusCode::OK, packet).map_err(Error::Http)
+        http_response(StatusCode::OK, packet, false).map_err(Error::Http)
     }
 
     /// Handle http polling request
@@ -132,12 +132,12 @@ impl<H: EngineIoHandler> EngineIo<H> {
         debug!("[sid={sid}] polling request");
 
         #[cfg(feature = "v3")]
-        let payload = payload::encoder(rx, protocol, socket.supports_binary).await?;
+        let (payload, is_binary) = payload::encoder(rx, protocol, socket.supports_binary).await?;
         #[cfg(not(feature = "v3"))]
-        let payload = payload::encoder(rx, protocol).await?;
+        let (payload, is_binary) = payload::encoder(rx, protocol).await?;
 
         debug!("[sid={sid}] sending data: {:?}", payload);
-        Ok(http_response(StatusCode::OK, payload)?)
+        Ok(http_response(StatusCode::OK, payload, is_binary)?)
     }
 
     /// Handle http polling post request
@@ -194,7 +194,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 }
             }?;
         }
-        Ok(http_response(StatusCode::OK, "ok")?)
+        Ok(http_response(StatusCode::OK, "ok", false)?)
     }
 
     /// Upgrade a websocket request to create a websocket connection.

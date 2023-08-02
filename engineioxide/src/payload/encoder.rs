@@ -18,6 +18,7 @@ use crate::{errors::Error, packet::Packet};
 pub async fn v4_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<u8>, Error> {
     use crate::payload::PACKET_SEPARATOR_V4;
 
+    debug!("encoding payload with v4 encoder");
     let mut data: String = String::new();
 
     // Send all packets in the buffer
@@ -45,8 +46,6 @@ pub async fn v4_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), Error> {
-    use bytes::BufMut;
-
     use crate::payload::BINARY_PACKET_SEPARATOR_V3;
     match packet {
         Packet::BinaryV3(bin) => {
@@ -65,8 +64,9 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), E
             data.push(0x0); // 0 = string
 
             let len = packet.len().to_string();
-            data.put_slice(len.as_bytes());
-
+            for char in len.chars() {
+                data.push(char as u8 - 48);
+            }
             data.push(BINARY_PACKET_SEPARATOR_V3); // separator
             data.extend_from_slice(packet.as_bytes()); // packet
         }
@@ -93,10 +93,13 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<()
 /// Encode multiple packet packet into a *string* payload if there is no binary packet or into a *binary* payload if there is binary packets
 /// according to the [engine.io v4 protocol](https://socket.io/fr/docs/v4/engine-io-protocol/#http-long-polling-1)
 #[cfg(feature = "v3")]
-pub async fn v3_binary_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<u8>, Error> {
+pub async fn v3_binary_encoder(
+    mut rx: MutexGuard<'_, Receiver<Packet>>,
+) -> Result<(Vec<u8>, bool), Error> {
     let mut data: Vec<u8> = Vec::new();
     let mut packet_buffer: Vec<Packet> = Vec::new();
 
+    debug!("encoding payload with v3 binary encoder");
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
     while let Ok(packet) = rx.try_recv() {
@@ -124,6 +127,7 @@ pub async fn v3_binary_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Resu
         match packet {
             Packet::BinaryV3(_) | Packet::Binary(_) => {
                 v3_bin_packet_encoder(packet, &mut data)?;
+                has_binary = true;
             }
             packet => {
                 v3_string_packet_encoder(packet, &mut data)?;
@@ -131,7 +135,7 @@ pub async fn v3_binary_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Resu
         };
     }
     debug!("sending packet: {:?}", &data);
-    Ok(data)
+    Ok((data, has_binary))
 }
 
 /// Encode multiple packet packet into a *string* payload according to the
@@ -140,6 +144,7 @@ pub async fn v3_binary_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Resu
 pub async fn v3_string_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<u8>, Error> {
     let mut data: Vec<u8> = Vec::new();
 
+    debug!("encoding payload with v3 string encoder");
     while let Ok(packet) = rx.try_recv() {
         v3_string_packet_encoder(packet, &mut data)?;
     }
@@ -202,7 +207,8 @@ mod tests {
 
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
-        let res = v3_binary_encoder(rx).await.unwrap();
+        let (res, is_binary) = v3_binary_encoder(rx).await.unwrap();
         assert_eq!(res, PAYLOAD);
+        assert!(is_binary);
     }
 }

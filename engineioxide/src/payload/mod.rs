@@ -58,13 +58,13 @@ pub async fn encoder(
     rx: MutexGuard<'_, Receiver<Packet>>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
-) -> Result<Vec<u8>, Error> {
+) -> Result<(Vec<u8>, bool), Error> {
     #[cfg(all(feature = "v3", feature = "v4"))]
     {
         match protocol {
-            ProtocolVersion::V4 => encoder::v4_encoder(rx).await,
+            ProtocolVersion::V4 => Ok((encoder::v4_encoder(rx).await?, false)),
             ProtocolVersion::V3 if supports_binary => encoder::v3_binary_encoder(rx).await,
-            ProtocolVersion::V3 => encoder::v3_string_encoder(rx).await,
+            ProtocolVersion::V3 => Ok((encoder::v3_string_encoder(rx).await?, false)),
         }
     }
 
@@ -73,11 +73,11 @@ pub async fn encoder(
         if supports_binary {
             encoder::v3_binary_encoder(rx).await
         } else {
-            encoder::v3_string_encoder(rx).await
+            Ok((encoder::v3_string_encoder(rx).await?, false))
         }
     }
     #[cfg(all(feature = "v4", not(feature = "v3")))]
     {
-        encoder::v4_encoder(rx).await
+        Ok((encoder::v4_encoder(rx).await?, false))
     }
 }
