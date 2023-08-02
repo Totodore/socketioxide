@@ -20,6 +20,9 @@ struct Payload<B: http_body::Body> {
     buffer: BufList<B::Data>,
     end_of_stream: bool,
     current_payload_size: u64,
+
+    #[cfg(feature = "v3")]
+    yield_packets: u32,
 }
 
 impl<B: http_body::Body> Payload<B> {
@@ -29,6 +32,7 @@ impl<B: http_body::Body> Payload<B> {
             buffer: BufList::new(),
             end_of_stream: false,
             current_payload_size: 0,
+            yield_packets: 0,
         }
     }
 }
@@ -42,6 +46,7 @@ async fn poll_body(
     match state.body.data().await.transpose() {
         Ok(Some(data)) if state.current_payload_size + (data.remaining() as u64) <= max_payload => {
             state.current_payload_size += data.remaining() as u64;
+            dbg!(data.chunk());
             state.buffer.push(data);
             Ok(())
         }
@@ -221,6 +226,12 @@ pub fn v3_string_decoder(
                     break Some((Err(e), state));
                 }
             }
+            if state.end_of_stream && state.buffer.remaining() == 0 && state.yield_packets > 0 {
+                break None; // Reached end of stream with no more data, end the stream
+            } else if state.end_of_stream && state.buffer.remaining() == 0 {
+                return Some((Err(Error::InvalidPacketLength), state));
+            }
+
             let mut reader = (&mut state.buffer).reader();
 
             // Read the packet length from the buffer
@@ -252,7 +263,7 @@ pub fn v3_string_decoder(
                                 (true, i + 1 - old_len) // Mark as done and set the used bytes count
                             }
                             None if state.end_of_stream && remaining - available.len() == 0 => {
-                                return None;
+                                return Some((Err(Error::InvalidPacketLength), state))
                             } // Reached end of stream and end of bufferered chunks without finding the separator
                             None => (false, available.len()), // Continue reading more data
                         }
@@ -304,14 +315,14 @@ pub fn v3_string_decoder(
                 }
             };
             reader.consume(byte_read);
+
             // Check if the packet length matches the number of characters
             if let Ok(packet) = std::str::from_utf8(&packet_buf) {
                 if packet.graphemes(true).count() == packet_graphemes_len {
                     let packet = Packet::try_from(packet).map_err(|_| Error::InvalidPacketLength);
+                    state.yield_packets += 1;
                     break Some((packet, state)); // Emit the packet and the updated state
                 }
-            } else if state.end_of_stream && state.buffer.remaining() == 0 {
-                break None; // Reached end of stream with no more data, end the stream
             }
         }
     })
