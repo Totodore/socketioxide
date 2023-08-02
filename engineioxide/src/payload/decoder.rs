@@ -46,7 +46,6 @@ async fn poll_body(
     match state.body.data().await.transpose() {
         Ok(Some(data)) if state.current_payload_size + (data.remaining() as u64) <= max_payload => {
             state.current_payload_size += data.remaining() as u64;
-            dbg!(data.chunk());
             state.buffer.push(data);
             Ok(())
         }

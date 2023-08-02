@@ -48,7 +48,7 @@ criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 tokio = { version = "1.26.0", features = ["macros"] }
 
 [features]
-default = ["v4"]
+default = ["v4", "v3"]
 v4 = []
 v3 = ["memchr", "unicode-segmentation"]
 
