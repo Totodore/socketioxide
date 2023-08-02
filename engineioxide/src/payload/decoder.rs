@@ -32,6 +32,7 @@ impl<B: http_body::Body> Payload<B> {
             buffer: BufList::new(),
             end_of_stream: false,
             current_payload_size: 0,
+            #[cfg(feature = "v3")]
             yield_packets: 0,
         }
     }

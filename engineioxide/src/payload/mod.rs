@@ -1,8 +1,7 @@
 use crate::{errors::Error, packet::Packet, service::ProtocolVersion};
-use futures::{future::Either, Stream};
-use http::{header::CONTENT_TYPE, Request};
+use futures::Stream;
+use http::Request;
 use tokio::sync::{mpsc::Receiver, MutexGuard};
-use tracing::debug;
 
 mod buf;
 mod decoder;
