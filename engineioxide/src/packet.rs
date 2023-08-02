@@ -57,6 +57,13 @@ pub enum Packet {
     BinaryV3(Vec<u8>), // Not part of the protocol, used internally
 }
 
+impl Packet {
+    /// Check if the packet is a binary packet
+    pub fn is_binary(&self) -> bool {
+        matches!(self, Packet::Binary(_) | Packet::BinaryV3(_))
+    }
+}
+
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
 impl TryInto<String> for Packet {
     type Error = crate::errors::Error;

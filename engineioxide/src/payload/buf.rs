@@ -25,12 +25,6 @@ impl<T: Buf> BufList<T> {
         debug_assert!(buf.has_remaining());
         self.bufs.push_back(buf);
     }
-
-    #[inline]
-    #[cfg(feature = "http1")]
-    pub(crate) fn bufs_cnt(&self) -> usize {
-        self.bufs.len()
-    }
 }
 
 impl<T: Buf> Buf for BufList<T> {
