@@ -415,7 +415,7 @@ mod tests {
     async fn string_payload_iterator_v3() {
         assert!(cfg!(feature = "v3"));
 
-        let data = Full::new(Bytes::from("4:4foo3:4€f10:4faaaaaaaaa"));
+        let data = Full::new(Bytes::from("4:4foo3:4€f11:4faaaaaaaaa"));
         let payload = v3_string_decoder(data, MAX_PAYLOAD);
         futures::pin_mut!(payload);
         assert!(matches!(
@@ -428,7 +428,7 @@ mod tests {
         ));
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "faaaaaaaa"
+            Packet::Message(msg) if msg == "faaaaaaaaa"
         ));
         assert!(payload.next().await.is_none());
     }
