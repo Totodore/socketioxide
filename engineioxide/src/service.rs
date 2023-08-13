@@ -380,7 +380,7 @@ mod tests {
     fn request_info_polling_with_bin_by_default() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=3&transport=polling");
         let req = RequestInfo::parse(&req).unwrap();
-        assert_eq!(req.b64, false);
+        assert!(!req.b64);
     }
 
     #[test]
@@ -390,7 +390,7 @@ mod tests {
 
         let req = build_request("http://localhost:3000/socket.io/?EIO=3&transport=polling&b64=1");
         let req = RequestInfo::parse(&req).unwrap();
-        assert_eq!(req.b64, true);
+        assert!(req.b64);
     }
 
     #[test]
