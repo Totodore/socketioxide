@@ -263,7 +263,7 @@ pub fn v3_string_decoder(
                                 (true, i + 1 - old_len) // Mark as done and set the used bytes count
                             }
                             None if state.end_of_stream && remaining - available.len() == 0 => {
-                                return None;
+                                return Some((Err(Error::InvalidPacketLength), state));
                             } // Reached end of stream and end of bufferered chunks without finding the separator
                             None => (false, available.len()), // Continue reading more data
                         }

@@ -43,11 +43,14 @@ pub fn decoder(
 
     #[cfg(all(feature = "v3", not(feature = "v4")))]
     {
+        let is_binary =
+            body.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
         use futures::future::Either;
+        use http::header::CONTENT_TYPE;
         if is_binary {
             Either::Left(decoder::v3_binary_decoder(body, max_payload))
         } else {
-            Either::Right(decoder::v3_binary_decoder(body, max_payload))
+            Either::Right(decoder::v3_string_decoder(body, max_payload))
         }
     }
     #[cfg(all(feature = "v4", not(feature = "v3")))]
