@@ -183,7 +183,7 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn encode_v3b64_payload() {
-        const PAYLOAD: &'static str = "7:4hello€10:b4AQIDBA==7:4hello€";
+        const PAYLOAD: &str = "7:4hello€10:b4AQIDBA==7:4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(rx);
         let rx = mutex.lock().await;

@@ -7,7 +7,6 @@ on:
   pull_request:
     branches:
       - main
-      - develop
 
 jobs:
   e2e_v3:
@@ -29,11 +28,74 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-e2e --release --features v3 --no-default-features
-          cargo run --bin engineioxide-e2e --release --features v3 --no-default-features > v3_server.txt & npm --prefix engine.io-protocol/test-suite test > v3_client.txt
+          cargo build --bin engineioxide-e2e --release --features engineio-v3 --no-default-features
+          cargo run --bin engineioxide-e2e --release --features engineio-v3 --no-default-features > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
-        run: cat v3_server.txt
+        run: cat server.txt
       - name: Client output
         if: always()
-        run:  cat v3_client.txt
+        run:  cat client.txt
+  e2e_v4:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/checkout@v3
+        with:
+          repository: socketio/engine.io-protocol
+          path: engine.io-protocol
+          ref: main
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - name: Install deps & run tests 
+        run: |
+          cd engine.io-protocol/test-suite && npm install && cd ../..
+          cargo build --bin engineioxide-e2e --release --features engineio-v4 --no-default-features
+          cargo run --bin engineioxide-e2e --release --features engineio-v4 --no-default-features > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+      - name: Server output
+        if: always()
+        run: cat server.txt
+      - name: Client output
+        if: always()
+        run:  cat client.txt
+  e2e_full:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/checkout@v3
+        with:
+          repository: socketio/engine.io-protocol
+          path: engine.io-protocol-v3
+          ref: v3
+      - uses: actions/checkout@v3
+        with:
+          repository: socketio/engine.io-protocol
+          path: engine.io-protocol-v4
+          ref: main
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - name: Install deps & run tests 
+        run: |
+          cd engine.io-protocol-v3/test-suite && npm install && cd ../..
+          cd engine.io-protocol-v4/test-suite && npm install && cd ../..
+          cargo build --bin engineioxide-e2e --release --features engineio-v3,engineio-v4 --no-default-features
+          cargo run --bin engineioxide-e2e --release --features engineio-v3,engineio-v4 --no-default-features > server.txt & npm --prefix engine.io-protocol-v4/test-suite test > client_v4.txt & npm --prefix engine.io-protocol-v3/test-suite test > client_v3.txt
+      - name: Server output
+        if: always()
+        run: cat server.txt
+      - name: Client v3 output
+        if: always()
+        run: cat client_v3.txt
+      - name: Client v4 output
+        if: always()
+        run:  cat client_v4.txt

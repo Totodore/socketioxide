@@ -263,7 +263,7 @@ pub fn v3_string_decoder(
                                 (true, i + 1 - old_len) // Mark as done and set the used bytes count
                             }
                             None if state.end_of_stream && remaining - available.len() == 0 => {
-                                return None;
+                                return Some((Err(Error::InvalidPacketLength), state));
                             } // Reached end of stream and end of bufferered chunks without finding the separator
                             None => (false, available.len()), // Continue reading more data
                         }
@@ -415,7 +415,7 @@ mod tests {
     async fn string_payload_iterator_v3() {
         assert!(cfg!(feature = "v3"));
 
-        let data = Full::new(Bytes::from("4:4foo3:4€f10:4faaaaaaaaa"));
+        let data = Full::new(Bytes::from("4:4foo3:4€f11:4faaaaaaaaa"));
         let payload = v3_string_decoder(data, MAX_PAYLOAD);
         futures::pin_mut!(payload);
         assert!(matches!(
@@ -428,9 +428,9 @@ mod tests {
         ));
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
-            Packet::Message(msg) if msg == "faaaaaaaa"
+            Packet::Message(msg) if msg == "faaaaaaaaa"
         ));
-        assert_eq!(payload.next().await.is_none(), true);
+        assert!(payload.next().await.is_none());
     }
 
     #[cfg(feature = "v3")]
@@ -438,10 +438,10 @@ mod tests {
     async fn binary_payload_iterator_v3() {
         assert!(cfg!(feature = "v3"));
 
-        const PAYLOAD: &'static [u8] = &[
+        const PAYLOAD: &[u8] = &[
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
         ];
-        const BINARY_PAYLOAD: &'static [u8] = &[1, 2, 3, 4];
+        const BINARY_PAYLOAD: &[u8] = &[1, 2, 3, 4];
         let data = Full::new(Bytes::from(PAYLOAD));
         let payload = v3_binary_decoder(data, MAX_PAYLOAD);
         futures::pin_mut!(payload);
@@ -453,7 +453,7 @@ mod tests {
             payload.next().await.unwrap().unwrap(),
             Packet::BinaryV3(msg) if msg == BINARY_PAYLOAD
         ));
-        assert_eq!(payload.next().await.is_none(), true);
+        assert!(payload.next().await.is_none());
     }
 
     #[cfg(feature = "v3")]
@@ -481,7 +481,7 @@ mod tests {
                 payload.next().await.unwrap().unwrap(),
                 Packet::Message(msg) if msg == "baaaaaaaar"
             ));
-            assert_eq!(payload.next().await.is_none(), true);
+            assert!(payload.next().await.is_none());
         }
     }
 
@@ -490,10 +490,10 @@ mod tests {
     async fn binary_payload_stream_v3() {
         assert!(cfg!(feature = "v3"));
 
-        const PAYLOAD: &'static [u8] = &[
+        const PAYLOAD: &[u8] = &[
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
         ];
-        const BINARY_PAYLOAD: &'static [u8] = &[1, 2, 3, 4];
+        const BINARY_PAYLOAD: &[u8] = &[1, 2, 3, 4];
 
         for i in 1..PAYLOAD.len() {
             println!("payload stream v3 chunk size: {i}");
@@ -510,7 +510,7 @@ mod tests {
                 payload.next().await.unwrap().unwrap(),
                 Packet::BinaryV3(msg) if msg == BINARY_PAYLOAD
             ));
-            assert_eq!(payload.next().await.is_none(), true);
+            assert!(payload.next().await.is_none());
         }
     }
 
