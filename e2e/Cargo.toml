@@ -4,7 +4,7 @@ version = "0.3.0"
 edition = "2021"
 
 [dependencies]
-engineioxide = { path = "../engineioxide" }
+engineioxide = { path = "../engineioxide", default-features = false }
 socketioxide = { path = "../socketioxide" }
 hyper = { version = "0.14.26" }
 tokio = { version = "1.13.0", features = ["full"] }
@@ -21,3 +21,8 @@ path = "src/socketioxide.rs"
 [[bin]]
 name = "engineioxide-e2e"
 path = "src/engineioxide.rs"
+
+
+[features]
+engineio-v3 = ["engineioxide/v3"]
+engineio-v4 = ["engineioxide/v4"]
