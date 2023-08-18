@@ -47,6 +47,12 @@ impl EngineIoConfig {
     pub fn builder() -> EngineIoConfigBuilder {
         EngineIoConfigBuilder::new()
     }
+
+    /// Check if a [`TransportType`] is enabled in the [`EngineIoConfig`]
+    #[inline(always)]
+    pub fn allowed_transport(&self, transport: TransportType) -> bool {
+        self.transports & transport as u8 == transport as u8
+    }
 }
 pub struct EngineIoConfigBuilder {
     config: EngineIoConfig,
@@ -166,14 +172,18 @@ mod tests {
         let conf = EngineIoConfig::builder()
             .transports([TransportType::Polling])
             .build();
-        assert!(conf.transports == TransportType::Polling as u8);
+        assert!(conf.allowed_transport(TransportType::Polling));
+        assert!(!conf.allowed_transport(TransportType::Websocket));
+
         let conf = EngineIoConfig::builder()
             .transports([TransportType::Websocket])
             .build();
-        assert!(conf.transports == TransportType::Websocket as u8);
+        assert!(conf.allowed_transport(TransportType::Websocket));
+        assert!(!conf.allowed_transport(TransportType::Polling));
         let conf = EngineIoConfig::builder()
             .transports([TransportType::Polling, TransportType::Websocket])
             .build();
-        assert!(conf.transports == (TransportType::Polling as u8 | TransportType::Websocket as u8));
+        assert!(conf.allowed_transport(TransportType::Polling));
+        assert!(conf.allowed_transport(TransportType::Websocket));
     }
 }
