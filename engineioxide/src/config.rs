@@ -27,6 +27,8 @@ pub struct EngineIoConfig {
     /// Defaults to 100kb.
     pub max_payload: u64,
 
+    /// Allowed transports on this server
+    /// It is represented as a bitfield to allow to combine any number of transports easily
     pub transports: u8,
 }
 
