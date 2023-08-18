@@ -204,10 +204,10 @@ where
 }
 
 /// The type of the transport used by the client.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TransportType {
-    Websocket,
-    Polling,
+    Polling = 0x01,
+    Websocket = 0x02,
 }
 
 impl FromStr for TransportType {
