@@ -138,9 +138,7 @@ impl EngineIoConfigBuilder {
     /// The `transports` array should have a size of 1 or 2
     ///
     /// Defaults to :
-    /// ```
-    /// [TransportType::Polling, TransportType::Websocket]
-    /// ```
+    /// `[TransportType::Polling, TransportType::Websocket]`
     pub fn transports<const N: usize>(mut self, transports: [TransportType; N]) -> Self {
         assert!(N > 0 && N <= 2);
         self.config.transports = 0;
