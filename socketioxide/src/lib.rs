@@ -63,7 +63,7 @@
 pub mod adapter;
 pub mod extensions;
 
-pub use config::{SocketIoConfig, SocketIoConfigBuilder};
+pub use config::{SocketIoConfig, SocketIoConfigBuilder, TransportType};
 pub use errors::{
     AckError, AckSenderError, BroadcastError, Error as SocketError, SendError, TransportError,
 };

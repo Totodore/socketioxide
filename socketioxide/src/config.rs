@@ -1,10 +1,16 @@
 use std::time::Duration;
 
-use engineioxide::config::EngineIoConfig;
+use engineioxide::config::{EngineIoConfig, EngineIoConfigBuilder};
+pub use engineioxide::service::TransportType;
 
 /// Builder for SocketIoConfig
 pub struct SocketIoConfigBuilder {
     config: SocketIoConfig,
+
+    engine_config_builder: EngineIoConfigBuilder,
+
+    /// `req_path` default is different between engine.io and socket.io so it needs to be in a separate prop
+    req_path: String,
 }
 
 impl SocketIoConfigBuilder {
@@ -12,6 +18,9 @@ impl SocketIoConfigBuilder {
     pub fn new() -> Self {
         Self {
             config: SocketIoConfig::default(),
+            engine_config_builder: EngineIoConfig::builder(),
+
+            req_path: "/socket.io".to_string(),
         }
     }
 
@@ -19,7 +28,7 @@ impl SocketIoConfigBuilder {
     ///
     /// Defaults to "/socket.io".
     pub fn req_path(mut self, req_path: String) -> Self {
-        self.config.engine_config.req_path = req_path;
+        self.req_path = req_path;
         self
     }
 
@@ -27,7 +36,7 @@ impl SocketIoConfigBuilder {
     ///
     /// Defaults to 25 seconds.
     pub fn ping_interval(mut self, ping_interval: Duration) -> Self {
-        self.config.engine_config.ping_interval = ping_interval;
+        self.engine_config_builder = self.engine_config_builder.ping_interval(ping_interval);
         self
     }
 
@@ -35,7 +44,7 @@ impl SocketIoConfigBuilder {
     ///
     /// Defaults to 20 seconds.
     pub fn ping_timeout(mut self, ping_timeout: Duration) -> Self {
-        self.config.engine_config.ping_timeout = ping_timeout;
+        self.engine_config_builder = self.engine_config_builder.ping_timeout(ping_timeout);
         self
     }
 
@@ -44,7 +53,7 @@ impl SocketIoConfigBuilder {
     ///
     /// Defaults to 128 packets.
     pub fn max_buffer_size(mut self, max_buffer_size: usize) -> Self {
-        self.config.engine_config.max_buffer_size = max_buffer_size;
+        self.engine_config_builder = self.engine_config_builder.max_buffer_size(max_buffer_size);
         self
     }
 
@@ -53,7 +62,18 @@ impl SocketIoConfigBuilder {
     ///
     /// Defaults to 100 kb.
     pub fn max_payload(mut self, max_payload: u64) -> Self {
-        self.config.engine_config.max_payload = max_payload;
+        self.engine_config_builder = self.engine_config_builder.max_payload(max_payload);
+        self
+    }
+
+    /// Allowed transports on this server
+    ///
+    /// The `transports` array should have a size of 1 or 2
+    ///
+    /// Defaults to :
+    /// `[TransportType::Polling, TransportType::Websocket]`
+    pub fn transports<const N: usize>(mut self, transports: [TransportType; N]) -> Self {
+        self.engine_config_builder = self.engine_config_builder.transports(transports);
         self
     }
 
@@ -66,7 +86,9 @@ impl SocketIoConfigBuilder {
     }
 
     /// Build the config
-    pub fn build(self) -> SocketIoConfig {
+    pub fn build(mut self) -> SocketIoConfig {
+        // `req_path` default is different between engine.io && socket.io
+        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
         self.config
     }
 }
