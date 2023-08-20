@@ -16,9 +16,10 @@ It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and 
 * Rooms
 * Handshake data
 * Ack and emit with ack
-* Binary
+* Binary packets
 * Polling & Websocket transport
 * Extensions on socket to add custom data to sockets
+* Memory efficient payload parsing with stream
 
 ### Planned features :
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
