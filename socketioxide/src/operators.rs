@@ -4,6 +4,7 @@ use engineioxide::sid_generator::Sid;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
+use tracing::debug;
 
 use crate::errors::BroadcastError;
 use crate::{
@@ -230,9 +231,12 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<(), BroadcastError> {
+    ) -> Result<(), serde_json::Error> {
         let packet = self.get_packet(event, data)?;
-        self.ns.adapter.broadcast(packet, self.opts)
+        if let Err(err) = self.ns.adapter.broadcast(packet, self.opts) {
+            debug!("broadcast error: {err:?}");
+        }
+        Ok(())
     }
 
     /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.

@@ -61,10 +61,12 @@
 //! ```
 
 pub mod adapter;
-pub mod retryer;
+pub mod extensions;
 
-pub use config::{SocketIoConfig, SocketIoConfigBuilder};
-pub use errors::{AckError, Error as SocketError};
+pub use config::{SocketIoConfig, SocketIoConfigBuilder, TransportType};
+pub use errors::{
+    AckError, AckSenderError, BroadcastError, Error as SocketError, SendError, TransportError,
+};
 pub use layer::SocketIoLayer;
 pub use ns::Namespace;
 pub use service::SocketIoService;
@@ -73,7 +75,6 @@ pub use socket::{DisconnectReason, Socket};
 mod client;
 mod config;
 mod errors;
-pub mod extensions;
 mod handler;
 mod handshake;
 mod layer;

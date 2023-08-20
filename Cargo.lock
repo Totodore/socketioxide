@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "async-trait",
  "base64 0.21.0",
@@ -363,15 +363,17 @@ dependencies = [
  "http",
  "http-body",
  "hyper",
+ "memchr",
  "pin-project",
  "rand",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-tungstenite 0.19.0",
+ "tokio-tungstenite 0.20.0",
  "tower",
  "tracing",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1253,7 +1255,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "dashmap",
@@ -1274,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-e2e"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "engineioxide",
  "futures",
@@ -1289,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-examples"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "axum",
  "engineioxide",
@@ -1451,14 +1453,14 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec509ac96e9a0c43427c74f003127d953a265737636129424288d27cb5c4b12c"
+checksum = "2b2dbec703c26b00d74844519606ef15d09a7d6857860f84ad223dec002ddea2"
 dependencies = [
  "futures-util",
  "log",
  "tokio",
- "tungstenite 0.19.0",
+ "tungstenite 0.20.0",
 ]
 
 [[package]]
@@ -1611,9 +1613,9 @@ dependencies = [
 
 [[package]]
 name = "tungstenite"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15fba1a6d6bb030745759a9a2a588bfe8490fc8b4751a277db3a0be1c9ebbf67"
+checksum = "e862a1c4128df0112ab625f55cd5c934bcb4312ba80b39ae4b4835a3fd58e649"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1663,6 +1665,12 @@ checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "url"

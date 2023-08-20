@@ -1,7 +1,6 @@
 #![deny(clippy::await_holding_lock)]
 use std::{
     collections::HashMap,
-    io::BufRead,
     sync::{Arc, RwLock},
 };
 
@@ -12,12 +11,12 @@ use crate::{
     futures::{http_response, ws_response},
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
+    payload::{self},
     service::TransportType,
     sid_generator::generate_sid,
-    socket::{ConnectionType, Socket, SocketReq},
+    socket::{ConnectionType, DisconnectReason, Socket, SocketReq},
 };
-use crate::{sid_generator::Sid, socket::DisconnectReason};
-use bytes::Buf;
+use crate::{service::ProtocolVersion, sid_generator::Sid};
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
@@ -55,7 +54,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// Send an open packet
     pub(crate) fn on_open_http_req<B, R>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         req: Request<R>,
+        #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
         B: Send + 'static,
@@ -66,10 +67,13 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
+            protocol,
             ConnectionType::Http,
             &self.config,
             SocketReq::from(req.into_parts().0),
             close_fn,
+            #[cfg(feature = "v3")]
+            supports_binary,
         );
         let socket = Arc::new(socket);
         {
@@ -82,7 +86,21 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
         let packet: String = Packet::Open(packet).try_into()?;
-        http_response(StatusCode::OK, packet).map_err(Error::Http)
+        let packet = {
+            #[cfg(feature = "v3")]
+            {
+                let mut packet = packet;
+                // The V3 protocol requires the packet length to be prepended to the packet.
+                // It doesn't use a packet separator like the V4 protocol (and up).
+                if protocol == ProtocolVersion::V3 {
+                    packet = format!("{}:{}", packet.chars().count(), packet);
+                }
+                packet
+            }
+            #[cfg(not(feature = "v3"))]
+            packet
+        };
+        http_response(StatusCode::OK, packet, false).map_err(Error::Http)
     }
 
     /// Handle http polling request
@@ -91,6 +109,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// Otherwise it will wait for the next packet to be sent from the socket
     pub(crate) async fn on_polling_http_req<B>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         sid: Sid,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
@@ -103,7 +122,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
         // If the socket is already locked, it means that the socket is being used by another request
         // In case of multiple http polling, session should be closed
-        let mut rx = match socket.internal_rx.try_lock() {
+        let rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
                 socket.close(DisconnectReason::TransportError(
@@ -114,25 +133,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
         };
 
         debug!("[sid={sid}] polling request");
-        let mut data = String::new();
 
-        // Send all packets in the buffer
-        while let Ok(packet) = rx.try_recv() {
-            debug!("sending packet: {:?}", packet);
-            let packet: String = packet.try_into().unwrap();
-            if !data.is_empty() {
-                data.push('\x1e');
-            }
-            data.push_str(&packet);
-        }
+        #[cfg(feature = "v3")]
+        let (payload, is_binary) = payload::encoder(rx, protocol, socket.supports_binary).await?;
+        #[cfg(not(feature = "v3"))]
+        let (payload, is_binary) = payload::encoder(rx, protocol).await?;
 
-        // If there is no packet in the buffer, wait for the next packet
-        if data.is_empty() {
-            let packet = rx.recv().await.ok_or(Error::Aborted)?;
-            let packet: String = packet.try_into().unwrap();
-            data.push_str(&packet);
-        }
-        Ok(http_response(StatusCode::OK, data)?)
+        debug!("[sid={sid}] sending data: {:?}", payload);
+        Ok(http_response(StatusCode::OK, payload, is_binary)?)
     }
 
     /// Handle http polling post request
@@ -140,51 +148,41 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// Split the body into packets and send them to the internal socket
     pub(crate) async fn on_post_http_req<R, B>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         sid: Sid,
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
-        R: http_body::Body + std::marker::Send + 'static,
+        R: http_body::Body + std::marker::Send + Unpin + 'static,
         <R as http_body::Body>::Error: Debug,
         <R as http_body::Body>::Data: std::marker::Send,
         B: Send + 'static,
     {
-        let body = hyper::body::aggregate(body).await.map_err(|e| {
-            debug!("error aggregating body: {:?}", e);
-            Error::HttpErrorResponse(StatusCode::BAD_REQUEST)
-        })?;
-        let packets = body.reader().split(b'\x1e');
-
         let socket = self
             .get_socket(sid)
             .ok_or(Error::UnknownSessionID(sid))
             .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
 
-        for packet in packets {
-            match Packet::try_from(packet?) {
-                Err(e) => {
-                    debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(
-                        sid,
-                        DisconnectReason::TransportError(TransportError::PacketParsing),
-                    );
-                    Err(e)
-                }
+        let packets = payload::decoder(body, protocol, self.config.max_payload);
+        futures::pin_mut!(packets);
+
+        while let Some(packet) = packets.next().await {
+            match packet {
                 Ok(Packet::Close) => {
                     debug!("[sid={sid}] closing session");
                     socket.send(Packet::Noop)?;
                     self.close_session(sid, DisconnectReason::TransportClose);
                     break;
                 }
-                Ok(Packet::Pong) => socket
-                    .pong_tx
+                Ok(Packet::Pong) | Ok(Packet::Ping) => socket
+                    .heartbeat_tx
                     .try_send(())
                     .map_err(|_| Error::HeartbeatTimeout),
                 Ok(Packet::Message(msg)) => {
                     self.handler.on_message(msg, &socket);
                     Ok(())
                 }
-                Ok(Packet::Binary(bin)) => {
+                Ok(Packet::Binary(bin)) | Ok(Packet::BinaryV3(bin)) => {
                     self.handler.on_binary(bin, &socket);
                     Ok(())
                 }
@@ -192,9 +190,17 @@ impl<H: EngineIoHandler> EngineIo<H> {
                     debug!("[sid={sid}] bad packet received: {:?}", &p);
                     Err(Error::BadPacket(p))
                 }
+                Err(e) => {
+                    debug!("[sid={sid}] error parsing packet: {:?}", e);
+                    self.close_session(
+                        sid,
+                        DisconnectReason::TransportError(TransportError::PacketParsing),
+                    );
+                    return Err(e);
+                }
             }?;
         }
-        Ok(http_response(StatusCode::OK, "ok")?)
+        Ok(http_response(StatusCode::OK, "ok", false)?)
     }
 
     /// Upgrade a websocket request to create a websocket connection.
@@ -203,6 +209,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// the http polling request is closed and the SID is kept for the websocket
     pub(crate) fn on_ws_req<R, B>(
         self: Arc<Self>,
+        protocol: ProtocolVersion,
         sid: Option<Sid>,
         req: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error> {
@@ -217,7 +224,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let req = Request::from_parts(parts, ());
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
-                Ok(conn) => match self.on_ws_req_init(conn, sid, req_data).await {
+                Ok(conn) => match self.on_ws_req_init(conn, protocol, sid, req_data).await {
                     Ok(_) => debug!("ws closed"),
                     Err(e) => debug!("ws closed with error: {:?}", e),
                 },
@@ -236,6 +243,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
     async fn on_ws_req_init(
         self: Arc<Self>,
         conn: Upgraded,
+        protocol: ProtocolVersion,
         sid: Option<Sid>,
         req_data: SocketReq,
     ) -> Result<(), Error> {
@@ -244,11 +252,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
             match self.get_socket(sid) {
                 None => return Err(Error::UnknownSessionID(sid)),
                 Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
-                Some(_) => {
+                Some(socket) => {
                     debug!("[sid={sid}] websocket connection upgrade");
                     let mut ws = ws_init().await;
-                    self.ws_upgrade_handshake(sid, &mut ws).await?;
-                    (self.get_socket(sid).unwrap(), ws)
+                    self.ws_upgrade_handshake(protocol, sid, &mut ws).await?;
+                    (socket, ws)
                 }
             }
         } else {
@@ -259,10 +267,13 @@ impl<H: EngineIoHandler> EngineIo<H> {
             });
             let socket = Socket::new(
                 sid,
+                protocol,
                 ConnectionType::WebSocket,
                 &self.config,
                 req_data,
                 close_fn,
+                #[cfg(feature = "v3")]
+                true, // supports_binary
             );
             let socket = Arc::new(socket);
             {
@@ -284,7 +295,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
             let mut socket_rx = rx_socket.internal_rx.try_lock().unwrap();
             while let Some(item) = socket_rx.recv().await {
                 let res = match item {
-                    Packet::Binary(bin) => tx.send(Message::Binary(bin)).await,
+                    Packet::Binary(bin) | Packet::BinaryV3(bin) => {
+                        tx.send(Message::Binary(bin)).await
+                    }
                     Packet::Close => tx.send(Message::Close(None)).await,
                     _ => {
                         let packet: String = item.try_into().unwrap();
@@ -330,8 +343,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
                         self.close_session(socket.sid, DisconnectReason::TransportClose);
                         break;
                     }
-                    Packet::Pong => socket
-                        .pong_tx
+                    Packet::Pong | Packet::Ping => socket
+                        .heartbeat_tx
                         .try_send(())
                         .map_err(|_| Error::HeartbeatTimeout),
                     Packet::Message(msg) => {
@@ -376,12 +389,19 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// ```
     async fn ws_upgrade_handshake(
         &self,
+        protocol: ProtocolVersion,
         sid: Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
         let socket = self.get_socket(sid).unwrap();
-        // send a NOOP packet to any pending polling request so it closes gracefully
-        socket.send(Packet::Noop)?;
+
+        #[cfg(feature = "v4")]
+        {
+            // send a NOOP packet to any pending polling request so it closes gracefully'
+            if protocol == ProtocolVersion::V4 {
+                socket.send(Packet::Noop)?;
+            }
+        }
 
         // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
         let msg = match ws.next().await {
@@ -397,10 +417,27 @@ impl<H: EngineIoHandler> EngineIo<H> {
             p => Err(Error::BadPacket(p))?,
         };
 
+        #[cfg(feature = "v3")]
+        {
+            // send a NOOP packet to any pending polling request so it closes gracefully
+            // V3 protocol introduce _paused_ polling transport which require to close
+            // the polling request **after** the ping/pong handshake
+            if protocol == ProtocolVersion::V3 {
+                socket.send(Packet::Noop)?;
+            }
+        }
+
         // Fetch the next packet from the ws stream, it should be an Upgrade packet
         let msg = match ws.next().await {
             Some(Ok(Message::Text(d))) => d,
-            _ => Err(Error::UpgradeError)?,
+            Some(Ok(Message::Close(_))) => {
+                debug!("ws stream closed before upgrade");
+                Err(Error::UpgradeError)?
+            }
+            _ => {
+                debug!("unexpected ws message before upgrade");
+                Err(Error::UpgradeError)?
+            }
         };
         match Packet::try_from(msg)? {
             Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),
@@ -444,5 +481,38 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// Clones the socket ref to avoid holding the lock
     pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+
+    use super::*;
+
+    #[derive(Debug, Clone)]
+    struct MockHandler;
+
+    #[async_trait]
+    impl EngineIoHandler for MockHandler {
+        type Data = ();
+
+        fn on_connect(&self, socket: &Socket<Self>) {
+            println!("socket connect {}", socket.sid);
+        }
+
+        fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
+            println!("socket disconnect {} {:?}", socket.sid, reason);
+        }
+
+        fn on_message(&self, msg: String, socket: &Socket<Self>) {
+            println!("Ping pong message {:?}", msg);
+            socket.emit(msg).ok();
+        }
+
+        fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
+            println!("Ping pong binary message {:?}", data);
+            socket.emit_binary(data).ok();
+        }
     }
 }
