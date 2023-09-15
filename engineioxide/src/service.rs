@@ -216,6 +216,22 @@ impl FromStr for TransportType {
         }
     }
 }
+impl From<TransportType> for &'static str {
+    fn from(t: TransportType) -> Self {
+        match t {
+            TransportType::Polling => "polling",
+            TransportType::Websocket => "websocket",
+        }
+    }
+}
+impl From<TransportType> for String {
+    fn from(t: TransportType) -> Self {
+        match t {
+            TransportType::Polling => "polling".into(),
+            TransportType::Websocket => "websocket".into(),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
