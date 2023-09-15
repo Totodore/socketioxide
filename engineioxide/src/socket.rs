@@ -54,7 +54,7 @@ impl From<Parts> for SocketReq {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DisconnectReason {
     TransportClose,
     TransportError(TransportError),
