@@ -373,6 +373,7 @@ dependencies = [
  "tokio-tungstenite 0.20.0",
  "tower",
  "tracing",
+ "tracing-subscriber",
  "unicode-segmentation",
 ]
 
