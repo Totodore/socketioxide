@@ -7,7 +7,7 @@ use std::{
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
-    errors::{Error, TransportError},
+    errors::Error,
     futures::{http_response, ws_response},
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
@@ -125,9 +125,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                socket.close(DisconnectReason::TransportError(
-                    TransportError::MultipleHttpPolling,
-                ));
+                socket.close(DisconnectReason::MultipleHttpPollingError);
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         };
@@ -192,10 +190,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 }
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(
-                        sid,
-                        DisconnectReason::TransportError(TransportError::PacketParsing),
-                    );
+                    self.close_session(sid, DisconnectReason::PacketParsingError);
                     return Err(e);
                 }
             }?;
@@ -313,13 +308,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
         });
 
         self.handler.on_connect(&socket);
-        if let Err(e) = self.ws_forward_to_handler(rx, &socket).await {
+        if let Err(ref e) = self.ws_forward_to_handler(rx, &socket).await {
             debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
-            //TODO: error here is not always a PacketParsing error
-            self.close_session(
-                socket.sid,
-                DisconnectReason::TransportError(TransportError::PacketParsing),
-            );
+            if let Some(reason) = e.into() {
+                self.close_session(socket.sid, reason);
+            }
         } else {
             self.close_session(socket.sid, DisconnectReason::TransportClose);
         }
@@ -333,9 +326,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         mut rx: SplitStream<WebSocketStream<Upgraded>>,
         socket: &Arc<Socket<H>>,
     ) -> Result<(), Error> {
-        //TODO: handle the rx error here
-        while let Ok(msg) = rx.try_next().await {
-            let Some(msg) = msg else { continue };
+        while let Some(msg) = rx.try_next().await? {
             match msg {
                 Message::Text(msg) => match Packet::try_from(msg)? {
                     Packet::Close => {

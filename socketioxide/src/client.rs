@@ -138,9 +138,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             Err(e) => {
                 debug!("socket serialization error: {}", e);
                 //TODO: dynamic transport error
-                socket.close(EIoDisconnectReason::TransportError(
-                    engineioxide::errors::TransportError::PacketParsing,
-                ));
+                socket.close(EIoDisconnectReason::PacketParsingError);
                 return;
             }
         };
@@ -159,9 +157,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         if let Err(err) = res {
             error!("error while processing packet: {:?}", err);
             //TODO: dynamic transport error
-            socket.close(EIoDisconnectReason::TransportError(
-                engineioxide::errors::TransportError::PacketParsing,
-            ));
+            socket.close(EIoDisconnectReason::PacketParsingError);
         }
     }
 
@@ -177,9 +173,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                         socket.sid, e
                     );
                     //TODO: dynamic transport error
-                    socket.close(EIoDisconnectReason::TransportError(
-                        engineioxide::errors::TransportError::PacketParsing,
-                    ));
+                    socket.close(EIoDisconnectReason::PacketParsingError);
                 }
             }
         }

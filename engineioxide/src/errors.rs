@@ -105,13 +105,3 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
         }
     }
 }
-
-/// An error used to specify [`DisconnectReason::TransportError`](crate::socket::DisconnectReason::TransportError)
-#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq)]
-pub enum TransportError {
-    #[error("simultaneaous http polling request")]
-    MultipleHttpPolling,
-
-    #[error("parse error")]
-    PacketParsing,
-}

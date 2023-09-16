@@ -38,26 +38,55 @@ pub type DisconnectCallback<A> = Box<
 >;
 
 /// All the possible reasons for a socket to be disconnected.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DisconnectReason {
-    /// The connection was closed (example: the user has lost connection, or the network was changed from WiFi to 4G)
+    /// The client gracefully closed the connection
     TransportClose,
-    /// The connection has encountered an error
+
+    /// The client sent multiple polling requests at the same time (it is forbidden according to the engine.io protocol)
+    MultipleHttpPollingError,
+
+    /// The client sent a bad request / the packet could not be parsed correctly
+    PacketParsingError,
+
+    /// The connection was closed (example: the user has lost connection, or the network was changed from WiFi to 4G)
     TransportError,
+
     /// The client did not send a PONG packet in the [ping timeout](crate::SocketIoConfigBuilder) delay
     HeartbeatTimeout,
+
     /// The client has manually disconnected the socket using [`socket.disconnect()`](https://socket.io/fr/docs/v4/client-api/#socketdisconnect)
     ClientNSDisconnect,
+
     /// The socket was forcefully disconnected from the namespace with `Socket::disconnect`
     ServerNSDisconnect,
 }
 
+impl std::fmt::Display for DisconnectReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use DisconnectReason::*;
+        let str: &'static str = match self {
+            TransportClose => "client gracefully closed the connection",
+            MultipleHttpPollingError => "client sent multiple polling requests at the same time",
+            PacketParsingError => "client sent a bad request / the packet could not be parsed",
+            TransportError => "The connection was abruptly closed",
+            HeartbeatTimeout => "client did not send a PONG packet in time",
+            ClientNSDisconnect => "client has manually disconnected the socket from the namespace",
+            ServerNSDisconnect => "socket was forcefully disconnected from the namespace",
+        };
+        f.write_str(str)
+    }
+}
+
 impl From<EIoDisconnectReason> for DisconnectReason {
     fn from(reason: EIoDisconnectReason) -> Self {
+        use DisconnectReason::*;
         match reason {
-            EIoDisconnectReason::TransportClose => DisconnectReason::TransportClose,
-            EIoDisconnectReason::TransportError(_) => DisconnectReason::TransportError,
-            EIoDisconnectReason::HeartbeatTimeout => DisconnectReason::HeartbeatTimeout,
+            EIoDisconnectReason::TransportClose => TransportClose,
+            EIoDisconnectReason::TransportError => TransportError,
+            EIoDisconnectReason::HeartbeatTimeout => HeartbeatTimeout,
+            EIoDisconnectReason::MultipleHttpPollingError => MultipleHttpPollingError,
+            EIoDisconnectReason::PacketParsingError => PacketParsingError,
         }
     }
 }

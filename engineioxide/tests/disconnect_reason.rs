@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use engineioxide::{
-    errors::TransportError,
     handler::EngineIoHandler,
     socket::{DisconnectReason, Socket},
 };
@@ -135,10 +134,7 @@ pub async fn multiple_http_polling() {
         .expect("timeout waiting for DisconnectReason::DisconnectError::MultipleHttpPolling")
         .unwrap();
 
-    assert!(matches!(
-        data,
-        DisconnectReason::TransportError(TransportError::MultipleHttpPolling)
-    ));
+    assert_eq!(data, DisconnectReason::MultipleHttpPollingError);
 }
 
 #[tokio::test]
@@ -156,13 +152,10 @@ pub async fn polling_packet_parsing() {
 
     let data = tokio::time::timeout(Duration::from_millis(1), rx.recv())
         .await
-        .expect("timeout waiting for DisconnectReason::TransportError::PacketParsing")
+        .expect("timeout waiting for DisconnectReason::PacketParsingError")
         .unwrap();
 
-    assert!(matches!(
-        data,
-        DisconnectReason::TransportError(TransportError::PacketParsing)
-    ));
+    assert_eq!(data, DisconnectReason::PacketParsingError);
 }
 
 #[tokio::test]
@@ -180,8 +173,5 @@ pub async fn ws_packet_parsing() {
         .expect("timeout waiting for DisconnectReason::TransportError::PacketParsing")
         .unwrap();
 
-    assert!(matches!(
-        data,
-        DisconnectReason::TransportError(TransportError::PacketParsing)
-    ));
+    assert_eq!(data, DisconnectReason::PacketParsingError);
 }

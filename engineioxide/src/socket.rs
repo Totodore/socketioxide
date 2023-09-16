@@ -11,13 +11,14 @@ use tokio::{
     sync::{mpsc, mpsc::Receiver, Mutex},
     task::JoinHandle,
 };
+use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
+use crate::sid_generator::Sid;
 use crate::{
     config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
     service::ProtocolVersion, utils::forward_map_chan, SendPacket,
 };
-use crate::{errors::TransportError, sid_generator::Sid};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -54,11 +55,39 @@ impl From<Parts> for SocketReq {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A [`DisconnectReason`] represents the reason why a [`Socket`] was closed.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum DisconnectReason {
+    /// The client gracefully closed the connection
+    #[error("client gracefully closed the connection")]
     TransportClose,
-    TransportError(TransportError),
+    /// The client sent multiple polling requests at the same time (it is forbidden according to the engine.io protocol)
+    #[error("client sent multiple polling requests at the same time")]
+    MultipleHttpPollingError,
+    /// The client sent a bad request / the packet could not be parsed correctly
+    #[error("client sent a bad request / the packet could not be parsed correctly")]
+    PacketParsingError,
+    /// An error occured in the transport layer
+    /// (e.g. the client closed the connection without sending a close packet)
+    #[error("transport error")]
+    TransportError,
+    /// The client did not respond to the heartbeat
+    #[error("client did not respond to the heartbeat")]
     HeartbeatTimeout,
+}
+
+impl From<&Error> for Option<DisconnectReason> {
+    fn from(err: &Error) -> Self {
+        use Error::*;
+        match err {
+            WsTransport(tungstenite::Error::ConnectionClosed) => None,
+            WsTransport(_) | Io(_) | HttpTransport(_) => Some(DisconnectReason::TransportError),
+            BadPacket(_) | Serialize(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge
+            | InvalidPacketLength => Some(DisconnectReason::PacketParsingError),
+            HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
+            _ => None,
+        }
+    }
 }
 
 /// A [`Socket`] represents a connection to the server.
