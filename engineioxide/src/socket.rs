@@ -56,23 +56,18 @@ impl From<Parts> for SocketReq {
 }
 
 /// A [`DisconnectReason`] represents the reason why a [`Socket`] was closed.
-#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DisconnectReason {
     /// The client gracefully closed the connection
-    #[error("client gracefully closed the connection")]
     TransportClose,
     /// The client sent multiple polling requests at the same time (it is forbidden according to the engine.io protocol)
-    #[error("client sent multiple polling requests at the same time")]
     MultipleHttpPollingError,
     /// The client sent a bad request / the packet could not be parsed correctly
-    #[error("client sent a bad request / the packet could not be parsed correctly")]
     PacketParsingError,
     /// An error occured in the transport layer
     /// (e.g. the client closed the connection without sending a close packet)
-    #[error("transport error")]
     TransportError,
     /// The client did not respond to the heartbeat
-    #[error("client did not respond to the heartbeat")]
     HeartbeatTimeout,
 }
 
@@ -81,7 +76,7 @@ impl From<&Error> for Option<DisconnectReason> {
         use Error::*;
         match err {
             WsTransport(tungstenite::Error::ConnectionClosed) => None,
-            WsTransport(_) | Io(_) | HttpTransport(_) => Some(DisconnectReason::TransportError),
+            WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
             BadPacket(_) | Serialize(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge
             | InvalidPacketLength => Some(DisconnectReason::PacketParsingError),
             HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
