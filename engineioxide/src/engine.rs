@@ -14,7 +14,7 @@ use crate::{
     payload::{self},
     service::TransportType,
     sid_generator::generate_sid,
-    socket::{ConnectionType, Socket, SocketReq},
+    socket::{ConnectionType, DisconnectReason, Socket, SocketReq},
 };
 use crate::{service::ProtocolVersion, sid_generator::Sid};
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
@@ -62,7 +62,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
         B: Send + 'static,
     {
         let engine = self.clone();
-        let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
+        let close_fn =
+            Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
         let sid = generate_sid();
         let socket = Socket::new(
             sid,
@@ -124,7 +125,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let rx = match socket.internal_rx.try_lock() {
             Ok(s) => s,
             Err(_) => {
-                socket.close();
+                socket.close(DisconnectReason::MultipleHttpPollingError);
                 return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
             }
         };
@@ -168,7 +169,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 Ok(Packet::Close) => {
                     debug!("[sid={sid}] closing session");
                     socket.send(Packet::Noop)?;
-                    self.close_session(sid);
+                    self.close_session(sid, DisconnectReason::TransportClose);
                     break;
                 }
                 Ok(Packet::Pong) | Ok(Packet::Ping) => socket
@@ -189,7 +190,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 }
                 Err(e) => {
                     debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(sid);
+                    self.close_session(sid, DisconnectReason::PacketParsingError);
                     return Err(e);
                 }
             }?;
@@ -256,7 +257,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         } else {
             let sid = generate_sid();
             let engine = self.clone();
-            let close_fn = Box::new(move |sid: Sid| engine.close_session(sid));
+            let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| {
+                engine.close_session(sid, reason)
+            });
             let socket = Socket::new(
                 sid,
                 protocol,
@@ -305,10 +308,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
         });
 
         self.handler.on_connect(&socket);
-        if let Err(e) = self.ws_forward_to_handler(rx, &socket).await {
+        if let Err(ref e) = self.ws_forward_to_handler(rx, &socket).await {
             debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
+            if let Some(reason) = e.into() {
+                self.close_session(socket.sid, reason);
+            }
+        } else {
+            self.close_session(socket.sid, DisconnectReason::TransportClose);
         }
-        self.close_session(socket.sid);
         rx_handle.abort();
         Ok(())
     }
@@ -319,13 +326,12 @@ impl<H: EngineIoHandler> EngineIo<H> {
         mut rx: SplitStream<WebSocketStream<Upgraded>>,
         socket: &Arc<Socket<H>>,
     ) -> Result<(), Error> {
-        while let Ok(msg) = rx.try_next().await {
-            let Some(msg) = msg else { continue };
+        while let Some(msg) = rx.try_next().await? {
             match msg {
                 Message::Text(msg) => match Packet::try_from(msg)? {
                     Packet::Close => {
                         debug!("[sid={}] closing session", socket.sid);
-                        self.close_session(socket.sid);
+                        self.close_session(socket.sid, DisconnectReason::TransportClose);
                         break;
                     }
                     Packet::Pong | Packet::Ping => socket
@@ -448,10 +454,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
     /// Close an engine.io session by removing the socket from the socket map and closing the socket
     /// It should be the only way to close a session and to remove a socket from the socket map
-    fn close_session(&self, sid: Sid) {
+    fn close_session(&self, sid: Sid, reason: DisconnectReason) {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
-            self.handler.on_disconnect(&socket);
+            self.handler.on_disconnect(&socket, reason);
             socket.abort_heartbeat();
             debug!(
                 "remaining sockets: {:?}",
@@ -486,8 +492,8 @@ mod tests {
             println!("socket connect {}", socket.sid);
         }
 
-        fn on_disconnect(&self, socket: &Socket<Self>) {
-            println!("socket disconnect {}", socket.sid);
+        fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
+            println!("socket disconnect {} {:?}", socket.sid, reason);
         }
 
         fn on_message(&self, msg: String, socket: &Socket<Self>) {

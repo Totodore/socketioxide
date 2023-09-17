@@ -20,8 +20,6 @@ pub enum Error {
     BadPacket(Packet),
     #[error("ws transport error: {0:?}")]
     WsTransport(#[from] tungstenite::Error),
-    #[error("http transport error: {0:?}")]
-    HttpTransport(#[from] hyper::Error),
     #[error("http error: {0:?}")]
     Http(#[from] http::Error),
     #[error("internal channel error: {0:?}")]
