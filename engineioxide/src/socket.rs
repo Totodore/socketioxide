@@ -71,6 +71,9 @@ pub enum DisconnectReason {
     HeartbeatTimeout,
 }
 
+/// Convert an [`Error`] to a [`DisconnectReason`] if possible
+/// This is used to notify the [`Handler`](crate::handler::EngineIoHandler) of the reason why a [`Socket`] was closed
+/// If the error cannot be converted to a [`DisconnectReason`] it means that the error was not fatal and the [`Socket`] can be kept alive
 impl From<&Error> for Option<DisconnectReason> {
     fn from(err: &Error) -> Self {
         use Error::*;

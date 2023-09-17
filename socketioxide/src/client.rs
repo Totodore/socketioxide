@@ -137,7 +137,6 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             Ok(packet) => packet,
             Err(e) => {
                 debug!("socket serialization error: {}", e);
-                //TODO: dynamic transport error
                 socket.close(EIoDisconnectReason::PacketParsingError);
                 return;
             }
@@ -154,10 +153,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             }
             _ => self.sock_propagate_packet(packet, socket.sid),
         };
-        if let Err(err) = res {
-            error!("error while processing packet: {:?}", err);
-            //TODO: dynamic transport error
-            socket.close(EIoDisconnectReason::PacketParsingError);
+        if let Err(ref err) = res {
+            error!(
+                "error while processing packet to socket {}: {}",
+                socket.sid, err
+            );
+            let reason: Option<EIoDisconnectReason> = err.into();
+            reason.map(|reason| socket.close(reason));
         }
     }
 
@@ -167,13 +169,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_binary(&self, data: Vec<u8>, socket: &EIoSocket<Self>) {
         if self.apply_payload_on_packet(data, socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
-                if let Err(e) = self.sock_propagate_packet(packet, socket.sid) {
+                if let Err(ref err) = self.sock_propagate_packet(packet, socket.sid) {
                     debug!(
                         "error while propagating packet to socket {}: {}",
-                        socket.sid, e
+                        socket.sid, err
                     );
-                    //TODO: dynamic transport error
-                    socket.close(EIoDisconnectReason::PacketParsingError);
+                    let reason: Option<EIoDisconnectReason> = err.into();
+                    reason.map(|reason| socket.close(reason));
                 }
             }
         }

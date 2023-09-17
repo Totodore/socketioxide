@@ -1,5 +1,5 @@
 use crate::{adapter::Adapter, packet::Packet, socket::RetryablePacket, Socket};
-use engineioxide::sid_generator::Sid;
+use engineioxide::{sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
@@ -18,9 +18,6 @@ pub enum Error {
     #[error("invalid event name")]
     InvalidEventName,
 
-    #[error("cannot find socketio engine")]
-    EngineGone,
-
     #[error("cannot find socketio socket")]
     SocketGone(Sid),
 
@@ -30,6 +27,23 @@ pub enum Error {
 
     #[error("adapter error: {0}")]
     Adapter(#[from] AdapterError),
+}
+
+/// Convert an [`Error`] to an [`EIoDisconnectReason`] if possible
+///
+/// If the error cannot be converted to a [`DisconnectReason`] it means that the error was not fatal and the engine `Socket` can be kept alive
+impl From<&Error> for Option<EIoDisconnectReason> {
+    fn from(value: &Error) -> Self {
+        use EIoDisconnectReason::*;
+        match value {
+            Error::SocketGone(_) => Some(TransportClose),
+            Error::EngineIoError(ref e) => e.into(),
+            Error::SerializeError(_) | Error::InvalidPacketType | Error::InvalidEventName => {
+                Some(PacketParsingError)
+            }
+            Error::Adapter(_) => None,
+        }
+    }
 }
 
 /// Error type for ack responses
