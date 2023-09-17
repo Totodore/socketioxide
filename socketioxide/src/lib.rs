@@ -42,6 +42,11 @@
 //!                 println!("Received acb event: {:?} {:?}", data, bin);
 //!                 ack.bin(bin).send(data).ok();
 //!             });
+//!             // Add a callback triggered when the socket disconnect
+//!             // The reason of the disconnection will be passed to the callback
+//!             socket.on_disconnect(|socket, reason| async move {
+//!                 info!("Socket.IO disconnected: {} {}", socket.sid, reason);
+//!             });
 //!         })
 //!         .add("/custom", |socket| async move {
 //!             println!("Socket connected on /custom namespace with id: {}", socket.sid);

@@ -37,7 +37,7 @@ pub type DisconnectCallback<A> = Box<
     dyn FnOnce(Arc<Socket<A>>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 >;
 
-/// All the possible reasons for a socket to be disconnected.
+/// All the possible reasons for a [`Socket`] to be disconnected.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DisconnectReason {
     /// The client gracefully closed the connection
@@ -58,7 +58,7 @@ pub enum DisconnectReason {
     /// The client has manually disconnected the socket using [`socket.disconnect()`](https://socket.io/fr/docs/v4/client-api/#socketdisconnect)
     ClientNSDisconnect,
 
-    /// The socket was forcefully disconnected from the namespace with `Socket::disconnect`
+    /// The socket was forcefully disconnected from the namespace with [`Socket::disconnect`]
     ServerNSDisconnect,
 }
 
