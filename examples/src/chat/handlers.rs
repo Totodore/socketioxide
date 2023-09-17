@@ -89,4 +89,11 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
         );
         socket.to("default").emit("message", msg).ok();
     });
+
+    socket.on_disconnect(|socket, reason| async move {
+        info!("Socket disconnected: {} {}", socket.sid, reason);
+        let Nickname(ref nickname) = *socket.extensions.get().unwrap();
+        let msg = format!("{} left the chat", nickname);
+        socket.to("default").emit("message", msg).ok();
+    });
 }

@@ -331,9 +331,10 @@ impl<A: Adapter> Socket<A> {
             .insert(event.into(), MessageHandler::boxed(handler));
     }
 
-    /// ### Register a disconnect handler.
+    /// ## Register a disconnect handler.
     /// The callback will be called when the socket is disconnected from the server or the client or when the underlying connection crashes.
-    /// ##### Example
+    /// A [`DisconnectReason`](crate::DisconnectReason) is passed to the callback to indicate the reason for the disconnection.
+    /// ### Example
     /// ```
     /// # use socketioxide::Namespace;
     /// # use serde_json::Value;
