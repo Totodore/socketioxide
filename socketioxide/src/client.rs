@@ -158,8 +158,9 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                 "error while processing packet to socket {}: {}",
                 socket.sid, err
             );
-            let reason: Option<EIoDisconnectReason> = err.into();
-            reason.map(|reason| socket.close(reason));
+            if let Some(reason) = err.into() {
+                socket.close(reason);
+            }
         }
     }
 
@@ -174,8 +175,9 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                         "error while propagating packet to socket {}: {}",
                         socket.sid, err
                     );
-                    let reason: Option<EIoDisconnectReason> = err.into();
-                    reason.map(|reason| socket.close(reason));
+                    if let Some(reason) = err.into() {
+                        socket.close(reason);
+                    }
                 }
             }
         }
