@@ -45,7 +45,7 @@
 //!             // Add a callback triggered when the socket disconnect
 //!             // The reason of the disconnection will be passed to the callback
 //!             socket.on_disconnect(|socket, reason| async move {
-//!                 info!("Socket.IO disconnected: {} {}", socket.sid, reason);
+//!                 println!("Socket.IO disconnected: {} {}", socket.sid, reason);
 //!             });
 //!         })
 //!         .add("/custom", |socket| async move {
@@ -73,7 +73,7 @@ pub use errors::{
     AckError, AckSenderError, BroadcastError, Error as SocketError, SendError, TransportError,
 };
 pub use layer::SocketIoLayer;
-pub use ns::Namespace;
+pub use ns::{Namespace, NsHandlers};
 pub use service::SocketIoService;
 pub use socket::{DisconnectReason, Socket};
 
