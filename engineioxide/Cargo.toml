@@ -45,7 +45,16 @@ unicode-segmentation = { version = "1.10.1", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
-tokio = { version = "1.26.0", features = ["macros"] }
+tokio = { version = "1.26.0", features = ["macros", "parking_lot"] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+hyper = { version = "0.14.25", features = [
+    "http1",
+    "http2",
+    "server",
+    "stream",
+    "runtime",
+    "client",
+] }
 
 [features]
 default = ["v4"]
