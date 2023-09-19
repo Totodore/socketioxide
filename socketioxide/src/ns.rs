@@ -20,7 +20,17 @@ use tokio::sync::mpsc;
 pub type EventCallback<A> =
     Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
 
-pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
+pub struct NsHandlers<A: Adapter>(pub(crate) HashMap<String, EventCallback<A>>);
+impl<A: Adapter> NsHandlers<A> {
+    fn new(map: HashMap<String, EventCallback<A>>) -> Self {
+        Self(map)
+    }
+}
+impl<A: Adapter> Clone for NsHandlers<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 pub struct Namespace<A: Adapter> {
     pub path: String,
@@ -150,7 +160,7 @@ impl<A: Adapter> NamespaceBuilder<A> {
     }
 
     pub fn build(self) -> NsHandlers<A> {
-        self.ns_handlers
+        NsHandlers::new(self.ns_handlers)
     }
 }
 
