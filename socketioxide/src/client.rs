@@ -14,10 +14,11 @@ use tracing::error;
 
 use crate::adapter::Adapter;
 use crate::handshake::Handshake;
+use crate::NsHandlers;
 use crate::{
     config::SocketIoConfig,
     errors::Error,
-    ns::{EventCallback, Namespace},
+    ns::Namespace,
     packet::{Packet, PacketData},
 };
 
@@ -28,10 +29,11 @@ pub struct Client<A: Adapter> {
 }
 
 impl<A: Adapter> Client<A> {
-    pub fn new(config: SocketIoConfig, ns_handlers: HashMap<String, EventCallback<A>>) -> Self {
+    pub fn new(config: SocketIoConfig, ns_handlers: NsHandlers<A>) -> Self {
         Self {
             config: config.into(),
             ns: ns_handlers
+                .0
                 .into_iter()
                 .map(|(path, callback)| (path.clone(), Namespace::new(path, callback)))
                 .collect(),
