@@ -156,13 +156,14 @@ where
         config: &EngineIoConfig,
         req_data: SocketReq,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+        tx_map_fn: impl Fn(SendPacket) -> Packet + Send + Sync + 'static,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
-        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
+        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), tx_map_fn));
 
         Self {
             sid,

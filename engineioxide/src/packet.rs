@@ -2,6 +2,7 @@ use base64::{engine::general_purpose, Engine};
 use serde::{de::Error, Deserialize, Serialize};
 
 use crate::sid_generator::Sid;
+use crate::socket::DisconnectReason;
 use crate::{config::EngineIoConfig, service::TransportType};
 
 /// A Packet type to use when sending data to the client from the public API
@@ -11,6 +12,7 @@ use crate::{config::EngineIoConfig, service::TransportType};
 pub enum SendPacket {
     Message(String),
     Binary(Vec<u8>),
+    Close(DisconnectReason),
 }
 
 /// A Packet type to use when receiving and sending data from the client
@@ -141,6 +143,7 @@ impl From<SendPacket> for Packet {
         match value {
             SendPacket::Message(msg) => Packet::Message(msg),
             SendPacket::Binary(data) => Packet::Binary(data),
+            SendPacket::Close(_) => Packet::Close,
         }
     }
 }

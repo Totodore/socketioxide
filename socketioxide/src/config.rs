@@ -85,6 +85,14 @@ impl SocketIoConfigBuilder {
         self
     }
 
+    /// The amount of time before disconnecting a client that has not successfully joined a namespace.
+    ///
+    /// Defaults to 45 seconds.
+    pub fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
+        self.config.connect_timeout = connect_timeout;
+        self
+    }
+
     /// Build the config
     pub fn build(mut self) -> SocketIoConfig {
         // `req_path` default is different between engine.io && socket.io
@@ -109,6 +117,11 @@ pub struct SocketIoConfig {
     ///
     /// Defaults to 5 seconds.
     pub(crate) ack_timeout: Duration,
+
+    /// The amount of time before disconnecting a client that has not successfully joined a namespace.
+    ///
+    /// Defaults to 45 seconds.
+    pub(crate) connect_timeout: Duration,
 }
 
 impl Default for SocketIoConfig {
@@ -119,6 +132,7 @@ impl Default for SocketIoConfig {
                 ..Default::default()
             },
             ack_timeout: Duration::from_secs(5),
+            connect_timeout: Duration::from_secs(45),
         }
     }
 }

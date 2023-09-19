@@ -19,6 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = SocketIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
+        .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
         .build();
     info!("Starting server");

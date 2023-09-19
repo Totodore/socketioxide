@@ -3,9 +3,12 @@ use std::sync::{Arc, Mutex};
 
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
+use engineioxide::SendPacket;
+use futures::TryFutureExt;
 use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
+use tokio::sync::oneshot;
 use tracing::debug;
 use tracing::error;
 
@@ -62,19 +65,22 @@ impl<A: Adapter> Client<A> {
         &self,
         auth: Value,
         ns_path: String,
-        socket: &EIoSocket<Self>,
+        esocket: &EIoSocket<Self>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
-        let handshake = Handshake::new(auth, socket.req_data.clone());
-        let sid = socket.sid;
+        let handshake = Handshake::new(auth, esocket.req_data.clone());
+        let sid = esocket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
-            let socket = ns.connect(sid, socket.tx.clone(), handshake, self.config.clone());
+            let socket = ns.connect(sid, esocket.tx.clone(), handshake, self.config.clone());
+            if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                tx.send(()).unwrap();
+            }
             if let Err(err) = socket.send(Packet::connect(ns_path.clone(), sid)) {
                 debug!("sending error during socket connection: {err:?}");
             }
             Ok(())
         } else {
-            socket
+            esocket
                 .tx
                 .try_send(Packet::invalid_namespace(ns_path).try_into()?)
                 .unwrap();
@@ -112,6 +118,9 @@ pub struct SocketData {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
     pub partial_bin_packet: Mutex<Option<Packet>>,
+
+    /// Channel used to notify the socket that it has been connected to a namespace
+    pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 #[engineioxide::async_trait]
@@ -120,6 +129,18 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
     fn on_connect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket connect {}", socket.sid);
+        let (tx, rx) = oneshot::channel();
+        socket.data.connect_recv_tx.lock().unwrap().replace(tx);
+        let socket_tx = socket.tx.clone();
+        let sid = socket.sid;
+        tokio::spawn(
+            tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
+                debug!("connect timeout for socket {}", sid);
+                socket_tx
+                    .try_send(SendPacket::Close(EIoDisconnectReason::TransportClose))
+                    .unwrap();
+            }),
+        );
     }
     fn on_disconnect(&self, socket: &EIoSocket<Self>, reason: EIoDisconnectReason) {
         debug!("eio socket disconnect {}", socket.sid);
