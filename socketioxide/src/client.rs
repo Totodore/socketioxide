@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
+use engineioxide::SendPacket;
+use futures::TryFutureExt;
 use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
@@ -127,10 +129,16 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         debug!("eio socket connect {}", socket.sid);
         let (tx, rx) = oneshot::channel();
         socket.data.connect_recv_tx.lock().unwrap().replace(tx);
-        // tokio::spawn(tokio::time::timeout(timeout, rx).map_err(|_| {
-        // debug!("connect timeout for socket {}", socket.sid);
-        // (close_fn)(EIoDisconnectReason::TransportClose);
-        // }));
+        let socket_tx = socket.tx.clone();
+        let sid = socket.sid;
+        tokio::spawn(
+            tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
+                debug!("connect timeout for socket {}", sid);
+                socket_tx
+                    .try_send(SendPacket::Close(EIoDisconnectReason::TransportClose))
+                    .unwrap();
+            }),
+        );
     }
     fn on_disconnect(&self, socket: &EIoSocket<Self>, reason: EIoDisconnectReason) {
         debug!("eio socket disconnect {}", socket.sid);
