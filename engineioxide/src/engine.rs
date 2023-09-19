@@ -15,6 +15,7 @@ use crate::{
     service::TransportType,
     sid_generator::generate_sid,
     socket::{ConnectionType, DisconnectReason, Socket, SocketReq},
+    SendPacket,
 };
 use crate::{service::ProtocolVersion, sid_generator::Sid};
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
@@ -65,6 +66,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let close_fn =
             Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
         let sid = generate_sid();
+        let engine = self.clone();
+        let tx_map_fn = Box::new(move |packet: SendPacket| match packet {
+            SendPacket::Close(reason) => {
+                engine.close_session(sid, reason);
+                Packet::Close
+            }
+            packet => packet.into(),
+        });
         let socket = Socket::new(
             sid,
             protocol,
@@ -72,6 +81,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             &self.config,
             SocketReq::from(req.into_parts().0),
             close_fn,
+            tx_map_fn,
             #[cfg(feature = "v3")]
             supports_binary,
         );
@@ -260,6 +270,14 @@ impl<H: EngineIoHandler> EngineIo<H> {
             let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| {
                 engine.close_session(sid, reason)
             });
+            let engine = self.clone();
+            let tx_map_fn = Box::new(move |packet: SendPacket| match packet {
+                SendPacket::Close(reason) => {
+                    engine.close_session(sid, reason);
+                    Packet::Close
+                }
+                packet => packet.into(),
+            });
             let socket = Socket::new(
                 sid,
                 protocol,
@@ -267,6 +285,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 &self.config,
                 req_data,
                 close_fn,
+                tx_map_fn,
                 #[cfg(feature = "v3")]
                 true, // supports_binary
             );

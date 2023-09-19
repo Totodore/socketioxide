@@ -217,7 +217,9 @@ impl PacketSender {
                     self.bin_payload_buffer.as_mut().unwrap().push_front(p);
                     return Err(TransportError::SendFailedBinPayloads(None));
                 }
-                Err(TrySendError::Full(EnginePacket::Message(_))) => unreachable!(),
+                Err(TrySendError::Full(EnginePacket::Message(_) | EnginePacket::Close(_))) => {
+                    unreachable!()
+                }
                 Err(TrySendError::Closed(_)) => return Err(TransportError::SocketClosed),
                 Ok(()) => {}
             }
