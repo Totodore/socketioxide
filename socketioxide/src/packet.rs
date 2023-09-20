@@ -1,4 +1,4 @@
-use engineioxide::service::ProtocolVersion;
+use crate::ProtocolVersion;
 use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -17,25 +17,29 @@ pub struct Packet {
 }
 
 impl Packet {
-    #[cfg(all(feature = "v5", feature = "v4"))]
-    pub fn connect(ns: String, sid: Sid, protocol: ProtocolVersion) -> Self {
-        // Decide which SocketIO packet format to use based on the current EngineIO protocol version.
-        match protocol {
-            ProtocolVersion::V3 => Self::connect_v4(ns),
-            ProtocolVersion::V4 => Self::connect_v5(ns, sid),
+    /// Send a connect packet with a default payload for v5 and no payload for v4
+    pub fn connect(
+        ns: String,
+        #[allow(unused_variables)] sid: Sid,
+        #[allow(unused_variables)] protocol: ProtocolVersion,
+    ) -> Self {
+        #[cfg(all(feature = "v5", not(feature = "v4")))]
+        {
+            Self::connect_v5(ns, sid)
         }
-    }
 
-    #[cfg(feature = "v5")]
-    #[cfg(not(feature = "v4"))]
-    pub fn connect(ns: String, sid: Sid, _: ProtocolVersion) -> Self {
-        Self::connect_v5(ns, sid)
-    }
+        #[cfg(all(feature = "v4", not(feature = "v5")))]
+        {
+            Self::connect_v4(ns)
+        }
 
-    #[cfg(feature = "v4")]
-    #[cfg(not(feature = "v5"))]
-    pub fn connect(ns: String, _: Sid, _: ProtocolVersion) -> Self {
-        Self::connect_v4(ns)
+        #[cfg(all(feature = "v5", feature = "v4"))]
+        {
+            match protocol {
+                ProtocolVersion::V4 => Self::connect_v4(ns),
+                ProtocolVersion::V5 => Self::connect_v5(ns, sid),
+            }
+        }
     }
 
     /// Sends a connect packet without payload.

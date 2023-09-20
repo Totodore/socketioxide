@@ -90,3 +90,11 @@ impl From<ProtocolVersion> for engineioxide::ProtocolVersion {
         }
     }
 }
+impl From<engineioxide::ProtocolVersion> for ProtocolVersion {
+    fn from(value: engineioxide::ProtocolVersion) -> Self {
+        match value {
+            engineioxide::ProtocolVersion::V3 => Self::V4,
+            engineioxide::ProtocolVersion::V4 => Self::V5,
+        }
+    }
+}

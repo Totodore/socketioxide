@@ -14,13 +14,13 @@ use tracing::error;
 
 use crate::adapter::Adapter;
 use crate::handshake::Handshake;
-use crate::NsHandlers;
 use crate::{
     config::SocketIoConfig,
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
 };
+use crate::{NsHandlers, ProtocolVersion};
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
@@ -71,12 +71,17 @@ impl<A: Adapter> Client<A> {
         let handshake = Handshake::new(auth, esocket.req_data.clone());
         let sid = esocket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
-            let protocol = esocket.protocol;
-            let socket = ns.connect(sid, esocket.tx.clone(), handshake, self.config.clone());
+            let protocol: ProtocolVersion = esocket.protocol.into();
+            ns.connect(sid, esocket.tx.clone(), handshake, self.config.clone());
+
+            // cancel the connect timeout task for v5
+            #[cfg(feature = "v5")]
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                 tx.send(()).unwrap();
             }
-            if let Err(err) = socket.send(Packet::connect(ns_path.clone(), sid, protocol)) {
+
+            let packet = Packet::connect(ns_path, sid, protocol);
+            if let Err(err) = esocket.emit(packet.try_into()?) {
                 debug!("sending error during socket connection: {err:?}");
             }
             Ok(())
@@ -109,6 +114,8 @@ impl<A: Adapter> Client<A> {
         }
     }
 
+    /// Spawn a task that will close the socket if it the client does not connect to a namespace in the [SocketIoConfig::connect_timeout] time
+    #[cfg(feature = "v5")]
     fn spawn_connect_timeout(&self, socket: &EIoSocket<Self>) {
         let (tx, rx) = oneshot::channel();
         socket.data.connect_recv_tx.lock().unwrap().replace(tx);
@@ -136,6 +143,7 @@ pub struct SocketData {
     pub partial_bin_packet: Mutex<Option<Packet>>,
 
     /// Channel used to notify the socket that it has been connected to a namespace
+    #[cfg(feature = "v5")]
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
@@ -146,17 +154,17 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_connect(&self, socket: &EIoSocket<Self>) {
         debug!("eio socket connect {}", socket.sid);
 
+        let protocol: ProtocolVersion = socket.protocol.into();
+
         // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
         #[cfg(feature = "v4")]
-        {
-            if socket.protocol == engineioxide::service::ProtocolVersion::V3 {
-                debug!("Connecting to default namespace");
-                self.sock_connect(None, "/".into(), socket).unwrap();
-            }
+        if protocol == ProtocolVersion::V4 {
+            debug!("connecting to default namespace for v4");
+            self.sock_connect(None, "/".into(), socket).unwrap();
         }
 
         #[cfg(feature = "v5")]
-        if socket.protocol == engineioxide::service::ProtocolVersion::V4 {
+        if protocol == ProtocolVersion::V5 {
             self.spawn_connect_timeout(socket);
         }
     }

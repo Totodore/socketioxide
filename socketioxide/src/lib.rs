@@ -77,7 +77,7 @@ pub use errors::{
 };
 pub use layer::SocketIoLayer;
 pub use ns::{Namespace, NsHandlers};
-pub use service::SocketIoService;
+pub use service::{ProtocolVersion, SocketIoService};
 pub use socket::{DisconnectReason, Socket};
 
 mod client;
