@@ -3,12 +3,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::errors::{AdapterError, SendError};
+use crate::errors::AdapterError;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::Error,
     handshake::Handshake,
-    packet::{Packet, PacketData},
+    packet::PacketData,
     socket::Socket,
     SocketIoConfig,
 };
@@ -20,7 +20,17 @@ use tokio::sync::mpsc;
 pub type EventCallback<A> =
     Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
 
-pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
+pub struct NsHandlers<A: Adapter>(pub(crate) HashMap<String, EventCallback<A>>);
+impl<A: Adapter> NsHandlers<A> {
+    fn new(map: HashMap<String, EventCallback<A>>) -> Self {
+        Self(map)
+    }
+}
+impl<A: Adapter> Clone for NsHandlers<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 pub struct Namespace<A: Adapter> {
     pub path: String,
@@ -67,15 +77,7 @@ impl<A: Adapter> Namespace<A> {
         socket
     }
 
-    pub fn disconnect(&self, sid: Sid) -> Result<(), SendError> {
-        if let Some(socket) = self.sockets.write().unwrap().remove(&sid) {
-            self.adapter
-                .del_all(sid)
-                .map_err(|err| AdapterError(Box::new(err)))?;
-            socket.send(Packet::disconnect(self.path.clone()))?;
-        }
-        Ok(())
-    }
+    /// Remove a socket from a namespace and propagate the event to the adapter
     pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
         self.sockets.write().unwrap().remove(&sid);
         self.adapter
@@ -87,19 +89,11 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.read().unwrap().values().any(|s| s.sid == sid)
     }
 
-    /// Called when a namespace receive a particular packet that should be transmitted to the socket
-    pub fn socket_recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
-        self.get_socket(sid)?.recv(packet)
-    }
-
     pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Disconnect => self
-                .remove_socket(sid)
-                .map_err(|err| AdapterError(Box::new(err)).into()),
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError(_) => Ok(()),
-            packet => self.socket_recv(sid, packet),
+            packet => self.get_socket(sid)?.recv(packet),
         }
     }
     pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {
@@ -166,7 +160,7 @@ impl<A: Adapter> NamespaceBuilder<A> {
     }
 
     pub fn build(self) -> NsHandlers<A> {
-        self.ns_handlers
+        NsHandlers::new(self.ns_handlers)
     }
 }
 

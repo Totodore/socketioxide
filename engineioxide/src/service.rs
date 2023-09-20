@@ -1,11 +1,6 @@
 use crate::{
-    body::ResponseBody,
-    config::EngineIoConfig,
-    engine::EngineIo,
-    errors::{Error, Error::UnknownTransport},
-    futures::ResponseFuture,
-    handler::EngineIoHandler,
-    sid_generator::Sid,
+    body::ResponseBody, config::EngineIoConfig, engine::EngineIo, errors::Error,
+    futures::ResponseFuture, handler::EngineIoHandler, sid_generator::Sid,
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -75,7 +70,7 @@ impl<S: Clone, H: EngineIoHandler> Clone for EngineIoService<H, S> {
 impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,
-    ReqBody: http_body::Body + Send + 'static + Debug,
+    ReqBody: http_body::Body + Send + Unpin + 'static + Debug,
     <ReqBody as http_body::Body>::Error: Debug,
     <ReqBody as http_body::Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
@@ -96,18 +91,26 @@ where
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with(&self.engine.config.req_path) {
             let engine = self.engine.clone();
-            match RequestInfo::parse(&req) {
+            match RequestInfo::parse(&req, &self.engine.config) {
                 Ok(RequestInfo {
                     protocol,
                     sid: None,
                     transport: TransportType::Polling,
                     method: Method::GET,
-                }) => ResponseFuture::ready(engine.on_open_http_req(protocol, req)),
+                    #[cfg(feature = "v3")]
+                    b64,
+                }) => ResponseFuture::ready(engine.on_open_http_req(
+                    protocol,
+                    req,
+                    #[cfg(feature = "v3")]
+                    !b64,
+                )),
                 Ok(RequestInfo {
                     protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::GET,
+                    ..
                 }) => ResponseFuture::async_response(Box::pin(
                     engine.on_polling_http_req(protocol, sid),
                 )),
@@ -116,6 +119,7 @@ where
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
+                    ..
                 }) => ResponseFuture::async_response(Box::pin(
                     engine.on_post_http_req(protocol, sid, req),
                 )),
@@ -124,6 +128,7 @@ where
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
+                    ..
                 }) => ResponseFuture::ready(engine.on_ws_req(protocol, sid, req)),
                 Err(e) => ResponseFuture::ready(Ok(e.into())),
                 _ => ResponseFuture::empty_response(400),
@@ -194,10 +199,10 @@ where
 }
 
 /// The type of the transport used by the client.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TransportType {
-    Websocket,
-    Polling,
+    Polling = 0x01,
+    Websocket = 0x02,
 }
 
 impl FromStr for TransportType {
@@ -207,7 +212,23 @@ impl FromStr for TransportType {
         match s {
             "websocket" => Ok(TransportType::Websocket),
             "polling" => Ok(TransportType::Polling),
-            _ => Err(UnknownTransport),
+            _ => Err(Error::UnknownTransport),
+        }
+    }
+}
+impl From<TransportType> for &'static str {
+    fn from(t: TransportType) -> Self {
+        match t {
+            TransportType::Polling => "polling",
+            TransportType::Websocket => "websocket",
+        }
+    }
+}
+impl From<TransportType> for String {
+    fn from(t: TransportType) -> Self {
+        match t {
+            TransportType::Polling => "polling".into(),
+            TransportType::Websocket => "websocket".into(),
         }
     }
 }
@@ -260,18 +281,21 @@ struct RequestInfo {
     transport: TransportType,
     /// The request method.
     method: Method,
+    /// If the client asked for base64 encoding only.
+    #[cfg(feature = "v3")]
+    b64: bool,
 }
 
 impl RequestInfo {
     /// Parse the request URI to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    fn parse<B>(req: &Request<B>) -> Result<Self, Error> {
-        let query = req.uri().query().ok_or(UnknownTransport)?;
+    fn parse<B>(req: &Request<B>, config: &EngineIoConfig) -> Result<Self, Error> {
+        let query = req.uri().query().ok_or(Error::UnknownTransport)?;
 
         let protocol: ProtocolVersion = query
             .split('&')
             .find(|s| s.starts_with("EIO="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(UnknownTransport)
+            .ok_or(Error::UnsupportedProtocolVersion)
             .and_then(|t| t.parse())?;
 
         let sid = query
@@ -284,11 +308,21 @@ impl RequestInfo {
             .split('&')
             .find(|s| s.starts_with("transport="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(UnknownTransport)
+            .ok_or(Error::UnknownTransport)
             .and_then(|t| t.parse())?;
 
-        let method = req.method().clone();
+        if !config.allowed_transport(transport) {
+            return Err(Error::TransportMismatch);
+        }
 
+        #[cfg(feature = "v3")]
+        let b64: bool = query
+            .split('&')
+            .find(|s| s.starts_with("b64="))
+            .map(|_| true)
+            .unwrap_or_default();
+
+        let method = req.method().clone();
         if !matches!(method, Method::GET) && sid.is_none() {
             Err(Error::BadHandshakeMethod)
         } else {
@@ -297,6 +331,8 @@ impl RequestInfo {
                 sid,
                 transport,
                 method,
+                #[cfg(feature = "v3")]
+                b64,
             })
         }
     }
@@ -311,9 +347,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "v4")]
     fn request_info_polling() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling");
-        let info = RequestInfo::parse(&req).unwrap();
+        let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
         assert_eq!(info.sid, None);
         assert_eq!(info.transport, TransportType::Polling);
         assert_eq!(info.protocol, ProtocolVersion::V4);
@@ -321,9 +358,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "v4")]
     fn request_info_websocket() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket");
-        let info = RequestInfo::parse(&req).unwrap();
+        let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
         assert_eq!(info.sid, None);
         assert_eq!(info.transport, TransportType::Websocket);
         assert_eq!(info.protocol, ProtocolVersion::V4);
@@ -331,11 +369,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "v3")]
     fn request_info_polling_with_sid() {
         let req = build_request(
             "http://localhost:3000/socket.io/?EIO=3&transport=polling&sid=AAAAAAAAAHs",
         );
-        let info = RequestInfo::parse(&req).unwrap();
+        let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
         assert_eq!(info.sid, Some(123i64.into()));
         assert_eq!(info.transport, TransportType::Polling);
         assert_eq!(info.protocol, ProtocolVersion::V3);
@@ -343,34 +382,82 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "v4")]
     fn request_info_websocket_with_sid() {
         let req = build_request(
-            "http://localhost:3000/socket.io/?EIO=3&transport=websocket&sid=AAAAAAAAAHs",
+            "http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAHs",
         );
-        let info = RequestInfo::parse(&req).unwrap();
+        let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
         assert_eq!(info.sid, Some(123i64.into()));
         assert_eq!(info.transport, TransportType::Websocket);
-        assert_eq!(info.protocol, ProtocolVersion::V3);
+        assert_eq!(info.protocol, ProtocolVersion::V4);
         assert_eq!(info.method, Method::GET);
     }
+
     #[test]
+    #[cfg(feature = "v3")]
+    fn request_info_polling_with_bin_by_default() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=3&transport=polling");
+        let req = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
+        assert!(!req.b64);
+    }
+
+    #[test]
+    #[cfg(feature = "v3")]
+    fn request_info_polling_withb64() {
+        assert!(cfg!(feature = "v3"));
+
+        let req = build_request("http://localhost:3000/socket.io/?EIO=3&transport=polling&b64=1");
+        let req = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
+        assert!(req.b64);
+    }
+
+    #[test]
+    #[cfg(feature = "v4")]
     fn transport_unknown_err() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=grpc");
-        let err = RequestInfo::parse(&req).unwrap_err();
+        let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
         assert!(matches!(err, Error::UnknownTransport));
     }
     #[test]
     fn unsupported_protocol_version() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=2&transport=polling");
-        let err = RequestInfo::parse(&req).unwrap_err();
+        let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
         assert!(matches!(err, Error::UnsupportedProtocolVersion));
     }
     #[test]
+    #[cfg(feature = "v4")]
     fn bad_handshake_method() {
         let req = Request::post("http://localhost:3000/socket.io/?EIO=4&transport=polling")
             .body(())
             .unwrap();
-        let err = RequestInfo::parse(&req).unwrap_err();
+        let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
         assert!(matches!(err, Error::BadHandshakeMethod));
+    }
+
+    #[test]
+    #[cfg(feature = "v4")]
+    fn unsupported_transport() {
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling");
+        let err = RequestInfo::parse(
+            &req,
+            &EngineIoConfig::builder()
+                .transports([TransportType::Websocket])
+                .build(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, Error::TransportMismatch));
+
+        let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket");
+        let err = RequestInfo::parse(
+            &req,
+            &EngineIoConfig::builder()
+                .transports([TransportType::Polling])
+                .build(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, Error::TransportMismatch))
     }
 }

@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
+    collections::VecDeque,
     fmt::Debug,
+    sync::Mutex,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc, RwLock,
@@ -8,14 +10,17 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid_generator::Sid, SendPacket as EnginePacket};
-use futures::Future;
+use engineioxide::{
+    sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason, SendPacket as EnginePacket,
+};
+use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
+use tracing::debug;
 
-use crate::errors::SendError;
-use crate::retryer::Retryer;
+use crate::errors::{AdapterError, SendError, TransportError};
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
@@ -28,18 +33,217 @@ use crate::{
     SocketIoConfig,
 };
 
+pub type DisconnectCallback<A> = Box<
+    dyn FnOnce(Arc<Socket<A>>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+>;
+
+/// All the possible reasons for a [`Socket`] to be disconnected.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum DisconnectReason {
+    /// The client gracefully closed the connection
+    TransportClose,
+
+    /// The client sent multiple polling requests at the same time (it is forbidden according to the engine.io protocol)
+    MultipleHttpPollingError,
+
+    /// The client sent a bad request / the packet could not be parsed correctly
+    PacketParsingError,
+
+    /// The connection was closed (example: the user has lost connection, or the network was changed from WiFi to 4G)
+    TransportError,
+
+    /// The client did not send a PONG packet in the [ping timeout](crate::SocketIoConfigBuilder) delay
+    HeartbeatTimeout,
+
+    /// The client has manually disconnected the socket using [`socket.disconnect()`](https://socket.io/fr/docs/v4/client-api/#socketdisconnect)
+    ClientNSDisconnect,
+
+    /// The socket was forcefully disconnected from the namespace with [`Socket::disconnect`]
+    ServerNSDisconnect,
+}
+
+impl std::fmt::Display for DisconnectReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use DisconnectReason::*;
+        let str: &'static str = match self {
+            TransportClose => "client gracefully closed the connection",
+            MultipleHttpPollingError => "client sent multiple polling requests at the same time",
+            PacketParsingError => "client sent a bad request / the packet could not be parsed",
+            TransportError => "The connection was abruptly closed",
+            HeartbeatTimeout => "client did not send a PONG packet in time",
+            ClientNSDisconnect => "client has manually disconnected the socket from the namespace",
+            ServerNSDisconnect => "socket was forcefully disconnected from the namespace",
+        };
+        f.write_str(str)
+    }
+}
+
+impl From<EIoDisconnectReason> for DisconnectReason {
+    fn from(reason: EIoDisconnectReason) -> Self {
+        use DisconnectReason::*;
+        match reason {
+            EIoDisconnectReason::TransportClose => TransportClose,
+            EIoDisconnectReason::TransportError => TransportError,
+            EIoDisconnectReason::HeartbeatTimeout => HeartbeatTimeout,
+            EIoDisconnectReason::MultipleHttpPollingError => MultipleHttpPollingError,
+            EIoDisconnectReason::PacketParsingError => PacketParsingError,
+        }
+    }
+}
+
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 pub struct Socket<A: Adapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
-    ack_message: RwLock<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
+    disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
-    tx: tokio::sync::mpsc::Sender<EnginePacket>,
     pub handshake: Handshake,
     pub sid: Sid,
     pub extensions: Extensions,
+    sender: Mutex<PacketSender>,
+}
+/// PacketSender is internal struct, it is used to send/resend messages from the client.
+struct PacketSender {
+    tx: tokio::sync::mpsc::Sender<EnginePacket>, // Asynchronous sender for EnginePacket
+    bin_payload_buffer: Option<VecDeque<EnginePacket>>, // Optional buffer for binary payloads
+}
+
+impl PacketSender {
+    /// Creates a new PacketSender instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `tx` - Asynchronous sender for EnginePacket.
+    ///
+    /// # Returns
+    ///
+    /// A new PacketSender instance.
+    fn new(tx: tokio::sync::mpsc::Sender<EnginePacket>) -> Self {
+        Self {
+            tx,
+            bin_payload_buffer: None,
+        }
+    }
+
+    /// Sends a raw RetryablePacket, it's an internal function, should be used from RetryablePacket.retry() method.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet` - The RetryablePacket to be sent.
+    ///
+    /// # Returns
+    ///
+    /// An Ok(()) if the send operation was successful, otherwise returns a TransportError.
+    fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), TransportError> {
+        if let Err(err) = self.send_buffered_binaries() {
+            match err {
+                TransportError::SendFailedBinPayloads(None) => {
+                    Err(TransportError::SendMainPacket(packet))
+                }
+                TransportError::SocketClosed => Err(TransportError::SocketClosed),
+                _ => unreachable!(),
+            }
+        } else {
+            let main_packet = packet.main_packet;
+            match self.tx.try_send(main_packet) {
+                Err(TrySendError::Full(main_packet)) => {
+                    packet.main_packet = main_packet;
+                    Err(TransportError::SendMainPacket(packet))
+                }
+                Err(TrySendError::Closed(_)) => Err(TransportError::SocketClosed),
+                Ok(_) => {
+                    self.bin_payload_buffer = Some(packet.attachments);
+                    self.send_buffered_binaries()?;
+                    Ok(())
+                }
+            }
+        }
+    }
+    /// Sends a Packet.
+    ///
+    /// # Arguments
+    ///
+    /// * `packet` - The Packet to be sent.
+    ///
+    /// # Returns
+    ///
+    /// An Ok(()) if the send operation was successful, otherwise returns a SendError.
+    fn send(&mut self, mut packet: Packet) -> Result<(), SendError> {
+        if let Err(err) = self.send_buffered_binaries() {
+            Err(err.add_main_packet(packet).into())
+        } else {
+            let bin_payloads = match packet.inner {
+                PacketData::BinaryEvent(_, ref mut bin, _)
+                | PacketData::BinaryAck(ref mut bin, _) => Some(
+                    std::mem::take(&mut bin.bin)
+                        .into_iter()
+                        .map(EnginePacket::Binary)
+                        .collect(),
+                ),
+                _ => None,
+            };
+            match self.tx.try_send(packet.try_into()?) {
+                Err(TrySendError::Full(packet)) => {
+                    let bin_payloads = bin_payloads.unwrap_or(VecDeque::new());
+                    return Err(TransportError::SendMainPacket(RetryablePacket {
+                        main_packet: packet,
+                        attachments: bin_payloads,
+                    })
+                    .into());
+                }
+                Err(TrySendError::Closed(_)) => {
+                    return Err(TransportError::SocketClosed.into());
+                }
+                _ => {}
+            };
+            self.bin_payload_buffer = bin_payloads;
+            self.send_buffered_binaries()?;
+            Ok(())
+        }
+    }
+
+    /// Sends the binary payloads from the failed buffer appeared on the previous attempts of sending.
+    ///
+    /// # Returns
+    ///
+    /// An Ok(()) if the send operation was successful, otherwise returns a TransportError.
+    fn send_buffered_binaries(&mut self) -> Result<(), TransportError> {
+        while let Some(p) = self.bin_payload_buffer.as_mut().and_then(|p| p.pop_front()) {
+            match self.tx.try_send(p) {
+                Err(TrySendError::Full(p @ EnginePacket::Binary(_))) => {
+                    self.bin_payload_buffer.as_mut().unwrap().push_front(p);
+                    return Err(TransportError::SendFailedBinPayloads(None));
+                }
+                Err(TrySendError::Full(EnginePacket::Message(_) | EnginePacket::Close(_))) => {
+                    unreachable!()
+                }
+                Err(TrySendError::Closed(_)) => return Err(TransportError::SocketClosed),
+                Ok(()) => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The RetryablePacket struct represents a packet that can be retried for sending in case of failure,
+/// It cannot be created from user space. There is only one way to get it:
+/// it can only be returned from the socket send method.
+#[derive(Debug)]
+pub struct RetryablePacket {
+    main_packet: EnginePacket,
+    attachments: VecDeque<EnginePacket>,
+}
+
+impl RetryablePacket {
+    /// This method attempts to send the packet represented by `self`
+    /// If the sending operation fails, an error of type `TransportError` is returned.
+    /// If the sending operation succeeds, `Ok(())` is returned.
+    pub fn retry<A: Adapter>(self, socket: &Socket<A>) -> Result<(), TransportError> {
+        socket.sender.lock().unwrap().send_raw(self)
+    }
 }
 
 impl<A: Adapter> Socket<A> {
@@ -51,15 +255,16 @@ impl<A: Adapter> Socket<A> {
         config: Arc<SocketIoConfig>,
     ) -> Self {
         Self {
-            tx,
             ns,
             message_handlers: RwLock::new(HashMap::new()),
-            ack_message: RwLock::new(HashMap::new()),
+            disconnect_handler: Mutex::new(None),
+            ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
             handshake,
             sid,
             extensions: Extensions::new(),
             config,
+            sender: Mutex::new(PacketSender::new(tx)),
         }
     }
 
@@ -128,6 +333,31 @@ impl<A: Adapter> Socket<A> {
             .insert(event.into(), MessageHandler::boxed(handler));
     }
 
+    /// ## Register a disconnect handler.
+    /// The callback will be called when the socket is disconnected from the server or the client or when the underlying connection crashes.
+    /// A [`DisconnectReason`](crate::DisconnectReason) is passed to the callback to indicate the reason for the disconnection.
+    /// ### Example
+    /// ```
+    /// # use socketioxide::Namespace;
+    /// # use serde_json::Value;
+    /// Namespace::builder().add("/", |socket| async move {
+    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    ///         // Close the current socket
+    ///         socket.disconnect().ok();
+    ///     });
+    ///     socket.on_disconnect(|socket, reason| async move {
+    ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.sid, socket.ns(), reason);
+    ///     });
+    /// });
+    pub fn on_disconnect<C, F>(&self, callback: C)
+    where
+        C: Fn(Arc<Socket<A>>, DisconnectReason) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let handler = Box::new(move |s, r| Box::pin(callback(s, r)) as _);
+        *self.disconnect_handler.lock().unwrap() = Some(handler);
+    }
+
     /// Emit a message to the client
     /// ##### Example
     /// ```
@@ -139,10 +369,31 @@ impl<A: Adapter> Socket<A> {
     ///         socket.emit("test", data);
     ///     });
     /// });
-    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), SendError> {
+    pub fn emit(
+        &self,
+        event: impl Into<String>,
+        data: impl Serialize,
+    ) -> Result<(), serde_json::Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        self.send(Packet::event(ns, event.into(), data))
+        if let Err(err) = self.send(Packet::event(ns, event.into(), data)) {
+            debug!("sending error during emit message: {err:?}");
+        }
+        Ok(())
+    }
+
+    /// Retries sending any failed binary payloads that are currently buffered.
+    ///
+    /// This method attempts to resend any binary payloads that have failed to be sent in previous attempts. It acquires
+    /// a lock on the `PacketSender` associated with the `Socket` and calls the `send_buffered_binaries` method to
+    /// retry sending the failed payloads. If the sending operation fails again, an error of type `TransportError` is
+    /// returned. If the sending operation succeeds, `Ok(())` is returned.
+    ///
+    /// This method is useful in scenarios where binary payloads were not successfully sent due to temporary errors, such
+    /// as a full buffer or a closed socket. By invoking this method, you can retry sending the failed payloads and ensure
+    /// the data is transmitted successfully.
+    pub fn retry_failed(&self) -> Result<(), TransportError> {
+        self.sender.lock().unwrap().send_buffered_binaries()
     }
 
     /// Emit a message to the client and wait for acknowledgement.
@@ -341,9 +592,13 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), self.sid).broadcast()
     }
 
-    /// Disconnect the socket from the current namespace.
-    pub fn disconnect(&self) -> Result<(), SendError> {
-        self.ns.disconnect(self.sid)
+    /// Disconnect the socket from the current namespace,
+    ///
+    /// It will also call the disconnect handler if it is set.
+    pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
+        self.send(Packet::disconnect(self.ns.path.clone()))?;
+        self.close(DisconnectReason::ServerNSDisconnect)?;
+        Ok(())
     }
 
     /// Get the current namespace path.
@@ -351,17 +606,8 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError> {
-        let payload = match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                std::mem::take(&mut bin.bin)
-            }
-            _ => vec![],
-        };
-        let packet = packet.try_into()?;
-        Retryer::new(self.sid, self.tx.clone(), Some(packet), payload.into()).retry()?;
-
-        Ok(())
+    pub(crate) fn send(&self, packet: Packet) -> Result<(), SendError> {
+        self.sender.lock().unwrap().send(packet)
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
@@ -371,7 +617,7 @@ impl<A: Adapter> Socket<A> {
     ) -> Result<AckResponse<V>, AckError> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        self.ack_message.write().unwrap().insert(ack, tx);
+        self.ack_message.lock().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
         self.send(packet)?;
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
@@ -379,14 +625,26 @@ impl<A: Adapter> Socket<A> {
         Ok((serde_json::from_value(v.0)?, v.1))
     }
 
-    // Receive data from client:
+    /// Called when the socket is gracefully disconnected from the server or the client
+    ///
+    /// It maybe also closed when the underlying transport is closed or failed.
+    pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
+        if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
+            tokio::spawn(handler(self.clone(), reason));
+        }
+        self.ns.remove_socket(self.sid)
+    }
 
+    // Receive data from client:
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Event(e, data, ack) => self.recv_event(e, data, ack),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
             PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(e, packet, ack),
             PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
+            PacketData::Disconnect => self
+                .close(DisconnectReason::ClientNSDisconnect)
+                .map_err(Error::from),
             _ => unreachable!(),
         }
     }
@@ -411,14 +669,14 @@ impl<A: Adapter> Socket<A> {
     }
 
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
-        if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
+        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
             tx.send((data, vec![])).ok();
         }
         Ok(())
     }
 
     fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
-        if let Some(tx) = self.ack_message.write().unwrap().remove(&ack) {
+        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
             tx.send((packet.data, packet.bin)).ok();
         }
         Ok(())
@@ -453,55 +711,5 @@ impl<A: Adapter> Socket<A> {
             tx,
             Arc::new(SocketIoConfig::default()),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::adapter::{Adapter, LocalAdapter};
-    use crate::errors::{RetryerError, SendError};
-    use crate::handshake::Handshake;
-    use crate::{Namespace, Socket, SocketIoConfig};
-    use engineioxide::sid_generator::Sid;
-    use engineioxide::SendPacket;
-    use futures::FutureExt;
-    use std::sync::Arc;
-    use tokio::sync::mpsc::Receiver;
-
-    impl<A: Adapter> Socket<A> {
-        pub fn new_rx_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> (Socket<A>, Receiver<SendPacket>) {
-            let (tx, rx) = tokio::sync::mpsc::channel(1);
-            (
-                Socket::new(
-                    sid,
-                    ns,
-                    Handshake::new_dummy(),
-                    tx,
-                    Arc::new(SocketIoConfig::default()),
-                ),
-                rx,
-            )
-        }
-    }
-
-    #[tokio::test]
-    async fn test_resend() {
-        let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
-        let (sock, mut rx): (Socket<LocalAdapter>, _) =
-            Socket::new_rx_dummy(1i64.into(), ns.clone());
-        sock.emit("lol", "\"someString1\"").unwrap();
-
-        let error = sock.emit("lol", "\"someString2\"").unwrap_err();
-
-        let SendError::RetryerError(RetryerError::Remaining(retryer)) = error else {
-          panic!("unexpected err");  
-        };
-        let error = retryer.retry().unwrap_err();
-        rx.recv().await.unwrap();
-
-        let RetryerError::Remaining(retryer) = error else {
-            panic!("unexpected err");
-        };
-        retryer.retry().unwrap();
     }
 }

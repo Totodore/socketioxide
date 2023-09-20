@@ -13,15 +13,13 @@ pub enum Error {
     #[error("error decoding binary packet from polling request: {0:?}")]
     Base64(#[from] base64::DecodeError),
     #[error("error decoding packet: {0:?}")]
-    Utf8(#[from] std::string::FromUtf8Error),
+    StrUtf8(#[from] std::str::Utf8Error),
     #[error("io error: {0:?}")]
     Io(#[from] std::io::Error),
     #[error("bad packet received")]
     BadPacket(Packet),
     #[error("ws transport error: {0:?}")]
     WsTransport(#[from] tungstenite::Error),
-    #[error("http transport error: {0:?}")]
-    HttpTransport(#[from] hyper::Error),
     #[error("http error: {0:?}")]
     Http(#[from] http::Error),
     #[error("internal channel error: {0:?}")]
@@ -48,6 +46,8 @@ pub enum Error {
     TransportMismatch,
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
+    #[error("payload too large")]
+    PayloadTooLarge,
 
     #[error("Invalid packet length")]
     InvalidPacketLength,
@@ -72,6 +72,10 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .unwrap(),
             Error::BadPacket(_) => Response::builder()
                 .status(400)
+                .body(ResponseBody::empty_response())
+                .unwrap(),
+            Error::PayloadTooLarge => Response::builder()
+                .status(413)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
             Error::UnknownTransport => {

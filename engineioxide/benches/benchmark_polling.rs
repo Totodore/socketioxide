@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use bytes::{Buf, Bytes};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use engineioxide::socket::DisconnectReason;
 use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
 
 use engineioxide::sid_generator::Sid;
@@ -29,7 +30,7 @@ impl EngineIoHandler for Client {
 
     fn on_connect(&self, _: &Socket<Self>) {}
 
-    fn on_disconnect(&self, _: &Socket<Self>) {}
+    fn on_disconnect(&self, _: &Socket<Self>, _reason: DisconnectReason) {}
 
     fn on_message(&self, msg: String, socket: &Socket<Self>) {
         socket.emit(msg).unwrap();

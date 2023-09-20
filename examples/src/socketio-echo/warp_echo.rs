@@ -24,6 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Received event: {:?} {:?}", data, bin);
                 ack.bin(bin).send(data).ok();
             });
+
+            socket.on_disconnect(|socket, reason| async move {
+                info!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            });
         })
         .add("/custom", |socket| async move {
             info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);

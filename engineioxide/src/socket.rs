@@ -11,6 +11,7 @@ use tokio::{
     sync::{mpsc, mpsc::Receiver, Mutex},
     task::JoinHandle,
 };
+use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
 use crate::sid_generator::Sid;
@@ -50,6 +51,39 @@ impl From<Parts> for SocketReq {
         Self {
             uri: parts.uri,
             headers: parts.headers,
+        }
+    }
+}
+
+/// A [`DisconnectReason`] represents the reason why a [`Socket`] was closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisconnectReason {
+    /// The client gracefully closed the connection
+    TransportClose,
+    /// The client sent multiple polling requests at the same time (it is forbidden according to the engine.io protocol)
+    MultipleHttpPollingError,
+    /// The client sent a bad request / the packet could not be parsed correctly
+    PacketParsingError,
+    /// An error occured in the transport layer
+    /// (e.g. the client closed the connection without sending a close packet)
+    TransportError,
+    /// The client did not respond to the heartbeat
+    HeartbeatTimeout,
+}
+
+/// Convert an [`Error`] to a [`DisconnectReason`] if possible
+/// This is used to notify the [`Handler`](crate::handler::EngineIoHandler) of the reason why a [`Socket`] was closed
+/// If the error cannot be converted to a [`DisconnectReason`] it means that the error was not fatal and the [`Socket`] can be kept alive
+impl From<&Error> for Option<DisconnectReason> {
+    fn from(err: &Error) -> Self {
+        use Error::*;
+        match err {
+            WsTransport(tungstenite::Error::ConnectionClosed) => None,
+            WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
+            BadPacket(_) | Serialize(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge
+            | InvalidPacketLength => Some(DisconnectReason::PacketParsingError),
+            HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
+            _ => None,
         }
     }
 }
@@ -99,12 +133,16 @@ where
     heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
 
     /// Function to call when the socket is closed
-    close_fn: Box<dyn Fn(Sid) + Send + Sync>,
+    close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     /// User data bound to the socket
     pub data: H::Data,
 
     /// Http Request data used to create a socket
     pub req_data: Arc<SocketReq>,
+
+    /// If the client supports binary packets (via polling XHR2)
+    #[cfg(feature = "v3")]
+    pub supports_binary: bool,
 }
 
 impl<H> Socket<H>
@@ -117,13 +155,15 @@ where
         conn: ConnectionType,
         config: &EngineIoConfig,
         req_data: SocketReq,
-        close_fn: Box<dyn Fn(Sid) + Send + Sync>,
+        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+        tx_map_fn: impl Fn(SendPacket) -> Packet + Send + Sync + 'static,
+        #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (tx, rx) = mpsc::channel(config.max_buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
-        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
+        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), tx_map_fn));
 
         Self {
             sid,
@@ -141,6 +181,9 @@ where
 
             data: H::Data::default(),
             req_data: req_data.into(),
+
+            #[cfg(feature = "v3")]
+            supports_binary,
         }
     }
 
@@ -166,7 +209,7 @@ where
 
         let handle = tokio::spawn(async move {
             if let Err(e) = socket.heartbeat_job(interval, timeout).await {
-                socket.close();
+                socket.close(DisconnectReason::HeartbeatTimeout);
                 debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
             }
         });
@@ -292,8 +335,8 @@ where
 
     /// Immediately closes the socket and the underlying connection.
     /// The socket will be removed from the `Engine` and the [`Handler`](crate::handler::EngineIoHandler) will be notified.
-    pub fn close(&self) {
-        (self.close_fn)(self.sid);
+    pub fn close(&self, reason: DisconnectReason) {
+        (self.close_fn)(self.sid, reason);
         self.send(Packet::Close).ok();
     }
 
@@ -317,7 +360,10 @@ where
 
 #[cfg(test)]
 impl<H: EngineIoHandler> Socket<H> {
-    pub fn new_dummy(sid: Sid, close_fn: Box<dyn Fn(Sid) + Send + Sync>) -> Socket<H> {
+    pub fn new_dummy(
+        sid: Sid,
+        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+    ) -> Socket<H> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (tx, rx) = mpsc::channel(200);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
@@ -344,6 +390,9 @@ impl<H: EngineIoHandler> Socket<H> {
                 uri: Uri::default(),
             }
             .into(),
+
+            #[cfg(feature = "v3")]
+            supports_binary: true,
         }
     }
 }

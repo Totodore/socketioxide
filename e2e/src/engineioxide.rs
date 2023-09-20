@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use engineioxide::{
-    config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, socket::Socket,
+    config::EngineIoConfig,
+    handler::EngineIoHandler,
+    service::EngineIoService,
+    socket::{DisconnectReason, Socket},
 };
 use hyper::Server;
 use tracing::{info, Level};
@@ -19,8 +22,8 @@ impl EngineIoHandler for MyHandler {
     fn on_connect(&self, socket: &Socket<Self>) {
         println!("socket connect {}", socket.sid);
     }
-    fn on_disconnect(&self, socket: &Socket<Self>) {
-        println!("socket disconnect {}", socket.sid);
+    fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
+        println!("socket disconnect {}: {:?}", socket.sid, reason);
     }
 
     fn on_message(&self, msg: String, socket: &Socket<Self>) {

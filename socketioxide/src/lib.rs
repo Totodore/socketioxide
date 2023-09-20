@@ -42,6 +42,11 @@
 //!                 println!("Received acb event: {:?} {:?}", data, bin);
 //!                 ack.bin(bin).send(data).ok();
 //!             });
+//!             // Add a callback triggered when the socket disconnect
+//!             // The reason of the disconnection will be passed to the callback
+//!             socket.on_disconnect(|socket, reason| async move {
+//!                 println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+//!             });
 //!         })
 //!         .add("/custom", |socket| async move {
 //!             println!("Socket connected on /custom namespace with id: {}", socket.sid);
@@ -64,19 +69,20 @@
 compile_error!("At least one protocol version must be enabled");
 
 pub mod adapter;
-pub mod retryer;
+pub mod extensions;
 
-pub use config::{SocketIoConfig, SocketIoConfigBuilder};
-pub use errors::{AckError, Error as SocketError};
+pub use config::{SocketIoConfig, SocketIoConfigBuilder, TransportType};
+pub use errors::{
+    AckError, AckSenderError, BroadcastError, Error as SocketError, SendError, TransportError,
+};
 pub use layer::SocketIoLayer;
-pub use ns::Namespace;
+pub use ns::{Namespace, NsHandlers};
 pub use service::SocketIoService;
-pub use socket::Socket;
+pub use socket::{DisconnectReason, Socket};
 
 mod client;
 mod config;
 mod errors;
-pub mod extensions;
 mod handler;
 mod handshake;
 mod layer;
