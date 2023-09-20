@@ -14,6 +14,8 @@ pub mod service;
 pub mod sid_generator;
 pub mod socket;
 
+pub use service::ProtocolVersion;
+
 mod body;
 mod engine;
 mod futures;
