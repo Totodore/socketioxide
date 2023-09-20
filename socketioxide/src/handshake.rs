@@ -25,11 +25,9 @@ impl Handshake {
     ///
     /// It is cloned and deserialized from a json::Value to the given type.
     pub fn data<T: DeserializeOwned>(&self) -> Option<Result<T, Error>> {
-        if let Some(auth) = &self.auth {
-            Some(serde_json::from_value(auth.clone()).map_err(Error::from))
-        } else {
-            None
-        }
+        self.auth
+            .clone()
+            .map(|auth| serde_json::from_value(auth).map_err(Error::from))
     }
 }
 
