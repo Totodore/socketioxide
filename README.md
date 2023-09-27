@@ -1,7 +1,7 @@
 <picture>
- <source media="(prefers-color-scheme: dark)" srcset="https://socket.io/images/logo-dark.svg" align="right" width=200>
+ <source media="(prefers-color-scheme: dark)" srcset="https://socket.io/images/logo-dark.svg" align="right" width=240>
 
- <img src="https://socket.io/images/logo.svg" align="right" width=200 />
+ <img src="https://socket.io/images/logo.svg" align="right" width=240 />
 </picture>
 
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
