@@ -1,8 +1,8 @@
 [package]
 name = "socketioxide"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
-rust-version = "1.60.0"
+rust-version = "1.63.0"
 
 authors = ["Théodore Prévot <"]
 description = "Socket IO server implementation in rust as a Tower Service."
@@ -18,7 +18,7 @@ license = "MIT"
 readme = "../Readme.md"
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.4.1" }
+engineioxide = { path = "../engineioxide", version = "0.5.0" }
 futures = "0.3.27"
 tokio = "1.26.0"
 serde = { version = "1.0.155", features = ["derive"] }

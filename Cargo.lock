@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "base64 0.21.0",
@@ -1256,7 +1256,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "axum",
  "dashmap",
@@ -1279,7 +1279,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-e2e"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "engineioxide",
  "futures",
@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-examples"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "axum",
  "engineioxide",
