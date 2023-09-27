@@ -1,4 +1,4 @@
-<img src="https://socket.io/images/logo-dark.svg" align="right" width=150 />
+<img src="https://socket.io/images/logo-dark.svg" align="right" width=200 />
 
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
@@ -145,7 +145,7 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
 ```
 
 </details>
-<details> <summary><code> Echo implementation with Axum 🏓 </code></summary>
+<details> <summary><code>Echo implementation with Axum 🏓</code></summary>
 
 ```rust
 use axum::routing::get;
