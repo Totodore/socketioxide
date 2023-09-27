@@ -6,3 +6,4 @@
 
 ## engineioxide
 * A [`DisconnectReason`](https://docs.rs/engineioxide/latest/engineioxide/enum.DisconnectReason.html) enum is passed to the `on_disconnect` callback of the engine handler.
+* Bump `tokio-tungstenite` to 0.20.1.
