@@ -1,9 +1,3 @@
-<picture>
- <source media="(prefers-color-scheme: dark)" srcset="https://socket.io/images/logo-dark.svg" align="right" width=200>
-
- <img src="https://socket.io/images/logo.svg" align="right" width=200 />
-</picture>
-
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
 A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). Integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, authorization, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).
