@@ -1,34 +1,44 @@
-# Socket.io & Engine.io server Rust
-[![SocketIO CI](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml)
-[![EngineIO CI](https://github.com/Totodore/socketioxide/actions/workflows/engineio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/engineio-ci.yml)
+<img src="https://socket.io/images/logo-dark.svg" align="right" width=150 />
 
-### Socket.io server as a [tower layer](https://docs.rs/tower/latest/tower/) in Rust
-It integrates with any framework based on tower/hyper, such as:
-* [axum](https://docs.rs/axum/latest/axum/): [echo implementation](./examples/src/socketio-echo/axum_echo.rs)
-* [warp](https://docs.rs/warp/latest/warp/): [echo implementation](./examples/src/socketio-echo/warp_echo.rs)
-* [hyper](https://docs.rs/hyper/latest/hyper/): [echo implementation](./examples/src/socketio-echo/hyper_echo.rs)
+# [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
-It takes full advantage of the [tower](https://docs.rs/tower/latest/tower/) and [tower-http](https://docs.rs/tower-http/latest/tower_http/) ecosystem of middleware, services, and utilities.
-
+A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). Integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, SSL, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).
 
 > ⚠️ This crate is under active development and the API is not yet stable.
 
-### Features :
+
+[![Crates.io](https://img.shields.io/crates/v/socketioxide.svg)](https://crates.io/crates/socketioxide)
+[![Documentation](https://docs.rs/socketioxide/badge.svg)](https://docs.rs/socketioxide)
+[![SocketIO CI](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/socketio-ci.yml)
+[![EngineIO CI](https://github.com/Totodore/socketioxide/actions/workflows/engineio-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/engineio-ci.yml)
+
+
+## Features :
+* Integrates with :
+  * [Axum](https://docs.rs/axum/latest/axum/): [echo example](./examples/src/socketio-echo/axum_echo.rs)
+  * [Warp](https://docs.rs/warp/latest/warp/): [echo example](./examples/src/socketio-echo/warp_echo.rs)
+  * [Hyper](https://docs.rs/hyper/latest/hyper/): [echo example](./examples/src/socketio-echo/hyper_echo.rs)
+* Out of the box support for any other middleware based on tower :
+  * [CORS](https://docs.rs/tower-http/latest/tower_http/struct.CorsLayer.html)
+  * [SSL](https://docs.rs/tower-http/latest/tower_http/struct.SslLayer.html)
+  * [Compression](https://docs.rs/tower-http/latest/tower_http/struct.CompressionLayer.html)
+  * [Timeout](https://docs.rs/tower-http/latest/tower_http/struct.TimeoutLayer.html)
 * Namespaces
 * Rooms
-* Handshake data
 * Ack and emit with ack
 * Binary packets
-* Polling & Websocket transport
+* Polling & Websocket transports
 * Extensions to add custom data to sockets
-* Memory efficient payload parsing with streams
+* Memory efficient http payload parsing with streams
 
-### Planned features :
+
+## Planned features :
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
+* Better API ergonomics
 * State recovery when a socket reconnects
 * SocketIo v3 support (currently only v4 is supported)
 
-### Examples :
+## Examples :
 * [Chat app with Axum](./examples/src/chat)
 * Echo implementation with Axum :
 ```rust
