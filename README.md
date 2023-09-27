@@ -21,10 +21,9 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
   * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](./examples/src/socketio-echo/warp_echo.rs)
   * [Hyper](https://docs.rs/hyper/latest/hyper/): [🏓echo example](./examples/src/socketio-echo/hyper_echo.rs)
 * Out of the box support for any other middleware based on tower :
-  * [🔓CORS](https://docs.rs/tower-http/latest/tower_http/struct.CorsLayer.html)
-  * [🔐SSL](https://docs.rs/tower-http/latest/tower_http/struct.SslLayer.html)
-  * [📁Compression](https://docs.rs/tower-http/latest/tower_http/struct.CompressionLayer.html)
-  * [🕐Timeout](https://docs.rs/tower-http/latest/tower_http/struct.TimeoutLayer.html)
+  * [🔓CORS](https://docs.rs/tower-http/latest/tower_http/cors)
+  * [📁Compression](https://docs.rs/tower-http/latest/tower_http/compression)
+  * [🔐Authorization](https://docs.rs/tower-http/latest/tower_http/auth)
 * Namespaces
 * Rooms
 * Ack and emit with ack
@@ -205,3 +204,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 </details>
+
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
+
+## Contributions and Feedback / Questions :
+Any contribution is welcome, feel free to open an issue or a PR. If you want to contribute but don't know where to start, you can check the [issues](https://github.com/totodore/socketioxide/issues).
+
+If you have any question or feedback, please open a thread on the [discussions](https://github.com/totodore/socketioxide/discussions) page.
+
+## License 🔐
+This project is licensed under the [MIT license](./LICENSE).
