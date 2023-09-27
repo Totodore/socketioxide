@@ -1,4 +1,8 @@
-<img src="https://socket.io/images/logo-dark.svg" align="right" width=200 />
+<picture>
+ <source media="(prefers-color-scheme: dark)" srcset="https://socket.io/images/logo-dark.svg" align="right" width=200>
+
+ <img src="https://socket.io/images/logo.svg" align="right" width=200 />
+</picture>
 
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
@@ -46,6 +50,11 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 <details> <summary><code>Chat app 💬 (see full example <a href="./examples/src/chat">here</a>)</code></summary>
 
 ```rust
+use std::sync::Arc;
+
+use serde::Deserialize;
+use socketioxide::{adapter::LocalAdapter, Socket};
+use tracing::info;
 
 #[derive(Deserialize, Clone, Debug)]
 struct Nickname(String);
