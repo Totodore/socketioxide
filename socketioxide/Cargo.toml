@@ -15,7 +15,7 @@ categories = [
     "web-programming::websocket",
 ]
 license = "MIT"
-readme = "../Readme.md"
+readme = "../README.md"
 
 [dependencies]
 engineioxide = { path = "../engineioxide", version = "0.5.0" }
