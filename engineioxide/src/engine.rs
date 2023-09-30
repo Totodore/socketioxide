@@ -125,10 +125,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
     where
         B: Send + 'static,
     {
-        let socket = self
-            .get_socket(sid)
-            .ok_or(Error::UnknownSessionID(sid))
-            .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
+        let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
+        if !socket.is_http() {
+            return Err(Error::TransportMismatch);
+        }
 
         // If the socket is already locked, it means that the socket is being used by another request
         // In case of multiple http polling, session should be closed
@@ -166,10 +166,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
         <R as http_body::Body>::Data: std::marker::Send,
         B: Send + 'static,
     {
-        let socket = self
-            .get_socket(sid)
-            .ok_or(Error::UnknownSessionID(sid))
-            .and_then(|s| s.is_http().then(|| s).ok_or(Error::TransportMismatch))?;
+        let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
+        if !socket.is_http() {
+            return Err(Error::TransportMismatch);
+        }
 
         let packets = payload::decoder(body, protocol, self.config.max_payload);
         futures::pin_mut!(packets);
