@@ -730,5 +730,70 @@ mod test {
         }
         assert_eq!(packet, comparison_packet(Some(254), "/admin™"));
     }
+
     // BinaryAck(BinaryPacket, i64),
+    #[test]
+    fn packet_encode_binary_ack() {
+        let json = json!([{ "data": "value™" }, { "_placeholder": true, "num": 0}]);
+
+        let payload = format!("61-54{}", json);
+        let packet: String = Packet::bin_ack(
+            "/".to_string(),
+            json!({ "data": "value™" }),
+            vec![vec![1]],
+            54,
+        )
+        .try_into()
+        .unwrap();
+
+        assert_eq!(packet, payload);
+
+        // Encode with NS
+        let payload = format!("61-/admin™,54{}", json);
+        let packet: String = Packet::bin_ack(
+            "/admin™".to_string(),
+            json!({ "data": "value™" }),
+            vec![vec![1]],
+            54,
+        )
+        .try_into()
+        .unwrap();
+
+        assert_eq!(packet, payload);
+    }
+
+    #[test]
+    fn packet_decode_binary_ack() {
+        let json = json!([{ "data": "value™" }, { "_placeholder": true, "num": 0}]);
+        let comparison_packet = |ack, ns: &'static str| Packet {
+            inner: PacketData::BinaryAck(
+                BinaryPacket {
+                    bin: vec![vec![1]],
+                    data: json!([{"data": "value™"}]),
+                    payload_count: 1,
+                },
+                ack,
+            ),
+            ns: ns.into(),
+        };
+
+        let payload = format!("61-54{}", json);
+        let mut packet = Packet::try_from(payload).unwrap();
+        match packet.inner {
+            PacketData::BinaryAck(ref mut bin, _) => bin.add_payload(vec![1]),
+            _ => (),
+        }
+
+        assert_eq!(packet, comparison_packet(54, "/"));
+
+        // Check with NS
+        let payload = format!("61-/admin™,54{}", json);
+        let mut packet = Packet::try_from(payload).unwrap();
+        match packet.inner {
+            PacketData::BinaryAck(ref mut bin, _) => bin.add_payload(vec![1]),
+            _ => (),
+        }
+
+        assert_eq!(packet, comparison_packet(54, "/admin™"));
+    }
 }
