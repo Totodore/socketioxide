@@ -1,0 +1,181 @@
+use std::{collections::HashMap, sync::Arc, time::Duration};
+
+use engineioxide::{
+    config::{EngineIoConfig, EngineIoConfigBuilder},
+    engine::EngineIo,
+    service::{NotFoundService, TransportType},
+};
+use futures::Future;
+
+use crate::{
+    adapter::{Adapter, LocalAdapter},
+    client::Client,
+    ns::EventCallback,
+    NsHandlers, Socket, SocketIoConfig, SocketIoLayer, SocketIoService,
+};
+
+// SocketIoBuilder (config + NS) -> (Layer / Service, SocketIo)
+
+pub struct SocketIoBuilder<A: Adapter> {
+    config: SocketIoConfig,
+    engine_config_builder: EngineIoConfigBuilder,
+    req_path: String,
+
+    ns_handlers: HashMap<String, EventCallback<A>>,
+}
+
+impl<A: Adapter> SocketIoBuilder<A> {
+    /// Create a new [`SocketIoBuilder`] with default config
+    pub fn new() -> Self {
+        Self {
+            config: SocketIoConfig::default(),
+            engine_config_builder: EngineIoConfigBuilder::new(),
+            req_path: "/socket.io".to_string(),
+            ns_handlers: HashMap::new(),
+        }
+    }
+
+    /// The path to listen for socket.io requests on.
+    ///
+    /// Defaults to "/socket.io".
+    pub fn req_path(mut self, req_path: String) -> Self {
+        self.req_path = req_path;
+        self
+    }
+
+    /// The interval at which the server will send a ping packet to the client.
+    ///
+    /// Defaults to 25 seconds.
+    pub fn ping_interval(mut self, ping_interval: Duration) -> Self {
+        self.engine_config_builder = self.engine_config_builder.ping_interval(ping_interval);
+        self
+    }
+
+    /// The amount of time the server will wait for a ping response from the client before closing the connection.
+    ///
+    /// Defaults to 20 seconds.
+    pub fn ping_timeout(mut self, ping_timeout: Duration) -> Self {
+        self.engine_config_builder = self.engine_config_builder.ping_timeout(ping_timeout);
+        self
+    }
+
+    /// The maximum number of packets that can be buffered per connection before being emitted to the client.
+    /// If the buffer if full the `emit()` method will return an error
+    ///
+    /// Defaults to 128 packets.
+    pub fn max_buffer_size(mut self, max_buffer_size: usize) -> Self {
+        self.engine_config_builder = self.engine_config_builder.max_buffer_size(max_buffer_size);
+        self
+    }
+
+    /// The maximum size of a payload in bytes.
+    /// If a payload is bigger than this value the `emit()` method will return an error.
+    ///
+    /// Defaults to 100 kb.
+    pub fn max_payload(mut self, max_payload: u64) -> Self {
+        self.engine_config_builder = self.engine_config_builder.max_payload(max_payload);
+        self
+    }
+
+    /// Allowed transports on this server
+    ///
+    /// The `transports` array should have a size of 1 or 2
+    ///
+    /// Defaults to :
+    /// `[TransportType::Polling, TransportType::Websocket]`
+    pub fn transports<const N: usize>(mut self, transports: [TransportType; N]) -> Self {
+        self.engine_config_builder = self.engine_config_builder.transports(transports);
+        self
+    }
+
+    /// The amount of time the server will wait for an acknowledgement from the client before closing the connection.
+    ///
+    /// Defaults to 5 seconds.
+    pub fn ack_timeout(mut self, ack_timeout: Duration) -> Self {
+        self.config.ack_timeout = ack_timeout;
+        self
+    }
+
+    /// The amount of time before disconnecting a client that has not successfully joined a namespace.
+    ///
+    /// Defaults to 45 seconds.
+    pub fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
+        self.config.connect_timeout = connect_timeout;
+        self
+    }
+
+    pub fn ns<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
+    where
+        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
+        self.ns_handlers.insert(path.into(), handler);
+        self
+    }
+
+    pub fn ns_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
+    where
+        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
+        for path in paths {
+            self.ns_handlers.insert(path.into(), handler.clone());
+        }
+        self
+    }
+
+    pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo) {
+        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+
+        let layer = SocketIoLayer::from_config(Arc::new(self.config), NsHandlers(self.ns_handlers));
+    }
+
+    pub fn build_svc(mut self) -> (SocketIoService<A, NotFoundService>, SocketIo) {
+        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+
+        let (svc, engine) =
+            SocketIoService::with_config(NsHandlers(self.ns_handlers), Arc::new(self.config));
+        (svc, SocketIo(engine))
+    }
+
+    pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<A, S>, SocketIo) {
+        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+
+        let (svc, engine) = SocketIoService::with_config_inner(
+            svc,
+            NsHandlers(self.ns_handlers),
+            Arc::new(self.config),
+        );
+        (svc, SocketIo(engine))
+    }
+}
+
+impl<A: Adapter> Default for SocketIoBuilder<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone)]
+pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<EngineIo<Client<A>>>);
+
+impl<A: Adapter> SocketIo<A> {
+    pub fn builder() -> SocketIoBuilder<A> {
+        SocketIoBuilder::new()
+    }
+
+    pub fn config(&self) -> SocketIoConfig {
+        self.client().config
+    }
+
+    pub fn engine_config(&self) -> EngineIoConfig {
+        self.0.config
+    }
+
+    #[inline(always)]
+    fn client(&self) -> Client<A> {
+        self.0.handler
+    }
+}

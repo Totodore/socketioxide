@@ -24,6 +24,6 @@ impl<S: Clone, H: EngineIoHandler> Layer<S> for EngineIoLayer<H> {
     type Service = EngineIoService<H, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        EngineIoService::with_config_inner(inner, self.handler.clone(), self.config.clone())
+        EngineIoService::with_config_inner(inner, self.handler.clone(), self.config.clone()).0
     }
 }

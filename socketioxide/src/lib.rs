@@ -72,6 +72,7 @@ pub use config::{SocketIoConfig, SocketIoConfigBuilder, TransportType};
 pub use errors::{
     AckError, AckSenderError, BroadcastError, Error as SocketError, SendError, TransportError,
 };
+pub use io::SocketIo;
 pub use layer::SocketIoLayer;
 pub use ns::{Namespace, NsHandlers};
 pub use service::SocketIoService;
@@ -82,6 +83,7 @@ mod config;
 mod errors;
 mod handler;
 mod handshake;
+mod io;
 mod layer;
 mod ns;
 mod operators;

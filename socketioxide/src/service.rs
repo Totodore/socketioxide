@@ -1,7 +1,13 @@
-use engineioxide::service::{EngineIoService, MakeEngineIoService, NotFoundService};
+use engineioxide::{
+    engine::EngineIo,
+    service::{EngineIoService, MakeEngineIoService, NotFoundService},
+};
 use http::{Request, Response};
 use http_body::Body;
-use std::task::{Context, Poll};
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 use tower::Service;
 
 use crate::{adapter::Adapter, client::Client, ns::NsHandlers, SocketIoConfig};
@@ -36,34 +42,30 @@ where
 }
 
 impl<A: Adapter> SocketIoService<A, NotFoundService> {
-    /// Create a new [`SocketIoService`] with a [`NotFoundService`] as the inner service.
-    /// If the request is not an `EngineIo` request, it will always return a 404 response.
-    pub fn new(ns_handlers: NsHandlers<A>) -> Self {
-        SocketIoService::with_config(ns_handlers, SocketIoConfig::default())
-    }
-
     /// Create a new [`SocketIoService`] with a custom config
-    pub fn with_config(ns_handlers: NsHandlers<A>, config: SocketIoConfig) -> Self {
+    pub(crate) fn with_config(
+        ns_handlers: NsHandlers<A>,
+        config: Arc<SocketIoConfig>,
+    ) -> (Self, Arc<EngineIo<Client<A>>>) {
         SocketIoService::with_config_inner(NotFoundService, ns_handlers, config)
     }
 }
 
 impl<A: Adapter, S: Clone> SocketIoService<A, S> {
     #[inline(always)]
-    pub fn into_make_service(self) -> MakeEngineIoService<Client<A>, S> {
+    pub(crate) fn into_make_service(self) -> MakeEngineIoService<Client<A>, S> {
         self.engine_svc.into_make_service()
     }
 
-    /// Create a new [`EngineIoService`] with a custom inner service.
-    pub fn with_inner(inner: S, ns_handlers: NsHandlers<A>) -> Self {
-        SocketIoService::with_config_inner(inner, ns_handlers, SocketIoConfig::default())
-    }
-
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub fn with_config_inner(inner: S, ns_handlers: NsHandlers<A>, config: SocketIoConfig) -> Self {
+    pub(crate) fn with_config_inner(
+        inner: S,
+        ns_handlers: NsHandlers<A>,
+        config: Arc<SocketIoConfig>,
+    ) -> (Self, Arc<EngineIo<Client<A>>>) {
         let client = Client::new(config.clone(), ns_handlers.clone());
-        let svc = EngineIoService::with_config_inner(inner, client, config.engine_config);
-        Self { engine_svc: svc }
+        let (svc, engine) = EngineIoService::with_config_inner(inner, client, config.engine_config);
+        (Self { engine_svc: svc }, engine)
     }
 }
 

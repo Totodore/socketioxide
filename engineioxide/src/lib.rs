@@ -7,6 +7,7 @@ pub use packet::SendPacket;
 compile_error!("At least one protocol version must be enabled");
 
 pub mod config;
+pub mod engine;
 pub mod errors;
 pub mod handler;
 pub mod layer;
@@ -15,7 +16,6 @@ pub mod sid_generator;
 pub mod socket;
 
 mod body;
-mod engine;
 mod futures;
 mod packet;
 mod payload;

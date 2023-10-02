@@ -29,9 +29,9 @@ pub struct Client<A: Adapter> {
 }
 
 impl<A: Adapter> Client<A> {
-    pub fn new(config: SocketIoConfig, ns_handlers: NsHandlers<A>) -> Self {
+    pub fn new(config: Arc<SocketIoConfig>, ns_handlers: NsHandlers<A>) -> Self {
         Self {
-            config: config.into(),
+            config,
             ns: ns_handlers
                 .0
                 .into_iter()
@@ -108,7 +108,7 @@ impl<A: Adapter> Client<A> {
         }
     }
 
-    fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
+    pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
         self.ns.get(path).cloned()
     }
 }
