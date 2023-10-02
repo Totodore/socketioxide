@@ -127,6 +127,14 @@ impl PacketData {
             _ => {}
         };
     }
+
+    /// Check if the packet is a binary packet (either binary event or binary ack)
+    pub(crate) fn is_binary(&self) -> bool {
+        matches!(
+            self,
+            PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _)
+        )
+    }
 }
 
 impl BinaryPacket {
@@ -191,13 +199,10 @@ impl TryInto<String> for Packet {
 
     fn try_into(self) -> Result<String, Self::Error> {
         let mut res = self.inner.index().to_string();
-        if !self.ns.is_empty()
-            && self.ns != "/"
-            && !matches!(
-                &self.inner,
-                PacketData::BinaryAck(_, _) | PacketData::BinaryEvent(_, _, _),
-            )
-        {
+
+        // Add the ns if it is not the default one and the packet is not binary
+        // In case of bin packet, we should first add the payload count before ns
+        if !self.ns.is_empty() && self.ns != "/" && !self.inner.is_binary() {
             res.push_str(&format!("{},", self.ns));
         }
 
