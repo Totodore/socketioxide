@@ -28,15 +28,15 @@ struct Client;
 impl EngineIoHandler for Client {
     type Data = ();
 
-    fn on_connect(&self, _: &Socket<Self>) {}
+    fn on_connect(&self, _: &Socket<Self::Data>) {}
 
-    fn on_disconnect(&self, _: &Socket<Self>, _reason: DisconnectReason) {}
+    fn on_disconnect(&self, _: &Socket<Self::Data>, _reason: DisconnectReason) {}
 
-    fn on_message(&self, msg: String, socket: &Socket<Self>) {
+    fn on_message(&self, msg: String, socket: &Socket<Self::Data>) {
         socket.emit(msg).unwrap();
     }
 
-    fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
+    fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self::Data>) {
         socket.emit_binary(data).unwrap();
     }
 }

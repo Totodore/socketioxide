@@ -16,8 +16,8 @@ use tracing::debug;
 
 use crate::sid_generator::Sid;
 use crate::{
-    config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
-    service::ProtocolVersion, utils::forward_map_chan, SendPacket,
+    config::EngineIoConfig, errors::Error, packet::Packet, service::ProtocolVersion,
+    utils::forward_map_chan, SendPacket,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,9 +95,9 @@ impl From<&Error> for Option<DisconnectReason> {
 /// and the user defined [`Handler`](crate::handler::EngineIoHandler).
 /// * the user defined [`Data`](crate::handler::EngineIoHandler::Data) bound to the socket.
 /// * the heartbeat job that verify that the connection is still up by sending packets periodically.
-pub struct Socket<H>
+pub struct Socket<D>
 where
-    H: EngineIoHandler + ?Sized,
+    D: Default + Send + Sync + 'static,
 {
     /// The socket id
     pub sid: Sid,
@@ -135,7 +135,7 @@ where
     /// Function to call when the socket is closed
     close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     /// User data bound to the socket
-    pub data: H::Data,
+    pub data: D,
 
     /// Http Request data used to create a socket
     pub req_data: Arc<SocketReq>,
@@ -145,9 +145,9 @@ where
     pub supports_binary: bool,
 }
 
-impl<H> Socket<H>
+impl<D> Socket<D>
 where
-    H: EngineIoHandler + ?Sized,
+    D: Default + Send + Sync + 'static,
 {
     pub(crate) fn new(
         sid: Sid,
@@ -179,7 +179,7 @@ where
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
-            data: H::Data::default(),
+            data: D::default(),
             req_data: req_data.into(),
 
             #[cfg(feature = "v3")]
@@ -359,11 +359,14 @@ where
 }
 
 #[cfg(test)]
-impl<H: EngineIoHandler> Socket<H> {
+impl<D> Socket<D>
+where
+    D: Default + Send + Sync + 'static,
+{
     pub fn new_dummy(
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
-    ) -> Socket<H> {
+    ) -> Socket<D> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (tx, rx) = mpsc::channel(200);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
@@ -384,7 +387,7 @@ impl<H: EngineIoHandler> Socket<H> {
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
-            data: H::Data::default(),
+            data: D::default(),
             req_data: SocketReq {
                 headers: http::HeaderMap::new(),
                 uri: Uri::default(),

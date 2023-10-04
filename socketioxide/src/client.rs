@@ -43,7 +43,7 @@ impl<A: Adapter> Client<A> {
     /// Apply an incoming binary payload to a partial binary packet waiting to be filled with all the payloads
     ///
     /// Returns true if the packet is complete and should be processed
-    fn apply_payload_on_packet(&self, data: Vec<u8>, socket: &EIoSocket<Self>) -> bool {
+    fn apply_payload_on_packet(&self, data: Vec<u8>, socket: &EIoSocket<SocketData>) -> bool {
         debug!("[sid={}] applying payload on packet", socket.sid);
         if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
             match packet.inner {
@@ -65,7 +65,7 @@ impl<A: Adapter> Client<A> {
         &self,
         auth: Value,
         ns_path: String,
-        esocket: &EIoSocket<Self>,
+        esocket: &EIoSocket<SocketData>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
         let handshake = Handshake::new(auth, esocket.req_data.clone());
@@ -89,7 +89,7 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Cache-in the socket data until all the binary payloads are received
-    fn sock_recv_bin_packet(&self, socket: &EIoSocket<Self>, packet: Packet) {
+    fn sock_recv_bin_packet(&self, socket: &EIoSocket<SocketData>, packet: Packet) {
         socket
             .data
             .partial_bin_packet
@@ -127,7 +127,7 @@ pub struct SocketData {
 impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
-    fn on_connect(&self, socket: &EIoSocket<Self>) {
+    fn on_connect(&self, socket: &EIoSocket<SocketData>) {
         debug!("eio socket connect {}", socket.sid);
         let (tx, rx) = oneshot::channel();
         socket.data.connect_recv_tx.lock().unwrap().replace(tx);
@@ -142,7 +142,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             }),
         );
     }
-    fn on_disconnect(&self, socket: &EIoSocket<Self>, reason: EIoDisconnectReason) {
+    fn on_disconnect(&self, socket: &EIoSocket<SocketData>, reason: EIoDisconnectReason) {
         debug!("eio socket disconnect {}", socket.sid);
         let data = self
             .ns
@@ -154,7 +154,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(&self, msg: String, socket: &EIoSocket<Self>) {
+    fn on_message(&self, msg: String, socket: &EIoSocket<SocketData>) {
         debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
             Ok(packet) => packet,
@@ -190,7 +190,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Vec<u8>, socket: &EIoSocket<Self>) {
+    fn on_binary(&self, data: Vec<u8>, socket: &EIoSocket<SocketData>) {
         if self.apply_payload_on_packet(data, socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.sid) {

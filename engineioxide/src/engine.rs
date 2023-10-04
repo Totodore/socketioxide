@@ -32,7 +32,7 @@ type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
 pub struct EngineIo<H: EngineIoHandler> {
-    sockets: SocketMap<Socket<H>>,
+    sockets: SocketMap<Socket<H::Data>>,
     pub handler: H,
     pub config: EngineIoConfig,
 }
@@ -343,7 +343,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
     async fn ws_forward_to_handler(
         &self,
         mut rx: SplitStream<WebSocketStream<Upgraded>>,
-        socket: &Arc<Socket<H>>,
+        socket: &Arc<Socket<H::Data>>,
     ) -> Result<(), Error> {
         while let Some(msg) = rx.try_next().await? {
             match msg {
@@ -489,7 +489,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
     /// Get a socket by its sid
     /// Clones the socket ref to avoid holding the lock
-    pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H>>> {
+    pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H::Data>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 }
@@ -507,20 +507,20 @@ mod tests {
     impl EngineIoHandler for MockHandler {
         type Data = ();
 
-        fn on_connect(&self, socket: &Socket<Self>) {
+        fn on_connect(&self, socket: &Socket<Self::Data>) {
             println!("socket connect {}", socket.sid);
         }
 
-        fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
+        fn on_disconnect(&self, socket: &Socket<Self::Data>, reason: DisconnectReason) {
             println!("socket disconnect {} {:?}", socket.sid, reason);
         }
 
-        fn on_message(&self, msg: String, socket: &Socket<Self>) {
+        fn on_message(&self, msg: String, socket: &Socket<Self::Data>) {
             println!("Ping pong message {:?}", msg);
             socket.emit(msg).ok();
         }
 
-        fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
+        fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self::Data>) {
             println!("Ping pong binary message {:?}", data);
             socket.emit_binary(data).ok();
         }
