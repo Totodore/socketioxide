@@ -1,8 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use engineioxide::{
-    config::{EngineIoConfig, EngineIoConfigBuilder},
-    engine::EngineIo,
+    config::EngineIoConfigBuilder,
     service::{NotFoundService, TransportType},
 };
 use futures::Future;
@@ -10,18 +9,20 @@ use futures::Future;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    ns::EventCallback,
-    NsHandlers, Socket, SocketIoConfig, SocketIoLayer, SocketIoService,
+    layer::SocketIoLayer,
+    ns::NsHandlers,
+    service::SocketIoService,
+    Socket, SocketIoConfig,
 };
 
 // SocketIoBuilder (config + NS) -> (Layer / Service, SocketIo)
 
-pub struct SocketIoBuilder<A: Adapter> {
+pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
     req_path: String,
 
-    ns_handlers: HashMap<String, EventCallback<A>>,
+    ns_handlers: NsHandlers<A>,
 }
 
 impl<A: Adapter> SocketIoBuilder<A> {
@@ -126,29 +127,33 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
-    pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo) {
+    pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
-        let layer = SocketIoLayer::from_config(Arc::new(self.config), NsHandlers(self.ns_handlers));
+        let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config), self.ns_handlers);
+        (layer, SocketIo(client))
     }
 
-    pub fn build_svc(mut self) -> (SocketIoService<A, NotFoundService>, SocketIo) {
+    pub fn build_svc(mut self) -> (SocketIoService<A, NotFoundService>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
-        let (svc, engine) =
-            SocketIoService::with_config(NsHandlers(self.ns_handlers), Arc::new(self.config));
-        (svc, SocketIo(engine))
-    }
-
-    pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<A, S>, SocketIo) {
-        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
-
-        let (svc, engine) = SocketIoService::with_config_inner(
-            svc,
-            NsHandlers(self.ns_handlers),
+        let (svc, client) = SocketIoService::with_config_inner(
+            NotFoundService,
+            self.ns_handlers,
             Arc::new(self.config),
         );
-        (svc, SocketIo(engine))
+        (svc, SocketIo(client))
+    }
+
+    pub fn build_with_inner_svc<S: Clone>(
+        mut self,
+        svc: S,
+    ) -> (SocketIoService<A, S>, SocketIo<A>) {
+        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+
+        let (svc, client) =
+            SocketIoService::with_config_inner(svc, self.ns_handlers, Arc::new(self.config));
+        (svc, SocketIo(client))
     }
 }
 
@@ -158,24 +163,21 @@ impl<A: Adapter> Default for SocketIoBuilder<A> {
     }
 }
 
-#[derive(Clone)]
-pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<EngineIo<Client<A>>>);
+pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
-impl<A: Adapter> SocketIo<A> {
-    pub fn builder() -> SocketIoBuilder<A> {
+impl SocketIo<LocalAdapter> {
+    pub fn builder() -> SocketIoBuilder<LocalAdapter> {
         SocketIoBuilder::new()
     }
-
-    pub fn config(&self) -> SocketIoConfig {
-        self.client().config
+}
+impl<A: Adapter> SocketIo<A> {
+    pub fn config(&self) -> &SocketIoConfig {
+        &self.0.config
     }
+}
 
-    pub fn engine_config(&self) -> EngineIoConfig {
-        self.0.config
-    }
-
-    #[inline(always)]
-    fn client(&self) -> Client<A> {
-        self.0.handler
+impl<A: Adapter> Clone for SocketIo<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }

@@ -1,6 +1,6 @@
 use hyper::Server;
 use serde_json::Value;
-use socketioxide::{Namespace, SocketIoService};
+use socketioxide::SocketIo;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 use warp::Filter;
@@ -9,8 +9,11 @@ use warp::Filter;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    let ns = Namespace::builder()
-        .add("/", |socket| async move {
+    let filter = warp::any().map(|| "Hello From Warp!");
+    let warp_svc = warp::service(filter);
+
+    let (io_svc, _) = SocketIo::builder()
+        .ns("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
@@ -29,21 +32,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Socket.IO disconnected: {} {}", socket.sid, reason);
             });
         })
-        .add("/custom", |socket| async move {
+        .ns("/custom", |socket| async move {
             info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
         })
-        .build();
-
-    let filter = warp::any().map(|| "Hello From Warp!");
-    let warp_svc = warp::service(filter);
+        .build_with_inner_svc(warp_svc);
 
     info!("Starting server");
 
-    let svc = SocketIoService::with_inner(warp_svc, ns);
     Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(svc.into_make_service())
+        .serve(io_svc.into_make_service())
         .await?;
 
     Ok(())

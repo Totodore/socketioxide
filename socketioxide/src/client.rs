@@ -14,7 +14,7 @@ use tracing::error;
 
 use crate::adapter::Adapter;
 use crate::handshake::Handshake;
-use crate::NsHandlers;
+use crate::ns::NsHandlers;
 use crate::{
     config::SocketIoConfig,
     errors::Error,
@@ -33,7 +33,6 @@ impl<A: Adapter> Client<A> {
         Self {
             config,
             ns: ns_handlers
-                .0
                 .into_iter()
                 .map(|(path, callback)| (path.clone(), Namespace::new(path, callback)))
                 .collect(),

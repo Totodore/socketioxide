@@ -5,48 +5,24 @@ use std::{
 
 use crate::errors::AdapterError;
 use crate::{
-    adapter::{Adapter, LocalAdapter},
-    errors::Error,
-    handshake::Handshake,
-    packet::PacketData,
-    socket::Socket,
+    adapter::Adapter, errors::Error, handshake::Handshake, packet::PacketData, socket::Socket,
     SocketIoConfig,
 };
 use engineioxide::sid_generator::Sid;
 use engineioxide::SendPacket as EnginePacket;
-use futures::{future::BoxFuture, Future};
+use futures::future::BoxFuture;
 use tokio::sync::mpsc;
 
 pub type EventCallback<A> =
     Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
 
-pub struct NsHandlers<A: Adapter>(pub(crate) HashMap<String, EventCallback<A>>);
-impl<A: Adapter> NsHandlers<A> {
-    fn new(map: HashMap<String, EventCallback<A>>) -> Self {
-        Self(map)
-    }
-}
-impl<A: Adapter> Clone for NsHandlers<A> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
+pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
 
 pub struct Namespace<A: Adapter> {
     pub path: String,
     pub(crate) adapter: A,
     callback: EventCallback<A>,
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
-}
-
-impl Namespace<LocalAdapter> {
-    pub fn builder() -> NamespaceBuilder<LocalAdapter> {
-        NamespaceBuilder::new()
-    }
-
-    pub fn builder_with_adapter<CustomAdapter: Adapter>() -> NamespaceBuilder<CustomAdapter> {
-        NamespaceBuilder::new()
-    }
 }
 
 impl<A: Adapter> Namespace<A> {
@@ -124,43 +100,6 @@ impl<A: Adapter> Namespace<A> {
     }
     pub fn clean_dummy_sockets(&self) {
         self.sockets.write().unwrap().clear();
-    }
-}
-
-pub struct NamespaceBuilder<A: Adapter> {
-    ns_handlers: HashMap<String, EventCallback<A>>,
-}
-
-impl<A: Adapter> NamespaceBuilder<A> {
-    fn new() -> Self {
-        Self {
-            ns_handlers: HashMap::new(),
-        }
-    }
-
-    pub fn add<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
-    where
-        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
-        self.ns_handlers.insert(path.into(), handler);
-        self
-    }
-    pub fn add_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
-    where
-        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
-        for path in paths {
-            self.ns_handlers.insert(path.into(), handler.clone());
-        }
-        self
-    }
-
-    pub fn build(self) -> NsHandlers<A> {
-        NsHandlers::new(self.ns_handlers)
     }
 }
 

@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use futures::SinkExt;
-use socketioxide::{adapter::LocalAdapter, DisconnectReason, Namespace, NsHandlers};
+use socketioxide::{DisconnectReason, SocketIo, SocketIoBuilder};
 use tokio::sync::mpsc;
 
 mod fixture;
@@ -21,22 +21,20 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::fixture::{create_polling_connection, create_ws_connection};
 
-fn create_handler() -> (NsHandlers<LocalAdapter>, mpsc::Receiver<DisconnectReason>) {
+fn create_handler() -> (SocketIoBuilder, mpsc::Receiver<DisconnectReason>) {
     let (tx, rx) = mpsc::channel::<DisconnectReason>(1);
-    let ns = Namespace::builder()
-        .add("/", move |socket| {
-            println!("Socket connected on / namespace with id: {}", socket.sid);
-            let tx = tx.clone();
-            socket.on_disconnect(move |socket, reason| {
-                println!("Socket.IO disconnected: {} {}", socket.sid, reason);
-                tx.try_send(reason).unwrap();
-                async move {}
-            });
-
+    let builder = SocketIo::builder().ns("/", move |socket| {
+        println!("Socket connected on / namespace with id: {}", socket.sid);
+        let tx = tx.clone();
+        socket.on_disconnect(move |socket, reason| {
+            println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            tx.try_send(reason).unwrap();
             async move {}
-        })
-        .build();
-    (ns, rx)
+        });
+
+        async move {}
+    });
+    (builder, rx)
 }
 
 // Engine IO Disconnect Reason Tests
@@ -205,27 +203,25 @@ pub async fn client_ns_disconnect() {
 #[tokio::test]
 pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
-    let ns = Namespace::builder()
-        .add("/", move |socket| {
-            println!("Socket connected on / namespace with id: {}", socket.sid);
-            let sock = socket.clone();
-            let tx = tx.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                sock.disconnect().unwrap();
-            });
+    let builder = SocketIo::builder().ns("/", move |socket| {
+        println!("Socket connected on / namespace with id: {}", socket.sid);
+        let sock = socket.clone();
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            sock.disconnect().unwrap();
+        });
 
-            socket.on_disconnect(move |socket, reason| {
-                println!("Socket.IO disconnected: {} {}", socket.sid, reason);
-                tx.try_send(reason).unwrap();
-                async move {}
-            });
-
+        socket.on_disconnect(move |socket, reason| {
+            println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            tx.try_send(reason).unwrap();
             async move {}
-        })
-        .build();
+        });
 
-    create_server(ns, 12349);
+        async move {}
+    });
+
+    create_server(builder, 12349);
     let _stream = create_ws_connection(12349).await;
 
     let data = tokio::time::timeout(Duration::from_millis(20), rx.recv())

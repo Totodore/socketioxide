@@ -1,7 +1,7 @@
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketioxide::{Namespace, SocketIoLayer};
+use socketioxide::SocketIo;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
@@ -9,8 +9,8 @@ use tracing_subscriber::FmtSubscriber;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    let ns = Namespace::builder()
-        .add("/", |socket| async move {
+    let (io_layer, _) = SocketIo::builder()
+        .ns("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
@@ -29,16 +29,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Socket.IO disconnected: {} {}", socket.sid, reason);
             });
         })
-        .add("/custom", |socket| async move {
+        .ns("/custom", |socket| async move {
             info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
         })
-        .build();
+        .build_layer();
 
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::new(ns));
+        .layer(io_layer);
 
     info!("Starting server");
 

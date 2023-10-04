@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use hyper::Server;
 use serde_json::Value;
-use socketioxide::{Namespace, SocketIoConfig, SocketIoService};
+use socketioxide::SocketIo;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -16,16 +16,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = SocketIoConfig::builder()
+    let (svc, _) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
-        .build();
-    info!("Starting server");
-
-    let ns = Namespace::builder()
-        .add("/", |socket| async move {
+        .ns("/", |socket| async move {
             info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
@@ -40,14 +36,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ack.bin(bin).send(data).ok();
             });
         })
-        .add("/custom", |socket| async move {
+        .ns("/custom", |socket| async move {
             info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
             let data: Value = socket.handshake.data().unwrap();
             socket.emit("auth", data).ok();
         })
-        .build();
+        .build_svc();
+    info!("Starting server");
 
-    let svc = SocketIoService::with_config(ns, config);
     Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(svc.into_make_service())
         .await?;
