@@ -11,7 +11,7 @@
 //! use axum::routing::get;
 //! use axum::Server;
 //! use serde::{Serialize, Deserialize};
-//! use socketioxide::{Namespace, SocketIoLayer};
+//! use socketioxide::SocketIo;
 //! use serde_json::Value;
 //!
 //! #[derive(Debug, Serialize, Deserialize)]
@@ -25,8 +25,8 @@
 //!
 //!     println!("Starting server");
 //!
-//!     let ns = Namespace::builder()
-//!         .add("/", |socket| async move {
+//!     let (io_layer, _) = SocketIo::builder()
+//!         .ns("/", |socket| async move {
 //!             println!("Socket connected on / namespace with id: {}", socket.sid);
 //!
 //!             // Add a callback triggered when the socket receive an 'abc' event
@@ -48,14 +48,14 @@
 //!                 println!("Socket.IO disconnected: {} {}", socket.sid, reason);
 //!             });
 //!         })
-//!         .add("/custom", |socket| async move {
+//!         .ns("/custom", |socket| async move {
 //!             println!("Socket connected on /custom namespace with id: {}", socket.sid);
 //!         })
-//!         .build();
+//!         .build_layer();
 //!
 //!     let app = axum::Router::new()
 //!         .route("/", get(|| async { "Hello, World!" }))
-//!         .layer(SocketIoLayer::new(ns));
+//!         .layer(io_layer);
 //!
 //!     Server::bind(&"0.0.0.0:3000".parse().unwrap())
 //!         .serve(app.into_make_service())

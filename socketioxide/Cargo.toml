@@ -34,7 +34,11 @@ dashmap = "5.4.0"
 
 [dev-dependencies]
 axum = "0.6.18"
-tokio = { version = "1.26.0", features = ["macros", "parking_lot"] }
+tokio = { version = "1.26.0", features = [
+    "macros",
+    "parking_lot",
+    "rt-multi-thread",
+] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 tokio-tungstenite = "0.20.0"
 hyper = { version = "0.14.25", features = [
