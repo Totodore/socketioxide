@@ -33,7 +33,7 @@ type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// It handle all the connection logic and dispatch the packets to the socket
 pub struct EngineIo<H: EngineIoHandler> {
     sockets: SocketMap<Socket<H::Data>>,
-    pub handler: H,
+    handler: H,
     pub config: EngineIoConfig,
 }
 
