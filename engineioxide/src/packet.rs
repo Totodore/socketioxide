@@ -5,16 +5,6 @@ use crate::sid_generator::Sid;
 use crate::socket::DisconnectReason;
 use crate::{config::EngineIoConfig, service::TransportType};
 
-/// A Packet type to use when sending data to the client from the public API
-///
-/// This is a subset of the Packet enum, which is used internally
-#[derive(Debug)]
-pub enum SendPacket {
-    Message(String),
-    Binary(Vec<u8>),
-    Close(DisconnectReason),
-}
-
 /// A Packet type to use when receiving and sending data from the client
 #[derive(Debug, PartialEq, PartialOrd)]
 pub enum Packet {
@@ -63,6 +53,23 @@ impl Packet {
     /// Check if the packet is a binary packet
     pub fn is_binary(&self) -> bool {
         matches!(self, Packet::Binary(_) | Packet::BinaryV3(_))
+    }
+
+    /// If the packet is a message packet (text), it returns the message
+    pub(crate) fn into_message(self) -> String {
+        match self {
+            Packet::Message(msg) => msg,
+            _ => panic!("Packet is not a message"),
+        }
+    }
+
+    /// If the packet is a binary packet, it returns the binary data
+    pub(crate) fn into_binary(self) -> Vec<u8> {
+        match self {
+            Packet::Binary(data) => data,
+            Packet::BinaryV3(data) => data,
+            _ => panic!("Packet is not a binary"),
+        }
     }
 }
 
@@ -134,17 +141,6 @@ impl TryFrom<String> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Packet::try_from(value.as_str())
-    }
-}
-
-/// Convert a [`SendPacket`] (used in the public API) to an internal [`Packet`]
-impl From<SendPacket> for Packet {
-    fn from(value: SendPacket) -> Packet {
-        match value {
-            SendPacket::Message(msg) => Packet::Message(msg),
-            SendPacket::Binary(data) => Packet::Binary(data),
-            SendPacket::Close(_) => Packet::Close,
-        }
     }
 }
 
@@ -252,16 +248,5 @@ mod tests {
         let packet_str = "b4AQID".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
         assert_eq!(packet, Packet::BinaryV3(vec![1, 2, 3]));
-    }
-
-    #[test]
-    fn test_send_packet_into_packet() {
-        let packet = SendPacket::Message("hello".to_string());
-        let packet: Packet = packet.into();
-        assert_eq!(packet, Packet::Message("hello".to_string()));
-
-        let packet = SendPacket::Binary(vec![1, 2, 3]);
-        let packet: Packet = packet.into();
-        assert_eq!(packet, Packet::Binary(vec![1, 2, 3]));
     }
 }

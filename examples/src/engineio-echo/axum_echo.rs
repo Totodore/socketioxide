@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::routing::get;
 use axum::Server;
 use engineioxide::{
@@ -15,19 +17,19 @@ struct MyHandler;
 impl EngineIoHandler for MyHandler {
     type Data = ();
 
-    fn on_connect(&self, socket: &Socket<()>) {
+    fn on_connect(&self, socket: Arc<Socket<()>>) {
         println!("socket connect {}", socket.sid);
     }
-    fn on_disconnect(&self, socket: &Socket<()>, reason: DisconnectReason) {
+    fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) {
         println!("socket disconnect {}: {:?}", socket.sid, reason);
     }
 
-    fn on_message(&self, msg: String, socket: &Socket<()>) {
+    fn on_message(&self, msg: String, socket: Arc<Socket<()>>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).ok();
     }
 
-    fn on_binary(&self, data: Vec<u8>, socket: &Socket<()>) {
+    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).ok();
     }

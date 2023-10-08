@@ -15,7 +15,6 @@ use crate::{
     service::TransportType,
     sid_generator::generate_sid,
     socket::{ConnectionType, DisconnectReason, Socket, SocketReq},
-    SendPacket,
 };
 use crate::{service::ProtocolVersion, sid_generator::Sid};
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
@@ -66,14 +65,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let close_fn =
             Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
         let sid = generate_sid();
-        let engine = self.clone();
-        let tx_map_fn = Box::new(move |packet: SendPacket| match packet {
-            SendPacket::Close(reason) => {
-                engine.close_session(sid, reason);
-                Packet::Close
-            }
-            packet => packet.into(),
-        });
+
         let socket = Socket::new(
             sid,
             protocol,
@@ -81,7 +73,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
             &self.config,
             SocketReq::from(req.into_parts().0),
             close_fn,
-            tx_map_fn,
             #[cfg(feature = "v3")]
             supports_binary,
         );
@@ -92,7 +83,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         socket
             .clone()
             .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
-        self.handler.on_connect(&socket);
+        self.handler.on_connect(socket.clone());
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
         let packet: String = Packet::Open(packet).try_into()?;
@@ -187,11 +178,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
                     .try_send(())
                     .map_err(|_| Error::HeartbeatTimeout),
                 Ok(Packet::Message(msg)) => {
-                    self.handler.on_message(msg, &socket);
+                    self.handler.on_message(msg, socket.clone());
                     Ok(())
                 }
                 Ok(Packet::Binary(bin)) | Ok(Packet::BinaryV3(bin)) => {
-                    self.handler.on_binary(bin, &socket);
+                    self.handler.on_binary(bin, socket.clone());
                     Ok(())
                 }
                 Ok(p) => {
@@ -270,14 +261,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
             let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| {
                 engine.close_session(sid, reason)
             });
-            let engine = self.clone();
-            let tx_map_fn = Box::new(move |packet: SendPacket| match packet {
-                SendPacket::Close(reason) => {
-                    engine.close_session(sid, reason);
-                    Packet::Close
-                }
-                packet => packet.into(),
-            });
             let socket = Socket::new(
                 sid,
                 protocol,
@@ -285,7 +268,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 &self.config,
                 req_data,
                 close_fn,
-                tx_map_fn,
                 #[cfg(feature = "v3")]
                 true, // supports_binary
             );
@@ -312,13 +294,16 @@ impl<H: EngineIoHandler> EngineIo<H> {
                     Packet::Binary(bin) | Packet::BinaryV3(bin) => {
                         tx.send(Message::Binary(bin)).await
                     }
-                    Packet::Close => tx.send(Message::Close(None)).await,
+                    Packet::Close => {
+                        tx.send(Message::Close(None)).await.ok();
+                        socket_rx.close();
+                        break;
+                    }
                     _ => {
                         let packet: String = item.try_into().unwrap();
                         tx.send(Message::Text(packet)).await
                     }
                 };
-                debug!("[sid={}] sent packet", rx_socket.sid);
                 if let Err(e) = res {
                     debug!("[sid={}] error sending packet: {}", rx_socket.sid, e);
                     break;
@@ -326,7 +311,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             }
         });
 
-        self.handler.on_connect(&socket);
+        self.handler.on_connect(socket.clone());
         if let Err(ref e) = self.ws_forward_to_handler(rx, &socket).await {
             debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
             if let Some(reason) = e.into() {
@@ -358,13 +343,13 @@ impl<H: EngineIoHandler> EngineIo<H> {
                         .try_send(())
                         .map_err(|_| Error::HeartbeatTimeout),
                     Packet::Message(msg) => {
-                        self.handler.on_message(msg, socket);
+                        self.handler.on_message(msg, socket.clone());
                         Ok(())
                     }
                     p => return Err(Error::BadPacket(p)),
                 },
                 Message::Binary(data) => {
-                    self.handler.on_binary(data, socket);
+                    self.handler.on_binary(data, socket.clone());
                     Ok(())
                 }
                 Message::Close(_) => break,
@@ -476,14 +461,12 @@ impl<H: EngineIoHandler> EngineIo<H> {
     fn close_session(&self, sid: Sid, reason: DisconnectReason) {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
-            self.handler.on_disconnect(&socket, reason);
             socket.abort_heartbeat();
+            self.handler.on_disconnect(socket, reason);
             debug!(
                 "remaining sockets: {:?}",
                 self.sockets.read().unwrap().len()
             );
-        } else {
-            debug!("[sid={sid}] socket not found");
         }
     }
 
@@ -507,20 +490,20 @@ mod tests {
     impl EngineIoHandler for MockHandler {
         type Data = ();
 
-        fn on_connect(&self, socket: &Socket<Self::Data>) {
+        fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
             println!("socket connect {}", socket.sid);
         }
 
-        fn on_disconnect(&self, socket: &Socket<Self::Data>, reason: DisconnectReason) {
+        fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
             println!("socket disconnect {} {:?}", socket.sid, reason);
         }
 
-        fn on_message(&self, msg: String, socket: &Socket<Self::Data>) {
+        fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
             println!("Ping pong message {:?}", msg);
             socket.emit(msg).ok();
         }
 
-        fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self::Data>) {
+        fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
             println!("Ping pong binary message {:?}", data);
             socket.emit_binary(data).ok();
         }

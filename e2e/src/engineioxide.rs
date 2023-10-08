@@ -1,6 +1,6 @@
 //! This a end to end test server used with this [test suite](https://github.com/socketio/engine.io-protocol)
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use engineioxide::{
     config::EngineIoConfig,
@@ -19,19 +19,19 @@ struct MyHandler;
 impl EngineIoHandler for MyHandler {
     type Data = ();
 
-    fn on_connect(&self, socket: &Socket<Self::Data>) {
+    fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
         println!("socket connect {}", socket.sid);
     }
-    fn on_disconnect(&self, socket: &Socket<Self::Data>, reason: DisconnectReason) {
+    fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
         println!("socket disconnect {}: {:?}", socket.sid, reason);
     }
 
-    fn on_message(&self, msg: String, socket: &Socket<Self::Data>) {
+    fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).ok();
     }
 
-    fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self::Data>) {
+    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).ok();
     }

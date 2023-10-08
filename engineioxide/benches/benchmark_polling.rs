@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::{Buf, Bytes};
@@ -28,15 +29,15 @@ struct Client;
 impl EngineIoHandler for Client {
     type Data = ();
 
-    fn on_connect(&self, _: &Socket<Self::Data>) {}
+    fn on_connect(&self, _: Arc<Socket<Self::Data>>) {}
 
-    fn on_disconnect(&self, _: &Socket<Self::Data>, _reason: DisconnectReason) {}
+    fn on_disconnect(&self, _: Arc<Socket<Self::Data>>, _reason: DisconnectReason) {}
 
-    fn on_message(&self, msg: String, socket: &Socket<Self::Data>) {
+    fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
         socket.emit(msg).unwrap();
     }
 
-    fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self::Data>) {
+    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
         socket.emit_binary(data).unwrap();
     }
 }
