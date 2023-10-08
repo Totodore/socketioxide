@@ -502,7 +502,11 @@ impl<A: Adapter> Socket<A> {
 
     /// Called when the socket is gracefully disconnected from the server or the client
     ///
-    /// It maybe also closed when the underlying transport is closed or failed.
+    /// It maybe also close when the underlying transport is closed or failed.
+    ///
+    /// If the `drop` parameter is set to `true`, the socket will be removed from the namespace.
+    /// It is set to false in cases where the server is being closed from the [`io handler`](crate::io::SocketIo)
+    /// and therefore the close fn holds a lock on the ns maps.
     pub(crate) fn close(
         self: Arc<Self>,
         reason: DisconnectReason,

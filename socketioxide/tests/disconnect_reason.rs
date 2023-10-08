@@ -232,7 +232,7 @@ pub async fn server_ns_disconnect() {
 }
 
 #[tokio::test]
-pub async fn server_closing() {
+pub async fn server_http_closing() {
     let (builder, _rx) = create_handler(100);
 
     let io = create_server(builder, 12350);
