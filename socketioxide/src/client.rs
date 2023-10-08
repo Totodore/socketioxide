@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
-use engineioxide::SendPacket;
 use futures::TryFutureExt;
 use serde_json::Value;
 
@@ -64,13 +63,13 @@ impl<A: Adapter> Client<A> {
         &self,
         auth: Value,
         ns_path: String,
-        esocket: &EIoSocket<SocketData>,
+        esocket: Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
         let handshake = Handshake::new(auth, esocket.req_data.clone());
         let sid = esocket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
-            let socket = ns.connect(sid, esocket.tx.clone(), handshake, self.config.clone());
+            let socket = ns.connect(sid, esocket.clone(), handshake, self.config.clone());
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                 tx.send(()).unwrap();
             }
@@ -79,10 +78,8 @@ impl<A: Adapter> Client<A> {
             }
             Ok(())
         } else {
-            esocket
-                .tx
-                .try_send(Packet::invalid_namespace(ns_path).try_into()?)
-                .unwrap();
+            let packet = Packet::invalid_namespace(ns_path).try_into()?;
+            esocket.emit(packet).unwrap();
             Ok(())
         }
     }
@@ -110,6 +107,14 @@ impl<A: Adapter> Client<A> {
     pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
         self.ns.get(path).cloned()
     }
+
+    /// Close all engine.io connections and all clients
+    #[tracing::instrument(skip(self))]
+    pub(crate) async fn close(&self) {
+        debug!("closing all namespaces");
+        futures::future::join_all(self.ns.values().map(|ns| ns.close())).await;
+        debug!("all namespaces closed");
+    }
 }
 
 #[derive(Debug, Default)]
@@ -126,34 +131,36 @@ pub struct SocketData {
 impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
-    fn on_connect(&self, socket: &EIoSocket<SocketData>) {
+    fn on_connect(&self, socket: Arc<EIoSocket<SocketData>>) {
         debug!("eio socket connect {}", socket.sid);
         let (tx, rx) = oneshot::channel();
         socket.data.connect_recv_tx.lock().unwrap().replace(tx);
-        let socket_tx = socket.tx.clone();
+        // let socket_tx = socket.tx.clone();
         let sid = socket.sid;
         tokio::spawn(
             tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
                 debug!("connect timeout for socket {}", sid);
-                socket_tx
-                    .try_send(SendPacket::Close(EIoDisconnectReason::TransportClose))
-                    .unwrap();
+                socket.close(EIoDisconnectReason::TransportClose);
             }),
         );
     }
-    fn on_disconnect(&self, socket: &EIoSocket<SocketData>, reason: EIoDisconnectReason) {
-        debug!("eio socket disconnect {}", socket.sid);
-        let data = self
+
+    #[tracing::instrument(skip(self, socket), fields(sid = socket.sid.to_string()))]
+    fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
+        debug!("eio socket disconnected");
+        let res: Result<Vec<_>, _> = self
             .ns
             .values()
             .filter_map(|ns| ns.get_socket(socket.sid).ok())
-            .map(|s| s.close(reason.clone().into()));
-        if let Err(e) = data.collect::<Result<Vec<_>, _>>() {
-            error!("Adapter error when disconnecting {}: {}, in a multiple server scenario it could leads to desyncronisation issues", socket.sid, e);
+            .map(|s| s.close(reason.clone().into(), reason != EIoDisconnectReason::ClosingServer))
+            .collect();
+        match res {
+            Ok(vec) => debug!("disconnect handle spawned for {} namespaces", vec.len()),
+            Err(e) => error!("error while disconnecting socket: {}", e),
         }
     }
 
-    fn on_message(&self, msg: String, socket: &EIoSocket<SocketData>) {
+    fn on_message(&self, msg: String, socket: Arc<EIoSocket<SocketData>>) {
         debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
             Ok(packet) => packet,
@@ -167,10 +174,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => self
-                .sock_connect(auth, packet.ns, socket)
+                .sock_connect(auth, packet.ns, socket.clone())
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
-                self.sock_recv_bin_packet(socket, packet);
+                self.sock_recv_bin_packet(&socket, packet);
                 Ok(())
             }
             _ => self.sock_propagate_packet(packet, socket.sid),
@@ -189,8 +196,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Vec<u8>, socket: &EIoSocket<SocketData>) {
-        if self.apply_payload_on_packet(data, socket) {
+    fn on_binary(&self, data: Vec<u8>, socket: Arc<EIoSocket<SocketData>>) {
+        if self.apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.sid) {
                     debug!(

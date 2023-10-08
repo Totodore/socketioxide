@@ -3,15 +3,13 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::errors::AdapterError;
 use crate::{
     adapter::Adapter, errors::Error, handshake::Handshake, packet::PacketData, socket::Socket,
     SocketIoConfig,
 };
+use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid_generator::Sid;
-use engineioxide::SendPacket as EnginePacket;
 use futures::future::BoxFuture;
-use tokio::sync::mpsc;
 
 pub type EventCallback<A> =
     Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
@@ -43,11 +41,12 @@ impl<A: Adapter> Namespace<A> {
     pub fn connect(
         self: Arc<Self>,
         sid: Sid,
-        tx: mpsc::Sender<EnginePacket>,
+        esocket: Arc<engineioxide::Socket<SocketData>>,
         handshake: Handshake,
         config: Arc<SocketIoConfig>,
     ) -> Arc<Socket<A>> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), handshake, tx, config).into();
+        let socket: Arc<Socket<A>> =
+            Socket::new(sid, self.clone(), handshake, esocket, config).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
         tokio::spawn((self.callback)(socket.clone()));
         socket
@@ -82,6 +81,25 @@ impl<A: Adapter> Namespace<A> {
     }
     pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
         self.sockets.read().unwrap().values().cloned().collect()
+    }
+
+    /// Close the entire namespace :
+    /// * Close the adapter
+    /// * Close all the sockets and their underlying connections
+    /// * Remove all the sockets from the namespace
+    pub async fn close(&self) {
+        self.adapter.close().ok();
+        tracing::debug!("closing all sockets in namespace {}", self.path);
+        futures::future::join_all(
+            self.sockets
+                .read()
+                .unwrap()
+                .values()
+                .map(|s| s.close_underlying_transport()),
+        )
+        .await;
+        self.sockets.write().unwrap().clear();
+        tracing::debug!("all sockets in namespace {} closed", self.path);
     }
 }
 

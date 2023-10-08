@@ -17,6 +17,7 @@ use futures::{
 };
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
+use tracing::debug;
 
 use crate::{
     errors::{AckError, AdapterError, BroadcastError},
@@ -152,6 +153,8 @@ impl Adapter for LocalAdapter {
     }
 
     fn close(&self) -> Result<(), Infallible> {
+        debug!("closing local adapter: {}", self.ns.upgrade().unwrap().path);
+        self.rooms.write().unwrap().clear();
         Ok(())
     }
 

@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use socketioxide::{DisconnectReason, SocketIo, SocketIoBuilder};
 use tokio::sync::mpsc;
 
@@ -21,8 +21,8 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::fixture::{create_polling_connection, create_ws_connection};
 
-fn create_handler() -> (SocketIoBuilder, mpsc::Receiver<DisconnectReason>) {
-    let (tx, rx) = mpsc::channel::<DisconnectReason>(1);
+fn create_handler(chan_size: usize) -> (SocketIoBuilder, mpsc::Receiver<DisconnectReason>) {
+    let (tx, rx) = mpsc::channel::<DisconnectReason>(chan_size);
     let builder = SocketIo::builder().ns("/", move |socket| {
         println!("Socket connected on / namespace with id: {}", socket.sid);
         let tx = tx.clone();
@@ -41,7 +41,7 @@ fn create_handler() -> (SocketIoBuilder, mpsc::Receiver<DisconnectReason>) {
 
 #[tokio::test]
 pub async fn polling_heartbeat_timeout() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 1234);
     create_polling_connection(1234).await;
 
@@ -55,7 +55,7 @@ pub async fn polling_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn ws_heartbeat_timeout() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 12344);
     let _stream = create_ws_connection(12344).await;
 
@@ -69,7 +69,7 @@ pub async fn ws_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn polling_transport_closed() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 1235);
     let sid = create_polling_connection(1235).await;
 
@@ -91,7 +91,7 @@ pub async fn polling_transport_closed() {
 
 #[tokio::test]
 pub async fn ws_transport_closed() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 12345);
     let mut stream = create_ws_connection(12345).await;
 
@@ -107,7 +107,7 @@ pub async fn ws_transport_closed() {
 
 #[tokio::test]
 pub async fn multiple_http_polling() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 1236);
     let sid = create_polling_connection(1236).await;
 
@@ -145,7 +145,7 @@ pub async fn multiple_http_polling() {
 
 #[tokio::test]
 pub async fn polling_packet_parsing() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 1237);
     let sid = create_polling_connection(1237).await;
     send_req(
@@ -166,7 +166,7 @@ pub async fn polling_packet_parsing() {
 
 #[tokio::test]
 pub async fn ws_packet_parsing() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 12347);
     let mut stream = create_ws_connection(12347).await;
     stream
@@ -186,7 +186,7 @@ pub async fn ws_packet_parsing() {
 
 #[tokio::test]
 pub async fn client_ns_disconnect() {
-    let (ns, mut rx) = create_handler();
+    let (ns, mut rx) = create_handler(1);
     create_server(ns, 12348);
     let mut stream = create_ws_connection(12348).await;
 
@@ -229,4 +229,31 @@ pub async fn server_ns_disconnect() {
         .expect("timeout waiting for DisconnectReason::ServerNSDisconnect")
         .unwrap();
     assert_eq!(data, DisconnectReason::ServerNSDisconnect);
+}
+
+#[tokio::test]
+pub async fn server_closing() {
+    let (builder, _rx) = create_handler(100);
+
+    let io = create_server(builder, 12350);
+    let mut streams =
+        futures::future::join_all((0..100).map(|_| create_ws_connection(12350))).await;
+    futures::future::join_all(streams.iter_mut().map(|s| async move {
+        s.next().await; // engine.io open packet
+        s.next().await; // socket.io open packet
+    }))
+    .await;
+
+    tokio::time::timeout(Duration::from_millis(2000), io.close())
+        .await
+        .expect("timeout waiting for server closing");
+    let packets = futures::future::join_all(streams.iter_mut().map(|s| async move {
+        (s.next().await, s.next().await) // Closing packet / None
+    }))
+    .await;
+    for packet in packets {
+        println!("{:?}", packet);
+        assert!(matches!(packet.0.unwrap().unwrap(), Message::Close(_)));
+        assert!(packet.1.is_none());
+    }
 }

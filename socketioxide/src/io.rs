@@ -174,6 +174,9 @@ impl<A: Adapter> SocketIo<A> {
     pub fn config(&self) -> &SocketIoConfig {
         &self.0.config
     }
+    pub async fn close(&self) {
+        self.0.close().await
+    }
 }
 
 impl<A: Adapter> Clone for SocketIo<A> {
