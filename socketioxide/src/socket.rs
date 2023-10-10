@@ -447,7 +447,7 @@ impl<A: Adapter> Socket<A> {
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
         self.send(Packet::disconnect(self.ns.path.clone()))?;
-        self.close(DisconnectReason::ServerNSDisconnect, true)?;
+        self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())
     }
 
@@ -503,22 +503,12 @@ impl<A: Adapter> Socket<A> {
     /// Called when the socket is gracefully disconnected from the server or the client
     ///
     /// It maybe also close when the underlying transport is closed or failed.
-    ///
-    /// If the `drop` parameter is set to `true`, the socket will be removed from the namespace.
-    /// It is set to false in cases where the server is being closed from the [`io handler`](crate::io::SocketIo)
-    /// and therefore the close fn holds a lock on the ns maps.
-    pub(crate) fn close(
-        self: Arc<Self>,
-        reason: DisconnectReason,
-        drop: bool,
-    ) -> Result<(), AdapterError> {
+    pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
         if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
             tokio::spawn(handler(self.clone(), reason));
         }
 
-        if drop {
-            self.ns.remove_socket(self.sid)?;
-        }
+        self.ns.remove_socket(self.sid)?;
         Ok(())
     }
 
@@ -530,7 +520,7 @@ impl<A: Adapter> Socket<A> {
             PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(e, packet, ack),
             PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
             PacketData::Disconnect => self
-                .close(DisconnectReason::ClientNSDisconnect, true)
+                .close(DisconnectReason::ClientNSDisconnect)
                 .map_err(Error::from),
             _ => unreachable!(),
         }

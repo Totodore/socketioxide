@@ -154,7 +154,9 @@ impl Adapter for LocalAdapter {
 
     fn close(&self) -> Result<(), Infallible> {
         debug!("closing local adapter: {}", self.ns.upgrade().unwrap().path);
-        self.rooms.write().unwrap().clear();
+        let mut rooms = self.rooms.write().unwrap();
+        rooms.clear();
+        rooms.shrink_to_fit();
         Ok(())
     }
 

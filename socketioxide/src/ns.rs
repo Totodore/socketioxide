@@ -89,15 +89,9 @@ impl<A: Adapter> Namespace<A> {
     pub async fn close(&self) {
         self.adapter.close().ok();
         tracing::debug!("closing all sockets in namespace {}", self.path);
-        futures::future::join_all(
-            self.sockets
-                .read()
-                .unwrap()
-                .values()
-                .map(|s| s.close_underlying_transport()),
-        )
-        .await;
-        self.sockets.write().unwrap().clear();
+        let sockets = self.sockets.read().unwrap().clone();
+        futures::future::join_all(sockets.values().map(|s| s.close_underlying_transport())).await;
+        self.sockets.write().unwrap().shrink_to_fit();
         tracing::debug!("all sockets in namespace {} closed", self.path);
     }
 }

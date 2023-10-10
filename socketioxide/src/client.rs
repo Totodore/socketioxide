@@ -153,12 +153,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .ns
             .values()
             .filter_map(|ns| ns.get_socket(socket.sid).ok())
-            .map(|s| {
-                s.close(
-                    reason.clone().into(),
-                    reason != EIoDisconnectReason::ClosingServer,
-                )
-            })
+            .map(|s| s.close(reason.clone().into()))
             .collect();
         match res {
             Ok(vec) => debug!("disconnect handle spawned for {} namespaces", vec.len()),
