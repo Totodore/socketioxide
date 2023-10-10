@@ -44,12 +44,11 @@ impl<A: Adapter> Namespace<A> {
         esocket: Arc<engineioxide::Socket<SocketData>>,
         handshake: Handshake,
         config: Arc<SocketIoConfig>,
-    ) -> Arc<Socket<A>> {
+    ) {
         let socket: Arc<Socket<A>> =
             Socket::new(sid, self.clone(), handshake, esocket, config).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
-        tokio::spawn((self.callback)(socket.clone()));
-        socket
+        tokio::spawn((self.callback)(socket));
     }
 
     /// Remove a socket from a namespace and propagate the event to the adapter

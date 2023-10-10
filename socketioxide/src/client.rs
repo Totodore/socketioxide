@@ -69,12 +69,13 @@ impl<A: Adapter> Client<A> {
         let handshake = Handshake::new(auth, esocket.req_data.clone());
         let sid = esocket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
-            let socket = ns.connect(sid, esocket.clone(), handshake, self.config.clone());
+            let connect_packet = Packet::connect(ns_path.clone(), sid).try_into()?;
+            if let Err(err) = esocket.emit(connect_packet) {
+                debug!("sending error during socket connection: {err:?}");
+            }
+            ns.connect(sid, esocket.clone(), handshake, self.config.clone());
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                 tx.send(()).unwrap();
-            }
-            if let Err(err) = socket.send(Packet::connect(ns_path.clone(), sid)) {
-                debug!("sending error during socket connection: {err:?}");
             }
             Ok(())
         } else {
@@ -152,7 +153,12 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .ns
             .values()
             .filter_map(|ns| ns.get_socket(socket.sid).ok())
-            .map(|s| s.close(reason.clone().into(), reason != EIoDisconnectReason::ClosingServer))
+            .map(|s| {
+                s.close(
+                    reason.clone().into(),
+                    reason != EIoDisconnectReason::ClosingServer,
+                )
+            })
             .collect();
         match res {
             Ok(vec) => debug!("disconnect handle spawned for {} namespaces", vec.len()),
