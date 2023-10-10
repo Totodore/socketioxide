@@ -258,7 +258,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 None => return Err(Error::UnknownSessionID(sid)),
                 Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
                 Some(socket) => {
-                    debug!("[sid={sid}] websocket connection upgrade");
                     let mut ws = ws_init().await;
                     self.ws_upgrade_handshake(protocol, sid, &mut ws).await?;
                     (socket, ws)
@@ -313,12 +312,15 @@ impl<H: EngineIoHandler> EngineIo<H> {
                         tx.send(Message::Binary(bin)).await
                     }
                     Packet::Close => tx.send(Message::Close(None)).await,
-                    _ => {
+                    // A Noop Packet maybe sent by the server to upgrade from a polling connection
+                    // In the case that the packet was not poll in time it will remain in the buffer and therefore
+                    // it should be discarded here
+                    Packet::Noop => Ok(()),
+                    item => {
                         let packet: String = item.try_into().unwrap();
                         tx.send(Message::Text(packet)).await
                     }
                 };
-                debug!("[sid={}] sent packet", rx_socket.sid);
                 if let Err(e) = res {
                     debug!("[sid={}] error sending packet: {}", rx_socket.sid, e);
                     break;
@@ -397,17 +399,19 @@ impl<H: EngineIoHandler> EngineIo<H> {
     ///│                                                      │
     ///│            -----  WebSocket frames -----             │
     /// ```
+    #[tracing::instrument(skip(self, ws), fields(sid = sid.to_string()))]
     async fn ws_upgrade_handshake(
         &self,
         protocol: ProtocolVersion,
         sid: Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
+        debug!("websocket connection upgrade");
         let socket = self.get_socket(sid).unwrap();
 
         #[cfg(feature = "v4")]
         {
-            // send a NOOP packet to any pending polling request so it closes gracefully'
+            // send a NOOP packet to any pending polling request so it closes gracefully
             if protocol == ProtocolVersion::V4 {
                 socket.send(Packet::Noop)?;
             }
@@ -450,7 +454,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             }
         };
         match Packet::try_from(msg)? {
-            Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),
+            Packet::Upgrade => debug!("ws upgraded successful"),
             p => Err(Error::BadPacket(p))?,
         };
 
