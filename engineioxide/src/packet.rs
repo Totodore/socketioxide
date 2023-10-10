@@ -2,7 +2,6 @@ use base64::{engine::general_purpose, Engine};
 use serde::{de::Error, Deserialize, Serialize};
 
 use crate::sid_generator::Sid;
-use crate::socket::DisconnectReason;
 use crate::{config::EngineIoConfig, service::TransportType};
 
 /// A Packet type to use when receiving and sending data from the client
