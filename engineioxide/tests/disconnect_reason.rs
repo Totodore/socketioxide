@@ -5,7 +5,7 @@
 //! * Multiple http polling
 //! * Packet parsing
 
-use std::{time::Duration, sync::Arc};
+use std::{sync::Arc, time::Duration};
 
 use engineioxide::{
     handler::EngineIoHandler,
