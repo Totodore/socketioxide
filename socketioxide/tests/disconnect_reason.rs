@@ -264,7 +264,7 @@ pub async fn server_http_closing() {
 
     let io = create_server(builder, 12351);
     let mut sids =
-        futures::future::join_all((0..3).map(|_| create_polling_connection(12351))).await;
+        futures::future::join_all((0..100).map(|_| create_polling_connection(12351))).await;
     futures::future::join_all(sids.iter_mut().map(|s| {
         send_req(
             12351,

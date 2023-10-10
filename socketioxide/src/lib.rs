@@ -71,9 +71,7 @@ pub mod layer;
 pub mod service;
 
 pub use config::{SocketIoConfig, TransportType};
-pub use errors::{
-    AckError, AckSenderError, BroadcastError, Error as SocketError, SendError,
-};
+pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
 pub use io::{SocketIo, SocketIoBuilder};
 pub use socket::{DisconnectReason, Socket};
 

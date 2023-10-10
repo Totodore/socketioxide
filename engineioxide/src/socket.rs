@@ -389,6 +389,16 @@ impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
 }
 
 #[cfg(feature = "test-utils")]
+impl<D> Drop for Socket<D>
+where
+    D: Default + Send + Sync + 'static,
+{
+    fn drop(&mut self) {
+        debug!("[sid={}] dropping socket", self.sid);
+    }
+}
+
+#[cfg(feature = "test-utils")]
 impl<D> Socket<D>
 where
     D: Default + Send + Sync + 'static,
