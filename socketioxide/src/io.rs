@@ -15,8 +15,11 @@ use crate::{
     Socket, SocketIoConfig,
 };
 
-// SocketIoBuilder (config + NS) -> (Layer / Service, SocketIo)
-
+/// A builder to create a [`SocketIo`] instance
+/// 
+/// It contains everything to configure the socket.io server
+/// 
+/// It can build a tower layer or a hyper service
 pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
@@ -105,6 +108,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// Register a new namespace handler
     pub fn ns<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
     where
         C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
@@ -115,6 +119,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// Register a new namespace handler for multiple paths
     pub fn ns_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
     where
         C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
@@ -127,6 +132,9 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance
+    ///
+    /// The layer can be used as a tower layer
     pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
@@ -134,6 +142,10 @@ impl<A: Adapter> SocketIoBuilder<A> {
         (layer, SocketIo(client))
     }
 
+    /// Build a [`SocketIoService`] and a [`SocketIo`] instance
+    ///
+    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
+    /// It can be used as a hyper service
     pub fn build_svc(mut self) -> (SocketIoService<A, NotFoundService>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
@@ -145,6 +157,9 @@ impl<A: Adapter> SocketIoBuilder<A> {
         (svc, SocketIo(client))
     }
 
+    /// Build a [`SocketIoService`] and a [`SocketIo`] instance with an inner service
+    ///
+    /// It can be used as a hyper service
     pub fn build_with_inner_svc<S: Clone>(
         mut self,
         svc: S,
@@ -163,6 +178,9 @@ impl<A: Adapter> Default for SocketIoBuilder<A> {
     }
 }
 
+/// The [`SocketIo`] instance can be cheaply cloned and moved around everywhere in your program
+///
+/// It can be used as the main handle to access the whole socket.io context.
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
@@ -171,9 +189,13 @@ impl SocketIo<LocalAdapter> {
     }
 }
 impl<A: Adapter> SocketIo<A> {
+    /// Returns a reference to the [`SocketIoConfig`] used by this [`SocketIo`] instance
     pub fn config(&self) -> &SocketIoConfig {
         &self.0.config
     }
+
+    /// Gracefully closes all the connections and drop every sockets
+    /// Any `on_disconnect` handler will called with the reason `ServerClosing`
     pub async fn close(&self) {
         self.0.close().await
     }
