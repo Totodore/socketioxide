@@ -19,9 +19,7 @@ use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
 use crate::sid_generator::Sid;
-use crate::{
-    config::EngineIoConfig, errors::Error, packet::Packet, service::ProtocolVersion,
-};
+use crate::{config::EngineIoConfig, errors::Error, packet::Packet, service::ProtocolVersion};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -121,6 +119,11 @@ where
     /// It is locked if [`EngineIo`](crate::engine) is currently reading from it :
     /// * In case of polling transport it will be locked and released for each request
     /// * In case of websocket transport it will be always locked until the connection is closed
+    ///
+    /// It will be closed when a [`Close`](Packet::Close) packet is received:
+    /// * From the [encoder](crate::service::encoder) if the transport is polling
+    /// * From the fn [`on_ws_req_init`](crate::engine::EngineIo) if the transport is websocket
+    /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback. Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
     pub(crate) internal_rx: Mutex<Receiver<Packet>>,
 
     /// Channel to send [Packet] to the internal connection

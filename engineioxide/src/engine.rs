@@ -461,6 +461,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
     fn close_session(&self, sid: Sid, reason: DisconnectReason) {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
+            // Try to close the internal channel if it is available
+            // For e.g with polling transport the channel is not always locked so it is necessary to close it here
+            socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
             socket.abort_heartbeat();
             self.handler.on_disconnect(socket, reason);
             debug!(

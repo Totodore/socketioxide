@@ -40,12 +40,21 @@ pub async fn send_req(
         .body(body)
         .unwrap();
     let mut res = hyper::Client::new().request(req).await.unwrap();
+    let is_json = res
+        .headers()
+        .get("Content-Type")
+        .map(|v| v == "application/json")
+        .unwrap_or_default();
     let body = hyper::body::aggregate(res.body_mut()).await.unwrap();
-    String::from_utf8(body.chunk().to_vec())
-        .unwrap()
-        .chars()
-        .skip(1)
-        .collect()
+    if is_json {
+        String::from_utf8(body.chunk().to_vec()).unwrap()
+    } else {
+        String::from_utf8(body.chunk().to_vec())
+            .unwrap()
+            .chars()
+            .skip(1)
+            .collect()
+    }
 }
 
 pub async fn create_polling_connection(port: u16) -> String {

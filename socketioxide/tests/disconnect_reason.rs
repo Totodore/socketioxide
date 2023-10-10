@@ -232,7 +232,7 @@ pub async fn server_ns_disconnect() {
 }
 
 #[tokio::test]
-pub async fn server_http_closing() {
+pub async fn server_ws_closing() {
     let (builder, _rx) = create_handler(100);
 
     let io = create_server(builder, 12350);
@@ -244,7 +244,7 @@ pub async fn server_http_closing() {
     }))
     .await;
 
-    tokio::time::timeout(Duration::from_millis(2000), io.close())
+    tokio::time::timeout(Duration::from_millis(20), io.close())
         .await
         .expect("timeout waiting for server closing");
     let packets = futures::future::join_all(streams.iter_mut().map(|s| async move {
@@ -255,5 +255,43 @@ pub async fn server_http_closing() {
         println!("{:?}", packet);
         assert!(matches!(packet.0.unwrap().unwrap(), Message::Close(_)));
         assert!(packet.1.is_none());
+    }
+}
+
+#[tokio::test]
+pub async fn server_http_closing() {
+    let (builder, _rx) = create_handler(100);
+
+    let io = create_server(builder, 12351);
+    let mut sids =
+        futures::future::join_all((0..3).map(|_| create_polling_connection(12351))).await;
+    futures::future::join_all(sids.iter_mut().map(|s| {
+        send_req(
+            12351,
+            format!("transport=polling&sid={s}"),
+            http::Method::GET,
+            None,
+        )
+    }))
+    .await;
+
+    tokio::time::timeout(Duration::from_millis(20), io.close())
+        .await
+        .expect("timeout waiting for server closing");
+    let packets = futures::future::join_all(sids.iter_mut().map(|s| {
+        send_req(
+            12351,
+            format!("transport=polling&sid={s}"),
+            http::Method::GET,
+            None,
+        )
+    }))
+    .await;
+    for packet in packets {
+        println!("{}", packet);
+        assert_eq!(
+            packet,
+            "{\"code\":\"1\",\"message\":\"Session ID unknown\"}"
+        );
     }
 }
