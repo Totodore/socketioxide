@@ -1,6 +1,6 @@
 [package]
 name = "socketioxide"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 rust-version = "1.63.0"
 
@@ -18,7 +18,7 @@ license = "MIT"
 readme = "../README.md"
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.5.0" }
+engineioxide = { path = "../engineioxide", version = "0.5.1" }
 futures = "0.3.27"
 tokio = "1.26.0"
 serde = { version = "1.0.155", features = ["derive"] }
