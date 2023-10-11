@@ -168,7 +168,7 @@ mod tests {
     #[cfg(feature = "v4")]
     #[tokio::test]
     async fn encode_v4_payload() {
-        const PAYLOAD: &'static str = "4hello€\x1ebAQIDBA==\x1e4hello€";
+        const PAYLOAD: &str = "4hello€\x1ebAQIDBA==\x1e4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(rx);
         let rx = mutex.lock().await;
