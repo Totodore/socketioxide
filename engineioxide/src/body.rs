@@ -62,7 +62,7 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
         match self.project().inner.project() {
-            BodyProj::EmptyResponse => std::task::Poll::Ready(None),
+            BodyProj::EmptyResponse => Poll::Ready(None),
             BodyProj::Body { body } => body.poll_data(cx),
             BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
         }
@@ -73,7 +73,7 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
         match self.project().inner.project() {
-            BodyProj::EmptyResponse => std::task::Poll::Ready(Ok(None)),
+            BodyProj::EmptyResponse => Poll::Ready(Ok(None)),
             BodyProj::Body { body } => body.poll_trailers(cx),
             BodyProj::CustomBody { body } => body.poll_trailers(cx).map_err(|err| match err {}),
         }

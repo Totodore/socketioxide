@@ -70,9 +70,9 @@ impl<S: Clone, H: EngineIoHandler> Clone for EngineIoService<H, S> {
 impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,
-    ReqBody: http_body::Body + Send + Unpin + 'static + Debug,
-    <ReqBody as http_body::Body>::Error: Debug,
-    <ReqBody as http_body::Body>::Data: Send,
+    ReqBody: Body + Send + Unpin + 'static + Debug,
+    <ReqBody as Body>::Error: Debug,
+    <ReqBody as Body>::Data: Send,
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
     H: EngineIoHandler,
 {
@@ -178,9 +178,9 @@ impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
 pub struct NotFoundService;
 impl<ReqBody> Service<Request<ReqBody>> for NotFoundService
 where
-    ReqBody: http_body::Body + Send + 'static + Debug,
-    <ReqBody as http_body::Body>::Error: Debug,
-    <ReqBody as http_body::Body>::Data: Send,
+    ReqBody: Body + Send + 'static + Debug,
+    <ReqBody as Body>::Error: Debug,
+    <ReqBody as Body>::Data: Send,
 {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
