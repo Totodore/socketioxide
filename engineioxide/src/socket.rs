@@ -125,7 +125,7 @@ where
 
     /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task
-    heartbeat_rx: Mutex<mpsc::Receiver<()>>,
+    heartbeat_rx: Mutex<Receiver<()>>,
     /// Channel to send Ping [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) from the connexion to the heartbeat job
     /// which is running in a separate task
     pub(crate) heartbeat_tx: mpsc::Sender<()>,
