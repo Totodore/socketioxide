@@ -1,4 +1,5 @@
 #![deny(clippy::await_holding_lock)]
+
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -20,6 +21,7 @@ use crate::{
 use crate::{service::ProtocolVersion, sid_generator::Sid};
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
+use http_body::Body;
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
 use tokio_tungstenite::{
@@ -29,6 +31,7 @@ use tokio_tungstenite::{
 use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
+
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
 pub struct EngineIo<H: EngineIoHandler> {
@@ -62,18 +65,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
     where
         B: Send + 'static,
     {
-        let engine = self.clone();
-        let close_fn =
-            Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
+        let close_fn = Box::new(self.clone().close_fn());
         let sid = generate_sid();
-        let engine = self.clone();
-        let tx_map_fn = Box::new(move |packet: SendPacket| match packet {
-            SendPacket::Close(reason) => {
-                engine.close_session(sid, reason);
-                Packet::Close
-            }
-            packet => packet.into(),
-        });
+        let tx_map_fn = Box::new(self.clone().tx_map_fn(sid));
         let socket = Socket::new(
             sid,
             protocol,
@@ -161,9 +155,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
-        R: http_body::Body + std::marker::Send + Unpin + 'static,
-        <R as http_body::Body>::Error: Debug,
-        <R as http_body::Body>::Data: std::marker::Send,
+        R: Body + Send + Unpin + 'static,
+        <R as Body>::Error: Debug,
+        <R as Body>::Data: Send,
         B: Send + 'static,
     {
         let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
@@ -265,18 +259,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
             }
         } else {
             let sid = generate_sid();
-            let engine = self.clone();
-            let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| {
-                engine.close_session(sid, reason)
-            });
-            let engine = self.clone();
-            let tx_map_fn = Box::new(move |packet: SendPacket| match packet {
-                SendPacket::Close(reason) => {
-                    engine.close_session(sid, reason);
-                    Packet::Close
-                }
-                packet => packet.into(),
-            });
+            let close_fn = Box::new(self.clone().close_fn());
+            let tx_map_fn = Box::new(self.clone().tx_map_fn(sid));
             let socket = Socket::new(
                 sid,
                 protocol,
@@ -495,6 +479,20 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// Clones the socket ref to avoid holding the lock
     pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
+    }
+
+    fn tx_map_fn(self: Arc<Self>, sid: Sid) -> impl Fn(SendPacket) -> Packet {
+        move |packet: SendPacket| match packet {
+            SendPacket::Close(reason) => {
+                self.close_session(sid, reason);
+                Packet::Close
+            }
+            packet => packet.into(),
+        }
+    }
+
+    fn close_fn(self: Arc<Self>) -> impl Fn(Sid, DisconnectReason) {
+        move |sid: Sid, reason: DisconnectReason| self.close_session(sid, reason)
     }
 }
 
