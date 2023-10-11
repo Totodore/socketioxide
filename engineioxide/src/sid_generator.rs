@@ -1,12 +1,12 @@
 use base64id::Id64;
-use rand::Rng;
+use rand::random;
 
 /// A session id type
 pub type Sid = Id64;
 
 /// Generate a new session id (base64 10 chars)
 pub fn generate_sid() -> Sid {
-    let id: Id64 = rand::thread_rng().gen();
+    let id: Id64 = random();
 
     tracing::debug!("Generating new sid: {}", id);
     id
