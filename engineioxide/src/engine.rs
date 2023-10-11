@@ -62,8 +62,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
         req: Request<R>,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Result<Response<ResponseBody<B>>, Error>
-        where
-            B: Send + 'static,
+    where
+        B: Send + 'static,
     {
         let close_fn = Box::new(self.clone().close_fn());
         let sid = generate_sid();
@@ -77,7 +77,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             close_fn,
             tx_map_fn,
             #[cfg(feature = "v3")]
-                supports_binary,
+            supports_binary,
         );
         let socket = Arc::new(socket);
         {
@@ -116,8 +116,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
         protocol: ProtocolVersion,
         sid: Sid,
     ) -> Result<Response<ResponseBody<B>>, Error>
-        where
-            B: Send + 'static,
+    where
+        B: Send + 'static,
     {
         let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
         if !socket.is_http() {
@@ -137,9 +137,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         debug!("[sid={sid}] polling request");
 
         #[cfg(feature = "v3")]
-            let (payload, is_binary) = payload::encoder(rx, protocol, socket.supports_binary).await?;
+        let (payload, is_binary) = payload::encoder(rx, protocol, socket.supports_binary).await?;
         #[cfg(not(feature = "v3"))]
-            let (payload, is_binary) = payload::encoder(rx, protocol).await?;
+        let (payload, is_binary) = payload::encoder(rx, protocol).await?;
 
         debug!("[sid={sid}] sending data: {:?}", payload);
         Ok(http_response(StatusCode::OK, payload, is_binary)?)
@@ -154,11 +154,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
         sid: Sid,
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
-        where
-            R: Body + Send + Unpin + 'static,
-            <R as Body>::Error: Debug,
-            <R as Body>::Data: Send,
-            B: Send + 'static,
+    where
+        R: Body + Send + Unpin + 'static,
+        <R as Body>::Error: Debug,
+        <R as Body>::Data: Send,
+        B: Send + 'static,
     {
         let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
         if !socket.is_http() {
@@ -270,7 +270,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 close_fn,
                 tx_map_fn,
                 #[cfg(feature = "v3")]
-                    true, // supports_binary
+                true, // supports_binary
             );
             let socket = Arc::new(socket);
             {
