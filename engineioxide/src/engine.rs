@@ -191,7 +191,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                     Ok(())
                 }
                 Ok(Packet::Binary(bin)) | Ok(Packet::BinaryV3(bin)) => {
-                    self.handler.on_binary(bin, &socket);
+                    self.handler.on_binary(bin.clone(), &socket);
                     Ok(())
                 }
                 Ok(p) => {
@@ -309,7 +309,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             while let Some(item) = socket_rx.recv().await {
                 let res = match item {
                     Packet::Binary(bin) | Packet::BinaryV3(bin) => {
-                        tx.send(Message::Binary(bin)).await
+                        tx.send(Message::Binary(bin.clone())).await
                     }
                     Packet::Close => tx.send(Message::Close(None)).await,
                     // A Noop Packet maybe sent by the server to upgrade from a polling connection
