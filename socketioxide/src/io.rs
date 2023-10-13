@@ -16,10 +16,10 @@ use crate::{
 };
 
 /// A builder to create a [`SocketIo`] instance
-/// 
+///
 /// It contains everything to configure the socket.io server
-/// 
-/// It can build a tower layer or a hyper service
+///
+/// It can be used to build either a Tower [`Layer`](https://docs.rs/tower/latest/tower/trait.Layer.html) or a [`Service`](https://docs.rs/tower/latest/tower/trait.Service.html)
 pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
