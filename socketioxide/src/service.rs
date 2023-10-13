@@ -50,7 +50,7 @@ impl<A: Adapter, S: Clone> SocketIoService<A, S> {
         ns_handlers: NsHandlers<A>,
         config: Arc<SocketIoConfig>,
     ) -> (Self, Arc<Client<A>>) {
-        let client = Arc::new(Client::new(config.clone(), ns_handlers.clone()));
+        let client = Arc::new(Client::new(config.clone(), ns_handlers));
         let svc =
             EngineIoService::with_config_inner(inner, client.clone(), config.engine_config.clone());
         (Self { engine_svc: svc }, client)
