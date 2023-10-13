@@ -31,7 +31,13 @@ where
     B: Send + 'static,
 {
     let req = SocketReq::from(req.into_parts().0);
-    let socket = engine.create_session(protocol, ConnectionType::Http, req, supports_binary);
+    let socket = engine.create_session(
+        protocol,
+        ConnectionType::Http,
+        req,
+        #[cfg(feature = "v3")]
+        supports_binary,
+    );
 
     socket
         .clone()
