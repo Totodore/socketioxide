@@ -256,7 +256,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
             }
         } else {
             let sid = generate_sid();
-            let engine = self.clone();
             let close_fn = Box::new(self.clone().close_fn());
             let socket = Socket::new(
                 sid,
