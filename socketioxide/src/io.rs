@@ -154,7 +154,15 @@ impl SocketIoBuilder {
     /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance
     ///
     /// The layer can be used as a tower layer
-    pub fn build_layer(mut self) -> (SocketIoLayer<LocalAdapter>, SocketIo<LocalAdapter>) {
+    #[inline(always)]
+    pub fn build_layer(self) -> (SocketIoLayer<LocalAdapter>, SocketIo<LocalAdapter>) {
+        self.build_layer_with_adapter::<LocalAdapter>()
+    }
+
+    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance with a custom [`Adapter`]
+    ///
+    /// The layer can be used as a tower layer
+    pub fn build_layer_with_adapter<A: Adapter>(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
         let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
@@ -165,12 +173,23 @@ impl SocketIoBuilder {
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
+    #[inline(always)]
     pub fn build_svc(
-        mut self,
+        self,
     ) -> (
         SocketIoService<LocalAdapter, NotFoundService>,
         SocketIo<LocalAdapter>,
     ) {
+        self.build_svc_with_adapter::<LocalAdapter>()
+    }
+
+    /// Build a [`SocketIoService`] and a [`SocketIo`] instance with a custom [`Adapter`]
+    ///
+    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
+    /// It can be used as a hyper service
+    pub fn build_svc_with_adapter<A: Adapter>(
+        mut self,
+    ) -> (SocketIoService<A, NotFoundService>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
         let (svc, client) =
@@ -181,10 +200,21 @@ impl SocketIoBuilder {
     /// Build a [`SocketIoService`] and a [`SocketIo`] instance with an inner service
     ///
     /// It can be used as a hyper service
+    #[inline(always)]
     pub fn build_with_inner_svc<S: Clone>(
-        mut self,
+        self,
         svc: S,
     ) -> (SocketIoService<LocalAdapter, S>, SocketIo<LocalAdapter>) {
+        self.build_with_inner_svc_with_adapter::<S, LocalAdapter>(svc)
+    }
+
+    /// Build a [`SocketIoService`] and a [`SocketIo`] instance with an inner service and a custom [`Adapter`]
+    ///
+    /// It can be used as a hyper service
+    pub fn build_with_inner_svc_with_adapter<S: Clone, A: Adapter>(
+        mut self,
+        svc: S,
+    ) -> (SocketIoService<A, S>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
         let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
@@ -204,11 +234,6 @@ impl Default for SocketIoBuilder {
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
-    /// Create a new [`SocketIoBuilder`] with a default config
-    pub fn builder() -> SocketIoBuilder {
-        SocketIoBuilder::new()
-    }
-
     /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
@@ -239,13 +264,51 @@ impl SocketIo<LocalAdapter> {
 }
 
 impl<A: Adapter> SocketIo<A> {
+    /// Create a new [`SocketIoBuilder`] with a default config
+    pub fn builder() -> SocketIoBuilder {
+        SocketIoBuilder::new()
+    }
+
     /// Returns a reference to the [`SocketIoConfig`] used by this [`SocketIo`] instance
     #[inline]
     pub fn config(&self) -> &SocketIoConfig {
         &self.0.config
     }
 
-    /// Create a new namespace with the given path and handler
+    /// ### Register a connect handler for the given namespace.
+    ///
+    /// The data parameter can be typed with anything that implement [serde::Deserialize](https://docs.rs/serde/latest/serde/).
+    /// It corresponds to the auth data sent by the client when connecting to the namespace.
+    ///
+    /// #### Simple example with a closure:
+    /// ```
+    /// # use socketioxide::SocketIo;
+    /// # use serde_json::Value;
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Deserialize)]
+    /// struct MyAuthData {
+    ///     token: String,
+    /// }
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, auth: MyAuthData| async move {
+    ///     if auth.token.is_empty() {
+    ///         println!("Invalid token, disconnecting");
+    ///         socket.disconnect().ok();
+    ///         return;
+    ///     }
+    ///     socket.on("test", |socket, data: MyData, _, _| async move {
+    ///         println!("Received a test message {:?}", data);
+    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
+    ///
+    /// ```
     #[inline]
     pub fn ns<C, F, V>(&self, path: impl Into<String>, callback: C)
     where
