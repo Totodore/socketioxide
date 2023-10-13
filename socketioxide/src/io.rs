@@ -234,6 +234,11 @@ impl Default for SocketIoBuilder {
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
+    /// Create a new [`SocketIoBuilder`] with a default config
+    pub fn builder() -> SocketIoBuilder {
+        SocketIoBuilder::new()
+    }
+
     /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
@@ -264,8 +269,8 @@ impl SocketIo<LocalAdapter> {
 }
 
 impl<A: Adapter> SocketIo<A> {
-    /// Create a new [`SocketIoBuilder`] with a default config
-    pub fn builder() -> SocketIoBuilder {
+    /// Create a new [`SocketIoBuilder`] with a default config and a specified [`Adapter`]
+    pub fn builder_with_adapter() -> SocketIoBuilder {
         SocketIoBuilder::new()
     }
 
