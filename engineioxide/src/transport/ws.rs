@@ -173,7 +173,11 @@ fn forward_to_socket<H: EngineIoHandler>(
                         tx.send(Message::Close(None)).await.ok();
                         internal_rx.close();
                         break;
-                    }
+                    },
+                    // A Noop Packet maybe sent by the server to upgrade from a polling connection
+                    // In the case that the packet was not poll in time it will remain in the buffer and therefore
+                    // it should be discarded here
+                    Packet::Noop => Ok(()),
                     _ => {
                         let packet: String = $item.try_into().unwrap();
                         tx.feed(Message::Text(packet)).await
