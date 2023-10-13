@@ -190,12 +190,14 @@ impl SocketIo<LocalAdapter> {
 }
 impl<A: Adapter> SocketIo<A> {
     /// Returns a reference to the [`SocketIoConfig`] used by this [`SocketIo`] instance
+    #[inline]
     pub fn config(&self) -> &SocketIoConfig {
         &self.0.config
     }
 
     /// Gracefully closes all the connections and drop every sockets
     /// Any `on_disconnect` handler will called with the reason `ServerClosing`
+    #[inline]
     pub async fn close(&self) {
         self.0.close().await
     }
