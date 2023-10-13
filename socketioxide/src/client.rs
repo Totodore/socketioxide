@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
-use futures::TryFutureExt;
+use futures::{Future, TryFutureExt};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
@@ -12,29 +13,25 @@ use tracing::debug;
 use tracing::error;
 
 use crate::adapter::Adapter;
-use crate::handshake::Handshake;
-use crate::ns::NsHandlers;
+use crate::Socket;
 use crate::{
-    config::SocketIoConfig,
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
+    SocketIoConfig,
 };
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
     pub(crate) config: Arc<SocketIoConfig>,
-    ns: HashMap<String, Arc<Namespace<A>>>,
+    ns: RwLock<HashMap<String, Arc<Namespace<A>>>>,
 }
 
 impl<A: Adapter> Client<A> {
-    pub fn new(config: Arc<SocketIoConfig>, ns_handlers: NsHandlers<A>) -> Self {
+    pub fn new(config: Arc<SocketIoConfig>) -> Self {
         Self {
             config,
-            ns: ns_handlers
-                .into_iter()
-                .map(|(path, callback)| (path.clone(), Namespace::new(path, callback)))
-                .collect(),
+            ns: RwLock::new(HashMap::new()),
         }
     }
 
@@ -66,14 +63,13 @@ impl<A: Adapter> Client<A> {
         esocket: Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
-        let handshake = Handshake::new(auth, esocket.req_data.clone());
         let sid = esocket.sid;
         if let Some(ns) = self.get_ns(&ns_path) {
             let connect_packet = Packet::connect(ns_path.clone(), sid).try_into()?;
             if let Err(err) = esocket.emit(connect_packet) {
                 debug!("sending error during socket connection: {err:?}");
             }
-            ns.connect(sid, esocket.clone(), handshake, self.config.clone());
+            ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                 tx.send(()).unwrap();
             }
@@ -97,7 +93,7 @@ impl<A: Adapter> Client<A> {
 
     /// Propagate a packet to a its target namespace
     fn sock_propagate_packet(&self, packet: Packet, sid: Sid) -> Result<(), Error> {
-        if let Some(ns) = self.ns.get(&packet.ns) {
+        if let Some(ns) = self.get_ns(&packet.ns) {
             ns.recv(sid, packet.inner)
         } else {
             debug!("invalid namespace requested: {}", packet.ns);
@@ -105,15 +101,34 @@ impl<A: Adapter> Client<A> {
         }
     }
 
+    /// Add a new namespace handler
+    pub fn add_ns<C, F, V>(&self, path: String, callback: C)
+    where
+        C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+        V: DeserializeOwned + Send + Sync + 'static,
+    {
+        debug!("adding namespace {}", path);
+        let ns = Namespace::new(path.clone(), callback);
+        self.ns.write().unwrap().insert(path, ns);
+    }
+
+    /// Delete a namespace handler
+    pub fn delete_ns(&self, path: &str) {
+        debug!("deleting namespace {}", path);
+        self.ns.write().unwrap().remove(path);
+    }
+
     pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
-        self.ns.get(path).cloned()
+        self.ns.read().unwrap().get(path).cloned()
     }
 
     /// Close all engine.io connections and all clients
     #[tracing::instrument(skip(self))]
     pub(crate) async fn close(&self) {
         debug!("closing all namespaces");
-        futures::future::join_all(self.ns.values().map(|ns| ns.close())).await;
+        let ns = self.ns.read().unwrap().clone();
+        futures::future::join_all(ns.values().map(|ns| ns.close())).await;
         debug!("all namespaces closed");
     }
 }
@@ -151,6 +166,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         debug!("eio socket disconnected");
         let res: Result<Vec<_>, _> = self
             .ns
+            .read()
+            .unwrap()
             .values()
             .filter_map(|ns| ns.get_socket(socket.sid).ok())
             .map(|s| s.close(reason.clone().into()))
@@ -210,15 +227,6 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                     }
                 }
             }
-        }
-    }
-}
-
-impl<A: Adapter> Clone for Client<A> {
-    fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            ns: self.ns.clone(),
         }
     }
 }

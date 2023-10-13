@@ -20,8 +20,7 @@ use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
     extensions::Extensions,
-    handler::{AckResponse, AckSender, BoxedHandler, MessageHandler},
-    handshake::Handshake,
+    handler::{AckResponse, AckSender, BoxedMessageHandler, CallbackHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
@@ -100,11 +99,10 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 pub struct Socket<A: Adapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
-    message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
+    message_handlers: RwLock<HashMap<String, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
-    pub handshake: Handshake,
     pub sid: Sid,
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData>>,
@@ -114,7 +112,6 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
         sid: Sid,
         ns: Arc<Namespace<A>>,
-        handshake: Handshake,
         esocket: Arc<engineioxide::Socket<SocketData>>,
         config: Arc<SocketIoConfig>,
     ) -> Self {
@@ -124,7 +121,6 @@ impl<A: Adapter> Socket<A> {
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
-            handshake,
             sid,
             extensions: Extensions::new(),
             config,
@@ -155,7 +151,8 @@ impl<A: Adapter> Socket<A> {
     ///     age: u8,
     /// }
     ///
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: MyData, _, _| async move {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
@@ -176,7 +173,8 @@ impl<A: Adapter> Socket<A> {
     ///     age: u8,
     /// }
     ///
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: MyData, bin, ack| async move {
     ///         println!("Received a test message {:?}", data);
     ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
@@ -191,10 +189,10 @@ impl<A: Adapter> Socket<A> {
         V: DeserializeOwned + Send + Sync + 'static,
     {
         let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
-        self.message_handlers
-            .write()
-            .unwrap()
-            .insert(event.into(), MessageHandler::boxed(handler));
+        self.message_handlers.write().unwrap().insert(
+            event.into(),
+            CallbackHandler::boxed_message_handler(handler),
+        );
     }
 
     /// ## Register a disconnect handler.
@@ -204,7 +202,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Close the current socket
     ///         socket.disconnect().ok();
@@ -227,7 +226,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message to the client
     ///         socket.emit("test", data);
@@ -253,7 +253,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message and wait for an acknowledgement
     ///         match socket.emit_with_ack::<Value>("test", data).await {
@@ -308,7 +309,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
@@ -330,7 +332,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 including the current socket
@@ -350,7 +353,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("register1", |socket, data: Value, _, _| async move {
     ///         socket.join("room1");
     ///     });
@@ -373,7 +377,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
     ///         socket.local().emit("test", data);
@@ -391,7 +396,8 @@ impl<A: Adapter> Socket<A> {
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///    socket.on("test", |socket, data: Value, bin, _| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
@@ -417,7 +423,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // This will send the binary payload received to all clients in this namespace with the test message
     ///         socket.bin(bin).emit("test", data);
@@ -432,7 +439,8 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
@@ -566,7 +574,6 @@ impl<A: Adapter> Debug for Socket<A> {
             .field("ns", &self.ns())
             .field("ack_message", &self.ack_message)
             .field("ack_counter", &self.ack_counter)
-            .field("handshake", &self.handshake)
             .field("sid", &self.sid)
             .finish()
     }
@@ -579,7 +586,6 @@ impl<A: Adapter> Socket<A> {
         Socket::new(
             sid,
             ns,
-            Handshake::new_dummy(),
             engineioxide::Socket::new_dummy(sid, close_fn).into(),
             Arc::new(SocketIoConfig::default()),
         )

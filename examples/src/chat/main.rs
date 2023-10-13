@@ -41,7 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    let (io_layer, io) = SocketIo::builder().ns("/", handlers::handler).build_layer();
+    let (layer, io) = SocketIo::new_layer();
+    io.ns("/", handlers::handler);
 
     // The shutdown handler is used to gracefully shutdown the server when a SIGINT or SIGTERM is emitted
     // The socket.io will then gracefully close all connections
@@ -52,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(
             ServiceBuilder::new()
                 .layer(CorsLayer::permissive()) // Enable CORS policy
-                .layer(io_layer),
+                .layer(layer),
         )
         .with_state(io);
 

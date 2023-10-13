@@ -7,7 +7,7 @@ use std::{
 };
 use tower::Service;
 
-use crate::{adapter::Adapter, client::Client, ns::NsHandlers, SocketIoConfig};
+use crate::{adapter::Adapter, client::Client, SocketIoConfig};
 
 /// The service for Socket.IO
 ///
@@ -45,12 +45,8 @@ impl<A: Adapter, S: Clone> SocketIoService<A, S> {
     }
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub fn with_config_inner(
-        inner: S,
-        ns_handlers: NsHandlers<A>,
-        config: Arc<SocketIoConfig>,
-    ) -> (Self, Arc<Client<A>>) {
-        let client = Arc::new(Client::new(config.clone(), ns_handlers));
+    pub fn with_config_inner(inner: S, config: Arc<SocketIoConfig>) -> (Self, Arc<Client<A>>) {
+        let client = Arc::new(Client::new(config.clone()));
         let svc =
             EngineIoService::with_config_inner(inner, client.clone(), config.engine_config.clone());
         (Self { engine_svc: svc }, client)

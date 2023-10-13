@@ -20,7 +20,7 @@ impl<H: EngineIoHandler> EngineIoLayer<H> {
     }
 }
 
-impl<S: Clone, H: EngineIoHandler> Layer<S> for EngineIoLayer<H> {
+impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
     type Service = EngineIoService<H, S>;
 
     fn layer(&self, inner: S) -> Self::Service {

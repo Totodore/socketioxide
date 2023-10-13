@@ -7,7 +7,7 @@ use futures::SinkExt;
 use http::Request;
 use hyper::{body::Buf, Server};
 use serde::{Deserialize, Serialize};
-use socketioxide::{SocketIo, SocketIoBuilder};
+use socketioxide::SocketIo;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 /// An OpenPacket is used to initiate a connection
@@ -84,11 +84,10 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     ws
 }
 
-pub fn create_server(builder: SocketIoBuilder, port: u16) -> SocketIo {
-    let (svc, io) = builder
+pub fn create_server(port: u16) -> SocketIo {
+    let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
         .build_svc();
 
     let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);

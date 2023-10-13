@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use engineioxide::{
-    config::EngineIoConfigBuilder,
+    config::{EngineIoConfig, EngineIoConfigBuilder},
     service::{NotFoundService, TransportType},
 };
 use futures::{stream::BoxStream, Future};
@@ -12,39 +12,66 @@ use crate::{
     client::Client,
     handler::AckResponse,
     layer::SocketIoLayer,
-    ns::NsHandlers,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    AckError, BroadcastError, Socket, SocketIoConfig,
+    AckError, BroadcastError, Socket,
 };
+
+/// Configuration for Socket.IO & Engine.IO
+#[derive(Debug, Clone)]
+pub struct SocketIoConfig {
+    /// The inner Engine.IO config
+    pub engine_config: EngineIoConfig,
+
+    /// The amount of time the server will wait for an acknowledgement from the client before closing the connection.
+    ///
+    /// Defaults to 5 seconds.
+    pub ack_timeout: Duration,
+
+    /// The amount of time before disconnecting a client that has not successfully joined a namespace.
+    ///
+    /// Defaults to 45 seconds.
+    pub connect_timeout: Duration,
+}
+
+impl Default for SocketIoConfig {
+    fn default() -> Self {
+        Self {
+            engine_config: EngineIoConfig {
+                req_path: "/socket.io".to_string(),
+                ..Default::default()
+            },
+            ack_timeout: Duration::from_secs(5),
+            connect_timeout: Duration::from_secs(45),
+        }
+    }
+}
 
 /// A builder to create a [`SocketIo`] instance
 ///
 /// It contains everything to configure the socket.io server
 ///
 /// It can be used to build either a Tower [`Layer`](https://docs.rs/tower/latest/tower/trait.Layer.html) or a [`Service`](https://docs.rs/tower/latest/tower/trait.Service.html)
-pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
+pub struct SocketIoBuilder {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
     req_path: String,
-
-    ns_handlers: NsHandlers<A>,
 }
 
-impl<A: Adapter> SocketIoBuilder<A> {
+impl SocketIoBuilder {
     /// Create a new [`SocketIoBuilder`] with default config
     pub fn new() -> Self {
         Self {
             config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new(),
             req_path: "/socket.io".to_string(),
-            ns_handlers: HashMap::new(),
         }
     }
 
     /// The path to listen for socket.io requests on.
     ///
     /// Defaults to "/socket.io".
+    #[inline]
     pub fn req_path(mut self, req_path: String) -> Self {
         self.req_path = req_path;
         self
@@ -53,6 +80,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// The interval at which the server will send a ping packet to the client.
     ///
     /// Defaults to 25 seconds.
+    #[inline]
     pub fn ping_interval(mut self, ping_interval: Duration) -> Self {
         self.engine_config_builder = self.engine_config_builder.ping_interval(ping_interval);
         self
@@ -61,6 +89,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// The amount of time the server will wait for a ping response from the client before closing the connection.
     ///
     /// Defaults to 20 seconds.
+    #[inline]
     pub fn ping_timeout(mut self, ping_timeout: Duration) -> Self {
         self.engine_config_builder = self.engine_config_builder.ping_timeout(ping_timeout);
         self
@@ -70,6 +99,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// If the buffer if full the `emit()` method will return an error
     ///
     /// Defaults to 128 packets.
+    #[inline]
     pub fn max_buffer_size(mut self, max_buffer_size: usize) -> Self {
         self.engine_config_builder = self.engine_config_builder.max_buffer_size(max_buffer_size);
         self
@@ -79,6 +109,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// If a payload is bigger than this value the `emit()` method will return an error.
     ///
     /// Defaults to 100 kb.
+    #[inline]
     pub fn max_payload(mut self, max_payload: u64) -> Self {
         self.engine_config_builder = self.engine_config_builder.max_payload(max_payload);
         self
@@ -90,6 +121,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     ///
     /// Defaults to :
     /// `[TransportType::Polling, TransportType::Websocket]`
+    #[inline]
     pub fn transports<const N: usize>(mut self, transports: [TransportType; N]) -> Self {
         self.engine_config_builder = self.engine_config_builder.transports(transports);
         self
@@ -98,6 +130,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// The amount of time the server will wait for an acknowledgement from the client before closing the connection.
     ///
     /// Defaults to 5 seconds.
+    #[inline]
     pub fn ack_timeout(mut self, ack_timeout: Duration) -> Self {
         self.config.ack_timeout = ack_timeout;
         self
@@ -106,42 +139,25 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// The amount of time before disconnecting a client that has not successfully joined a namespace.
     ///
     /// Defaults to 45 seconds.
+    #[inline]
     pub fn connect_timeout(mut self, connect_timeout: Duration) -> Self {
         self.config.connect_timeout = connect_timeout;
         self
     }
 
-    /// Register a new namespace handler
-    pub fn ns<C, F>(mut self, path: impl Into<String>, callback: C) -> Self
-    where
-        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
-        self.ns_handlers.insert(path.into(), handler);
-        self
-    }
-
-    /// Register a new namespace handler for multiple paths
-    pub fn ns_many<C, F>(mut self, paths: Vec<impl Into<String>>, callback: C) -> Self
-    where
-        C: Fn(Arc<Socket<A>>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let handler = Arc::new(move |socket| Box::pin(callback(socket)) as _);
-        for path in paths {
-            self.ns_handlers.insert(path.into(), handler.clone());
-        }
+    #[inline]
+    pub fn with_config(mut self, config: SocketIoConfig) -> Self {
+        self.config = config;
         self
     }
 
     /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance
     ///
     /// The layer can be used as a tower layer
-    pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
+    pub fn build_layer(mut self) -> (SocketIoLayer<LocalAdapter>, SocketIo<LocalAdapter>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
-        let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config), self.ns_handlers);
+        let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
         (layer, SocketIo(client))
     }
 
@@ -149,14 +165,16 @@ impl<A: Adapter> SocketIoBuilder<A> {
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
-    pub fn build_svc(mut self) -> (SocketIoService<A, NotFoundService>, SocketIo<A>) {
+    pub fn build_svc(
+        mut self,
+    ) -> (
+        SocketIoService<LocalAdapter, NotFoundService>,
+        SocketIo<LocalAdapter>,
+    ) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
-        let (svc, client) = SocketIoService::with_config_inner(
-            NotFoundService,
-            self.ns_handlers,
-            Arc::new(self.config),
-        );
+        let (svc, client) =
+            SocketIoService::with_config_inner(NotFoundService, Arc::new(self.config));
         (svc, SocketIo(client))
     }
 
@@ -166,16 +184,15 @@ impl<A: Adapter> SocketIoBuilder<A> {
     pub fn build_with_inner_svc<S: Clone>(
         mut self,
         svc: S,
-    ) -> (SocketIoService<A, S>, SocketIo<A>) {
+    ) -> (SocketIoService<LocalAdapter, S>, SocketIo<LocalAdapter>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
-        let (svc, client) =
-            SocketIoService::with_config_inner(svc, self.ns_handlers, Arc::new(self.config));
+        let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
         (svc, SocketIo(client))
     }
 }
 
-impl<A: Adapter> Default for SocketIoBuilder<A> {
+impl Default for SocketIoBuilder {
     fn default() -> Self {
         Self::new()
     }
@@ -187,10 +204,40 @@ impl<A: Adapter> Default for SocketIoBuilder<A> {
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
-    pub fn builder() -> SocketIoBuilder<LocalAdapter> {
+    /// Create a new [`SocketIoBuilder`] with a default config
+    pub fn builder() -> SocketIoBuilder {
         SocketIoBuilder::new()
     }
+
+    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
+    ///
+    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
+    ///
+    /// It can be used as a hyper service
+    pub fn new_svc() -> (
+        SocketIoService<LocalAdapter, NotFoundService>,
+        SocketIo<LocalAdapter>,
+    ) {
+        Self::builder().build_svc()
+    }
+
+    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
+    ///
+    /// It can be used as a hyper service
+    pub fn new_inner_svc<S: Clone>(
+        svc: S,
+    ) -> (SocketIoService<LocalAdapter, S>, SocketIo<LocalAdapter>) {
+        Self::builder().build_with_inner_svc(svc)
+    }
+
+    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config
+    ///
+    /// The layer can be used as a tower layer
+    pub fn new_layer() -> (SocketIoLayer<LocalAdapter>, SocketIo<LocalAdapter>) {
+        Self::builder().build_layer()
+    }
 }
+
 impl<A: Adapter> SocketIo<A> {
     /// Returns a reference to the [`SocketIoConfig`] used by this [`SocketIo`] instance
     #[inline]
@@ -198,12 +245,29 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
+    /// Create a new namespace with the given path and handler
+    #[inline]
+    pub fn ns<C, F, V>(&self, path: impl Into<String>, callback: C)
+    where
+        C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+        V: DeserializeOwned + Send + Sync + 'static,
+    {
+        self.0.add_ns(path.into(), callback);
+    }
+
+    /// Delete the namespace with the given path
+    #[inline]
+    pub fn delete_ns<'a>(&self, path: impl Into<&'a str>) {
+        self.0.delete_ns(path.into());
+    }
+
     /// Gracefully closes all the connections and drops every sockets
     ///
     /// Any `on_disconnect` handler will called with [`DisconnectReason::ClosingServer`](crate::DisconnectReason::ClosingServer)
     #[inline]
     pub async fn close(&self) {
-        self.0.close().await
+        self.0.close().await;
     }
 
     // Chaining operators fns
@@ -213,9 +277,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ## Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("custom_ns", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("custom_ns", |socket, _: ()| async move {
     ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can select the custom_ns namespace
     /// // and show all sockets connected to it
@@ -238,9 +303,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ## Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can select all sockets in the room "room1"
     /// // and for example show all sockets connected to it
@@ -264,9 +330,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ## Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can select all sockets in the room "room1"
     /// // and for example show all sockets connected to it
@@ -289,7 +356,8 @@ impl<A: Adapter> SocketIo<A> {
     /// ## Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
     ///     socket.on("register1", |socket, data: (), _, _| async move {
     ///         socket.join("room1");
@@ -297,7 +365,7 @@ impl<A: Adapter> SocketIo<A> {
     ///     socket.on("register2", |socket, data: (), _, _| async move {
     ///         socket.join("room2");
     ///     });
-    /// }).build_svc();
+    /// });
     ///
     ///
     /// // Later in your code you can select all sockets in the root namespace that are not in the room1
@@ -322,9 +390,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ## Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can select all sockets in the local node and on the root namespace
     /// // and for example show all sockets connected to it
@@ -350,9 +419,10 @@ impl<A: Adapter> SocketIo<A> {
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
     /// // except for the room2 and wait for 5 seconds for an acknowledgement
@@ -384,9 +454,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
     /// // except for the room2 with a binary payload
@@ -411,9 +482,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
     /// // except for the room2
@@ -444,9 +516,10 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
     /// // except for the room2
@@ -481,9 +554,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can select all sockets in the room "room1"
     /// // and for example show all sockets connected to it
@@ -506,9 +580,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ## Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can disconnect all sockets in the root namespace
     /// io.disconnect();
@@ -527,9 +602,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ### Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can for example add all sockets on the root namespace to the room1 and room3
     /// io.join(["room1", "room3"]).unwrap();
@@ -548,9 +624,10 @@ impl<A: Adapter> SocketIo<A> {
     /// ### Example
     /// ```
     /// # use socketioxide::SocketIo;
-    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
-    /// }).build_svc();
+    /// });
     ///
     /// // Later in your code you can for example remove all sockets on the root namespace from the room1 and room3
     /// io.leave(["room1", "room3"]).unwrap();
@@ -588,24 +665,22 @@ mod tests {
 
     #[tokio::test]
     async fn get_default_op() {
-        let (_, io) = SocketIo::builder().ns("/", |_| async move {}).build_svc();
+        let (_, io) = SocketIo::builder().build_svc();
+        io.ns("/", |_, _: ()| async move {});
         let _ = io.get_default_op();
     }
 
     #[tokio::test]
     #[should_panic(expected = "default namespace not found")]
     async fn get_default_op_panic() {
-        let (_, io) = SocketIo::builder()
-            .ns("test", |_| async move {})
-            .build_svc();
+        let (_, io) = SocketIo::builder().build_svc();
         let _ = io.get_default_op();
     }
 
     #[tokio::test]
     async fn get_op() {
-        let (_, io) = SocketIo::builder()
-            .ns("test", |_| async move {})
-            .build_svc();
+        let (_, io) = SocketIo::builder().build_svc();
+        io.ns("test", |_, _: ()| async move {});
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
     }

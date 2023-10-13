@@ -4,34 +4,37 @@ use std::{
 };
 
 use crate::{
-    adapter::Adapter, errors::Error, handshake::Handshake, packet::PacketData, socket::Socket,
+    adapter::Adapter,
+    errors::Error,
+    handler::{BoxedNamespaceHandler, CallbackHandler},
+    packet::PacketData,
+    socket::Socket,
     SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid_generator::Sid;
-use futures::future::BoxFuture;
-
-pub type EventCallback<A> =
-    Arc<dyn Fn(Arc<Socket<A>>) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
-
-pub type NsHandlers<A> = HashMap<String, EventCallback<A>>;
+use futures::Future;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 
 pub struct Namespace<A: Adapter> {
     pub path: String,
     pub(crate) adapter: A,
-    callback: EventCallback<A>,
+    handler: BoxedNamespaceHandler<A>,
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
 }
 
 impl<A: Adapter> Namespace<A> {
-    pub fn new(path: impl Into<String>, callback: EventCallback<A>) -> Arc<Self> {
-        let mut path: String = path.into();
-        if !path.starts_with('/') {
-            path = format!("/{}", path);
-        }
+    pub fn new<C, F, V>(path: String, callback: C) -> Arc<Self>
+    where
+        C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+        V: DeserializeOwned + Send + Sync + 'static,
+    {
+        let handler = Box::new(move |s, v| Box::pin(callback(s, v)) as _);
         Arc::new_cyclic(|ns| Self {
             path,
-            callback,
+            handler: CallbackHandler::boxed_ns_handler(handler),
             sockets: HashMap::new().into(),
             adapter: A::new(ns.clone()),
         })
@@ -42,13 +45,12 @@ impl<A: Adapter> Namespace<A> {
         self: Arc<Self>,
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData>>,
-        handshake: Handshake,
+        auth: Value,
         config: Arc<SocketIoConfig>,
-    ) {
-        let socket: Arc<Socket<A>> =
-            Socket::new(sid, self.clone(), handshake, esocket, config).into();
+    ) -> Result<(), serde_json::Error> {
+        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket, config).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
-        tokio::spawn((self.callback)(socket));
+        self.handler.call(socket, auth)
     }
 
     /// Remove a socket from a namespace and propagate the event to the adapter
@@ -99,8 +101,7 @@ impl<A: Adapter> Namespace<A> {
 #[cfg(test)]
 impl<A: Adapter> Namespace<A> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
-        use futures::future::FutureExt;
-        let ns = Namespace::new("/", Arc::new(|_| async move {}.boxed()));
+        let ns = Namespace::new("/".to_string(), |_, _: ()| async {});
         for sid in sockets {
             ns.sockets
                 .write()

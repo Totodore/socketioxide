@@ -16,32 +16,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let (svc, _) = SocketIo::builder()
+    let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
-        .ns("/", |socket| async move {
-            info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
-            let data: Value = socket.handshake.data().unwrap();
-            socket.emit("auth", data).ok();
-
-            socket.on("message", |socket, data: Value, bin, _| async move {
-                info!("Received event: {:?} {:?}", data, bin);
-                socket.bin(bin).emit("message-back", data).ok();
-            });
-
-            socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
-                info!("Received event: {:?} {:?}", data, bin);
-                ack.bin(bin).send(data).ok();
-            });
-        })
-        .ns("/custom", |socket| async move {
-            info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
-            let data: Value = socket.handshake.data().unwrap();
-            socket.emit("auth", data).ok();
-        })
         .build_svc();
+
+    io.ns("/", |socket, data: Value| async move {
+        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
+        socket.emit("auth", data).ok();
+
+        socket.on("message", |socket, data: Value, bin, _| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            socket.bin(bin).emit("message-back", data).ok();
+        });
+
+        socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            ack.bin(bin).send(data).ok();
+        });
+    });
+    io.ns("/custom", |socket, data: Value| async move {
+        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
+        socket.emit("auth", data).ok();
+    });
     info!("Starting server");
 
     Server::bind(&"127.0.0.1:3000".parse().unwrap())

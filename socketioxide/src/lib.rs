@@ -25,37 +25,38 @@
 //!
 //!     println!("Starting server");
 //!
-//!     let (io_layer, _) = SocketIo::builder()
-//!         .ns("/", |socket| async move {
-//!             println!("Socket connected on / namespace with id: {}", socket.sid);
+//!     let (layer, io) = SocketIo::new_layer();
 //!
-//!             // Add a callback triggered when the socket receive an 'abc' event
-//!             // The json data will be deserialized to MyData
-//!             socket.on("abc", |socket, data: MyData, bin, _| async move {
-//!                 println!("Received abc event: {:?} {:?}", data, bin);
-//!                 socket.bin(bin).emit("abc", data).ok();
-//!             });
+//!     io.ns("/", |socket, auth: Value| async move {
+//!         println!("Socket connected on / namespace with id: {}", socket.sid);
 //!
-//!             // Add a callback triggered when the socket receive an 'acb' event
-//!             // Ackknowledge the message with the ack callback
-//!             socket.on("acb", |_, data: Value, bin, ack| async move {
-//!                 println!("Received acb event: {:?} {:?}", data, bin);
-//!                 ack.bin(bin).send(data).ok();
-//!             });
-//!             // Add a callback triggered when the socket disconnect
-//!             // The reason of the disconnection will be passed to the callback
-//!             socket.on_disconnect(|socket, reason| async move {
-//!                 println!("Socket.IO disconnected: {} {}", socket.sid, reason);
-//!             });
-//!         })
-//!         .ns("/custom", |socket| async move {
-//!             println!("Socket connected on /custom namespace with id: {}", socket.sid);
-//!         })
-//!         .build_layer();
+//!         // Add a callback triggered when the socket receive an 'abc' event
+//!         // The json data will be deserialized to MyData
+//!         socket.on("abc", |socket, data: MyData, bin, _| async move {
+//!             println!("Received abc event: {:?} {:?}", data, bin);
+//!             socket.bin(bin).emit("abc", data).ok();
+//!         });
+//!
+//!         // Add a callback triggered when the socket receive an 'acb' event
+//!         // Ackknowledge the message with the ack callback
+//!         socket.on("acb", |_, data: Value, bin, ack| async move {
+//!             println!("Received acb event: {:?} {:?}", data, bin);
+//!             ack.bin(bin).send(data).ok();
+//!         });
+//!         // Add a callback triggered when the socket disconnect
+//!         // The reason of the disconnection will be passed to the callback
+//!         socket.on_disconnect(|socket, reason| async move {
+//!             println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+//!         });
+//!     });
+//!     
+//!     io.ns("/custom", |socket, auth: Value| async move {
+//!         println!("Socket connected on /custom namespace with id: {}", socket.sid);
+//!     });
 //!
 //!     let app = axum::Router::new()
 //!         .route("/", get(|| async { "Hello, World!" }))
-//!         .layer(io_layer);
+//!         .layer(layer);
 //!
 //!     Server::bind(&"0.0.0.0:3000".parse().unwrap())
 //!         .serve(app.into_make_service())
@@ -70,16 +71,14 @@ pub mod extensions;
 pub mod layer;
 pub mod service;
 
-pub use config::{SocketIoConfig, TransportType};
+pub use engineioxide::service::TransportType;
 pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
-pub use io::{SocketIo, SocketIoBuilder};
+pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 pub use socket::{DisconnectReason, Socket};
 
 mod client;
-mod config;
 mod errors;
 mod handler;
-mod handshake;
 mod io;
 mod ns;
 mod operators;
