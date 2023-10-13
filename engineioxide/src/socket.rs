@@ -8,17 +8,18 @@ use std::{
 
 use http::{request::Parts, Uri};
 use tokio::{
-    sync::{mpsc, mpsc::Receiver, Mutex},
+    sync::{
+        mpsc::{self},
+        mpsc::{error::TrySendError, Receiver},
+        Mutex,
+    },
     task::JoinHandle,
 };
 use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
 use crate::sid_generator::Sid;
-use crate::{
-    config::EngineIoConfig, errors::Error, handler::EngineIoHandler, packet::Packet,
-    service::ProtocolVersion, utils::forward_map_chan, SendPacket,
-};
+use crate::{config::EngineIoConfig, errors::Error, packet::Packet, service::ProtocolVersion};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ConnectionType {
@@ -69,6 +70,8 @@ pub enum DisconnectReason {
     TransportError,
     /// The client did not respond to the heartbeat
     HeartbeatTimeout,
+    /// The server is being closed
+    ClosingServer,
 }
 
 /// Convert an [`Error`] to a [`DisconnectReason`] if possible
@@ -87,7 +90,6 @@ impl From<&Error> for Option<DisconnectReason> {
         }
     }
 }
-
 /// A [`Socket`] represents a connection to the server.
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 /// It handles :
@@ -95,9 +97,9 @@ impl From<&Error> for Option<DisconnectReason> {
 /// and the user defined [`Handler`](crate::handler::EngineIoHandler).
 /// * the user defined [`Data`](crate::handler::EngineIoHandler::Data) bound to the socket.
 /// * the heartbeat job that verify that the connection is still up by sending packets periodically.
-pub struct Socket<H>
+pub struct Socket<D>
 where
-    H: EngineIoHandler + ?Sized,
+    D: Default + Send + Sync + 'static,
 {
     /// The socket id
     pub sid: Sid,
@@ -117,11 +119,15 @@ where
     /// It is locked if [`EngineIo`](crate::engine) is currently reading from it :
     /// * In case of polling transport it will be locked and released for each request
     /// * In case of websocket transport it will be always locked until the connection is closed
+    ///
+    /// It will be closed when a [`Close`](Packet::Close) packet is received:
+    /// * From the [encoder](crate::service::encoder) if the transport is polling
+    /// * From the fn [`on_ws_req_init`](crate::engine::EngineIo) if the transport is websocket
+    /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback. Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
     pub(crate) internal_rx: Mutex<Receiver<Packet>>,
 
     /// Channel to send [Packet] to the internal connection
     internal_tx: mpsc::Sender<Packet>,
-    pub tx: mpsc::Sender<SendPacket>,
 
     /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task
@@ -135,7 +141,7 @@ where
     /// Function to call when the socket is closed
     close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     /// User data bound to the socket
-    pub data: H::Data,
+    pub data: D,
 
     /// Http Request data used to create a socket
     pub req_data: Arc<SocketReq>,
@@ -145,9 +151,9 @@ where
     pub supports_binary: bool,
 }
 
-impl<H> Socket<H>
+impl<D> Socket<D>
 where
-    H: EngineIoHandler + ?Sized,
+    D: Default + Send + Sync + 'static,
 {
     pub(crate) fn new(
         sid: Sid,
@@ -156,14 +162,10 @@ where
         config: &EngineIoConfig,
         req_data: SocketReq,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
-        tx_map_fn: impl Fn(SendPacket) -> Packet + Send + Sync + 'static,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
-        let (tx, rx) = mpsc::channel(config.max_buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
-
-        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), tx_map_fn));
 
         Self {
             sid,
@@ -172,14 +174,13 @@ where
 
             internal_rx: Mutex::new(internal_rx),
             internal_tx,
-            tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
-            data: H::Data::default(),
+            data: D::default(),
             req_data: req_data.into(),
 
             #[cfg(feature = "v3")]
@@ -195,7 +196,7 @@ where
     }
 
     /// Sends a packet to the connection.
-    pub(crate) fn send(&self, packet: Packet) -> Result<(), Error> {
+    pub(crate) fn send(&self, packet: Packet) -> Result<(), TrySendError<Packet>> {
         debug!("[sid={}] sending packet: {:?}", self.sid, packet);
         self.internal_tx.try_send(packet)?;
         Ok(())
@@ -328,9 +329,12 @@ where
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame to the next polling request.
     ///
-    /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
-    pub fn emit(&self, msg: String) -> Result<(), Error> {
-        self.send(Packet::Message(msg))
+    /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned with the original data
+    pub fn emit(&self, msg: String) -> Result<(), TrySendError<String>> {
+        self.send(Packet::Message(msg)).map_err(|e| match e {
+            TrySendError::Full(p) => TrySendError::Full(p.into_message()),
+            TrySendError::Closed(p) => TrySendError::Closed(p.into_message()),
+        })
     }
 
     /// Immediately closes the socket and the underlying connection.
@@ -340,35 +344,71 @@ where
         self.send(Packet::Close).ok();
     }
 
+    pub fn is_closed(&self) -> bool {
+        self.internal_tx.is_closed()
+    }
+
+    pub async fn closed(&self) {
+        self.internal_tx.closed().await
+    }
+
     /// Emits a binary message to the client.
     ///
     /// If the transport is in websocket mode, the message is directly sent as a binary frame.
     ///
     /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
     ///
-    /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned
-    pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), Error> {
+    /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned with the original data
+    pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), TrySendError<Vec<u8>>> {
         if self.protocol == ProtocolVersion::V3 {
-            self.send(Packet::BinaryV3(data))?;
+            self.send(Packet::BinaryV3(data))
         } else {
-            self.send(Packet::Binary(data))?;
+            self.send(Packet::Binary(data))
         }
-
-        Ok(())
+        .map_err(|e| match e {
+            TrySendError::Full(p) => TrySendError::Full(p.into_binary()),
+            TrySendError::Closed(p) => TrySendError::Closed(p.into_binary()),
+        })
     }
 }
 
-#[cfg(test)]
-impl<H: EngineIoHandler> Socket<H> {
+impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Socket")
+            .field("sid", &self.sid)
+            .field("protocol", &self.protocol)
+            .field("conn", &self.conn)
+            .field("internal_rx", &self.internal_rx)
+            .field("internal_tx", &self.internal_tx)
+            .field("heartbeat_rx", &self.heartbeat_rx)
+            .field("heartbeat_tx", &self.heartbeat_tx)
+            .field("heartbeat_handle", &self.heartbeat_handle)
+            .field("req_data", &self.req_data)
+            .finish()
+    }
+}
+
+#[cfg(feature = "test-utils")]
+impl<D> Drop for Socket<D>
+where
+    D: Default + Send + Sync + 'static,
+{
+    fn drop(&mut self) {
+        debug!("[sid={}] dropping socket", self.sid);
+    }
+}
+
+#[cfg(feature = "test-utils")]
+impl<D> Socket<D>
+where
+    D: Default + Send + Sync + 'static,
+{
     pub fn new_dummy(
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
-    ) -> Socket<H> {
+    ) -> Socket<D> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
-        let (tx, rx) = mpsc::channel(200);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
-
-        tokio::spawn(forward_map_chan(rx, internal_tx.clone(), SendPacket::into));
 
         Self {
             sid,
@@ -377,14 +417,13 @@ impl<H: EngineIoHandler> Socket<H> {
 
             internal_rx: Mutex::new(internal_rx),
             internal_tx,
-            tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,
             heartbeat_handle: Mutex::new(None),
             close_fn,
 
-            data: H::Data::default(),
+            data: D::default(),
             req_data: SocketReq {
                 headers: http::HeaderMap::new(),
                 uri: Uri::default(),

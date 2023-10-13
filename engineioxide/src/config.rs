@@ -105,19 +105,19 @@ impl EngineIoConfigBuilder {
     /// impl EngineIoHandler for MyHandler {
     ///
     ///     type Data = ();
-    ///     fn on_connect(&self, socket: &Socket<Self>) {
+    ///     fn on_connect(&self, socket: Arc<Socket<()>>) {
     ///         println!("socket connect {}", socket.sid);
     ///     }
-    ///     fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
+    ///     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) {
     ///         println!("socket disconnect {}", socket.sid);
     ///     }
     ///
-    ///     fn on_message(&self, msg: String, socket: &Socket<Self>) {
+    ///     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) {
     ///         println!("Ping pong message {:?}", msg);
     ///         socket.emit(msg).unwrap();
     ///     }
     ///
-    ///     fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
+    ///     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) {
     ///         println!("Ping pong binary message {:?}", data);
     ///         socket.emit_binary(data).unwrap();
     ///     }

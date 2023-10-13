@@ -1,8 +1,7 @@
 pub use async_trait::async_trait;
 
 /// A Packet type to use when sending data to the client
-pub use packet::SendPacket;
-
+pub use socket::{DisconnectReason, Socket, SocketReq};
 #[cfg(not(any(feature = "v3", feature = "v4")))]
 compile_error!("At least one protocol version must be enabled");
 
@@ -19,4 +18,3 @@ mod engine;
 mod futures;
 mod packet;
 mod payload;
-mod utils;

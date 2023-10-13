@@ -1,10 +1,10 @@
-use crate::{adapter::Adapter, packet::Packet, socket::RetryablePacket, Socket};
+use crate::{adapter::Adapter, Socket};
 use engineioxide::{sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc::error::TrySendError, oneshot};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -105,22 +105,21 @@ pub enum SendError {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
-    /// An error occurred during the transport of the packet.
-    #[error("Transport error: {0:?}")]
-    TransportError(#[from] TransportError),
 
     #[error("Adapter error: {0}")]
     AdapterError(#[from] AdapterError),
+
+    #[error("internal channel full error")]
+    InternalChannelFull,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum TransportError {
-    #[error("Failed to send failed bin payloads")]
-    SendFailedBinPayloads(Option<Packet>),
-    #[error("Sent to a closed socket channel")]
-    SocketClosed,
-    #[error("Failed to send main message")]
-    SendMainPacket(RetryablePacket),
+impl<T> From<TrySendError<T>> for SendError {
+    fn from(value: TrySendError<T>) -> Self {
+        match value {
+            TrySendError::Full(_) => Self::InternalChannelFull,
+            TrySendError::Closed(_) => panic!("internal channel closed"),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -132,18 +131,6 @@ pub enum AckSenderError<A: Adapter> {
         /// The socket associated with the error.
         socket: Arc<Socket<A>>,
     },
-}
-
-impl TransportError {
-    /// If PacketSender::send_buffered_binaries fails before packet deserialization
-    /// It is needed to return this owned packet using the method
-    pub(crate) fn add_main_packet(self, packet: Packet) -> Self {
-        if let TransportError::SendFailedBinPayloads(_) = self {
-            TransportError::SendFailedBinPayloads(Some(packet))
-        } else {
-            self
-        }
-    }
 }
 
 /// Error type for the [`Adapter`] trait.

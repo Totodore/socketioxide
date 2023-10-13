@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    collections::VecDeque,
     fmt::Debug,
     sync::Mutex,
     sync::{
@@ -10,27 +9,26 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{
-    sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason, SendPacket as EnginePacket,
-};
+use engineioxide::{sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use crate::errors::{AdapterError, SendError, TransportError};
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
     extensions::Extensions,
-    handler::{AckResponse, AckSender, BoxedHandler, MessageHandler},
-    handshake::Handshake,
+    handler::{AckResponse, AckSender, BoxedMessageHandler, CallbackHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
     SocketIoConfig,
+};
+use crate::{
+    client::SocketData,
+    errors::{AdapterError, SendError},
 };
 
 pub type DisconnectCallback<A> = Box<
@@ -60,6 +58,9 @@ pub enum DisconnectReason {
 
     /// The socket was forcefully disconnected from the namespace with [`Socket::disconnect`]
     ServerNSDisconnect,
+
+    /// The server is being closed
+    ClosingServer,
 }
 
 impl std::fmt::Display for DisconnectReason {
@@ -73,6 +74,7 @@ impl std::fmt::Display for DisconnectReason {
             HeartbeatTimeout => "client did not send a PONG packet in time",
             ClientNSDisconnect => "client has manually disconnected the socket from the namespace",
             ServerNSDisconnect => "socket was forcefully disconnected from the namespace",
+            ClosingServer => "server is being closed",
         };
         f.write_str(str)
     }
@@ -87,6 +89,7 @@ impl From<EIoDisconnectReason> for DisconnectReason {
             EIoDisconnectReason::HeartbeatTimeout => HeartbeatTimeout,
             EIoDisconnectReason::MultipleHttpPollingError => MultipleHttpPollingError,
             EIoDisconnectReason::PacketParsingError => PacketParsingError,
+            EIoDisconnectReason::ClosingServer => ClosingServer,
         }
     }
 }
@@ -96,162 +99,20 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 pub struct Socket<A: Adapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
-    message_handlers: RwLock<HashMap<String, BoxedHandler<A>>>,
+    message_handlers: RwLock<HashMap<String, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
-    pub handshake: Handshake,
     pub sid: Sid,
     pub extensions: Extensions,
-    sender: Mutex<PacketSender>,
-}
-/// PacketSender is internal struct, it is used to send/resend messages from the client.
-struct PacketSender {
-    tx: tokio::sync::mpsc::Sender<EnginePacket>, // Asynchronous sender for EnginePacket
-    bin_payload_buffer: Option<VecDeque<EnginePacket>>, // Optional buffer for binary payloads
-}
-
-impl PacketSender {
-    /// Creates a new PacketSender instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `tx` - Asynchronous sender for EnginePacket.
-    ///
-    /// # Returns
-    ///
-    /// A new PacketSender instance.
-    fn new(tx: tokio::sync::mpsc::Sender<EnginePacket>) -> Self {
-        Self {
-            tx,
-            bin_payload_buffer: None,
-        }
-    }
-
-    /// Sends a raw RetryablePacket, it's an internal function, should be used from RetryablePacket.retry() method.
-    ///
-    /// # Arguments
-    ///
-    /// * `packet` - The RetryablePacket to be sent.
-    ///
-    /// # Returns
-    ///
-    /// An Ok(()) if the send operation was successful, otherwise returns a TransportError.
-    fn send_raw(&mut self, mut packet: RetryablePacket) -> Result<(), TransportError> {
-        if let Err(err) = self.send_buffered_binaries() {
-            match err {
-                TransportError::SendFailedBinPayloads(None) => {
-                    Err(TransportError::SendMainPacket(packet))
-                }
-                TransportError::SocketClosed => Err(TransportError::SocketClosed),
-                _ => unreachable!(),
-            }
-        } else {
-            let main_packet = packet.main_packet;
-            match self.tx.try_send(main_packet) {
-                Err(TrySendError::Full(main_packet)) => {
-                    packet.main_packet = main_packet;
-                    Err(TransportError::SendMainPacket(packet))
-                }
-                Err(TrySendError::Closed(_)) => Err(TransportError::SocketClosed),
-                Ok(_) => {
-                    self.bin_payload_buffer = Some(packet.attachments);
-                    self.send_buffered_binaries()?;
-                    Ok(())
-                }
-            }
-        }
-    }
-    /// Sends a Packet.
-    ///
-    /// # Arguments
-    ///
-    /// * `packet` - The Packet to be sent.
-    ///
-    /// # Returns
-    ///
-    /// An Ok(()) if the send operation was successful, otherwise returns a SendError.
-    fn send(&mut self, mut packet: Packet) -> Result<(), SendError> {
-        if let Err(err) = self.send_buffered_binaries() {
-            Err(err.add_main_packet(packet).into())
-        } else {
-            let bin_payloads = match packet.inner {
-                PacketData::BinaryEvent(_, ref mut bin, _)
-                | PacketData::BinaryAck(ref mut bin, _) => Some(
-                    std::mem::take(&mut bin.bin)
-                        .into_iter()
-                        .map(EnginePacket::Binary)
-                        .collect(),
-                ),
-                _ => None,
-            };
-            match self.tx.try_send(packet.try_into()?) {
-                Err(TrySendError::Full(packet)) => {
-                    let bin_payloads = bin_payloads.unwrap_or(VecDeque::new());
-                    return Err(TransportError::SendMainPacket(RetryablePacket {
-                        main_packet: packet,
-                        attachments: bin_payloads,
-                    })
-                    .into());
-                }
-                Err(TrySendError::Closed(_)) => {
-                    return Err(TransportError::SocketClosed.into());
-                }
-                _ => {}
-            };
-            self.bin_payload_buffer = bin_payloads;
-            self.send_buffered_binaries()?;
-            Ok(())
-        }
-    }
-
-    /// Sends the binary payloads from the failed buffer appeared on the previous attempts of sending.
-    ///
-    /// # Returns
-    ///
-    /// An Ok(()) if the send operation was successful, otherwise returns a TransportError.
-    fn send_buffered_binaries(&mut self) -> Result<(), TransportError> {
-        while let Some(p) = self.bin_payload_buffer.as_mut().and_then(|p| p.pop_front()) {
-            match self.tx.try_send(p) {
-                Err(TrySendError::Full(p @ EnginePacket::Binary(_))) => {
-                    self.bin_payload_buffer.as_mut().unwrap().push_front(p);
-                    return Err(TransportError::SendFailedBinPayloads(None));
-                }
-                Err(TrySendError::Full(EnginePacket::Message(_) | EnginePacket::Close(_))) => {
-                    unreachable!()
-                }
-                Err(TrySendError::Closed(_)) => return Err(TransportError::SocketClosed),
-                Ok(()) => {}
-            }
-        }
-        Ok(())
-    }
-}
-
-/// The RetryablePacket struct represents a packet that can be retried for sending in case of failure,
-/// It cannot be created from user space. There is only one way to get it:
-/// it can only be returned from the socket send method.
-#[derive(Debug)]
-pub struct RetryablePacket {
-    main_packet: EnginePacket,
-    attachments: VecDeque<EnginePacket>,
-}
-
-impl RetryablePacket {
-    /// This method attempts to send the packet represented by `self`
-    /// If the sending operation fails, an error of type `TransportError` is returned.
-    /// If the sending operation succeeds, `Ok(())` is returned.
-    pub fn retry<A: Adapter>(self, socket: &Socket<A>) -> Result<(), TransportError> {
-        socket.sender.lock().unwrap().send_raw(self)
-    }
+    esocket: Arc<engineioxide::Socket<SocketData>>,
 }
 
 impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
         sid: Sid,
         ns: Arc<Namespace<A>>,
-        handshake: Handshake,
-        tx: tokio::sync::mpsc::Sender<EnginePacket>,
+        esocket: Arc<engineioxide::Socket<SocketData>>,
         config: Arc<SocketIoConfig>,
     ) -> Self {
         Self {
@@ -260,11 +121,10 @@ impl<A: Adapter> Socket<A> {
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
-            handshake,
             sid,
             extensions: Extensions::new(),
             config,
-            sender: Mutex::new(PacketSender::new(tx)),
+            esocket,
         }
     }
 
@@ -281,7 +141,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// #### Simple example with a closure:
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
     /// # use serde::{Serialize, Deserialize};
     ///
@@ -291,7 +151,8 @@ impl<A: Adapter> Socket<A> {
     ///     age: u8,
     /// }
     ///
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: MyData, _, _| async move {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
@@ -302,7 +163,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// #### Example with a closure and an ackknowledgement + binary data:
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
     /// # use serde::{Serialize, Deserialize};
     ///
@@ -312,7 +173,8 @@ impl<A: Adapter> Socket<A> {
     ///     age: u8,
     /// }
     ///
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: MyData, bin, ack| async move {
     ///         println!("Received a test message {:?}", data);
     ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
@@ -327,10 +189,10 @@ impl<A: Adapter> Socket<A> {
         V: DeserializeOwned + Send + Sync + 'static,
     {
         let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
-        self.message_handlers
-            .write()
-            .unwrap()
-            .insert(event.into(), MessageHandler::boxed(handler));
+        self.message_handlers.write().unwrap().insert(
+            event.into(),
+            CallbackHandler::boxed_message_handler(handler),
+        );
     }
 
     /// ## Register a disconnect handler.
@@ -338,9 +200,10 @@ impl<A: Adapter> Socket<A> {
     /// A [`DisconnectReason`](crate::DisconnectReason) is passed to the callback to indicate the reason for the disconnection.
     /// ### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Close the current socket
     ///         socket.disconnect().ok();
@@ -361,9 +224,10 @@ impl<A: Adapter> Socket<A> {
     /// Emit a message to the client
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message to the client
     ///         socket.emit("test", data);
@@ -382,28 +246,15 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    /// Retries sending any failed binary payloads that are currently buffered.
-    ///
-    /// This method attempts to resend any binary payloads that have failed to be sent in previous attempts. It acquires
-    /// a lock on the `PacketSender` associated with the `Socket` and calls the `send_buffered_binaries` method to
-    /// retry sending the failed payloads. If the sending operation fails again, an error of type `TransportError` is
-    /// returned. If the sending operation succeeds, `Ok(())` is returned.
-    ///
-    /// This method is useful in scenarios where binary payloads were not successfully sent due to temporary errors, such
-    /// as a full buffer or a closed socket. By invoking this method, you can retry sending the failed payloads and ensure
-    /// the data is transmitted successfully.
-    pub fn retry_failed(&self) -> Result<(), TransportError> {
-        self.sender.lock().unwrap().send_buffered_binaries()
-    }
-
     /// Emit a message to the client and wait for acknowledgement.
     ///
     /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // Emit a test message and wait for an acknowledgement
     ///         match socket.emit_with_ack::<Value>("test", data).await {
@@ -456,9 +307,10 @@ impl<A: Adapter> Socket<A> {
     /// If you want to include the current socket, use the `within()` operator.
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
@@ -470,7 +322,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).to(rooms)
+        Operators::new(self.ns.clone(), Some(self.sid)).to(rooms)
     }
 
     /// Select all clients in the given rooms.
@@ -478,9 +330,10 @@ impl<A: Adapter> Socket<A> {
     /// It does include the current socket contrary to the `to()` operator.
     /// #### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 including the current socket
@@ -492,15 +345,16 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).within(rooms)
+        Operators::new(self.ns.clone(), Some(self.sid)).within(rooms)
     }
 
     /// Filter out all clients selected with the previous operators which are in the given rooms.
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("register1", |socket, data: Value, _, _| async move {
     ///         socket.join("room1");
     ///     });
@@ -514,34 +368,36 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).except(rooms)
+        Operators::new(self.ns.clone(), Some(self.sid)).except(rooms)
     }
 
     /// Broadcast to all clients only connected on this node (when using multiple nodes).
     /// When using the default in-memory adapter, this operator is a no-op.
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///     });
     /// });
     pub fn local(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).local()
+        Operators::new(self.ns.clone(), Some(self.sid)).local()
     }
 
     /// Set a custom timeout when sending a message with an acknowledgement.
     ///
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///    socket.on("test", |socket, data: Value, bin, _| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
@@ -559,37 +415,39 @@ impl<A: Adapter> Socket<A> {
     /// });
     ///
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).timeout(timeout)
+        Operators::new(self.ns.clone(), Some(self.sid)).timeout(timeout)
     }
 
     /// Add a binary payload to the message.
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
     ///         // This will send the binary payload received to all clients in this namespace with the test message
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).bin(binary)
+        Operators::new(self.ns.clone(), Some(self.sid)).bin(binary)
     }
 
     /// Broadcast to all clients without any filtering (except the current socket).
     /// ##### Example
     /// ```
-    /// # use socketioxide::Namespace;
+    /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    /// Namespace::builder().add("/", |socket| async move {
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket, _: ()| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
     pub fn broadcast(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).broadcast()
+        Operators::new(self.ns.clone(), Some(self.sid)).broadcast()
     }
 
     /// Disconnect the socket from the current namespace,
@@ -601,13 +459,38 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
+    /// Close the engine.io connection if it is not already closed.
+    /// Return a future that resolves when the underlying transport is closed.
+    pub(crate) async fn close_underlying_transport(&self) {
+        if !self.esocket.is_closed() {
+            debug!("closing underlying transport for socket: {}", self.sid);
+            self.esocket.close(EIoDisconnectReason::ClosingServer);
+        }
+        self.esocket.closed().await;
+    }
+
     /// Get the current namespace path.
     pub fn ns(&self) -> &String {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, packet: Packet) -> Result<(), SendError> {
-        self.sender.lock().unwrap().send(packet)
+    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError> {
+        let bin_payloads = match packet.inner {
+            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
+                Some(std::mem::take(&mut bin.bin))
+            }
+            _ => None,
+        };
+
+        let msg = packet.try_into()?;
+        self.esocket.emit(msg)?;
+        if let Some(bin_payloads) = bin_payloads {
+            for bin in bin_payloads {
+                self.esocket.emit_binary(bin)?;
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn send_with_ack<V: DeserializeOwned>(
@@ -627,12 +510,14 @@ impl<A: Adapter> Socket<A> {
 
     /// Called when the socket is gracefully disconnected from the server or the client
     ///
-    /// It maybe also closed when the underlying transport is closed or failed.
+    /// It maybe also close when the underlying transport is closed or failed.
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
         if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
             tokio::spawn(handler(self.clone(), reason));
         }
-        self.ns.remove_socket(self.sid)
+
+        self.ns.remove_socket(self.sid)?;
+        Ok(())
     }
 
     // Receive data from client:
@@ -689,7 +574,6 @@ impl<A: Adapter> Debug for Socket<A> {
             .field("ns", &self.ns())
             .field("ack_message", &self.ack_message)
             .field("ack_counter", &self.ack_counter)
-            .field("handshake", &self.handshake)
             .field("sid", &self.sid)
             .finish()
     }
@@ -698,17 +582,11 @@ impl<A: Adapter> Debug for Socket<A> {
 #[cfg(test)]
 impl<A: Adapter> Socket<A> {
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        tokio::spawn(async move {
-            while let Some(packet) = rx.recv().await {
-                println!("Dummy socket received packet {:?}", packet);
-            }
-        });
+        let close_fn = Box::new(move |_, _| ());
         Socket::new(
             sid,
             ns,
-            Handshake::new_dummy(),
-            tx,
+            engineioxide::Socket::new_dummy(sid, close_fn).into(),
             Arc::new(SocketIoConfig::default()),
         )
     }

@@ -17,6 +17,7 @@ use futures::{
 };
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
+use tracing::debug;
 
 use crate::{
     errors::{AckError, AdapterError, BroadcastError},
@@ -51,10 +52,10 @@ pub struct BroadcastOptions {
     /// The rooms to exclude from the broadcast.
     pub except: Vec<Room>,
     /// The socket id of the sender.
-    pub sid: Sid,
+    pub sid: Option<Sid>,
 }
 impl BroadcastOptions {
-    pub fn new(sid: Sid) -> Self {
+    pub fn new(sid: Option<Sid>) -> Self {
         Self {
             flags: HashSet::new(),
             rooms: Vec::new(),
@@ -152,6 +153,10 @@ impl Adapter for LocalAdapter {
     }
 
     fn close(&self) -> Result<(), Infallible> {
+        debug!("closing local adapter: {}", self.ns.upgrade().unwrap().path);
+        let mut rooms = self.rooms.write().unwrap();
+        rooms.clear();
+        rooms.shrink_to_fit();
         Ok(())
     }
 
@@ -227,7 +232,7 @@ impl Adapter for LocalAdapter {
     }
 
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Infallible> {
-        let mut opts = BroadcastOptions::new(0i64.into());
+        let mut opts = BroadcastOptions::new(None);
         opts.rooms.extend(rooms.into_room_iter());
         Ok(self
             .apply_opts(opts)
@@ -299,7 +304,8 @@ impl LocalAdapter {
                 .unique()
                 .filter(|sid| {
                     !except.contains(*sid)
-                        && (!opts.flags.contains(&BroadcastFlags::Broadcast) || **sid != opts.sid)
+                        && (!opts.flags.contains(&BroadcastFlags::Broadcast)
+                            || opts.sid.map(|s| s != **sid).unwrap_or_default())
                 })
                 .filter_map(|sid| ns.get_socket(*sid).ok())
                 .collect()
@@ -309,7 +315,7 @@ impl LocalAdapter {
                 .into_iter()
                 .filter(|socket| !except.contains(&socket.sid))
                 .collect()
-        } else if let Ok(sock) = ns.get_socket(opts.sid) {
+        } else if let Some(sock) = opts.sid.and_then(|sid| ns.get_socket(sid).ok()) {
             vec![sock]
         } else {
             vec![]
@@ -403,7 +409,7 @@ mod test {
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1"]).unwrap();
 
-        let mut opts = BroadcastOptions::new(socket);
+        let mut opts = BroadcastOptions::new(Some(socket));
         opts.rooms = vec!["room1".to_string()];
         adapter.add_sockets(opts, "room2").unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
@@ -420,7 +426,7 @@ mod test {
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1"]).unwrap();
 
-        let mut opts = BroadcastOptions::new(socket);
+        let mut opts = BroadcastOptions::new(Some(socket));
         opts.rooms = vec!["room1".to_string()];
         adapter.add_sockets(opts, "room2").unwrap();
 
@@ -432,7 +438,7 @@ mod test {
             assert!(rooms_map.get("room2").unwrap().contains(&socket));
         }
 
-        let mut opts = BroadcastOptions::new(socket);
+        let mut opts = BroadcastOptions::new(Some(socket));
         opts.rooms = vec!["room1".to_string()];
         adapter.del_sockets(opts, "room2").unwrap();
 
@@ -489,7 +495,7 @@ mod test {
             .add_all(socket2, ["room2", "room3", "room6"])
             .unwrap();
 
-        let mut opts = BroadcastOptions::new(socket0);
+        let mut opts = BroadcastOptions::new(Some(socket0));
         opts.rooms = vec!["room5".to_string()];
         match adapter.disconnect_socket(opts) {
             // todo it returns Ok, in previous commits it also returns Ok
@@ -522,25 +528,25 @@ mod test {
             .unwrap();
 
         // socket 2 is the sender
-        let mut opts = BroadcastOptions::new(socket2);
+        let mut opts = BroadcastOptions::new(Some(socket2));
         opts.rooms = vec!["room1".to_string()];
         opts.except = vec!["room2".to_string()];
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].sid, socket1);
 
-        let mut opts = BroadcastOptions::new(socket2);
+        let mut opts = BroadcastOptions::new(Some(socket2));
         opts.flags.insert(BroadcastFlags::Broadcast);
         opts.except = vec!["room2".to_string()];
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
 
-        let opts = BroadcastOptions::new(socket2);
+        let opts = BroadcastOptions::new(Some(socket2));
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].sid, socket2);
 
-        let opts = BroadcastOptions::new(10000i64.into());
+        let opts = BroadcastOptions::new(Some(10000i64.into()));
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 0);
     }

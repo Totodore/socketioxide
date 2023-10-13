@@ -16,7 +16,6 @@ use crate::{
     service::TransportType,
     sid_generator::generate_sid,
     socket::{ConnectionType, DisconnectReason, Socket, SocketReq},
-    SendPacket,
 };
 use crate::{service::ProtocolVersion, sid_generator::Sid};
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
@@ -35,7 +34,7 @@ type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
 pub struct EngineIo<H: EngineIoHandler> {
-    sockets: SocketMap<Socket<H>>,
+    sockets: SocketMap<Socket<H::Data>>,
     handler: H,
     pub config: EngineIoConfig,
 }
@@ -67,7 +66,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
     {
         let close_fn = Box::new(self.clone().close_fn());
         let sid = generate_sid();
-        let tx_map_fn = Box::new(self.clone().tx_map_fn(sid));
         let socket = Socket::new(
             sid,
             protocol,
@@ -75,7 +73,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
             &self.config,
             SocketReq::from(req.into_parts().0),
             close_fn,
-            tx_map_fn,
             #[cfg(feature = "v3")]
             supports_binary,
         );
@@ -86,7 +83,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         socket
             .clone()
             .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
-        self.handler.on_connect(&socket);
+        self.handler.on_connect(socket.clone());
 
         let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
         let packet: String = Packet::Open(packet).try_into()?;
@@ -181,11 +178,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
                     .try_send(())
                     .map_err(|_| Error::HeartbeatTimeout),
                 Ok(Packet::Message(msg)) => {
-                    self.handler.on_message(msg, &socket);
+                    self.handler.on_message(msg, socket.clone());
                     Ok(())
                 }
                 Ok(Packet::Binary(bin)) | Ok(Packet::BinaryV3(bin)) => {
-                    self.handler.on_binary(bin, &socket);
+                    self.handler.on_binary(bin, socket.clone());
                     Ok(())
                 }
                 Ok(p) => {
@@ -260,7 +257,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
         } else {
             let sid = generate_sid();
             let close_fn = Box::new(self.clone().close_fn());
-            let tx_map_fn = Box::new(self.clone().tx_map_fn(sid));
             let socket = Socket::new(
                 sid,
                 protocol,
@@ -268,7 +264,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 &self.config,
                 req_data,
                 close_fn,
-                tx_map_fn,
                 #[cfg(feature = "v3")]
                 true, // supports_binary
             );
@@ -295,12 +290,12 @@ impl<H: EngineIoHandler> EngineIo<H> {
                     Packet::Binary(bin) | Packet::BinaryV3(bin) => {
                         tx.send(Message::Binary(bin)).await
                     }
-                    Packet::Close => tx.send(Message::Close(None)).await,
-                    // A Noop Packet maybe sent by the server to upgrade from a polling connection
-                    // In the case that the packet was not poll in time it will remain in the buffer and therefore
-                    // it should be discarded here
-                    Packet::Noop => Ok(()),
-                    item => {
+                    Packet::Close => {
+                        tx.send(Message::Close(None)).await.ok();
+                        socket_rx.close();
+                        break;
+                    }
+                    _ => {
                         let packet: String = item.try_into().unwrap();
                         tx.send(Message::Text(packet)).await
                     }
@@ -312,7 +307,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             }
         });
 
-        self.handler.on_connect(&socket);
+        self.handler.on_connect(socket.clone());
         if let Err(ref e) = self.ws_forward_to_handler(rx, &socket).await {
             debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
             if let Some(reason) = e.into() {
@@ -329,7 +324,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
     async fn ws_forward_to_handler(
         &self,
         mut rx: SplitStream<WebSocketStream<Upgraded>>,
-        socket: &Arc<Socket<H>>,
+        socket: &Arc<Socket<H::Data>>,
     ) -> Result<(), Error> {
         while let Some(msg) = rx.try_next().await? {
             match msg {
@@ -344,13 +339,13 @@ impl<H: EngineIoHandler> EngineIo<H> {
                         .try_send(())
                         .map_err(|_| Error::HeartbeatTimeout),
                     Packet::Message(msg) => {
-                        self.handler.on_message(msg, socket);
+                        self.handler.on_message(msg, socket.clone());
                         Ok(())
                     }
                     p => return Err(Error::BadPacket(p)),
                 },
                 Message::Binary(data) => {
-                    self.handler.on_binary(data, socket);
+                    self.handler.on_binary(data, socket.clone());
                     Ok(())
                 }
                 Message::Close(_) => break,
@@ -464,31 +459,22 @@ impl<H: EngineIoHandler> EngineIo<H> {
     fn close_session(&self, sid: Sid, reason: DisconnectReason) {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
-            self.handler.on_disconnect(&socket, reason);
+            // Try to close the internal channel if it is available
+            // For e.g with polling transport the channel is not always locked so it is necessary to close it here
+            socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
             socket.abort_heartbeat();
+            self.handler.on_disconnect(socket, reason);
             debug!(
                 "remaining sockets: {:?}",
                 self.sockets.read().unwrap().len()
             );
-        } else {
-            debug!("[sid={sid}] socket not found");
         }
     }
 
     /// Get a socket by its sid
     /// Clones the socket ref to avoid holding the lock
-    pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H>>> {
+    pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H::Data>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
-    }
-
-    fn tx_map_fn(self: Arc<Self>, sid: Sid) -> impl Fn(SendPacket) -> Packet {
-        move |packet: SendPacket| match packet {
-            SendPacket::Close(reason) => {
-                self.close_session(sid, reason);
-                Packet::Close
-            }
-            packet => packet.into(),
-        }
     }
 
     fn close_fn(self: Arc<Self>) -> impl Fn(Sid, DisconnectReason) {
@@ -509,20 +495,20 @@ mod tests {
     impl EngineIoHandler for MockHandler {
         type Data = ();
 
-        fn on_connect(&self, socket: &Socket<Self>) {
+        fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
             println!("socket connect {}", socket.sid);
         }
 
-        fn on_disconnect(&self, socket: &Socket<Self>, reason: DisconnectReason) {
+        fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
             println!("socket disconnect {} {:?}", socket.sid, reason);
         }
 
-        fn on_message(&self, msg: String, socket: &Socket<Self>) {
+        fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
             println!("Ping pong message {:?}", msg);
             socket.emit(msg).ok();
         }
 
-        fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
+        fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
             println!("Ping pong binary message {:?}", data);
             socket.emit_binary(data).ok();
         }

@@ -5,7 +5,6 @@ use tracing::debug;
 
 use crate::errors::Error;
 use engineioxide::sid_generator::Sid;
-use engineioxide::SendPacket as EnginePacket;
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
@@ -384,12 +383,6 @@ impl TryFrom<String> for Packet {
     }
 }
 
-impl TryInto<EnginePacket> for Packet {
-    type Error = serde_json::Error;
-    fn try_into(self) -> Result<EnginePacket, Self::Error> {
-        Ok(EnginePacket::Message(self.try_into()?))
-    }
-}
 /// Connect packet sent by the client
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectPacket {

@@ -1,6 +1,13 @@
+# 0.6.0
+## socketioxide
+* New API for creating the socket.io layer/service. A cheaply clonable `SocketIo` struct is now returned with the layer/service and allows to access namespaces/rooms/sockets everywhere in the application. Moreover, it is now possible to add and remove namespaces dynamically through the `SocketIo` struct.
+## engineioxide
+* The socket parameter for the handler is now an `Arc<Socket>`.
+
 # 0.5.1
 ## socketioxide
 * Fix a data race bug causing a protocol error when upgrading. A Noop engine.io packet was sent trough the websocket connection after an upgrade. Now all noop packets passing trough the websocket transport are filtered out.
+* Fix a bug with binary packets with namespaces : namespace was put before the payload count whereas it should be put after according to the payload datagram.
 
 # 0.5.0
 ## socketioxide
