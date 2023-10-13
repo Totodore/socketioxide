@@ -1,6 +1,12 @@
 use crate::{
-    body::ResponseBody, config::EngineIoConfig, engine::EngineIo, errors::Error,
-    futures::ResponseFuture, handler::EngineIoHandler, sid_generator::Sid,
+    body::ResponseBody,
+    config::EngineIoConfig,
+    engine::EngineIo,
+    errors::Error,
+    futures::ResponseFuture,
+    handler::EngineIoHandler,
+    sid_generator::Sid,
+    transport::{polling, ws},
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -36,6 +42,7 @@ impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
         EngineIoService::with_config_inner(NotFoundService, handler, config)
     }
 }
+
 impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
     /// Create a new [`EngineIoService`] with a custom inner service.
     pub fn with_inner(inner: S, handler: H) -> Self {
@@ -99,7 +106,8 @@ where
                     method: Method::GET,
                     #[cfg(feature = "v3")]
                     b64,
-                }) => ResponseFuture::ready(engine.on_open_http_req(
+                }) => ResponseFuture::ready(polling::open_req(
+                    engine,
                     protocol,
                     req,
                     #[cfg(feature = "v3")]
@@ -111,25 +119,25 @@ where
                     transport: TransportType::Polling,
                     method: Method::GET,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(
-                    engine.on_polling_http_req(protocol, sid),
-                )),
+                }) => ResponseFuture::async_response(Box::pin(polling::polling_req(
+                    engine, protocol, sid,
+                ))),
                 Ok(RequestInfo {
                     protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(
-                    engine.on_post_http_req(protocol, sid, req),
-                )),
+                }) => ResponseFuture::async_response(Box::pin(polling::post_req(
+                    engine, protocol, sid, req,
+                ))),
                 Ok(RequestInfo {
                     protocol,
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
                     ..
-                }) => ResponseFuture::ready(engine.on_ws_req(protocol, sid, req)),
+                }) => ResponseFuture::ready(ws::new_req(engine, protocol, sid, req)),
                 Err(e) => ResponseFuture::ready(Ok(e.into())),
                 _ => ResponseFuture::empty_response(400),
             }
@@ -201,8 +209,8 @@ where
 /// The type of the transport used by the client.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TransportType {
-    Polling = 0x01,
-    Websocket = 0x02,
+    Polling,
+    Websocket,
 }
 
 impl FromStr for TransportType {
