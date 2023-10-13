@@ -167,10 +167,7 @@ impl Adapter for LocalAdapter {
     fn add_all(&self, sid: Sid, rooms: impl RoomParam) -> Result<(), Infallible> {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms.into_room_iter() {
-            rooms_map
-                .entry(room)
-                .or_insert_with(HashSet::new)
-                .insert(sid);
+            rooms_map.entry(room).or_default().insert(sid);
         }
         Ok(())
     }
