@@ -151,6 +151,8 @@ async fn forward_to_handler<H: EngineIoHandler>(
 }
 
 /// Forwards all packets waiting to be sent to the websocket
+///
+/// The websocket stream is flushed only when the internal channel is drained
 fn forward_to_socket<H: EngineIoHandler>(
     socket: Arc<Socket<H::Data>>,
     mut tx: SplitSink<WebSocketStream<Upgraded>, Message>,
@@ -158,23 +160,40 @@ fn forward_to_socket<H: EngineIoHandler>(
     // Pipe between websocket and internal socket channel
     tokio::spawn(async move {
         let mut internal_rx = socket.internal_rx.try_lock().unwrap();
-        while let Some(item) = internal_rx.recv().await {
-            let res = match item {
-                Packet::Binary(bin) | Packet::BinaryV3(bin) => tx.send(Message::Binary(bin)).await,
-                Packet::Close => {
-                    tx.send(Message::Close(None)).await.ok();
-                    internal_rx.close();
-                    break;
-                }
-                _ => {
-                    let packet: String = item.try_into().unwrap();
-                    tx.send(Message::Text(packet)).await
+
+        // map a packet to a websocket message
+        // It is declared as a macro rather than a closure to avoid ownership issues
+        macro_rules! map_fn {
+            ($item:ident) => {
+                let res = match $item {
+                    Packet::Binary(bin) | Packet::BinaryV3(bin) => {
+                        tx.feed(Message::Binary(bin)).await
+                    }
+                    Packet::Close => {
+                        tx.send(Message::Close(None)).await.ok();
+                        internal_rx.close();
+                        break;
+                    }
+                    _ => {
+                        let packet: String = $item.try_into().unwrap();
+                        tx.feed(Message::Text(packet)).await
+                    }
+                };
+                if let Err(e) = res {
+                    debug!("[sid={}] error sending packet: {}", socket.sid, e);
                 }
             };
-            if let Err(e) = res {
-                debug!("[sid={}] error sending packet: {}", socket.sid, e);
-                break;
+        }
+
+        while let Some(item) = internal_rx.recv().await {
+            map_fn!(item);
+
+            // For every available packet we continue to send until the channel is drained
+            while let Ok(item) = internal_rx.try_recv() {
+                map_fn!(item);
             }
+
+            tx.flush().await.ok();
         }
     })
 }
