@@ -295,6 +295,51 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 
+    /// Disconnect all sockets selected with the previous operators.
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::SocketIo;
+    /// SocketIo::builder().ns("/", |socket| async move {
+    ///   socket.on("test", |socket, _: (), _, _| async move {
+    ///     // Disconnect all sockets in the room1 and room3 rooms, except for the room2
+    ///     socket.within("room1").within("room3").except("room2").disconnect().unwrap();
+    ///   });
+    /// });
+    pub fn disconnect(self) -> Result<(), BroadcastError> {
+        self.ns.adapter.disconnect_socket(self.opts)
+    }
+
+    /// Make all sockets selected with the previous operators join the given room(s).
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::SocketIo;
+    /// SocketIo::builder().ns("/", |socket| async move {
+    ///   socket.on("test", |socket, _: (), _, _| async move {
+    ///     // Add all sockets that are in the room1 and room3 to the room4 and room5
+    ///     socket.within("room1").within("room3").join(["room4", "room5"]).unwrap();
+    ///   });
+    /// });
+    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.add_sockets(self.opts, rooms)
+    }
+
+    /// Make all sockets selected with the previous operators leave the given room(s).
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::SocketIo;
+    /// SocketIo::builder().ns("/", |socket| async move {
+    /// socket.on("test", |socket, _: (), _, _| async move {
+    ///     // Remove all sockets that are in the room1 and room3 from the room4 and room5
+    ///     socket.within("room1").within("room3").leave(["room4", "room5"]).unwrap();
+    ///   });
+    /// });
+    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.del_sockets(self.opts, rooms)
+    }
+
     /// Create a packet with the given event and data.
     fn get_packet(
         &mut self,

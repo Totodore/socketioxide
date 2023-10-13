@@ -350,7 +350,6 @@ impl<A: Adapter> SocketIo<A> {
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
-    ///
     /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
     /// }).build_svc();
@@ -385,7 +384,6 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    ///
     /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
     /// }).build_svc();
@@ -413,7 +411,6 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    ///
     /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
     /// }).build_svc();
@@ -447,7 +444,6 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
-    ///
     /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
     /// }).build_svc();
@@ -485,7 +481,6 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
-    ///
     /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
     ///     println!("Socket connected on / namespace with id: {}", socket.sid);
     /// }).build_svc();
@@ -499,6 +494,69 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn sockets(&self) -> Result<Vec<Arc<Socket<A>>>, A::Error> {
         self.get_default_op().sockets()
+    }
+
+    /// Disconnect all sockets selected with the previous operators.
+    ///
+    /// Alias for `io.of("/").unwrap().disconnect()`
+    ///
+    /// ## Panics
+    /// If the **default namespace "/" is not found** this fn will panic!
+    ///
+    /// ## Example
+    /// ```
+    /// # use socketioxide::SocketIo;
+    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    /// }).build_svc();
+    ///
+    /// // Later in your code you can disconnect all sockets in the root namespace
+    /// io.disconnect();
+    #[inline]
+    pub fn disconnect(&self) -> Result<(), BroadcastError> {
+        self.get_default_op().disconnect()
+    }
+
+    /// Make all sockets selected with the previous operators join the given room(s).
+    ///
+    /// Alias for `io.of("/").unwrap().join(rooms)`
+    ///
+    /// ## Panics
+    /// If the **default namespace "/" is not found** this fn will panic!
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::SocketIo;
+    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    /// }).build_svc();
+    ///
+    /// // Later in your code you can for example add all sockets on the root namespace to the room1 and room3
+    /// io.join(["room1", "room3"]).unwrap();
+    #[inline]
+    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.get_default_op().join(rooms)
+    }
+
+    /// Make all sockets selected with the previous operators leave the given room(s).
+    ///
+    /// Alias for `io.of("/").unwrap().join(rooms)`
+    ///
+    /// ## Panics
+    /// If the **default namespace "/" is not found** this fn will panic!
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::SocketIo;
+    /// let (_, io) = SocketIo::builder().ns("/", |socket| async move {
+    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    /// }).build_svc();
+    ///
+    /// // Later in your code you can for example remove all sockets on the root namespace from the room1 and room3
+    /// io.leave(["room1", "room3"]).unwrap();
+    #[inline]
+    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.get_default_op().leave(rooms)
     }
 
     /// Returns a new operator on the given namespace
