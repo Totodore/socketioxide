@@ -152,52 +152,45 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
 ```rust
 use axum::routing::get;
 use axum::Server;
-use serde::{Serialize, Deserialize};
-use socketioxide::{Namespace, SocketIoLayer};
 use serde_json::Value;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MyData {
-  pub name: String,
-  pub age: u8,
-}
+use socketioxide::SocketIo;
+use tracing::info;
+use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    println!("Starting server");
+    let (layer, io) = SocketIo::new_layer();
+    io.ns("/", |socket, auth: Value| async move {
+        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
+        socket.emit("auth", auth).ok();
 
-    let ns = Namespace::builder()
-        .add("/", |socket| async move {
-            println!("Socket connected on / namespace with id: {}", socket.sid);
+        socket.on("message", |socket, data: Value, bin, _| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            socket.bin(bin).emit("message-back", data).ok();
+        });
 
-            // Add a callback triggered when the socket receives an 'abc' event
-            // The json data will be deserialized to MyData
-            socket.on("abc", |socket, data: MyData, bin, _| async move {
-                println!("Received abc event: {:?} {:?}", data, bin);
-                socket.bin(bin).emit("abc", data).ok();
-            });
+        socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            ack.bin(bin).send(data).ok();
+        });
 
-            // Add a callback triggered when the socket receives an 'acb' event
-            // Ackknowledge the message with the ack callback
-            socket.on("acb", |_, data: Value, bin, ack| async move {
-                println!("Received acb event: {:?} {:?}", data, bin);
-                ack.bin(bin).send(data).ok();
-            });
-            // Add a callback triggered when the socket disconnects
-            // The reason of the disconnection will be passed to the callback
-            socket.on_disconnect(|socket, reason| async move {
-                println!("Socket.IO disconnected: {} {}", socket.sid, reason);
-            });
-        })
-        .add("/custom", |socket| async move {
-            println!("Socket connected on /custom namespace with id: {}", socket.sid);
-        })
-        .build();
+        socket.on_disconnect(|socket, reason| async move {
+            info!("Socket.IO disconnected: {} {}", socket.sid, reason);
+        });
+    });
+
+    io.ns("/custom", |socket, auth: Value| async move {
+        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
+        socket.emit("auth", auth).ok();
+    });
 
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .layer(SocketIoLayer::new(ns));
+        .layer(layer);
+
+    info!("Starting server");
 
     Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(app.into_make_service())
