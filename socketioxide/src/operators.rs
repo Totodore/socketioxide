@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use engineioxide::sid_generator::Sid;
 use futures::stream::BoxStream;
 use itertools::Itertools;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 use tracing::debug;
 
 use crate::errors::BroadcastError;
@@ -17,6 +17,8 @@ use crate::{
 };
 
 /// A trait for types that can be used as a room parameter.
+///
+/// String, Vec<String>, Vec<&str> and &'static str are implemented by default.
 pub trait RoomParam: 'static {
     type IntoIter: Iterator<Item = Room>;
     fn into_room_iter(self) -> Self::IntoIter;
@@ -49,7 +51,7 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
     }
 }
 
-/// Operators are used to select clients to send a packet to, or to configure the packet that will be emitted.
+/// Operators are used to select sockets to send a packet to, or to configure the packet that will be emitted.
 #[derive(Debug)]
 pub struct Operators<A: Adapter> {
     opts: BroadcastOptions,
@@ -58,7 +60,7 @@ pub struct Operators<A: Adapter> {
 }
 
 impl<A: Adapter> Operators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
+    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: Option<Sid>) -> Self {
         Self {
             opts: BroadcastOptions::new(sid),
             ns,
@@ -66,7 +68,8 @@ impl<A: Adapter> Operators<A> {
         }
     }
 
-    /// Select all clients in the given rooms except the current socket.
+    /// Select all sockets in the given rooms except the current socket.
+    /// If it is called from the `Namespace` level there will be no difference with the `within()` operator
     ///
     /// If you want to include the current socket, use the `within()` operator.
     /// #### Example
@@ -90,9 +93,10 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Select all clients in the given rooms.
+    /// Select all sockets in the given rooms.
     ///
     /// It does include the current socket contrary to the `to()` operator.
+    /// If it is called from the `Namespace` level there will be no difference with the `to()` operator
     /// #### Example
     /// ```
     /// # use socketioxide::SocketIo;
@@ -113,7 +117,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Filter out all clients selected with the previous operators which are in the given rooms.
+    /// Filter out all sockets selected with the previous operators which are in the given rooms.
     /// #### Example
     /// ```
     /// # use socketioxide::SocketIo;
@@ -126,7 +130,7 @@ impl<A: Adapter> Operators<A> {
     ///         socket.join("room2");
     ///     });
     ///     socket.on("test", |socket, data: Value, _, _| async move {
-    ///         // This message will be broadcast to all clients in the Namespace
+    ///         // This message will be broadcast to all sockets in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
     ///     });
@@ -137,7 +141,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Broadcast to all clients only connected on this node (when using multiple nodes).
+    /// Broadcast to all sockets only connected on this node (when using multiple nodes).
     /// When using the default in-memory adapter, this operator is a no-op.
     /// #### Example
     /// ```
@@ -145,7 +149,7 @@ impl<A: Adapter> Operators<A> {
     /// # use serde_json::Value;
     /// SocketIo::builder().ns("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
-    ///         // This message will be broadcast to all clients in this namespace and connected on this node
+    ///         // This message will be broadcast to all sockets in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///     });
     /// });
@@ -154,14 +158,14 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Broadcast to all clients without any filtering (except the current socket).
+    /// Broadcast to all sockets without any filtering (except the current socket).
     /// #### Example
     /// ```
     /// # use socketioxide::SocketIo;
     /// # use serde_json::Value;
     /// SocketIo::builder().ns("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, _, _| async move {
-    ///         // This message will be broadcast to all clients in this namespace
+    ///         // This message will be broadcast to all sockets in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
@@ -207,7 +211,7 @@ impl<A: Adapter> Operators<A> {
     /// # use serde_json::Value;
     /// SocketIo::builder().ns("/", |socket| async move {
     ///     socket.on("test", |socket, data: Value, bin, _| async move {
-    ///         // This will send the binary payload received to all clients in this namespace with the test message
+    ///         // This will send the binary payload received to all sockets in this namespace with the test message
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
@@ -216,7 +220,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Emit a message to all clients selected with the previous operators.
+    /// Emit a message to all sockets selected with the previous operators.
     /// #### Example
     /// ```
     /// # use socketioxide::SocketIo;
@@ -239,7 +243,7 @@ impl<A: Adapter> Operators<A> {
         Ok(())
     }
 
-    /// Emit a message to all clients selected with the previous operators and return a stream of acknowledgements.
+    /// Emit a message to all sockets selected with the previous operators and return a stream of acknowledgements.
     ///
     /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// #### Example
@@ -262,7 +266,6 @@ impl<A: Adapter> Operators<A> {
     ///             }).await;
     ///    });
     /// });
-    ///
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         mut self,
         event: impl Into<String>,
@@ -296,7 +299,7 @@ impl<A: Adapter> Operators<A> {
     fn get_packet(
         &mut self,
         event: impl Into<String>,
-        data: impl Serialize,
+        data: impl serde::Serialize,
     ) -> Result<Packet, serde_json::Error> {
         let ns = self.ns.clone();
         let data = serde_json::to_value(data)?;

@@ -320,7 +320,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).to(rooms)
+        Operators::new(self.ns.clone(), Some(self.sid)).to(rooms)
     }
 
     /// Select all clients in the given rooms.
@@ -342,7 +342,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).within(rooms)
+        Operators::new(self.ns.clone(), Some(self.sid)).within(rooms)
     }
 
     /// Filter out all clients selected with the previous operators which are in the given rooms.
@@ -364,7 +364,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).except(rooms)
+        Operators::new(self.ns.clone(), Some(self.sid)).except(rooms)
     }
 
     /// Broadcast to all clients only connected on this node (when using multiple nodes).
@@ -380,7 +380,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn local(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).local()
+        Operators::new(self.ns.clone(), Some(self.sid)).local()
     }
 
     /// Set a custom timeout when sending a message with an acknowledgement.
@@ -409,7 +409,7 @@ impl<A: Adapter> Socket<A> {
     /// });
     ///
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).timeout(timeout)
+        Operators::new(self.ns.clone(), Some(self.sid)).timeout(timeout)
     }
 
     /// Add a binary payload to the message.
@@ -424,7 +424,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).bin(binary)
+        Operators::new(self.ns.clone(), Some(self.sid)).bin(binary)
     }
 
     /// Broadcast to all clients without any filtering (except the current socket).
@@ -439,7 +439,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn broadcast(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), self.sid).broadcast()
+        Operators::new(self.ns.clone(), Some(self.sid)).broadcast()
     }
 
     /// Disconnect the socket from the current namespace,
