@@ -1,4 +1,5 @@
 #![deny(clippy::await_holding_lock)]
+
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -19,6 +20,7 @@ use crate::{
 use crate::{service::ProtocolVersion, sid_generator::Sid};
 use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
 use http::{Request, Response, StatusCode};
+use http_body::Body;
 use hyper::upgrade::Upgraded;
 use std::fmt::Debug;
 use tokio_tungstenite::{
@@ -28,6 +30,7 @@ use tokio_tungstenite::{
 use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
+
 /// Abstract engine implementation for Engine.IO server for http polling and websocket
 /// It handle all the connection logic and dispatch the packets to the socket
 pub struct EngineIo<H: EngineIoHandler> {
@@ -61,11 +64,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
     where
         B: Send + 'static,
     {
-        let engine = self.clone();
-        let close_fn =
-            Box::new(move |sid: Sid, reason: DisconnectReason| engine.close_session(sid, reason));
+        let close_fn = Box::new(self.clone().close_fn());
         let sid = generate_sid();
-
         let socket = Socket::new(
             sid,
             protocol,
@@ -152,9 +152,9 @@ impl<H: EngineIoHandler> EngineIo<H> {
         body: Request<R>,
     ) -> Result<Response<ResponseBody<B>>, Error>
     where
-        R: http_body::Body + std::marker::Send + Unpin + 'static,
-        <R as http_body::Body>::Error: Debug,
-        <R as http_body::Body>::Data: std::marker::Send,
+        R: Body + Send + Unpin + 'static,
+        <R as Body>::Error: Debug,
+        <R as Body>::Data: Send,
         B: Send + 'static,
     {
         let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
@@ -249,7 +249,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 None => return Err(Error::UnknownSessionID(sid)),
                 Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
                 Some(socket) => {
-                    debug!("[sid={sid}] websocket connection upgrade");
                     let mut ws = ws_init().await;
                     self.ws_upgrade_handshake(protocol, sid, &mut ws).await?;
                     (socket, ws)
@@ -258,9 +257,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         } else {
             let sid = generate_sid();
             let engine = self.clone();
-            let close_fn = Box::new(move |sid: Sid, reason: DisconnectReason| {
-                engine.close_session(sid, reason)
-            });
+            let close_fn = Box::new(self.clone().close_fn());
             let socket = Socket::new(
                 sid,
                 protocol,
@@ -382,17 +379,19 @@ impl<H: EngineIoHandler> EngineIo<H> {
     ///│                                                      │
     ///│            -----  WebSocket frames -----             │
     /// ```
+    #[tracing::instrument(skip(self, ws), fields(sid = sid.to_string()))]
     async fn ws_upgrade_handshake(
         &self,
         protocol: ProtocolVersion,
         sid: Sid,
         ws: &mut WebSocketStream<Upgraded>,
     ) -> Result<(), Error> {
+        debug!("websocket connection upgrade");
         let socket = self.get_socket(sid).unwrap();
 
         #[cfg(feature = "v4")]
         {
-            // send a NOOP packet to any pending polling request so it closes gracefully'
+            // send a NOOP packet to any pending polling request so it closes gracefully
             if protocol == ProtocolVersion::V4 {
                 socket.send(Packet::Noop)?;
             }
@@ -435,7 +434,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             }
         };
         match Packet::try_from(msg)? {
-            Packet::Upgrade => debug!("[sid={sid}] ws upgraded successful"),
+            Packet::Upgrade => debug!("ws upgraded successful"),
             p => Err(Error::BadPacket(p))?,
         };
 
@@ -477,6 +476,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// Clones the socket ref to avoid holding the lock
     pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H::Data>>> {
         self.sockets.read().unwrap().get(&sid).cloned()
+    }
+
+    fn close_fn(self: Arc<Self>) -> impl Fn(Sid, DisconnectReason) {
+        move |sid: Sid, reason: DisconnectReason| self.close_session(sid, reason)
     }
 }
 
