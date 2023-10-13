@@ -195,8 +195,9 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
-    /// Gracefully closes all the connections and drop every sockets
-    /// Any `on_disconnect` handler will called with the reason `ServerClosing`
+    /// Gracefully closes all the connections and drops every sockets
+    ///
+    /// Any `on_disconnect` handler will called with [`DisconnectReason::ClosingServer`](crate::DisconnectReason::ClosingServer)
     #[inline]
     pub async fn close(&self) {
         self.0.close().await
