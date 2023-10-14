@@ -43,7 +43,7 @@ where
         .clone()
         .spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
 
-    let packet = OpenPacket::new(TransportType::Polling, socket.sid, &engine.config);
+    let packet = OpenPacket::new(TransportType::Polling, socket.id, &engine.config);
 
     engine.handler.on_connect(socket);
 

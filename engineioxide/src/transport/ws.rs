@@ -90,9 +90,9 @@ async fn on_init<H: EngineIoHandler>(
             #[cfg(feature = "v3")]
             false,
         );
-        debug!("[sid={}] new websocket connection", socket.sid);
+        debug!("[sid={}] new websocket connection", socket.id);
         let mut ws = ws_init().await;
-        init_handshake(socket.sid, &mut ws, &engine.config).await?;
+        init_handshake(socket.id, &mut ws, &engine.config).await?;
         socket
             .clone()
             .spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
@@ -104,12 +104,12 @@ async fn on_init<H: EngineIoHandler>(
     engine.handler.on_connect(socket.clone());
 
     if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
-        debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
+        debug!("[sid={}] error when handling packet: {:?}", socket.id, e);
         if let Some(reason) = e.into() {
-            engine.close_session(socket.sid, reason);
+            engine.close_session(socket.id, reason);
         }
     } else {
-        engine.close_session(socket.sid, DisconnectReason::TransportClose);
+        engine.close_session(socket.id, DisconnectReason::TransportClose);
     }
     rx_handle.abort();
     Ok(())
@@ -125,8 +125,8 @@ async fn forward_to_handler<H: EngineIoHandler>(
         match msg {
             Message::Text(msg) => match Packet::try_from(msg)? {
                 Packet::Close => {
-                    debug!("[sid={}] closing session", socket.sid);
-                    engine.close_session(socket.sid, DisconnectReason::TransportClose);
+                    debug!("[sid={}] closing session", socket.id);
+                    engine.close_session(socket.id, DisconnectReason::TransportClose);
                     break;
                 }
                 Packet::Pong | Packet::Ping => socket
@@ -144,7 +144,7 @@ async fn forward_to_handler<H: EngineIoHandler>(
                 Ok(())
             }
             Message::Close(_) => break,
-            _ => panic!("[sid={}] unexpected ws message", socket.sid),
+            _ => panic!("[sid={}] unexpected ws message", socket.id),
         }?
     }
     Ok(())
@@ -184,7 +184,7 @@ fn forward_to_socket<H: EngineIoHandler>(
                     }
                 };
                 if let Err(e) = res {
-                    debug!("[sid={}] error sending packet: {}", socket.sid, e);
+                    debug!("[sid={}] error sending packet: {}", socket.id, e);
                 }
             };
         }
