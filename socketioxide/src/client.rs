@@ -60,7 +60,7 @@ impl<A: Adapter> Client<A> {
         &self,
         auth: Option<Value>,
         ns_path: String,
-        esocket: Arc<engineioxide::Socket<SocketData>>,
+        esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
         let sid = esocket.sid;
@@ -112,6 +112,21 @@ impl<A: Adapter> Client<A> {
             debug!("invalid namespace requested: {}", packet.ns);
             Ok(())
         }
+    }
+
+    /// Spawn a task that will close the socket if it is not connected to a namespace
+    /// after the [`SocketIoConfig::connect_timeout`] duration
+    #[cfg(feature = "v5")]
+    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
+        let (tx, rx) = oneshot::channel();
+        socket.data.connect_recv_tx.lock().unwrap().replace(tx);
+
+        tokio::spawn(
+            tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
+                debug!("connect timeout for socket {}", socket.sid);
+                socket.close(EIoDisconnectReason::TransportClose);
+            }),
+        );
     }
 
     /// Add a new namespace handler
@@ -170,21 +185,12 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         #[cfg(feature = "v4")]
         if protocol == ProtocolVersion::V4 {
             debug!("connecting to default namespace for v4");
-            self.sock_connect(None, "/".into(), socket).unwrap();
+            self.sock_connect(None, "/".into(), &socket).unwrap();
         }
 
         #[cfg(feature = "v5")]
         if protocol == ProtocolVersion::V5 {
-            let (tx, rx) = oneshot::channel();
-            socket.data.connect_recv_tx.lock().unwrap().replace(tx);
-            // let socket_tx = socket.tx.clone();
-            let sid = socket.sid;
-            tokio::spawn(
-                tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
-                    debug!("connect timeout for socket {}", sid);
-                    socket.close(EIoDisconnectReason::TransportClose);
-                }),
-            );
+            self.spawn_connect_timeout_task(socket);
         }
     }
 
@@ -219,7 +225,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => self
-                .sock_connect(auth, packet.ns, socket.clone())
+                .sock_connect(auth, packet.ns, &socket)
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(&socket, packet);
