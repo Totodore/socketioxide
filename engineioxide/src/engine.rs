@@ -7,23 +7,28 @@ use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
     sid_generator::generate_sid,
-    socket::{ConnectionType, DisconnectReason, Socket, SocketReq},
+    socket::{DisconnectReason, Socket, SocketReq},
+    transport::TransportType,
 };
 use crate::{service::ProtocolVersion, sid_generator::Sid};
 use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 
-/// Abstract engine implementation for Engine.IO server for http polling and websocket
-/// It handle all the connection logic and dispatch the packets to the socket
+/// The [`EngineIo`] struct holds the state of the engine.io server as well as utility methods to manage the state
 pub struct EngineIo<H: EngineIoHandler> {
+    /// A map of all the sockets connected to the server
     sockets: SocketMap<Socket<H::Data>>,
+
+    /// The handler for the engine.io server that will be called when events are received
     pub handler: H,
+
+    /// The config for the engine.io server
     pub config: EngineIoConfig,
 }
 
 impl<H: EngineIoHandler> EngineIo<H> {
-    /// Create a new Engine.IO server with a handler and a config
+    /// Create a new Engine.IO server with a [`EngineIoHandler`] and a [`EngineIoConfig`]
     pub fn new(handler: H, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
@@ -34,10 +39,11 @@ impl<H: EngineIoHandler> EngineIo<H> {
 }
 
 impl<H: EngineIoHandler> EngineIo<H> {
+    /// Create a new engine.io session and a new socket and add it to the socket map
     pub(crate) fn create_session(
         self: &Arc<Self>,
         protocol: ProtocolVersion,
-        conn: ConnectionType,
+        transport: TransportType,
         req: SocketReq,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Arc<Socket<H::Data>> {
@@ -49,7 +55,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let socket = Socket::new(
             sid,
             protocol,
-            conn,
+            transport,
             &self.config,
             req,
             close_fn,
@@ -117,5 +123,63 @@ mod tests {
             println!("Ping pong binary message {:?}", data);
             socket.emit_binary(data).ok();
         }
+    }
+
+    #[tokio::test]
+    async fn create_session() {
+        let config = EngineIoConfig::default();
+        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let socket = engine.create_session(
+            ProtocolVersion::V4,
+            TransportType::Polling,
+            SocketReq {
+                headers: http::HeaderMap::new(),
+                uri: http::Uri::default(),
+            },
+            #[cfg(feature = "v3")]
+            true,
+        );
+        assert_eq!(engine.sockets.read().unwrap().len(), 1);
+        assert_eq!(socket.protocol, ProtocolVersion::V4);
+        assert!(socket.is_http());
+    }
+
+    #[tokio::test]
+    async fn close_session() {
+        let config = EngineIoConfig::default();
+        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let socket = engine.create_session(
+            ProtocolVersion::V4,
+            TransportType::Polling,
+            SocketReq {
+                headers: http::HeaderMap::new(),
+                uri: http::Uri::default(),
+            },
+            #[cfg(feature = "v3")]
+            true,
+        );
+        assert_eq!(engine.sockets.read().unwrap().len(), 1);
+        engine.close_session(socket.id, DisconnectReason::TransportClose);
+        assert_eq!(engine.sockets.read().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_socket() {
+        let config = EngineIoConfig::default();
+        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let socket = engine.create_session(
+            ProtocolVersion::V4,
+            TransportType::Polling,
+            SocketReq {
+                headers: http::HeaderMap::new(),
+                uri: http::Uri::default(),
+            },
+            #[cfg(feature = "v3")]
+            true,
+        );
+        assert_eq!(engine.sockets.read().unwrap().len(), 1);
+        let socket = engine.get_socket(socket.id).unwrap();
+        assert_eq!(socket.protocol, ProtocolVersion::V4);
+        assert!(socket.is_http());
     }
 }

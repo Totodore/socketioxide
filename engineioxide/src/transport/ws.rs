@@ -1,3 +1,9 @@
+//! The ws transport module is responsible for handling websocket connections
+//! The only public function is [`new_req`] which is used to upgrade a http request to a websocket connection
+//!
+//! Other functions are used internally to handle the websocket connection through tasks and channels
+//! and to handle upgrade from polling to ws
+
 use std::sync::Arc;
 
 use futures::{
@@ -21,9 +27,9 @@ use crate::{
     futures::ws_response,
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    service::{ProtocolVersion, TransportType},
+    service::ProtocolVersion,
     sid_generator::Sid,
-    socket::ConnectionType,
+    transport::TransportType,
     DisconnectReason, Socket, SocketReq,
 };
 
@@ -85,7 +91,7 @@ async fn on_init<H: EngineIoHandler>(
     } else {
         let socket = engine.create_session(
             protocol,
-            ConnectionType::WebSocket,
+            TransportType::Websocket,
             req_data,
             #[cfg(feature = "v3")]
             false,

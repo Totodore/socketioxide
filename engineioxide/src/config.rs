@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::service::TransportType;
+pub use crate::transport::TransportType;
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -163,9 +163,7 @@ impl Default for EngineIoConfigBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::service::TransportType;
-
-    use super::EngineIoConfig;
+    use super::*;
 
     #[test]
     pub fn config_transports() {

@@ -6,7 +6,7 @@ use crate::{
     futures::ResponseFuture,
     handler::EngineIoHandler,
     sid_generator::Sid,
-    transport::{polling, ws},
+    transport::{polling, ws, TransportType},
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -21,9 +21,9 @@ use std::{
     task::{Context, Poll},
 };
 
-/// A [`Service`] that handles `EngineIo` requests as a middleware.
-/// If the request is not an `EngineIo` request, it forwards it to the inner service.
-/// It is agnostic to the [`TransportType`](crate::service::TransportType).
+/// A [`Service`] that handles engine.io requests as a middleware.
+/// If the request is not an engine.io request, it forwards it to the inner service.
+/// If it is an engine.io request it will forward it to the appropriate [`transport`](crate::transport).
 ///
 /// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
 pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
@@ -92,8 +92,8 @@ where
     }
 
     /// Handle the request.
-    /// Each request is parsed to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    /// If the request is an `EngineIo` request, it is handled by the `EngineIo` engine.
+    /// Each request is parsed to a [`RequestInfo`]
+    /// If the request is an `EngineIo` request, it is handled by the corresponding [`transport`](crate::transport).
     /// Otherwise, it is forwarded to the inner service.
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with(&self.engine.config.req_path) {
@@ -206,41 +206,7 @@ where
     }
 }
 
-/// The type of the transport used by the client.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum TransportType {
-    Polling = 0x01,
-    Websocket = 0x02,
-}
-
-impl FromStr for TransportType {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "websocket" => Ok(TransportType::Websocket),
-            "polling" => Ok(TransportType::Polling),
-            _ => Err(Error::UnknownTransport),
-        }
-    }
-}
-impl From<TransportType> for &'static str {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling",
-            TransportType::Websocket => "websocket",
-        }
-    }
-}
-impl From<TransportType> for String {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling".into(),
-            TransportType::Websocket => "websocket".into(),
-        }
-    }
-}
-
+/// The protocol version used by the client.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
     V3 = 3,

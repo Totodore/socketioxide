@@ -1,3 +1,5 @@
+//! Payload encoding and decoding for polling transports.
+
 use crate::{errors::Error, packet::Packet, service::ProtocolVersion};
 use futures::Stream;
 use http::Request;

@@ -12,11 +12,12 @@ use crate::{
     futures::http_response,
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    service::{ProtocolVersion, TransportType},
+    service::ProtocolVersion,
     sid_generator::Sid,
-    socket::ConnectionType,
     DisconnectReason, SocketReq,
 };
+
+use super::TransportType;
 
 mod payload;
 
@@ -33,7 +34,7 @@ where
     let req = SocketReq::from(req.into_parts().0);
     let socket = engine.create_session(
         protocol,
-        ConnectionType::Http,
+        TransportType::Polling,
         req,
         #[cfg(feature = "v3")]
         supports_binary,
