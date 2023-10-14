@@ -5,7 +5,7 @@ use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
 use futures::{Future, TryFutureExt};
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use engineioxide::sid_generator::Sid;
 use tokio::sync::oneshot;
@@ -13,14 +13,13 @@ use tracing::debug;
 use tracing::error;
 
 use crate::adapter::Adapter;
-use crate::service::ProtocolVersion;
-use crate::Socket;
 use crate::{
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
 };
+use crate::{ProtocolVersion, Socket};
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
@@ -81,7 +80,7 @@ impl<A: Adapter> Client<A> {
             ns.connect(
                 sid,
                 esocket.clone(),
-                auth.unwrap_or_default(),
+                auth.unwrap_or(json!({})),
                 self.config.clone(),
             )?;
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
