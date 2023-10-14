@@ -235,7 +235,7 @@ async fn init_handshake(
 ///│                                                      │
 ///│            -----  WebSocket frames -----             │
 /// ```
-#[tracing::instrument(skip(socket, ws), fields(sid = socket.sid.to_string()))]
+#[tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string()))]
 async fn upgrade_handshake<H: EngineIoHandler>(
     protocol: ProtocolVersion,
     socket: &Arc<Socket<H::Data>>,
