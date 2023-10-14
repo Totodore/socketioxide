@@ -209,7 +209,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.disconnect().ok();
     ///     });
     ///     socket.on_disconnect(|socket, reason| async move {
-    ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.sid, socket.ns(), reason);
+    ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.id, socket.ns(), reason);
     ///     });
     /// });
     pub fn on_disconnect<C, F>(&self, callback: C)
