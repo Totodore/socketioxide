@@ -1,3 +1,4 @@
+//! The polling transport module handles polling, post and init requests
 use std::sync::Arc;
 
 use futures::StreamExt;
