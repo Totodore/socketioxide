@@ -9,7 +9,8 @@ use crate::{adapter::Adapter, errors::Error, packet::Packet, Socket};
 
 pub type AckResponse<T> = (T, Vec<Vec<u8>>);
 
-pub(crate) type BoxedHandler<A> = Box<dyn MessageCaller<A>>;
+pub(crate) type BoxedMessageHandler<A> = Box<dyn MessageCaller<A>>;
+pub(crate) type BoxedNamespaceHandler<A> = Box<dyn NamespaceCaller<A>>;
 pub(crate) trait MessageCaller<A: Adapter>: Send + Sync + 'static {
     fn call(
         &self,
@@ -20,7 +21,11 @@ pub(crate) trait MessageCaller<A: Adapter>: Send + Sync + 'static {
     ) -> Result<(), Error>;
 }
 
-pub(crate) struct MessageHandler<Param, F, A>
+pub(crate) trait NamespaceCaller<A: Adapter>: Send + Sync + 'static {
+    fn call(&self, s: Arc<Socket<A>>, auth: Value) -> Result<(), serde_json::Error>;
+}
+
+pub(crate) struct CallbackHandler<Param, F, A>
 where
     Param: Send + Sync + 'static,
 {
@@ -29,7 +34,7 @@ where
     handler: F,
 }
 
-impl<Param, F, A> MessageHandler<Param, F, A>
+impl<Param, F, A> CallbackHandler<Param, F, A>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
     F: Fn(Arc<Socket<A>>, Param, Vec<Vec<u8>>, AckSender<A>) -> BoxFuture<'static, ()>
@@ -38,7 +43,7 @@ where
         + 'static,
     A: Adapter,
 {
-    pub fn boxed(handler: F) -> Box<Self> {
+    pub fn boxed_message_handler(handler: F) -> Box<Self> {
         Box::new(Self {
             param: std::marker::PhantomData,
             adapter: std::marker::PhantomData,
@@ -47,7 +52,22 @@ where
     }
 }
 
-impl<Param, F, A> MessageCaller<A> for MessageHandler<Param, F, A>
+impl<Param, F, A> CallbackHandler<Param, F, A>
+where
+    Param: DeserializeOwned + Send + Sync + 'static,
+    F: Fn(Arc<Socket<A>>, Param) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    A: Adapter,
+{
+    pub fn boxed_ns_handler(handler: F) -> Box<Self> {
+        Box::new(Self {
+            param: std::marker::PhantomData,
+            adapter: std::marker::PhantomData,
+            handler,
+        })
+    }
+}
+
+impl<Param, F, A> MessageCaller<A> for CallbackHandler<Param, F, A>
 where
     Param: DeserializeOwned + Send + Sync + 'static,
     F: Fn(Arc<Socket<A>>, Param, Vec<Vec<u8>>, AckSender<A>) -> BoxFuture<'static, ()>
@@ -77,6 +97,20 @@ where
         let v: Param = serde_json::from_value(v)?;
         let owned_socket = s.clone();
         let fut = (self.handler)(s, v, p, AckSender::new(owned_socket, ack_id));
+        tokio::spawn(fut);
+        Ok(())
+    }
+}
+
+impl<Param, F, A> NamespaceCaller<A> for CallbackHandler<Param, F, A>
+where
+    Param: DeserializeOwned + Send + Sync + 'static,
+    F: Fn(Arc<Socket<A>>, Param) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    A: Adapter,
+{
+    fn call(&self, s: Arc<Socket<A>>, auth: Value) -> Result<(), serde_json::Error> {
+        let v: Param = serde_json::from_value(auth)?;
+        let fut = (self.handler)(s, v);
         tokio::spawn(fut);
         Ok(())
     }

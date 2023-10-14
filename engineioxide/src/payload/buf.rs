@@ -39,6 +39,21 @@ impl<T: Buf> Buf for BufList<T> {
     }
 
     #[inline]
+    fn chunks_vectored<'t>(&'t self, dst: &mut [IoSlice<'t>]) -> usize {
+        if dst.is_empty() {
+            return 0;
+        }
+        let mut vecs = 0;
+        for buf in &self.bufs {
+            vecs += buf.chunks_vectored(&mut dst[vecs..]);
+            if vecs == dst.len() {
+                break;
+            }
+        }
+        vecs
+    }
+
+    #[inline]
     fn advance(&mut self, mut cnt: usize) {
         while cnt > 0 {
             {
@@ -54,21 +69,6 @@ impl<T: Buf> Buf for BufList<T> {
             }
             self.bufs.pop_front();
         }
-    }
-
-    #[inline]
-    fn chunks_vectored<'t>(&'t self, dst: &mut [IoSlice<'t>]) -> usize {
-        if dst.is_empty() {
-            return 0;
-        }
-        let mut vecs = 0;
-        for buf in &self.bufs {
-            vecs += buf.chunks_vectored(&mut dst[vecs..]);
-            if vecs == dst.len() {
-                break;
-            }
-        }
-        vecs
     }
 
     #[inline]

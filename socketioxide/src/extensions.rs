@@ -94,6 +94,11 @@ impl<'a, T: fmt::Display> fmt::Display for RefMut<'a, T> {
 struct IdHasher(u64);
 
 impl Hasher for IdHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
     fn write(&mut self, _: &[u8]) {
         unreachable!("TypeId calls write_u64");
     }
@@ -101,11 +106,6 @@ impl Hasher for IdHasher {
     #[inline]
     fn write_u64(&mut self, id: u64) {
         self.0 = id;
-    }
-
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
     }
 }
 

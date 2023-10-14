@@ -12,7 +12,7 @@ use std::task::{Context, Poll};
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 
 pub(crate) type BoxFuture<B> =
-    Pin<Box<dyn Future<Output = Result<Response<ResponseBody<B>>, crate::errors::Error>> + Send>>;
+    Pin<Box<dyn Future<Output = Result<Response<ResponseBody<B>>, Error>> + Send>>;
 
 /// Create a response for http request
 pub fn http_response<B, D>(

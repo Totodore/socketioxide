@@ -12,6 +12,34 @@ use tracing::debug;
 
 use crate::{errors::Error, packet::Packet};
 
+/// Try to immediately poll a new packet from the rx channel and return a encoded string version
+///
+/// Manually close the channel if the packet is a close packet
+/// It will allow to notify the [`Socket`](crate::socket::Socket) that the session is closed
+fn try_recv_packet(rx: &mut MutexGuard<'_, Receiver<Packet>>) -> Option<Packet> {
+    let packet = rx.try_recv();
+    if let Ok(Packet::Close) = packet {
+        debug!("Received close packet, closing channel");
+        rx.close();
+    }
+
+    debug!("sending packet: {:?}", packet);
+    packet.ok()
+}
+
+/// Same as [`try_poll_packet`](crate::payload::encoder::try_poll_packet)
+/// but wait for a new packet if there is no packet in the buffer
+async fn recv_packet(rx: &mut MutexGuard<'_, Receiver<Packet>>) -> Result<Packet, Error> {
+    let packet = rx.recv().await.ok_or(Error::Aborted)?;
+    if packet == Packet::Close {
+        debug!("Received close packet, closing channel");
+        rx.close();
+    }
+
+    debug!("sending packet: {:?}", packet);
+    Ok(packet)
+}
+
 /// Encode multiple packets into a string payload according to the
 /// [engine.io v4 protocol](https://socket.io/fr/docs/v4/engine-io-protocol/#http-long-polling-1)
 #[cfg(feature = "v4")]
@@ -22,8 +50,7 @@ pub async fn v4_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<
     let mut data: String = String::new();
 
     // Send all packets in the buffer
-    while let Ok(packet) = rx.try_recv() {
-        debug!("sending packet: {:?}", packet);
+    while let Some(packet) = try_recv_packet(&mut rx) {
         let packet: String = packet.try_into()?;
 
         if !data.is_empty() {
@@ -34,8 +61,7 @@ pub async fn v4_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packet = rx.recv().await.ok_or(Error::Aborted)?;
-        debug!("sending packet: {:?}", packet);
+        let packet = recv_packet(&mut rx).await?;
         let packet: String = packet.try_into()?;
         data.push_str(&packet);
     }
@@ -102,11 +128,10 @@ pub async fn v3_binary_encoder(
     debug!("encoding payload with v3 binary encoder");
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
-    while let Ok(packet) = rx.try_recv() {
+    while let Some(packet) = try_recv_packet(&mut rx) {
         if packet.is_binary() {
             has_binary = true;
         }
-        debug!("sending packet: {:?}", packet);
         packet_buffer.push(packet);
     }
 
@@ -122,8 +147,8 @@ pub async fn v3_binary_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packet = rx.recv().await.ok_or(Error::Aborted)?;
-        debug!("sending packet: {:?}", packet);
+        let packet = recv_packet(&mut rx).await?;
+
         match packet {
             Packet::BinaryV3(_) | Packet::Binary(_) => {
                 v3_bin_packet_encoder(packet, &mut data)?;
@@ -145,13 +170,13 @@ pub async fn v3_string_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Resu
     let mut data: Vec<u8> = Vec::new();
 
     debug!("encoding payload with v3 string encoder");
-    while let Ok(packet) = rx.try_recv() {
+    while let Some(packet) = try_recv_packet(&mut rx) {
         v3_string_packet_encoder(packet, &mut data)?;
     }
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packet = rx.recv().await.ok_or(Error::Aborted)?;
+        let packet = recv_packet(&mut rx).await?;
         v3_string_packet_encoder(packet, &mut data)?;
     }
 
@@ -168,7 +193,7 @@ mod tests {
     #[cfg(feature = "v4")]
     #[tokio::test]
     async fn encode_v4_payload() {
-        const PAYLOAD: &'static str = "4hello€\x1ebAQIDBA==\x1e4hello€";
+        const PAYLOAD: &str = "4hello€\x1ebAQIDBA==\x1e4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(rx);
         let rx = mutex.lock().await;

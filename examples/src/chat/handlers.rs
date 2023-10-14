@@ -5,16 +5,16 @@ use socketioxide::{adapter::LocalAdapter, Socket};
 use tracing::info;
 
 #[derive(Deserialize, Clone, Debug)]
-struct Nickname(String);
+pub struct Nickname(String);
 
 #[derive(Deserialize)]
-struct Auth {
+pub struct Auth {
     pub nickname: Nickname,
 }
 
-pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
+pub async fn handler(socket: Arc<Socket<LocalAdapter>>, data: Option<Auth>) {
     info!("Socket connected on / with id: {}", socket.sid);
-    if let Some(Ok(data)) = socket.handshake.data::<Auth>() {
+    if let Some(data) = data {
         info!("Nickname: {:?}", data.nickname);
         socket.extensions.insert(data.nickname);
         socket.emit("message", "Welcome to the chat!").ok();

@@ -1,34 +1,29 @@
+use std::sync::Arc;
+
 use tower::Layer;
 
-use crate::{adapter::Adapter, config::SocketIoConfig, ns::NsHandlers, SocketIoService};
+use crate::{adapter::Adapter, client::Client, service::SocketIoService, SocketIoConfig};
 
 /// A [`Layer`] for [`SocketIoService`], acting as a middleware.
 pub struct SocketIoLayer<A: Adapter> {
-    config: SocketIoConfig,
-    ns_handlers: NsHandlers<A>,
+    client: Arc<Client<A>>,
 }
 
 impl<A: Adapter> Clone for SocketIoLayer<A> {
     fn clone(&self) -> Self {
         Self {
-            config: self.config.clone(),
-            ns_handlers: self.ns_handlers.clone(),
+            client: self.client.clone(),
         }
     }
 }
 
 impl<A: Adapter> SocketIoLayer<A> {
-    pub fn new(ns_handlers: NsHandlers<A>) -> Self {
-        Self {
-            config: SocketIoConfig::default(),
-            ns_handlers,
-        }
-    }
-    pub fn from_config(config: SocketIoConfig, ns_handlers: NsHandlers<A>) -> Self {
-        Self {
-            config,
-            ns_handlers,
-        }
+    pub(crate) fn from_config(config: Arc<SocketIoConfig>) -> (Self, Arc<Client<A>>) {
+        let client = Arc::new(Client::new(config.clone()));
+        let layer = Self {
+            client: client.clone(),
+        };
+        (layer, client)
     }
 }
 
@@ -36,6 +31,6 @@ impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
     type Service = SocketIoService<A, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        SocketIoService::with_config_inner(inner, self.ns_handlers.clone(), self.config.clone())
+        SocketIoService::with_client(inner, self.client.clone())
     }
 }

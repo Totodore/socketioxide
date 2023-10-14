@@ -7,7 +7,7 @@ use futures::SinkExt;
 use http::Request;
 use hyper::{body::Buf, Server};
 use serde::{Deserialize, Serialize};
-use socketioxide::{adapter::LocalAdapter, NsHandlers, SocketIoConfig, SocketIoService};
+use socketioxide::SocketIo;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 /// An OpenPacket is used to initiate a connection
@@ -40,12 +40,21 @@ pub async fn send_req(
         .body(body)
         .unwrap();
     let mut res = hyper::Client::new().request(req).await.unwrap();
+    let is_json = res
+        .headers()
+        .get("Content-Type")
+        .map(|v| v == "application/json")
+        .unwrap_or_default();
     let body = hyper::body::aggregate(res.body_mut()).await.unwrap();
-    String::from_utf8(body.chunk().to_vec())
-        .unwrap()
-        .chars()
-        .skip(1)
-        .collect()
+    if is_json {
+        String::from_utf8(body.chunk().to_vec()).unwrap()
+    } else {
+        String::from_utf8(body.chunk().to_vec())
+            .unwrap()
+            .chars()
+            .skip(1)
+            .collect()
+    }
 }
 
 pub async fn create_polling_connection(port: u16) -> String {
@@ -75,18 +84,17 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     ws
 }
 
-pub fn create_server(ns: NsHandlers<LocalAdapter>, port: u16) {
-    let config = SocketIoConfig::builder()
+pub fn create_server(port: u16) -> SocketIo {
+    let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
-        .build();
+        .build_svc();
 
     let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-
-    let svc = SocketIoService::with_config(ns, config);
 
     let server = Server::bind(addr).serve(svc.into_make_service());
 
     tokio::spawn(server);
+
+    io
 }

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use hyper::Server;
 use serde_json::Value;
-use socketioxide::{Namespace, SocketIoConfig, SocketIoService};
+use socketioxide::SocketIo;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -16,40 +16,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = SocketIoConfig::builder()
+    let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
-        .build();
+        .build_svc();
+
+    io.ns("/", |socket, data: Value| async move {
+        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
+        socket.emit("auth", data).ok();
+
+        socket.on("message", |socket, data: Value, bin, _| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            socket.bin(bin).emit("message-back", data).ok();
+        });
+
+        socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            ack.bin(bin).send(data).ok();
+        });
+    });
+    io.ns("/custom", |socket, data: Value| async move {
+        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
+        socket.emit("auth", data).ok();
+    });
     info!("Starting server");
 
-    let ns = Namespace::builder()
-        .add("/", |socket| async move {
-            info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
-            if let Some(data) = socket.handshake.data::<Value>() {
-                socket.emit("auth", data.unwrap()).ok();
-            }
-
-            socket.on("message", |socket, data: Value, bin, _| async move {
-                info!("Received event: {:?} {:?}", data, bin);
-                socket.bin(bin).emit("message-back", data).ok();
-            });
-
-            socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
-                info!("Received event: {:?} {:?}", data, bin);
-                ack.bin(bin).send(data).ok();
-            });
-        })
-        .add("/custom", |socket| async move {
-            info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
-            if let Some(data) = socket.handshake.data::<Value>() {
-                socket.emit("auth", data.unwrap()).ok();
-            }
-        })
-        .build();
-
-    let svc = SocketIoService::with_config(ns, config);
     Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(svc.into_make_service())
         .await?;

@@ -10,8 +10,9 @@
 
 use std::time::Duration;
 
-use futures::SinkExt;
-use socketioxide::{adapter::LocalAdapter, DisconnectReason, Namespace, NsHandlers};
+use futures::{SinkExt, StreamExt};
+use serde_json::Value;
+use socketioxide::{DisconnectReason, SocketIo};
 use tokio::sync::mpsc;
 
 mod fixture;
@@ -21,30 +22,35 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::fixture::{create_polling_connection, create_ws_connection};
 
-fn create_handler() -> (NsHandlers<LocalAdapter>, mpsc::Receiver<DisconnectReason>) {
-    let (tx, rx) = mpsc::channel::<DisconnectReason>(1);
-    let ns = Namespace::builder()
-        .add("/", move |socket| {
-            println!("Socket connected on / namespace with id: {}", socket.sid);
-            let tx = tx.clone();
-            socket.on_disconnect(move |socket, reason| {
-                println!("Socket.IO disconnected: {} {}", socket.sid, reason);
-                tx.try_send(reason).unwrap();
-                async move {}
-            });
-
+fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectReason> {
+    let (tx, rx) = mpsc::channel::<DisconnectReason>(chan_size);
+    io.ns("/", move |socket, _: Value| {
+        println!("Socket connected on / namespace with id: {}", socket.sid);
+        let tx = tx.clone();
+        socket.on_disconnect(move |socket, reason| {
+            println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            tx.try_send(reason).unwrap();
             async move {}
-        })
-        .build();
-    (ns, rx)
+        });
+
+        async move {}
+    });
+    rx
 }
 
 // Engine IO Disconnect Reason Tests
 
 #[tokio::test]
 pub async fn polling_heartbeat_timeout() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 1234);
+    // let subscriber = FmtSubscriber::builder()
+    //     .with_line_number(true)
+    //     .with_max_level(Level::DEBUG)
+    //     .finish();
+
+    // tracing::subscriber::set_global_default(subscriber).unwrap();
+
+    let io = create_server(1234);
+    let mut rx = attach_handler(&io, 1);
     create_polling_connection(1234).await;
 
     let data = tokio::time::timeout(Duration::from_millis(500), rx.recv())
@@ -57,8 +63,8 @@ pub async fn polling_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn ws_heartbeat_timeout() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 12344);
+    let io = create_server(12344);
+    let mut rx = attach_handler(&io, 1);
     let _stream = create_ws_connection(12344).await;
 
     let data = tokio::time::timeout(Duration::from_millis(500), rx.recv())
@@ -71,8 +77,8 @@ pub async fn ws_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn polling_transport_closed() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 1235);
+    let io = create_server(1235);
+    let mut rx = attach_handler(&io, 1);
     let sid = create_polling_connection(1235).await;
 
     send_req(
@@ -93,8 +99,8 @@ pub async fn polling_transport_closed() {
 
 #[tokio::test]
 pub async fn ws_transport_closed() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 12345);
+    let io = create_server(12345);
+    let mut rx = attach_handler(&io, 1);
     let mut stream = create_ws_connection(12345).await;
 
     stream.send(Message::Text("1".into())).await.unwrap();
@@ -109,8 +115,8 @@ pub async fn ws_transport_closed() {
 
 #[tokio::test]
 pub async fn multiple_http_polling() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 1236);
+    let io = create_server(1236);
+    let mut rx = attach_handler(&io, 1);
     let sid = create_polling_connection(1236).await;
 
     // First request to flush the server buffer containing the open packet
@@ -147,8 +153,8 @@ pub async fn multiple_http_polling() {
 
 #[tokio::test]
 pub async fn polling_packet_parsing() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 1237);
+    let io = create_server(1237);
+    let mut rx = attach_handler(&io, 1);
     let sid = create_polling_connection(1237).await;
     send_req(
         1237,
@@ -168,8 +174,8 @@ pub async fn polling_packet_parsing() {
 
 #[tokio::test]
 pub async fn ws_packet_parsing() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 12347);
+    let io = create_server(12347);
+    let mut rx = attach_handler(&io, 1);
     let mut stream = create_ws_connection(12347).await;
     stream
         .send(Message::Text("aizdunazidaubdiz".into()))
@@ -188,8 +194,8 @@ pub async fn ws_packet_parsing() {
 
 #[tokio::test]
 pub async fn client_ns_disconnect() {
-    let (ns, mut rx) = create_handler();
-    create_server(ns, 12348);
+    let io = create_server(12348);
+    let mut rx = attach_handler(&io, 1);
     let mut stream = create_ws_connection(12348).await;
 
     stream.send(Message::Text("41".into())).await.unwrap();
@@ -205,27 +211,26 @@ pub async fn client_ns_disconnect() {
 #[tokio::test]
 pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
-    let ns = Namespace::builder()
-        .add("/", move |socket| {
-            println!("Socket connected on / namespace with id: {}", socket.sid);
-            let sock = socket.clone();
-            let tx = tx.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                sock.disconnect().unwrap();
-            });
+    let io = create_server(12349);
 
-            socket.on_disconnect(move |socket, reason| {
-                println!("Socket.IO disconnected: {} {}", socket.sid, reason);
-                tx.try_send(reason).unwrap();
-                async move {}
-            });
+    io.ns("/", move |socket, _: Value| {
+        println!("Socket connected on / namespace with id: {}", socket.sid);
+        let sock = socket.clone();
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            sock.disconnect().unwrap();
+        });
 
+        socket.on_disconnect(move |socket, reason| {
+            println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            tx.try_send(reason).unwrap();
             async move {}
-        })
-        .build();
+        });
 
-    create_server(ns, 12349);
+        async move {}
+    });
+
     let _stream = create_ws_connection(12349).await;
 
     let data = tokio::time::timeout(Duration::from_millis(20), rx.recv())
@@ -233,4 +238,66 @@ pub async fn server_ns_disconnect() {
         .expect("timeout waiting for DisconnectReason::ServerNSDisconnect")
         .unwrap();
     assert_eq!(data, DisconnectReason::ServerNSDisconnect);
+}
+
+#[tokio::test]
+pub async fn server_ws_closing() {
+    let io = create_server(12350);
+    let _rx = attach_handler(&io, 100);
+
+    let mut streams =
+        futures::future::join_all((0..100).map(|_| create_ws_connection(12350))).await;
+    futures::future::join_all(streams.iter_mut().map(|s| async move {
+        s.next().await; // engine.io open packet
+        s.next().await; // socket.io open packet
+    }))
+    .await;
+
+    tokio::time::timeout(Duration::from_millis(20), io.close())
+        .await
+        .expect("timeout waiting for server closing");
+    let packets = futures::future::join_all(streams.iter_mut().map(|s| async move {
+        (s.next().await, s.next().await) // Closing packet / None
+    }))
+    .await;
+    for packet in packets {
+        assert!(matches!(packet.0.unwrap().unwrap(), Message::Close(_)));
+        assert!(packet.1.is_none());
+    }
+}
+
+#[tokio::test]
+pub async fn server_http_closing() {
+    let io = create_server(12351);
+    let _rx = attach_handler(&io, 100);
+    let mut sids =
+        futures::future::join_all((0..100).map(|_| create_polling_connection(12351))).await;
+    futures::future::join_all(sids.iter_mut().map(|s| {
+        send_req(
+            12351,
+            format!("transport=polling&sid={s}"),
+            http::Method::GET,
+            None,
+        )
+    }))
+    .await;
+
+    tokio::time::timeout(Duration::from_millis(20), io.close())
+        .await
+        .expect("timeout waiting for server closing");
+    let packets = futures::future::join_all(sids.iter_mut().map(|s| {
+        send_req(
+            12351,
+            format!("transport=polling&sid={s}"),
+            http::Method::GET,
+            None,
+        )
+    }))
+    .await;
+    for packet in packets {
+        assert_eq!(
+            packet,
+            "{\"code\":\"1\",\"message\":\"Session ID unknown\"}"
+        );
+    }
 }
