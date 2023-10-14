@@ -449,23 +449,31 @@ mod test {
         let payload = format!("0{}", json!({"sid": sid}));
         let packet = Packet::try_from(payload).unwrap();
 
-        assert_eq!(Packet::connect("/".to_string(), sid), packet);
+        assert_eq!(
+            Packet::connect("/".to_string(), sid, ProtocolVersion::V5),
+            packet
+        );
 
         let payload = format!("0/admin™,{}", json!({"sid": sid}));
         let packet = Packet::try_from(payload).unwrap();
 
-        assert_eq!(Packet::connect("/admin™".to_string(), sid), packet);
+        assert_eq!(
+            Packet::connect("/admin™".to_string(), sid, ProtocolVersion::V5),
+            packet
+        );
     }
 
     #[test]
     fn packet_encode_connect() {
         let sid: Sid = generate_sid();
         let payload = format!("0{}", json!({"sid": sid}));
-        let packet: String = Packet::connect("/".to_string(), sid).try_into().unwrap();
+        let packet: String = Packet::connect("/".to_string(), sid, ProtocolVersion::V5)
+            .try_into()
+            .unwrap();
         assert_eq!(packet, payload);
 
         let payload = format!("0/admin™,{}", json!({"sid": sid}));
-        let packet: String = Packet::connect("/admin™".to_string(), sid)
+        let packet: String = Packet::connect("/admin™".to_string(), sid, ProtocolVersion::V5)
             .try_into()
             .unwrap();
         assert_eq!(packet, payload);
