@@ -72,10 +72,11 @@ impl Packet {
 }
 
 impl Packet {
-    pub fn invalid_namespace(ns: String) -> Self {
+    pub fn invalid_namespace(ns: String, protocol: ProtocolVersion) -> Self {
         Self {
             inner: PacketData::ConnectError(ConnectErrorPacket {
-                message: "Invalid namespace".to_string(),
+                message: "Invalid namespace",
+                protocol,
             }),
             ns,
         }
@@ -274,7 +275,20 @@ impl TryInto<String> for Packet {
                 }?;
                 res.push_str(&packet)
             }
-            PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
+
+            // V4 protocol send the error message as a string
+            PacketData::ConnectError(ConnectErrorPacket {
+                message,
+                protocol: ProtocolVersion::V4,
+            }) => res.push_str(message),
+            // V4 protocol send the error message as a json object
+            PacketData::ConnectError(
+                packet @ ConnectErrorPacket {
+                    protocol: ProtocolVersion::V5,
+                    ..
+                },
+            ) => res.push_str(&serde_json::to_string(&packet)?),
+
             PacketData::BinaryEvent(event, bin, ack) => {
                 res.push_str(&bin.payload_count.to_string());
                 res.push('-');
@@ -403,10 +417,6 @@ impl TryFrom<String> for Packet {
                 let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::EventAck(packet, ack.ok_or(Error::InvalidPacketType)?)
             }
-            '4' => {
-                let payload = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
-                PacketData::ConnectError(payload)
-            }
             '5' => {
                 let (event, payload) = deserialize_event_packet(data)?;
                 PacketData::BinaryEvent(event, BinaryPacket::incoming(payload), ack)
@@ -431,9 +441,14 @@ pub struct ConnectPacket {
     sid: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Connect error packet sent by the server
+/// The message is sent as a string for v4 and as a json object for v5
+/// The protocol version is used to determine the format
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConnectErrorPacket {
-    message: String,
+    message: &'static str,
+    #[serde(skip_serializing)]
+    protocol: ProtocolVersion,
 }
 
 #[cfg(test)]
@@ -646,24 +661,30 @@ mod test {
         let payload = format!("4{}", json!({ "message": "Invalid namespace" }));
         let packet = Packet::try_from(payload).unwrap();
 
-        assert_eq!(Packet::invalid_namespace("/".to_string()), packet);
+        assert_eq!(
+            Packet::invalid_namespace("/".to_string(), ProtocolVersion::V5),
+            packet
+        );
 
         let payload = format!("4/admin™,{}", json!({ "message": "Invalid namespace" }));
         let packet = Packet::try_from(payload).unwrap();
 
-        assert_eq!(Packet::invalid_namespace("/admin™".to_string()), packet);
+        assert_eq!(
+            Packet::invalid_namespace("/admin™".to_string(), ProtocolVersion::V5),
+            packet
+        );
     }
 
     #[test]
     fn packet_encode_connect_error() {
         let payload = format!("4{}", json!({ "message": "Invalid namespace" }));
-        let packet: String = Packet::invalid_namespace("/".to_string())
+        let packet: String = Packet::invalid_namespace("/".to_string(), ProtocolVersion::V5)
             .try_into()
             .unwrap();
         assert_eq!(packet, payload);
 
         let payload = format!("4/admin™,{}", json!({ "message": "Invalid namespace" }));
-        let packet: String = Packet::invalid_namespace("/admin™".to_string())
+        let packet: String = Packet::invalid_namespace("/admin™".to_string(), ProtocolVersion::V5)
             .try_into()
             .unwrap();
         assert_eq!(packet, payload);

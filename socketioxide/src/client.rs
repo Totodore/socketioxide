@@ -64,9 +64,8 @@ impl<A: Adapter> Client<A> {
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
         let sid = esocket.sid;
+        let protocol: ProtocolVersion = esocket.protocol.into();
         if let Some(ns) = self.get_ns(&ns_path) {
-            let protocol: ProtocolVersion = esocket.protocol.into();
-
             // cancel the connect timeout task for v5
             #[cfg(feature = "v5")]
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
@@ -88,7 +87,7 @@ impl<A: Adapter> Client<A> {
             }
             Ok(())
         } else {
-            let packet = Packet::invalid_namespace(ns_path).try_into()?;
+            let packet = Packet::invalid_namespace(ns_path, protocol).try_into()?;
             esocket.emit(packet).unwrap();
             Ok(())
         }
