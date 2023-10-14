@@ -37,7 +37,45 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-test
       - run: cargo test --all-features
-  e2e:
+
+  e2e_v4:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/checkout@v3
+        with:
+          repository: totodore/socket.io-protocol
+          ref: v4-testsuite
+          path: socket.io-protocol
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+      - name: Install deps & run tests 
+        run: |
+          cd socket.io-protocol/test-suite && npm install && cd ../..
+          cargo build --bin socketioxide-e2e --release --features socketio-v4 --no-default-features
+          cargo run --bin socketioxide-e2e --release --features socketio-v4 --no-default-features > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+      - name: Server output
+        if: always()
+        run: cat server.txt
+      - name: Client output
+        if: always()
+        run:  cat client.txt
+
+  e2e_v5:
     runs-on: ubuntu-latest
 
     steps:
@@ -64,8 +102,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin socketioxide-e2e --release
-          cargo run --bin socketioxide-e2e --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build --bin socketioxide-e2e --release --features socketio-v5 --no-default-features
+          cargo run --bin socketioxide-e2e --release --features socketio-v5 --no-default-features > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
