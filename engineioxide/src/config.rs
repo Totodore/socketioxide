@@ -106,10 +106,10 @@ impl EngineIoConfigBuilder {
     ///
     ///     type Data = ();
     ///     fn on_connect(&self, socket: Arc<Socket<()>>) {
-    ///         println!("socket connect {}", socket.sid);
+    ///         println!("socket connect {}", socket.id);
     ///     }
     ///     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) {
-    ///         println!("socket disconnect {}", socket.sid);
+    ///         println!("socket disconnect {}", socket.id);
     ///     }
     ///
     ///     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) {
