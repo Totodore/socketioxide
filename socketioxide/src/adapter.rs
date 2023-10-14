@@ -218,7 +218,7 @@ impl Adapter for LocalAdapter {
         tracing::debug!(
             "broadcasting packet to {} sockets: {:?}",
             sockets.len(),
-            sockets.iter().map(|s| s.sid).collect::<Vec<_>>()
+            sockets.iter().map(|s| s.id).collect::<Vec<_>>()
         );
         let count = sockets.len();
         let ack_futs = sockets.into_iter().map(move |socket| {
@@ -234,7 +234,7 @@ impl Adapter for LocalAdapter {
         Ok(self
             .apply_opts(opts)
             .into_iter()
-            .map(|socket| socket.sid)
+            .map(|socket| socket.id)
             .collect())
     }
 
@@ -258,7 +258,7 @@ impl Adapter for LocalAdapter {
     fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) -> Result<(), Infallible> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
-            self.add_all(socket.sid, rooms.clone()).unwrap();
+            self.add_all(socket.id, rooms.clone()).unwrap();
         }
         Ok(())
     }
@@ -266,7 +266,7 @@ impl Adapter for LocalAdapter {
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) -> Result<(), Infallible> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         for socket in self.apply_opts(opts) {
-            self.del(socket.sid, rooms.clone()).unwrap();
+            self.del(socket.id, rooms.clone()).unwrap();
         }
         Ok(())
     }
@@ -310,7 +310,7 @@ impl LocalAdapter {
             let sockets = ns.get_sockets();
             sockets
                 .into_iter()
-                .filter(|socket| !except.contains(&socket.sid))
+                .filter(|socket| !except.contains(&socket.id))
                 .collect()
         } else if let Some(sock) = opts.sid.and_then(|sid| ns.get_socket(sid).ok()) {
             vec![sock]
@@ -530,7 +530,7 @@ mod test {
         opts.except = vec!["room2".to_string()];
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
-        assert_eq!(sockets[0].sid, socket1);
+        assert_eq!(sockets[0].id, socket1);
 
         let mut opts = BroadcastOptions::new(Some(socket2));
         opts.flags.insert(BroadcastFlags::Broadcast);
@@ -541,7 +541,7 @@ mod test {
         let opts = BroadcastOptions::new(Some(socket2));
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
-        assert_eq!(sockets[0].sid, socket2);
+        assert_eq!(sockets[0].id, socket2);
 
         let opts = BroadcastOptions::new(Some(10000i64.into()));
         let sockets = adapter.fetch_sockets(opts).unwrap();

@@ -103,7 +103,7 @@ pub struct Socket<A: Adapter> {
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
-    pub sid: Sid,
+    pub id: Sid,
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData>>,
 }
@@ -121,7 +121,7 @@ impl<A: Adapter> Socket<A> {
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
-            sid,
+            id: sid,
             extensions: Extensions::new(),
             config,
             esocket,
@@ -282,22 +282,22 @@ impl<A: Adapter> Socket<A> {
 
     /// Join the given rooms.
     pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_all(self.sid, rooms)
+        self.ns.adapter.add_all(self.id, rooms)
     }
 
     /// Leave the given rooms.
     pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del(self.sid, rooms)
+        self.ns.adapter.del(self.id, rooms)
     }
 
     /// Leave all rooms where the socket is connected.
     pub fn leave_all(&self) -> Result<(), A::Error> {
-        self.ns.adapter.del_all(self.sid)
+        self.ns.adapter.del_all(self.id)
     }
 
     /// Get all rooms where the socket is connected.
     pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.socket_rooms(self.sid)
+        self.ns.adapter.socket_rooms(self.id)
     }
 
     // Socket operators
@@ -322,7 +322,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.sid)).to(rooms)
+        Operators::new(self.ns.clone(), Some(self.id)).to(rooms)
     }
 
     /// Select all clients in the given rooms.
@@ -345,7 +345,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.sid)).within(rooms)
+        Operators::new(self.ns.clone(), Some(self.id)).within(rooms)
     }
 
     /// Filter out all clients selected with the previous operators which are in the given rooms.
@@ -368,7 +368,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.sid)).except(rooms)
+        Operators::new(self.ns.clone(), Some(self.id)).except(rooms)
     }
 
     /// Broadcast to all clients only connected on this node (when using multiple nodes).
@@ -385,7 +385,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn local(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.sid)).local()
+        Operators::new(self.ns.clone(), Some(self.id)).local()
     }
 
     /// Set a custom timeout when sending a message with an acknowledgement.
@@ -415,7 +415,7 @@ impl<A: Adapter> Socket<A> {
     /// });
     ///
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.sid)).timeout(timeout)
+        Operators::new(self.ns.clone(), Some(self.id)).timeout(timeout)
     }
 
     /// Add a binary payload to the message.
@@ -431,7 +431,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.sid)).bin(binary)
+        Operators::new(self.ns.clone(), Some(self.id)).bin(binary)
     }
 
     /// Broadcast to all clients without any filtering (except the current socket).
@@ -447,7 +447,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn broadcast(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.sid)).broadcast()
+        Operators::new(self.ns.clone(), Some(self.id)).broadcast()
     }
 
     /// Disconnect the socket from the current namespace,
@@ -463,7 +463,7 @@ impl<A: Adapter> Socket<A> {
     /// Return a future that resolves when the underlying transport is closed.
     pub(crate) async fn close_underlying_transport(&self) {
         if !self.esocket.is_closed() {
-            debug!("closing underlying transport for socket: {}", self.sid);
+            debug!("closing underlying transport for socket: {}", self.id);
             self.esocket.close(EIoDisconnectReason::ClosingServer);
         }
         self.esocket.closed().await;
@@ -516,7 +516,7 @@ impl<A: Adapter> Socket<A> {
             tokio::spawn(handler(self.clone(), reason));
         }
 
-        self.ns.remove_socket(self.sid)?;
+        self.ns.remove_socket(self.id)?;
         Ok(())
     }
 
@@ -574,7 +574,7 @@ impl<A: Adapter> Debug for Socket<A> {
             .field("ns", &self.ns())
             .field("ack_message", &self.ack_message)
             .field("ack_counter", &self.ack_counter)
-            .field("sid", &self.sid)
+            .field("sid", &self.id)
             .finish()
     }
 }

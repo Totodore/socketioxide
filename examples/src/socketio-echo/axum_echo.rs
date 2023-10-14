@@ -11,7 +11,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
     io.ns("/", |socket, auth: Value| async move {
-        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
+        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", auth).ok();
 
         socket.on("message", |socket, data: Value, bin, _| async move {
@@ -25,12 +25,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         socket.on_disconnect(|socket, reason| async move {
-            info!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            info!("Socket.IO disconnected: {} {}", socket.id, reason);
         });
     });
 
     io.ns("/custom", |socket, auth: Value| async move {
-        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
+        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", auth).ok();
     });
 

@@ -62,7 +62,7 @@ impl<A: Adapter> Namespace<A> {
     }
 
     pub fn has(&self, sid: Sid) -> bool {
-        self.sockets.read().unwrap().values().any(|s| s.sid == sid)
+        self.sockets.read().unwrap().values().any(|s| s.id == sid)
     }
 
     pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
