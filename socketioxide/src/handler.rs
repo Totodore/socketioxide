@@ -22,7 +22,7 @@ pub(crate) trait MessageCaller<A: Adapter>: Send + Sync + 'static {
 }
 
 pub(crate) trait NamespaceCaller<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Value) -> Result<(), serde_json::Error>;
+    fn call(&self, s: Arc<Socket<A>>, auth: String) -> Result<(), serde_json::Error>;
 }
 
 pub(crate) struct CallbackHandler<Param, F, A>
@@ -108,8 +108,8 @@ where
     F: Fn(Arc<Socket<A>>, Param) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     A: Adapter,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Value) -> Result<(), serde_json::Error> {
-        let v: Param = serde_json::from_value(auth)?;
+    fn call(&self, s: Arc<Socket<A>>, auth: String) -> Result<(), serde_json::Error> {
+        let v: Param = serde_json::from_str(&auth)?;
         let fut = (self.handler)(s, v);
         tokio::spawn(fut);
         Ok(())

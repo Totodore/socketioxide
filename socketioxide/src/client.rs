@@ -5,7 +5,6 @@ use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
 use futures::{Future, TryFutureExt};
 use serde::de::DeserializeOwned;
-use serde_json::{json, Value};
 
 use engineioxide::sid_generator::Sid;
 use tokio::sync::oneshot;
@@ -58,7 +57,7 @@ impl<A: Adapter> Client<A> {
     /// Called when a socket connects to a new namespace
     fn sock_connect(
         &self,
-        auth: Option<Value>,
+        auth: String,
         ns_path: String,
         esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
@@ -77,12 +76,7 @@ impl<A: Adapter> Client<A> {
             if let Err(err) = esocket.emit(connect_packet.try_into()?) {
                 debug!("sending error during socket connection: {err:?}");
             }
-            ns.connect(
-                sid,
-                esocket.clone(),
-                auth.unwrap_or(json!({})),
-                self.config.clone(),
-            )?;
+            ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                 tx.send(()).unwrap();
             }
@@ -182,6 +176,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         let protocol: ProtocolVersion = socket.protocol.into();
 
         // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
+        // Because we connect by default to the root namespace, we should ensure before that the root namespace is defined
         #[cfg(feature = "v4")]
         if protocol == ProtocolVersion::V4 {
             debug!("connecting to default namespace for v4");
@@ -224,8 +219,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         debug!("Packet: {:?}", packet);
 
         let res: Result<(), Error> = match packet.inner {
+            // In v4 protocol the connect packet maybe null, by default we use the null string
+            // It will be then serialized to a "nullish" value for the handler
             PacketData::Connect(auth) => self
-                .sock_connect(auth, packet.ns, &socket)
+                .sock_connect(auth.unwrap_or("null".to_string()), packet.ns, &socket)
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(&socket, packet);

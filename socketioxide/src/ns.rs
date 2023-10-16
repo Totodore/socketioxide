@@ -15,7 +15,6 @@ use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid_generator::Sid;
 use futures::Future;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 
 pub struct Namespace<A: Adapter> {
     pub path: String,
@@ -45,7 +44,7 @@ impl<A: Adapter> Namespace<A> {
         self: Arc<Self>,
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData>>,
-        auth: Value,
+        auth: String,
         config: Arc<SocketIoConfig>,
     ) -> Result<(), serde_json::Error> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket, config).into();

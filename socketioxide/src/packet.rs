@@ -53,7 +53,7 @@ impl Packet {
     /// Sends a connect packet with payload.
     #[cfg(feature = "v5")]
     fn connect_v5(ns: String, sid: Sid) -> Self {
-        let val = serde_json::to_value(ConnectPacket {
+        let val = serde_json::to_string(&ConnectPacket {
             sid: sid.to_string(),
         })
         .unwrap();
@@ -125,7 +125,7 @@ impl Packet {
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacketData {
-    Connect(Option<Value>),
+    Connect(Option<String>),
     Disconnect,
     Event(String, Value, Option<i64>),
     EventAck(Value, i64),
