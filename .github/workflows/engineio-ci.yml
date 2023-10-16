@@ -19,7 +19,7 @@ jobs:
           toolchain: stable
       - uses: actions/checkout@v3
         with:
-          repository: socketio/engine.io-protocol
+          repository: totodore/engine.io-protocol
           path: engine.io-protocol
           ref: v3
       - uses: actions/setup-node@v3
@@ -56,7 +56,7 @@ jobs:
           toolchain: stable
       - uses: actions/checkout@v3
         with:
-          repository: socketio/engine.io-protocol
+          repository: totodore/engine.io-protocol
           path: engine.io-protocol
           ref: main
       - uses: actions/setup-node@v3
