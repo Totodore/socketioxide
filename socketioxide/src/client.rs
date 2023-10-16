@@ -63,7 +63,6 @@ impl<A: Adapter> Client<A> {
         esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
-        let protocol: ProtocolVersion = esocket.protocol.into();
         let sid = esocket.id;
         if let Some(ns) = self.get_ns(&ns_path) {
             let protocol: ProtocolVersion = esocket.protocol.into();
