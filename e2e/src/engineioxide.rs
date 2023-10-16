@@ -20,10 +20,10 @@ impl EngineIoHandler for MyHandler {
     type Data = ();
 
     fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
-        println!("socket connect {}", socket.sid);
+        println!("socket connect {}", socket.id);
     }
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
-        println!("socket disconnect {}: {:?}", socket.sid, reason);
+        println!("socket disconnect {}: {:?}", socket.id, reason);
     }
 
     fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {

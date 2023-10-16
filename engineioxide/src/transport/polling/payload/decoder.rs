@@ -118,7 +118,7 @@ pub fn v3_binary_decoder(
 ) -> impl Stream<Item = Result<Packet, Error>> {
     use std::io::Read;
 
-    use crate::payload::{
+    use crate::transport::polling::payload::{
         BINARY_PACKET_IDENTIFIER_V3, BINARY_PACKET_SEPARATOR_V3, STRING_PACKET_IDENTIFIER_V3,
     };
 
@@ -211,7 +211,7 @@ pub fn v3_string_decoder(
     use std::io::ErrorKind;
     use unicode_segmentation::UnicodeSegmentation;
 
-    use crate::payload::STRING_PACKET_SEPARATOR_V3;
+    use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
 
     debug!("decoding payload with v3 string decoder");
     let state = Payload::new(body);

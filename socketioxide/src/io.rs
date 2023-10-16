@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::{
-    config::{EngineIoConfig, EngineIoConfigBuilder},
-    service::{NotFoundService, TransportType},
+    config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
+    service::NotFoundService,
 };
 use futures::{stream::BoxStream, Future};
 use serde::de::DeserializeOwned;
@@ -347,14 +347,14 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("custom_ns", |socket, _: ()| async move {
-    ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can select the custom_ns namespace
     /// // and show all sockets connected to it
     /// let sockets = io.of("custom_ns").unwrap().sockets().unwrap();
     /// for socket in sockets {
-    ///    println!("found socket on /custom_ns namespace with id: {}", socket.sid);
+    ///    println!("found socket on /custom_ns namespace with id: {}", socket.id);
     /// }
     #[inline]
     pub fn of<'a>(&self, path: impl Into<&'a str>) -> Option<Operators<A>> {
@@ -373,14 +373,14 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can select all sockets in the room "room1"
     /// // and for example show all sockets connected to it
     /// let sockets = io.to("room1").sockets().unwrap();
     /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.sid);
+    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
     /// }
     #[inline]
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
@@ -400,14 +400,14 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can select all sockets in the room "room1"
     /// // and for example show all sockets connected to it
     /// let sockets = io.within("room1").sockets().unwrap();
     /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.sid);
+    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
     /// }
     #[inline]
     pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
@@ -426,7 +426,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     ///     socket.on("register1", |socket, data: (), _, _| async move {
     ///         socket.join("room1");
     ///     });
@@ -440,7 +440,7 @@ impl<A: Adapter> SocketIo<A> {
     /// // and for example show all sockets connected to it
     /// let sockets = io.except("room1").sockets().unwrap();
     /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.sid);
+    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
     /// }
     #[inline]
     pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
@@ -460,14 +460,14 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can select all sockets in the local node and on the root namespace
     /// // and for example show all sockets connected to it
     /// let sockets = io.local().sockets().unwrap();
     /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.sid);
+    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
     /// }
     #[inline]
     pub fn local(&self) -> Operators<A> {
@@ -489,7 +489,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use std::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
@@ -524,7 +524,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
@@ -552,7 +552,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
@@ -586,7 +586,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use futures::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
@@ -624,14 +624,14 @@ impl<A: Adapter> SocketIo<A> {
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can select all sockets in the room "room1"
     /// // and for example show all sockets connected to it
     /// let sockets = io.within("room1").sockets().unwrap();
     /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.sid);
+    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
     /// }
     #[inline]
     pub fn sockets(&self) -> Result<Vec<Arc<Socket<A>>>, A::Error> {
@@ -650,7 +650,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can disconnect all sockets in the root namespace
@@ -672,7 +672,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can for example add all sockets on the root namespace to the room1 and room3
@@ -694,7 +694,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # use socketioxide::SocketIo;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket, _: ()| async move {
-    ///     println!("Socket connected on / namespace with id: {}", socket.sid);
+    ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
     /// // Later in your code you can for example remove all sockets on the root namespace from the room1 and room3

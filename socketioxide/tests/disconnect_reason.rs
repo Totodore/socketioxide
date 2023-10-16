@@ -25,10 +25,10 @@ use crate::fixture::{create_polling_connection, create_ws_connection};
 fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectReason> {
     let (tx, rx) = mpsc::channel::<DisconnectReason>(chan_size);
     io.ns("/", move |socket, _: Value| {
-        println!("Socket connected on / namespace with id: {}", socket.sid);
+        println!("Socket connected on / namespace with id: {}", socket.id);
         let tx = tx.clone();
         socket.on_disconnect(move |socket, reason| {
-            println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            println!("Socket.IO disconnected: {} {}", socket.id, reason);
             tx.try_send(reason).unwrap();
             async move {}
         });
@@ -214,7 +214,7 @@ pub async fn server_ns_disconnect() {
     let io = create_server(12349);
 
     io.ns("/", move |socket, _: Value| {
-        println!("Socket connected on / namespace with id: {}", socket.sid);
+        println!("Socket connected on / namespace with id: {}", socket.id);
         let sock = socket.clone();
         let tx = tx.clone();
         tokio::spawn(async move {
@@ -223,7 +223,7 @@ pub async fn server_ns_disconnect() {
         });
 
         socket.on_disconnect(move |socket, reason| {
-            println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+            println!("Socket.IO disconnected: {} {}", socket.id, reason);
             tx.try_send(reason).unwrap();
             async move {}
         });

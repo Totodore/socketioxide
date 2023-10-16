@@ -44,7 +44,9 @@ async fn recv_packet(rx: &mut MutexGuard<'_, Receiver<Packet>>) -> Result<Packet
 /// [engine.io v4 protocol](https://socket.io/fr/docs/v4/engine-io-protocol/#http-long-polling-1)
 #[cfg(feature = "v4")]
 pub async fn v4_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<u8>, Error> {
-    use crate::payload::PACKET_SEPARATOR_V4;
+    use payload::PACKET_SEPARATOR_V4;
+
+    use crate::transport::polling::payload;
 
     debug!("encoding payload with v4 encoder");
     let mut data: String = String::new();
@@ -72,7 +74,7 @@ pub async fn v4_encoder(mut rx: MutexGuard<'_, Receiver<Packet>>) -> Result<Vec<
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), Error> {
-    use crate::payload::BINARY_PACKET_SEPARATOR_V3;
+    use crate::transport::polling::payload::BINARY_PACKET_SEPARATOR_V3;
     match packet {
         Packet::BinaryV3(bin) => {
             data.push(0x1);
@@ -104,7 +106,7 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), E
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub fn v3_string_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<(), Error> {
-    use crate::payload::STRING_PACKET_SEPARATOR_V3;
+    use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
     let packet: String = packet.try_into()?;
     let packet = format!(
         "{}{}{}",

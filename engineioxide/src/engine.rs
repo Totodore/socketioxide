@@ -1,46 +1,34 @@
-#![deny(clippy::await_holding_lock)]
-
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
 
 use crate::{
-    body::ResponseBody,
     config::EngineIoConfig,
-    errors::Error,
-    futures::{http_response, ws_response},
     handler::EngineIoHandler,
-    packet::{OpenPacket, Packet},
-    payload::{self},
-    service::TransportType,
     sid_generator::generate_sid,
-    socket::{ConnectionType, DisconnectReason, Socket, SocketReq},
+    socket::{DisconnectReason, Socket, SocketReq},
+    transport::TransportType,
 };
 use crate::{service::ProtocolVersion, sid_generator::Sid};
-use futures::{stream::SplitStream, SinkExt, StreamExt, TryStreamExt};
-use http::{Request, Response, StatusCode};
-use http_body::Body;
-use hyper::upgrade::Upgraded;
-use std::fmt::Debug;
-use tokio_tungstenite::{
-    tungstenite::{protocol::Role, Message},
-    WebSocketStream,
-};
 use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 
-/// Abstract engine implementation for Engine.IO server for http polling and websocket
-/// It handle all the connection logic and dispatch the packets to the socket
+/// The [`EngineIo`] struct holds the state of the engine.io server as well as utility methods to manage the state
 pub struct EngineIo<H: EngineIoHandler> {
+    /// A map of all the sockets connected to the server
     sockets: SocketMap<Socket<H::Data>>,
-    handler: H,
+
+    /// The handler for the engine.io server that will be called when events are received
+    pub handler: H,
+
+    /// The config for the engine.io server
     pub config: EngineIoConfig,
 }
 
 impl<H: EngineIoHandler> EngineIo<H> {
-    /// Create a new Engine.IO server with a handler and a config
+    /// Create a new Engine.IO server with a [`EngineIoHandler`] and a [`EngineIoConfig`]
     pub fn new(handler: H, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
@@ -51,27 +39,25 @@ impl<H: EngineIoHandler> EngineIo<H> {
 }
 
 impl<H: EngineIoHandler> EngineIo<H> {
-    /// Handle Open request
-    /// Create a new socket and add it to the socket map
-    /// Start the heartbeat task
-    /// Send an open packet
-    pub(crate) fn on_open_http_req<B, R>(
-        self: Arc<Self>,
+    /// Create a new engine.io session and a new socket and add it to the socket map
+    pub(crate) fn create_session(
+        self: &Arc<Self>,
         protocol: ProtocolVersion,
-        req: Request<R>,
+        transport: TransportType,
+        req: SocketReq,
         #[cfg(feature = "v3")] supports_binary: bool,
-    ) -> Result<Response<ResponseBody<B>>, Error>
-    where
-        B: Send + 'static,
-    {
-        let close_fn = Box::new(self.clone().close_fn());
+    ) -> Arc<Socket<H::Data>> {
+        let engine = self.clone();
+        let close_fn = Box::new(move |sid, reason| engine.close_session(sid, reason));
+
         let sid = generate_sid();
+
         let socket = Socket::new(
             sid,
             protocol,
-            ConnectionType::Http,
+            transport,
             &self.config,
-            SocketReq::from(req.into_parts().0),
+            req,
             close_fn,
             #[cfg(feature = "v3")]
             supports_binary,
@@ -81,382 +67,17 @@ impl<H: EngineIoHandler> EngineIo<H> {
             self.sockets.write().unwrap().insert(sid, socket.clone());
         }
         socket
-            .clone()
-            .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
-        self.handler.on_connect(socket.clone());
-
-        let packet = OpenPacket::new(TransportType::Polling, sid, &self.config);
-        let packet: String = Packet::Open(packet).try_into()?;
-        let packet = {
-            #[cfg(feature = "v3")]
-            {
-                let mut packet = packet;
-                // The V3 protocol requires the packet length to be prepended to the packet.
-                // It doesn't use a packet separator like the V4 protocol (and up).
-                if protocol == ProtocolVersion::V3 {
-                    packet = format!("{}:{}", packet.chars().count(), packet);
-                }
-                packet
-            }
-            #[cfg(not(feature = "v3"))]
-            packet
-        };
-        http_response(StatusCode::OK, packet, false).map_err(Error::Http)
     }
 
-    /// Handle http polling request
-    ///
-    /// If there is packet in the socket buffer, it will be sent immediately
-    /// Otherwise it will wait for the next packet to be sent from the socket
-    pub(crate) async fn on_polling_http_req<B>(
-        self: Arc<Self>,
-        protocol: ProtocolVersion,
-        sid: Sid,
-    ) -> Result<Response<ResponseBody<B>>, Error>
-    where
-        B: Send + 'static,
-    {
-        let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
-        if !socket.is_http() {
-            return Err(Error::TransportMismatch);
-        }
-
-        // If the socket is already locked, it means that the socket is being used by another request
-        // In case of multiple http polling, session should be closed
-        let rx = match socket.internal_rx.try_lock() {
-            Ok(s) => s,
-            Err(_) => {
-                socket.close(DisconnectReason::MultipleHttpPollingError);
-                return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
-            }
-        };
-
-        debug!("[sid={sid}] polling request");
-
-        #[cfg(feature = "v3")]
-        let (payload, is_binary) = payload::encoder(rx, protocol, socket.supports_binary).await?;
-        #[cfg(not(feature = "v3"))]
-        let (payload, is_binary) = payload::encoder(rx, protocol).await?;
-
-        debug!("[sid={sid}] sending data: {:?}", payload);
-        Ok(http_response(StatusCode::OK, payload, is_binary)?)
-    }
-
-    /// Handle http polling post request
-    ///
-    /// Split the body into packets and send them to the internal socket
-    pub(crate) async fn on_post_http_req<R, B>(
-        self: Arc<Self>,
-        protocol: ProtocolVersion,
-        sid: Sid,
-        body: Request<R>,
-    ) -> Result<Response<ResponseBody<B>>, Error>
-    where
-        R: Body + Send + Unpin + 'static,
-        <R as Body>::Error: Debug,
-        <R as Body>::Data: Send,
-        B: Send + 'static,
-    {
-        let socket = self.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
-        if !socket.is_http() {
-            return Err(Error::TransportMismatch);
-        }
-
-        let packets = payload::decoder(body, protocol, self.config.max_payload);
-        futures::pin_mut!(packets);
-
-        while let Some(packet) = packets.next().await {
-            match packet {
-                Ok(Packet::Close) => {
-                    debug!("[sid={sid}] closing session");
-                    socket.send(Packet::Noop)?;
-                    self.close_session(sid, DisconnectReason::TransportClose);
-                    break;
-                }
-                Ok(Packet::Pong) | Ok(Packet::Ping) => socket
-                    .heartbeat_tx
-                    .try_send(())
-                    .map_err(|_| Error::HeartbeatTimeout),
-                Ok(Packet::Message(msg)) => {
-                    self.handler.on_message(msg, socket.clone());
-                    Ok(())
-                }
-                Ok(Packet::Binary(bin)) | Ok(Packet::BinaryV3(bin)) => {
-                    self.handler.on_binary(bin, socket.clone());
-                    Ok(())
-                }
-                Ok(p) => {
-                    debug!("[sid={sid}] bad packet received: {:?}", &p);
-                    Err(Error::BadPacket(p))
-                }
-                Err(e) => {
-                    debug!("[sid={sid}] error parsing packet: {:?}", e);
-                    self.close_session(sid, DisconnectReason::PacketParsingError);
-                    return Err(e);
-                }
-            }?;
-        }
-        Ok(http_response(StatusCode::OK, "ok", false)?)
-    }
-
-    /// Upgrade a websocket request to create a websocket connection.
-    ///
-    /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
-    /// the http polling request is closed and the SID is kept for the websocket
-    pub(crate) fn on_ws_req<R, B>(
-        self: Arc<Self>,
-        protocol: ProtocolVersion,
-        sid: Option<Sid>,
-        req: Request<R>,
-    ) -> Result<Response<ResponseBody<B>>, Error> {
-        let (parts, _) = req.into_parts();
-        let ws_key = parts
-            .headers
-            .get("Sec-WebSocket-Key")
-            .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
-            .clone();
-        let req_data = SocketReq::from(&parts);
-
-        let req = Request::from_parts(parts, ());
-        tokio::spawn(async move {
-            match hyper::upgrade::on(req).await {
-                Ok(conn) => match self.on_ws_req_init(conn, protocol, sid, req_data).await {
-                    Ok(_) => debug!("ws closed"),
-                    Err(e) => debug!("ws closed with error: {:?}", e),
-                },
-                Err(e) => debug!("ws upgrade error: {}", e),
-            }
-        });
-
-        Ok(ws_response(&ws_key)?)
-    }
-
-    /// Handle a websocket connection upgrade
-    ///
-    /// Sends an open packet if it is not an upgrade from a polling request
-    ///
-    /// Read packets from the websocket and handle them, it will block until the connection is closed
-    async fn on_ws_req_init(
-        self: Arc<Self>,
-        conn: Upgraded,
-        protocol: ProtocolVersion,
-        sid: Option<Sid>,
-        req_data: SocketReq,
-    ) -> Result<(), Error> {
-        let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, None);
-        let (socket, ws) = if let Some(sid) = sid {
-            match self.get_socket(sid) {
-                None => return Err(Error::UnknownSessionID(sid)),
-                Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
-                Some(socket) => {
-                    let mut ws = ws_init().await;
-                    self.ws_upgrade_handshake(protocol, sid, &mut ws).await?;
-                    (socket, ws)
-                }
-            }
-        } else {
-            let sid = generate_sid();
-            let close_fn = Box::new(self.clone().close_fn());
-            let socket = Socket::new(
-                sid,
-                protocol,
-                ConnectionType::WebSocket,
-                &self.config,
-                req_data,
-                close_fn,
-                #[cfg(feature = "v3")]
-                true, // supports_binary
-            );
-            let socket = Arc::new(socket);
-            {
-                self.sockets.write().unwrap().insert(sid, socket.clone());
-            }
-            debug!("[sid={sid}] new websocket connection");
-            let mut ws = ws_init().await;
-            self.ws_init_handshake(sid, &mut ws).await?;
-            socket
-                .clone()
-                .spawn_heartbeat(self.config.ping_interval, self.config.ping_timeout);
-            (socket, ws)
-        };
-        let (mut tx, rx) = ws.split();
-
-        // Pipe between websocket and internal socket channel
-        let rx_socket = socket.clone();
-        let rx_handle = tokio::spawn(async move {
-            let mut socket_rx = rx_socket.internal_rx.try_lock().unwrap();
-            while let Some(item) = socket_rx.recv().await {
-                let res = match item {
-                    Packet::Binary(bin) | Packet::BinaryV3(bin) => {
-                        tx.send(Message::Binary(bin)).await
-                    }
-                    Packet::Close => {
-                        tx.send(Message::Close(None)).await.ok();
-                        socket_rx.close();
-                        break;
-                    }
-                    _ => {
-                        let packet: String = item.try_into().unwrap();
-                        tx.send(Message::Text(packet)).await
-                    }
-                };
-                if let Err(e) = res {
-                    debug!("[sid={}] error sending packet: {}", rx_socket.sid, e);
-                    break;
-                }
-            }
-        });
-
-        self.handler.on_connect(socket.clone());
-        if let Err(ref e) = self.ws_forward_to_handler(rx, &socket).await {
-            debug!("[sid={}] error when handling packet: {:?}", socket.sid, e);
-            if let Some(reason) = e.into() {
-                self.close_session(socket.sid, reason);
-            }
-        } else {
-            self.close_session(socket.sid, DisconnectReason::TransportClose);
-        }
-        rx_handle.abort();
-        Ok(())
-    }
-
-    /// Forwards all packets received from a websocket to a EngineIo [`Socket`]
-    async fn ws_forward_to_handler(
-        &self,
-        mut rx: SplitStream<WebSocketStream<Upgraded>>,
-        socket: &Arc<Socket<H::Data>>,
-    ) -> Result<(), Error> {
-        while let Some(msg) = rx.try_next().await? {
-            match msg {
-                Message::Text(msg) => match Packet::try_from(msg)? {
-                    Packet::Close => {
-                        debug!("[sid={}] closing session", socket.sid);
-                        self.close_session(socket.sid, DisconnectReason::TransportClose);
-                        break;
-                    }
-                    Packet::Pong | Packet::Ping => socket
-                        .heartbeat_tx
-                        .try_send(())
-                        .map_err(|_| Error::HeartbeatTimeout),
-                    Packet::Message(msg) => {
-                        self.handler.on_message(msg, socket.clone());
-                        Ok(())
-                    }
-                    p => return Err(Error::BadPacket(p)),
-                },
-                Message::Binary(data) => {
-                    self.handler.on_binary(data, socket.clone());
-                    Ok(())
-                }
-                Message::Close(_) => break,
-                _ => panic!("[sid={}] unexpected ws message", socket.sid),
-            }?
-        }
-        Ok(())
-    }
-
-    /// Upgrade a session from a polling request to a websocket request.
-    ///
-    /// Before upgrading the session the server should send a NOOP packet to any pending polling request.
-    ///
-    /// ## Handshake :
-    /// ```text
-    /// CLIENT                                                 SERVER
-    ///│                                                      │
-    ///│   GET /engine.io/?EIO=4&transport=websocket&sid=...  │
-    ///│ ───────────────────────────────────────────────────► │
-    ///│  ◄─────────────────────────────────────────────────┘ │
-    ///│            HTTP 101 (WebSocket handshake)            │
-    ///│                                                      │
-    ///│            -----  WebSocket frames -----             │
-    ///│  ─────────────────────────────────────────────────►  │
-    ///│                         2probe                       │ (ping packet)
-    ///│  ◄─────────────────────────────────────────────────  │
-    ///│                         3probe                       │ (pong packet)
-    ///│  ─────────────────────────────────────────────────►  │
-    ///│                         5                            │ (upgrade packet)
-    ///│                                                      │
-    ///│            -----  WebSocket frames -----             │
-    /// ```
-    #[tracing::instrument(skip(self, ws), fields(sid = sid.to_string()))]
-    async fn ws_upgrade_handshake(
-        &self,
-        protocol: ProtocolVersion,
-        sid: Sid,
-        ws: &mut WebSocketStream<Upgraded>,
-    ) -> Result<(), Error> {
-        debug!("websocket connection upgrade");
-        let socket = self.get_socket(sid).unwrap();
-
-        #[cfg(feature = "v4")]
-        {
-            // send a NOOP packet to any pending polling request so it closes gracefully
-            if protocol == ProtocolVersion::V4 {
-                socket.send(Packet::Noop)?;
-            }
-        }
-
-        // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
-        let msg = match ws.next().await {
-            Some(Ok(Message::Text(d))) => d,
-            _ => Err(Error::UpgradeError)?,
-        };
-        match Packet::try_from(msg)? {
-            Packet::PingUpgrade => {
-                // Respond with a PongUpgrade packet
-                ws.send(Message::Text(Packet::PongUpgrade.try_into()?))
-                    .await?;
-            }
-            p => Err(Error::BadPacket(p))?,
-        };
-
-        #[cfg(feature = "v3")]
-        {
-            // send a NOOP packet to any pending polling request so it closes gracefully
-            // V3 protocol introduce _paused_ polling transport which require to close
-            // the polling request **after** the ping/pong handshake
-            if protocol == ProtocolVersion::V3 {
-                socket.send(Packet::Noop)?;
-            }
-        }
-
-        // Fetch the next packet from the ws stream, it should be an Upgrade packet
-        let msg = match ws.next().await {
-            Some(Ok(Message::Text(d))) => d,
-            Some(Ok(Message::Close(_))) => {
-                debug!("ws stream closed before upgrade");
-                Err(Error::UpgradeError)?
-            }
-            _ => {
-                debug!("unexpected ws message before upgrade");
-                Err(Error::UpgradeError)?
-            }
-        };
-        match Packet::try_from(msg)? {
-            Packet::Upgrade => debug!("ws upgraded successful"),
-            p => Err(Error::BadPacket(p))?,
-        };
-
-        // wait for any polling connection to finish by waiting for the socket to be unlocked
-        let _ = socket.internal_rx.lock().await;
-        socket.upgrade_to_websocket();
-        Ok(())
-    }
-
-    /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
-    async fn ws_init_handshake(
-        &self,
-        sid: Sid,
-        ws: &mut WebSocketStream<Upgraded>,
-    ) -> Result<(), Error> {
-        let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, &self.config));
-        ws.send(Message::Text(packet.try_into()?)).await?;
-        Ok(())
+    /// Get a socket by its sid
+    /// Clones the socket ref to avoid holding the lock
+    pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H::Data>>> {
+        self.sockets.read().unwrap().get(&sid).cloned()
     }
 
     /// Close an engine.io session by removing the socket from the socket map and closing the socket
     /// It should be the only way to close a session and to remove a socket from the socket map
-    fn close_session(&self, sid: Sid, reason: DisconnectReason) {
+    pub fn close_session(&self, sid: Sid, reason: DisconnectReason) {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
             // Try to close the internal channel if it is available
@@ -469,16 +90,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 self.sockets.read().unwrap().len()
             );
         }
-    }
-
-    /// Get a socket by its sid
-    /// Clones the socket ref to avoid holding the lock
-    pub fn get_socket(&self, sid: Sid) -> Option<Arc<Socket<H::Data>>> {
-        self.sockets.read().unwrap().get(&sid).cloned()
-    }
-
-    fn close_fn(self: Arc<Self>) -> impl Fn(Sid, DisconnectReason) {
-        move |sid: Sid, reason: DisconnectReason| self.close_session(sid, reason)
     }
 }
 
@@ -496,11 +107,11 @@ mod tests {
         type Data = ();
 
         fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
-            println!("socket connect {}", socket.sid);
+            println!("socket connect {}", socket.id);
         }
 
         fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
-            println!("socket disconnect {} {:?}", socket.sid, reason);
+            println!("socket disconnect {} {:?}", socket.id, reason);
         }
 
         fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
@@ -512,5 +123,63 @@ mod tests {
             println!("Ping pong binary message {:?}", data);
             socket.emit_binary(data).ok();
         }
+    }
+
+    #[tokio::test]
+    async fn create_session() {
+        let config = EngineIoConfig::default();
+        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let socket = engine.create_session(
+            ProtocolVersion::V4,
+            TransportType::Polling,
+            SocketReq {
+                headers: http::HeaderMap::new(),
+                uri: http::Uri::default(),
+            },
+            #[cfg(feature = "v3")]
+            true,
+        );
+        assert_eq!(engine.sockets.read().unwrap().len(), 1);
+        assert_eq!(socket.protocol, ProtocolVersion::V4);
+        assert!(socket.is_http());
+    }
+
+    #[tokio::test]
+    async fn close_session() {
+        let config = EngineIoConfig::default();
+        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let socket = engine.create_session(
+            ProtocolVersion::V4,
+            TransportType::Polling,
+            SocketReq {
+                headers: http::HeaderMap::new(),
+                uri: http::Uri::default(),
+            },
+            #[cfg(feature = "v3")]
+            true,
+        );
+        assert_eq!(engine.sockets.read().unwrap().len(), 1);
+        engine.close_session(socket.id, DisconnectReason::TransportClose);
+        assert_eq!(engine.sockets.read().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_socket() {
+        let config = EngineIoConfig::default();
+        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let socket = engine.create_session(
+            ProtocolVersion::V4,
+            TransportType::Polling,
+            SocketReq {
+                headers: http::HeaderMap::new(),
+                uri: http::Uri::default(),
+            },
+            #[cfg(feature = "v3")]
+            true,
+        );
+        assert_eq!(engine.sockets.read().unwrap().len(), 1);
+        let socket = engine.get_socket(socket.id).unwrap();
+        assert_eq!(socket.protocol, ProtocolVersion::V4);
+        assert!(socket.is_http());
     }
 }

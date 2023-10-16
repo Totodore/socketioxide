@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_svc();
 
     io.ns("/", |socket, data: Value| async move {
-        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
+        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", data).ok();
 
         socket.on("message", |socket, data: Value, bin, _| async move {
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     });
     io.ns("/custom", |socket, data: Value| async move {
-        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
+        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", data).ok();
     });
     info!("Starting server");

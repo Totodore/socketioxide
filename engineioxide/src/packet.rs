@@ -1,8 +1,9 @@
 use base64::{engine::general_purpose, Engine};
 use serde::{de::Error, Deserialize, Serialize};
 
+use crate::config::EngineIoConfig;
 use crate::sid_generator::Sid;
-use crate::{config::EngineIoConfig, service::TransportType};
+use crate::transport::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
 #[derive(Debug, PartialEq, PartialOrd)]
