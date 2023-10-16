@@ -89,7 +89,7 @@ mod packet;
 mod socket;
 
 /// Socket.IO protocol version
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
     V4 = 4,
     V5 = 5,
