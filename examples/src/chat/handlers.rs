@@ -13,7 +13,7 @@ pub struct Auth {
 }
 
 pub async fn handler(socket: Arc<Socket<LocalAdapter>>, data: Option<Auth>) {
-    info!("Socket connected on / with id: {}", socket.sid);
+    info!("Socket connected on / with id: {}", socket.id);
     if let Some(data) = data {
         info!("Nickname: {:?}", data.nickname);
         socket.extensions.insert(data.nickname);
@@ -91,7 +91,7 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>, data: Option<Auth>) {
     });
 
     socket.on_disconnect(|socket, reason| async move {
-        info!("Socket disconnected: {} {}", socket.sid, reason);
+        info!("Socket disconnected: {} {}", socket.id, reason);
         let Nickname(ref nickname) = *socket.extensions.get().unwrap();
         let msg = format!("{} left the chat", nickname);
         socket.to("default").emit("message", msg).ok();

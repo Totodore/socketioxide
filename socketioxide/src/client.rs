@@ -39,7 +39,7 @@ impl<A: Adapter> Client<A> {
     ///
     /// Returns true if the packet is complete and should be processed
     fn apply_payload_on_packet(&self, data: Vec<u8>, socket: &EIoSocket<SocketData>) -> bool {
-        debug!("[sid={}] applying payload on packet", socket.sid);
+        debug!("[sid={}] applying payload on packet", socket.id);
         if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
             match packet.inner {
                 PacketData::BinaryEvent(_, ref mut bin, _)
@@ -50,7 +50,7 @@ impl<A: Adapter> Client<A> {
                 _ => unreachable!("partial_bin_packet should only be set for binary packets"),
             }
         } else {
-            debug!("[sid={}] socket received unexpected bin data", socket.sid);
+            debug!("[sid={}] socket received unexpected bin data", socket.id);
             false
         }
     }
@@ -63,8 +63,8 @@ impl<A: Adapter> Client<A> {
         esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
-        let sid = esocket.sid;
         let protocol: ProtocolVersion = esocket.protocol.into();
+        let sid = esocket.id;
         if let Some(ns) = self.get_ns(&ns_path) {
             // cancel the connect timeout task for v5
             #[cfg(feature = "v5")]
@@ -122,7 +122,7 @@ impl<A: Adapter> Client<A> {
 
         tokio::spawn(
             tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
-                debug!("connect timeout for socket {}", socket.sid);
+                debug!("connect timeout for socket {}", socket.id);
                 socket.close(EIoDisconnectReason::TransportClose);
             }),
         );
@@ -176,7 +176,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
     fn on_connect(&self, socket: Arc<EIoSocket<SocketData>>) {
-        debug!("eio socket connect {}", socket.sid);
+        debug!("eio socket connect {}", socket.id);
 
         let protocol: ProtocolVersion = socket.protocol.into();
 
@@ -193,7 +193,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    #[tracing::instrument(skip(self, socket), fields(sid = socket.sid.to_string()))]
+    #[tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string()))]
     fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
         debug!("eio socket disconnected");
         let res: Result<Vec<_>, _> = self
@@ -201,7 +201,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .read()
             .unwrap()
             .values()
-            .filter_map(|ns| ns.get_socket(socket.sid).ok())
+            .filter_map(|ns| ns.get_socket(socket.id).ok())
             .map(|s| s.close(reason.clone().into()))
             .collect();
         match res {
@@ -230,12 +230,12 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                 self.sock_recv_bin_packet(&socket, packet);
                 Ok(())
             }
-            _ => self.sock_propagate_packet(packet, socket.sid),
+            _ => self.sock_propagate_packet(packet, socket.id),
         };
         if let Err(ref err) = res {
             error!(
                 "error while processing packet to socket {}: {}",
-                socket.sid, err
+                socket.id, err
             );
             if let Some(reason) = err.into() {
                 socket.close(reason);
@@ -249,10 +249,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_binary(&self, data: Vec<u8>, socket: Arc<EIoSocket<SocketData>>) {
         if self.apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
-                if let Err(ref err) = self.sock_propagate_packet(packet, socket.sid) {
+                if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
                     debug!(
                         "error while propagating packet to socket {}: {}",
-                        socket.sid, err
+                        socket.id, err
                     );
                     if let Some(reason) = err.into() {
                         socket.close(reason);

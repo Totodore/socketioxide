@@ -28,7 +28,7 @@
 //!     let (layer, io) = SocketIo::new_layer();
 //!
 //!     io.ns("/", |socket, auth: Value| async move {
-//!         println!("Socket connected on / namespace with id: {}", socket.sid);
+//!         println!("Socket connected on / namespace with id: {}", socket.id);
 //!
 //!         // Add a callback triggered when the socket receive an 'abc' event
 //!         // The json data will be deserialized to MyData
@@ -46,12 +46,12 @@
 //!         // Add a callback triggered when the socket disconnect
 //!         // The reason of the disconnection will be passed to the callback
 //!         socket.on_disconnect(|socket, reason| async move {
-//!             println!("Socket.IO disconnected: {} {}", socket.sid, reason);
+//!             println!("Socket.IO disconnected: {} {}", socket.id, reason);
 //!         });
 //!     });
 //!     
 //!     io.ns("/custom", |socket, auth: Value| async move {
-//!         println!("Socket connected on /custom namespace with id: {}", socket.sid);
+//!         println!("Socket connected on /custom namespace with id: {}", socket.id);
 //!     });
 //!
 //!     let app = axum::Router::new()
@@ -74,7 +74,7 @@ pub mod extensions;
 pub mod layer;
 pub mod service;
 
-pub use engineioxide::service::TransportType;
+pub use engineioxide::config::TransportType;
 pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 pub use socket::{DisconnectReason, Socket};

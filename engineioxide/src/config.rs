@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::service::TransportType;
+pub use crate::transport::TransportType;
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
@@ -106,10 +106,10 @@ impl EngineIoConfigBuilder {
     ///
     ///     type Data = ();
     ///     fn on_connect(&self, socket: Arc<Socket<()>>) {
-    ///         println!("socket connect {}", socket.sid);
+    ///         println!("socket connect {}", socket.id);
     ///     }
     ///     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) {
-    ///         println!("socket disconnect {}", socket.sid);
+    ///         println!("socket disconnect {}", socket.id);
     ///     }
     ///
     ///     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) {
@@ -163,9 +163,7 @@ impl Default for EngineIoConfigBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::service::TransportType;
-
-    use super::EngineIoConfig;
+    use super::*;
 
     #[test]
     pub fn config_transports() {

@@ -18,14 +18,8 @@ use tokio::{
 use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
-use crate::sid_generator::Sid;
 use crate::{config::EngineIoConfig, errors::Error, packet::Packet, service::ProtocolVersion};
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ConnectionType {
-    Http = 0b000000001,
-    WebSocket = 0b000000010,
-}
+use crate::{sid_generator::Sid, transport::TransportType};
 
 /// Http Request data used to create a socket
 #[derive(Debug)]
@@ -102,15 +96,15 @@ where
     D: Default + Send + Sync + 'static,
 {
     /// The socket id
-    pub sid: Sid,
+    pub id: Sid,
 
     /// The protocol version used by the socket
     pub protocol: ProtocolVersion,
 
-    /// The connection type represented as a bitfield
+    /// The transport type represented as a bitfield
     /// It is represented as a bitfield to allow the use of an [`AtomicU8`] so it can be shared between threads
     /// without any mutex
-    conn: AtomicU8,
+    transport: AtomicU8,
 
     /// Channel to receive [`Packet`] from the connection
     ///
@@ -158,7 +152,7 @@ where
     pub(crate) fn new(
         sid: Sid,
         protocol: ProtocolVersion,
-        conn: ConnectionType,
+        transport: TransportType,
         config: &EngineIoConfig,
         req_data: SocketReq,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
@@ -168,9 +162,9 @@ where
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         Self {
-            sid,
+            id: sid,
             protocol,
-            conn: AtomicU8::new(conn as u8),
+            transport: AtomicU8::new(transport as u8),
 
             internal_rx: Mutex::new(internal_rx),
             internal_tx,
@@ -197,7 +191,7 @@ where
 
     /// Sends a packet to the connection.
     pub(crate) fn send(&self, packet: Packet) -> Result<(), TrySendError<Packet>> {
-        debug!("[sid={}] sending packet: {:?}", self.sid, packet);
+        debug!("[sid={}] sending packet: {:?}", self.id, packet);
         self.internal_tx.try_send(packet)?;
         Ok(())
     }
@@ -211,7 +205,7 @@ where
         let handle = tokio::spawn(async move {
             if let Err(e) = socket.heartbeat_job(interval, timeout).await {
                 socket.close(DisconnectReason::HeartbeatTimeout);
-                debug!("[sid={}] heartbeat error: {:?}", socket.sid, e);
+                debug!("[sid={}] heartbeat error: {:?}", socket.id, e);
             }
         });
         self.heartbeat_handle
@@ -268,7 +262,7 @@ where
         )))
         .await;
 
-        debug!("[sid={}] heartbeat sender routine started", self.sid);
+        debug!("[sid={}] heartbeat sender routine started", self.id);
 
         loop {
             // Some clients send the pong packet in first. If that happens, we should consume it.
@@ -292,7 +286,7 @@ where
             .try_lock()
             .expect("Pong rx should be locked only once");
 
-        debug!("[sid={}] heartbeat receiver routine started", self.sid);
+        debug!("[sid={}] heartbeat receiver routine started", self.id);
 
         loop {
             tokio::time::timeout(interval + timeout, heartbeat_rx.recv())
@@ -300,27 +294,27 @@ where
                 .map_err(|_| Error::HeartbeatTimeout)?
                 .ok_or(Error::HeartbeatTimeout)?;
 
-            debug!("[sid={}] ping received, sending pong", self.sid);
+            debug!("[sid={}] ping received, sending pong", self.id);
             self.internal_tx
                 .try_send(Packet::Pong)
                 .map_err(|_| Error::HeartbeatTimeout)?;
         }
     }
 
-    /// Returns true if the [`Socket`] has a websocket [`ConnectionType`]
+    /// Returns true if the [`Socket`] has a websocket [`TransportType`]
     pub(crate) fn is_ws(&self) -> bool {
-        self.conn.load(Ordering::Relaxed) == ConnectionType::WebSocket as u8
+        self.transport.load(Ordering::Relaxed) == TransportType::Websocket as u8
     }
-    /// returns true if the [`Socket`] has an HTTP [`ConnectionType`]
+    /// returns true if the [`Socket`] has an HTTP [`TransportType`]
     pub(crate) fn is_http(&self) -> bool {
-        self.conn.load(Ordering::Relaxed) == ConnectionType::Http as u8
+        self.transport.load(Ordering::Relaxed) == TransportType::Polling as u8
     }
 
-    /// Sets the [`ConnectionType`] to WebSocket
+    /// Sets the [`TransportType`] to WebSocket
     /// Used when the client upgrade the connection from HTTP to WebSocket
     pub(crate) fn upgrade_to_websocket(&self) {
-        self.conn
-            .store(ConnectionType::WebSocket as u8, Ordering::Relaxed);
+        self.transport
+            .store(TransportType::Websocket as u8, Ordering::Relaxed);
     }
 
     /// Emits a message to the client.
@@ -340,7 +334,7 @@ where
     /// Immediately closes the socket and the underlying connection.
     /// The socket will be removed from the `Engine` and the [`Handler`](crate::handler::EngineIoHandler) will be notified.
     pub fn close(&self, reason: DisconnectReason) {
-        (self.close_fn)(self.sid, reason);
+        (self.close_fn)(self.id, reason);
         self.send(Packet::Close).ok();
     }
 
@@ -375,9 +369,9 @@ where
 impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Socket")
-            .field("sid", &self.sid)
+            .field("sid", &self.id)
             .field("protocol", &self.protocol)
-            .field("conn", &self.conn)
+            .field("conn", &self.transport)
             .field("internal_rx", &self.internal_rx)
             .field("internal_tx", &self.internal_tx)
             .field("heartbeat_rx", &self.heartbeat_rx)
@@ -394,7 +388,7 @@ where
     D: Default + Send + Sync + 'static,
 {
     fn drop(&mut self) {
-        debug!("[sid={}] dropping socket", self.sid);
+        debug!("[sid={}] dropping socket", self.id);
     }
 }
 
@@ -411,9 +405,9 @@ where
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         Self {
-            sid,
+            id: sid,
             protocol: ProtocolVersion::V4,
-            conn: AtomicU8::new(ConnectionType::WebSocket as u8),
+            transport: AtomicU8::new(TransportType::Websocket as u8),
 
             internal_rx: Mutex::new(internal_rx),
             internal_tx,

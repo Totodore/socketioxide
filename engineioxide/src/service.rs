@@ -1,6 +1,12 @@
 use crate::{
-    body::ResponseBody, config::EngineIoConfig, engine::EngineIo, errors::Error,
-    futures::ResponseFuture, handler::EngineIoHandler, sid_generator::Sid,
+    body::ResponseBody,
+    config::EngineIoConfig,
+    engine::EngineIo,
+    errors::Error,
+    futures::ResponseFuture,
+    handler::EngineIoHandler,
+    sid_generator::Sid,
+    transport::{polling, ws, TransportType},
 };
 use bytes::Bytes;
 use futures::future::{ready, Ready};
@@ -15,9 +21,9 @@ use std::{
     task::{Context, Poll},
 };
 
-/// A [`Service`] that handles `EngineIo` requests as a middleware.
-/// If the request is not an `EngineIo` request, it forwards it to the inner service.
-/// It is agnostic to the [`TransportType`](crate::service::TransportType).
+/// A [`Service`] that handles engine.io requests as a middleware.
+/// If the request is not an engine.io request, it forwards it to the inner service.
+/// If it is an engine.io request it will forward it to the appropriate [`transport`](crate::transport).
 ///
 /// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
 pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
@@ -36,6 +42,7 @@ impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
         EngineIoService::with_config_inner(NotFoundService, handler, config)
     }
 }
+
 impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
     /// Create a new [`EngineIoService`] with a custom inner service.
     pub fn with_inner(inner: S, handler: H) -> Self {
@@ -85,8 +92,8 @@ where
     }
 
     /// Handle the request.
-    /// Each request is parsed to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    /// If the request is an `EngineIo` request, it is handled by the `EngineIo` engine.
+    /// Each request is parsed to a [`RequestInfo`]
+    /// If the request is an `EngineIo` request, it is handled by the corresponding [`transport`](crate::transport).
     /// Otherwise, it is forwarded to the inner service.
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with(&self.engine.config.req_path) {
@@ -99,7 +106,8 @@ where
                     method: Method::GET,
                     #[cfg(feature = "v3")]
                     b64,
-                }) => ResponseFuture::ready(engine.on_open_http_req(
+                }) => ResponseFuture::ready(polling::open_req(
+                    engine,
                     protocol,
                     req,
                     #[cfg(feature = "v3")]
@@ -111,25 +119,25 @@ where
                     transport: TransportType::Polling,
                     method: Method::GET,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(
-                    engine.on_polling_http_req(protocol, sid),
-                )),
+                }) => ResponseFuture::async_response(Box::pin(polling::polling_req(
+                    engine, protocol, sid,
+                ))),
                 Ok(RequestInfo {
                     protocol,
                     sid: Some(sid),
                     transport: TransportType::Polling,
                     method: Method::POST,
                     ..
-                }) => ResponseFuture::async_response(Box::pin(
-                    engine.on_post_http_req(protocol, sid, req),
-                )),
+                }) => ResponseFuture::async_response(Box::pin(polling::post_req(
+                    engine, protocol, sid, req,
+                ))),
                 Ok(RequestInfo {
                     protocol,
                     sid,
                     transport: TransportType::Websocket,
                     method: Method::GET,
                     ..
-                }) => ResponseFuture::ready(engine.on_ws_req(protocol, sid, req)),
+                }) => ResponseFuture::ready(ws::new_req(engine, protocol, sid, req)),
                 Err(e) => ResponseFuture::ready(Ok(e.into())),
                 _ => ResponseFuture::empty_response(400),
             }
@@ -198,41 +206,7 @@ where
     }
 }
 
-/// The type of the transport used by the client.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum TransportType {
-    Polling = 0x01,
-    Websocket = 0x02,
-}
-
-impl FromStr for TransportType {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "websocket" => Ok(TransportType::Websocket),
-            "polling" => Ok(TransportType::Polling),
-            _ => Err(Error::UnknownTransport),
-        }
-    }
-}
-impl From<TransportType> for &'static str {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling",
-            TransportType::Websocket => "websocket",
-        }
-    }
-}
-impl From<TransportType> for String {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling".into(),
-            TransportType::Websocket => "websocket".into(),
-        }
-    }
-}
-
+/// The protocol version used by the client.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
     V3 = 3,
