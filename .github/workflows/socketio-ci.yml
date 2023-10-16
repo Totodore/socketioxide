@@ -47,7 +47,7 @@ jobs:
           toolchain: stable
       - uses: actions/checkout@v3
         with:
-          repository: socketio/socket.io-protocol
+          repository: totodore/socket.io-protocol
           path: socket.io-protocol
       - uses: actions/setup-node@v3
         with:
