@@ -53,16 +53,16 @@ use socketioxide::{adapter::LocalAdapter, Socket};
 use tracing::info;
 
 #[derive(Deserialize, Clone, Debug)]
-struct Nickname(String);
+pub struct Nickname(String);
 
 #[derive(Deserialize)]
-struct Auth {
+pub struct Auth {
     pub nickname: Nickname,
 }
 
-pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
-    info!("Socket connected on / with id: {}", socket.sid);
-    if let Ok(data) = socket.handshake.data::<Auth>() {
+pub async fn handler(socket: Arc<Socket<LocalAdapter>>, data: Option<Auth>) {
+    info!("Socket connected on / with id: {}", socket.id);
+    if let Some(data) = data {
         info!("Nickname: {:?}", data.nickname);
         socket.extensions.insert(data.nickname);
         socket.emit("message", "Welcome to the chat!").ok();
@@ -139,7 +139,7 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>) {
     });
 
     socket.on_disconnect(|socket, reason| async move {
-        info!("Socket disconnected: {} {}", socket.sid, reason);
+        info!("Socket disconnected: {} {}", socket.id, reason);
         let Nickname(ref nickname) = *socket.extensions.get().unwrap();
         let msg = format!("{} left the chat", nickname);
         socket.to("default").emit("message", msg).ok();
