@@ -389,7 +389,7 @@ impl TryFrom<String> for Packet {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(data.parse().ok()),
+            '0' => PacketData::Connect((!data.is_empty()).then(|| data.to_string())),
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(data)?;
