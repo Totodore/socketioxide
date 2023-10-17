@@ -244,9 +244,7 @@ impl TryInto<String> for Packet {
         }
 
         match self.inner {
-            PacketData::Connect(data) => {
-                res.push_str(&serde_json::to_string(&data)?);
-            }
+            PacketData::Connect(data) => res.push_str(&data),
             PacketData::Disconnect => (),
             PacketData::Event(event, data, ack) => {
                 if let Some(ack) = ack {
@@ -463,6 +461,8 @@ mod test {
 
     #[test]
     fn packet_encode_connect() {
+        assert!(cfg!(feature = "v5"));
+
         let sid: Sid = generate_sid();
         let payload = format!("0{}", json!({"sid": sid}));
         let packet: String = Packet::connect("/".to_string(), sid, ProtocolVersion::V5)
