@@ -190,8 +190,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         #[cfg(feature = "v4")]
         if protocol == ProtocolVersion::V4 {
             debug!("connecting to default namespace for v4");
-            self.sock_connect("null".into(), "/".into(), &socket)
-                .unwrap();
+            self.sock_connect("{}".into(), "/".into(), &socket).unwrap();
         }
 
         #[cfg(feature = "v5")]
