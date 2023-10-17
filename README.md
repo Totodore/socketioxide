@@ -46,6 +46,20 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 <details> <summary><code>Chat app 💬 (see full example <a href="./examples/src/chat">here</a>)</code></summary>
 
 ```rust
+use std::sync::Arc;
+
+use serde::Deserialize;
+use socketioxide::{adapter::LocalAdapter, Socket};
+use tracing::info;
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct Nickname(String);
+
+#[derive(Deserialize)]
+pub struct Auth {
+    pub nickname: Nickname,
+}
+
 pub async fn handler(socket: Arc<Socket<LocalAdapter>>, data: Option<Auth>) {
     info!("Socket connected on / with id: {}", socket.id);
     if let Some(data) = data {
