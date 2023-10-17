@@ -45,7 +45,7 @@ impl Packet {
     #[cfg(feature = "v4")]
     fn connect_v4(ns: String) -> Self {
         Self {
-            inner: PacketData::Connect("".to_string()),
+            inner: PacketData::Connect(None),
             ns,
         }
     }
@@ -58,7 +58,7 @@ impl Packet {
         })
         .unwrap();
         Self {
-            inner: PacketData::Connect(val),
+            inner: PacketData::Connect(Some(val)),
             ns,
         }
     }
@@ -125,7 +125,7 @@ impl Packet {
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacketData {
-    Connect(String),
+    Connect(Option<String>),
     Disconnect,
     Event(String, Value, Option<i64>),
     EventAck(Value, i64),
@@ -244,7 +244,7 @@ impl TryInto<String> for Packet {
         }
 
         match self.inner {
-            PacketData::Connect(data) => res.push_str(&data),
+            PacketData::Connect(data) => res.push_str(&data.unwrap_or_default()),
             PacketData::Disconnect => (),
             PacketData::Event(event, data, ack) => {
                 if let Some(ack) = ack {
@@ -389,7 +389,7 @@ impl TryFrom<String> for Packet {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(data.to_string()),
+            '0' => PacketData::Connect(data.parse().ok()),
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(data)?;

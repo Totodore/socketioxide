@@ -44,7 +44,7 @@ impl<A: Adapter> Namespace<A> {
         self: Arc<Self>,
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData>>,
-        auth: String,
+        auth: Option<String>,
         config: Arc<SocketIoConfig>,
     ) -> Result<(), serde_json::Error> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket, config).into();

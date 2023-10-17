@@ -57,7 +57,7 @@ impl<A: Adapter> Client<A> {
     /// Called when a socket connects to a new namespace
     fn sock_connect(
         &self,
-        auth: String,
+        auth: Option<String>,
         ns_path: String,
         esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
@@ -190,7 +190,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         #[cfg(feature = "v4")]
         if protocol == ProtocolVersion::V4 {
             debug!("connecting to default namespace for v4");
-            self.sock_connect("{}".into(), "/".into(), &socket).unwrap();
+            self.sock_connect(None, "/".into(), &socket).unwrap();
         }
 
         #[cfg(feature = "v5")]
