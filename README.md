@@ -29,14 +29,17 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 * Polling & Websocket transports
 * Extensions to add custom data to sockets
 * Memory efficient http payload parsing with streams
+* Api that mimics the [socket.io](https://socket.io/docs/v4/server-api/) javascript api as much as possible
+* Well tested with the official [end to end test-suite](https://github.com/totodore/socketioxide/actions) 
+* Socket.io versions supported :
+  * [🔌protocol v5](https://socket.io/docs/v4/) : based on engine.io v4, feature flag `v5` (default)
+  * [🔌protocol v4](https://github.com/socketio/socket.io-protocol/tree/v4) : based on engine.io v3, feature flag `v4`
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
 ## Planned features :
 * Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
-* Better API ergonomics
 * State recovery when a socket reconnects
-* SocketIo v3 support (currently only v4 is supported)
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 

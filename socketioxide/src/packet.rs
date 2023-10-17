@@ -1,3 +1,4 @@
+use crate::ProtocolVersion;
 use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,16 +16,53 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn connect(ns: String, sid: Sid) -> Self {
-        let val = serde_json::to_value(ConnectPacket {
+    /// Send a connect packet with a default payload for v5 and no payload for v4
+    pub fn connect(
+        ns: String,
+        #[allow(unused_variables)] sid: Sid,
+        #[allow(unused_variables)] protocol: ProtocolVersion,
+    ) -> Self {
+        #[cfg(all(feature = "v5", not(feature = "v4")))]
+        {
+            Self::connect_v5(ns, sid)
+        }
+
+        #[cfg(all(feature = "v4", not(feature = "v5")))]
+        {
+            Self::connect_v4(ns)
+        }
+
+        #[cfg(all(feature = "v5", feature = "v4"))]
+        {
+            match protocol {
+                ProtocolVersion::V4 => Self::connect_v4(ns),
+                ProtocolVersion::V5 => Self::connect_v5(ns, sid),
+            }
+        }
+    }
+
+    /// Sends a connect packet without payload.
+    #[cfg(feature = "v4")]
+    fn connect_v4(ns: String) -> Self {
+        Self {
+            inner: PacketData::Connect(None),
+            ns,
+        }
+    }
+
+    /// Sends a connect packet with payload.
+    #[cfg(feature = "v5")]
+    fn connect_v5(ns: String, sid: Sid) -> Self {
+        let val = serde_json::to_string(&ConnectPacket {
             sid: sid.to_string(),
         })
         .unwrap();
         Self {
-            inner: PacketData::Connect(val),
+            inner: PacketData::Connect(Some(val)),
             ns,
         }
     }
+
     pub fn disconnect(ns: String) -> Self {
         Self {
             inner: PacketData::Disconnect,
@@ -87,7 +125,7 @@ impl Packet {
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacketData {
-    Connect(Value),
+    Connect(Option<String>),
     Disconnect,
     Event(String, Value, Option<i64>),
     EventAck(Value, i64),
@@ -206,7 +244,7 @@ impl TryInto<String> for Packet {
         }
 
         match self.inner {
-            PacketData::Connect(data) => res.push_str(&serde_json::to_string(&data)?),
+            PacketData::Connect(data) => res.push_str(&data.unwrap_or_default()),
             PacketData::Disconnect => (),
             PacketData::Event(event, data, ack) => {
                 if let Some(ack) = ack {
@@ -295,7 +333,7 @@ fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
     Ok((event, payload))
 }
 
-fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Error> {
+fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, serde_json::Error> {
     debug!("Deserializing packet: {:?}", data);
     let packet = if data.is_empty() {
         None
@@ -351,7 +389,7 @@ impl TryFrom<String> for Packet {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(deserialize_packet(data)?.unwrap_or_else(|| json!({}))),
+            '0' => PacketData::Connect((!data.is_empty()).then(|| data.to_string())),
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(data)?;
@@ -407,23 +445,33 @@ mod test {
         let payload = format!("0{}", json!({"sid": sid}));
         let packet = Packet::try_from(payload).unwrap();
 
-        assert_eq!(Packet::connect("/".to_string(), sid), packet);
+        assert_eq!(
+            Packet::connect("/".to_string(), sid, ProtocolVersion::V5),
+            packet
+        );
 
         let payload = format!("0/admin™,{}", json!({"sid": sid}));
         let packet = Packet::try_from(payload).unwrap();
 
-        assert_eq!(Packet::connect("/admin™".to_string(), sid), packet);
+        assert_eq!(
+            Packet::connect("/admin™".to_string(), sid, ProtocolVersion::V5),
+            packet
+        );
     }
 
     #[test]
     fn packet_encode_connect() {
+        assert!(cfg!(feature = "v5"));
+
         let sid: Sid = generate_sid();
         let payload = format!("0{}", json!({"sid": sid}));
-        let packet: String = Packet::connect("/".to_string(), sid).try_into().unwrap();
+        let packet: String = Packet::connect("/".to_string(), sid, ProtocolVersion::V5)
+            .try_into()
+            .unwrap();
         assert_eq!(packet, payload);
 
         let payload = format!("0/admin™,{}", json!({"sid": sid}));
-        let packet: String = Packet::connect("/admin™".to_string(), sid)
+        let packet: String = Packet::connect("/admin™".to_string(), sid, ProtocolVersion::V5)
             .try_into()
             .unwrap();
         assert_eq!(packet, payload);

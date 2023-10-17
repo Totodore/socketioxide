@@ -7,7 +7,7 @@ edition = "2021"
 engineioxide = { path = "../engineioxide", default-features = false, features = [
     "test-utils",
 ] }
-socketioxide = { path = "../socketioxide" }
+socketioxide = { path = "../socketioxide", default-features = false }
 hyper = { version = "0.14.26" }
 tokio = { version = "1.13.0", features = ["full"] }
 tower = { version = "0.4.13" }
@@ -28,3 +28,6 @@ path = "src/engineioxide.rs"
 [features]
 engineio-v3 = ["engineioxide/v3"]
 engineio-v4 = ["engineioxide/v4"]
+
+socketio-v4 = ["socketioxide/v4"]
+socketio-v5 = ["socketioxide/v5"]

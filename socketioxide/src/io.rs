@@ -285,6 +285,11 @@ impl<A: Adapter> SocketIo<A> {
     /// The data parameter can be typed with anything that implement [serde::Deserialize](https://docs.rs/serde/latest/serde/).
     /// It corresponds to the auth data sent by the client when connecting to the namespace.
     ///
+    ///
+    /// ### V4 protocol (legacy) note:
+    /// If the v4 protocol is enabled, the auth data parameter **must** be nullable (e.g `Option`, `()` or `Default`), in particular for the root namespace.
+    /// If it is not the case your handler may be never called because of a deserialisation error.
+    ///
     /// #### Simple example with a closure:
     /// ```
     /// # use socketioxide::SocketIo;

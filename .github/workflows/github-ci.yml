@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+        - uses: actions/checkout@v3
+        - uses: actions-rs/toolchain@v1
+          with:
+            toolchain: stable
+        - run: cargo fmt --all -- --check
+  
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-test
+      - run: cargo test --all-features
+
+  rust-clippy-analyze:
+    name: Run rust-clippy analyzing
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: clippy
+          override: true
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-clippy
+
+      - name: Install required cargo
+        run: cargo install clippy-sarif sarif-fmt || true
+
+      - name: Run rust-clippy
+        run:
+          cargo clippy
+          --all-features
+          --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        continue-on-error: true
+
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true
+    
+  engine_io:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        engineio-version: [engineio-v3,engineio-v4]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/checkout@v3
+        with:
+          repository: totodore/engine.io-protocol
+          path: engine.io-protocol
+          ref: v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+      - name: Install deps & run tests 
+        run: |
+          cd engine.io-protocol/test-suite && npm install && cd ../..
+          cargo build --bin engineioxide-e2e --release --features ${{ matrix.engineio-version }} --no-default-features
+          cargo run --bin engineioxide-e2e --release --features ${{ matrix.engineio-version }} --no-default-features > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+      - name: Server output
+        if: always()
+        run: cat server.txt
+      - name: Client output
+        if: always()
+        run:  cat client.txt
+
+  socket_io:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        socketio-version: [socketio-v4, socketio-v5]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/checkout@v3
+        with:
+          repository: totodore/socket.io-protocol
+          ref: v4-testsuite
+          path: socket.io-protocol
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+      - name: Install deps & run tests 
+        run: |
+          cd socket.io-protocol/test-suite && npm install && cd ../..
+          cargo build --bin socketioxide-e2e --release --features ${{ matrix.socketio-version }} --no-default-features
+          cargo run --bin socketioxide-e2e --release --features ${{ matrix.socketio-version }} --no-default-features > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+      - name: Server output
+        if: always()
+        run: cat server.txt
+      - name: Client output
+        if: always()
+        run:  cat client.txt

@@ -66,6 +66,9 @@
 //! }
 //! ```
 
+#[cfg(not(any(feature = "v4", feature = "v5")))]
+compile_error!("At least one protocol version must be enabled");
+
 pub mod adapter;
 pub mod extensions;
 pub mod layer;
@@ -84,3 +87,27 @@ mod ns;
 mod operators;
 mod packet;
 mod socket;
+
+/// Socket.IO protocol version
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ProtocolVersion {
+    V4 = 4,
+    V5 = 5,
+}
+
+impl From<ProtocolVersion> for engineioxide::ProtocolVersion {
+    fn from(value: ProtocolVersion) -> Self {
+        match value {
+            ProtocolVersion::V4 => Self::V3,
+            ProtocolVersion::V5 => Self::V4,
+        }
+    }
+}
+impl From<engineioxide::ProtocolVersion> for ProtocolVersion {
+    fn from(value: engineioxide::ProtocolVersion) -> Self {
+        match value {
+            engineioxide::ProtocolVersion::V3 => Self::V4,
+            engineioxide::ProtocolVersion::V4 => Self::V5,
+        }
+    }
+}

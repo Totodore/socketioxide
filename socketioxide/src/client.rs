@@ -5,7 +5,6 @@ use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
 use futures::{Future, TryFutureExt};
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 
 use engineioxide::sid_generator::Sid;
 use tokio::sync::oneshot;
@@ -13,13 +12,13 @@ use tracing::debug;
 use tracing::error;
 
 use crate::adapter::Adapter;
-use crate::Socket;
 use crate::{
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
 };
+use crate::{ProtocolVersion, Socket};
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
@@ -58,15 +57,23 @@ impl<A: Adapter> Client<A> {
     /// Called when a socket connects to a new namespace
     fn sock_connect(
         &self,
-        auth: Value,
+        auth: Option<String>,
         ns_path: String,
-        esocket: Arc<engineioxide::Socket<SocketData>>,
+        esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
         let sid = esocket.id;
         if let Some(ns) = self.get_ns(&ns_path) {
-            let connect_packet = Packet::connect(ns_path.clone(), sid).try_into()?;
-            if let Err(err) = esocket.emit(connect_packet) {
+            let protocol: ProtocolVersion = esocket.protocol.into();
+
+            // cancel the connect timeout task for v5
+            #[cfg(feature = "v5")]
+            if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                tx.send(()).unwrap();
+            }
+
+            let connect_packet = Packet::connect(ns_path, sid, protocol);
+            if let Err(err) = esocket.emit(connect_packet.try_into()?) {
                 debug!("sending error during socket connection: {err:?}");
             }
             ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
@@ -74,9 +81,17 @@ impl<A: Adapter> Client<A> {
                 tx.send(()).unwrap();
             }
             Ok(())
+        } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
+            error!(
+                "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
+            );
+            esocket.close(EIoDisconnectReason::TransportClose);
+            Ok(())
         } else {
-            let packet = Packet::invalid_namespace(ns_path).try_into()?;
-            esocket.emit(packet).unwrap();
+            let packet = Packet::invalid_namespace(ns_path).try_into().unwrap();
+            if let Err(e) = esocket.emit(packet) {
+                error!("error while sending invalid namespace packet: {}", e);
+            }
             Ok(())
         }
     }
@@ -99,6 +114,22 @@ impl<A: Adapter> Client<A> {
             debug!("invalid namespace requested: {}", packet.ns);
             Ok(())
         }
+    }
+
+    /// Spawn a task that will close the socket if it is not connected to a namespace
+    /// after the [`SocketIoConfig::connect_timeout`] duration
+    #[cfg(feature = "v5")]
+    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
+        debug!("spawning connect timeout task");
+        let (tx, rx) = oneshot::channel();
+        socket.data.connect_recv_tx.lock().unwrap().replace(tx);
+
+        tokio::spawn(
+            tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
+                debug!("connect timeout for socket {}", socket.id);
+                socket.close(EIoDisconnectReason::TransportClose);
+            }),
+        );
     }
 
     /// Add a new namespace handler
@@ -140,6 +171,7 @@ pub struct SocketData {
     pub partial_bin_packet: Mutex<Option<Packet>>,
 
     /// Channel used to notify the socket that it has been connected to a namespace
+    #[cfg(feature = "v5")]
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
@@ -147,18 +179,24 @@ pub struct SocketData {
 impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
+    #[tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string()))]
     fn on_connect(&self, socket: Arc<EIoSocket<SocketData>>) {
-        debug!("eio socket connect {}", socket.id);
-        let (tx, rx) = oneshot::channel();
-        socket.data.connect_recv_tx.lock().unwrap().replace(tx);
-        // let socket_tx = socket.tx.clone();
-        let sid = socket.id;
-        tokio::spawn(
-            tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
-                debug!("connect timeout for socket {}", sid);
-                socket.close(EIoDisconnectReason::TransportClose);
-            }),
-        );
+        debug!("eio socket connect");
+
+        let protocol: ProtocolVersion = socket.protocol.into();
+
+        // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
+        // Because we connect by default to the root namespace, we should ensure before that the root namespace is defined
+        #[cfg(feature = "v4")]
+        if protocol == ProtocolVersion::V4 {
+            debug!("connecting to default namespace for v4");
+            self.sock_connect(None, "/".into(), &socket).unwrap();
+        }
+
+        #[cfg(feature = "v5")]
+        if protocol == ProtocolVersion::V5 {
+            self.spawn_connect_timeout_task(socket);
+        }
     }
 
     #[tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string()))]
@@ -192,7 +230,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => self
-                .sock_connect(auth, packet.ns, socket.clone())
+                .sock_connect(auth, packet.ns, &socket)
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(&socket, packet);
