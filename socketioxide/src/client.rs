@@ -81,9 +81,17 @@ impl<A: Adapter> Client<A> {
                 tx.send(()).unwrap();
             }
             Ok(())
+        } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
+            error!(
+                "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
+            );
+            esocket.close(EIoDisconnectReason::TransportClose);
+            Ok(())
         } else {
-            let packet = Packet::invalid_namespace(ns_path).try_into()?;
-            esocket.emit(packet).unwrap();
+            let packet = Packet::invalid_namespace(ns_path).try_into().unwrap();
+            if let Err(e) = esocket.emit(packet) {
+                error!("error while sending invalid namespace packet: {}", e);
+            }
             Ok(())
         }
     }
@@ -112,6 +120,7 @@ impl<A: Adapter> Client<A> {
     /// after the [`SocketIoConfig::connect_timeout`] duration
     #[cfg(feature = "v5")]
     fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
+        debug!("spawning connect timeout task");
         let (tx, rx) = oneshot::channel();
         socket.data.connect_recv_tx.lock().unwrap().replace(tx);
 
@@ -170,8 +179,9 @@ pub struct SocketData {
 impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
+    #[tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string()))]
     fn on_connect(&self, socket: Arc<EIoSocket<SocketData>>) {
-        debug!("eio socket connect {}", socket.id);
+        debug!("eio socket connect");
 
         let protocol: ProtocolVersion = socket.protocol.into();
 
@@ -180,7 +190,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         #[cfg(feature = "v4")]
         if protocol == ProtocolVersion::V4 {
             debug!("connecting to default namespace for v4");
-            self.sock_connect(None, "/".into(), &socket).unwrap();
+            self.sock_connect("null".into(), "/".into(), &socket)
+                .unwrap();
         }
 
         #[cfg(feature = "v5")]

@@ -18,6 +18,9 @@ pub enum Error {
     #[error("invalid event name")]
     InvalidEventName,
 
+    #[error("invalid namespace")]
+    InvalidNamespace,
+
     #[error("cannot find socketio socket")]
     SocketGone(Sid),
 
@@ -41,7 +44,7 @@ impl From<&Error> for Option<EIoDisconnectReason> {
             Error::SerializeError(_) | Error::InvalidPacketType | Error::InvalidEventName => {
                 Some(PacketParsingError)
             }
-            Error::Adapter(_) => None,
+            Error::Adapter(_) | Error::InvalidNamespace => None,
         }
     }
 }
