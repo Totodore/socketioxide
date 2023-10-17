@@ -45,7 +45,7 @@ impl Packet {
     #[cfg(feature = "v4")]
     fn connect_v4(ns: String) -> Self {
         Self {
-            inner: PacketData::Connect("{}".into()),
+            inner: PacketData::Connect("".to_string()),
             ns,
         }
     }
