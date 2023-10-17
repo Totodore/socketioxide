@@ -45,7 +45,7 @@ impl Packet {
     #[cfg(feature = "v4")]
     fn connect_v4(ns: String) -> Self {
         Self {
-            inner: PacketData::Connect(None),
+            inner: PacketData::Connect("{}".into()),
             ns,
         }
     }
@@ -58,7 +58,7 @@ impl Packet {
         })
         .unwrap();
         Self {
-            inner: PacketData::Connect(Some(val)),
+            inner: PacketData::Connect(val),
             ns,
         }
     }
@@ -125,7 +125,7 @@ impl Packet {
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacketData {
-    Connect(Option<String>),
+    Connect(String),
     Disconnect,
     Event(String, Value, Option<i64>),
     EventAck(Value, i64),
@@ -245,9 +245,7 @@ impl TryInto<String> for Packet {
 
         match self.inner {
             PacketData::Connect(data) => {
-                if let Some(payload) = data {
-                    res.push_str(&serde_json::to_string(&payload)?);
-                }
+                res.push_str(&serde_json::to_string(&data)?);
             }
             PacketData::Disconnect => (),
             PacketData::Event(event, data, ack) => {
@@ -337,7 +335,7 @@ fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
     Ok((event, payload))
 }
 
-fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, Error> {
+fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, serde_json::Error> {
     debug!("Deserializing packet: {:?}", data);
     let packet = if data.is_empty() {
         None
@@ -393,7 +391,7 @@ impl TryFrom<String> for Packet {
 
         let data = chars.as_str();
         let inner = match index {
-            '0' => PacketData::Connect(deserialize_packet(data)?.unwrap_or_default()),
+            '0' => PacketData::Connect(data.to_string()),
             '1' => PacketData::Disconnect,
             '2' => {
                 let (event, payload) = deserialize_event_packet(data)?;

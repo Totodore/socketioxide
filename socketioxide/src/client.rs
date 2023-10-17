@@ -230,10 +230,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         debug!("Packet: {:?}", packet);
 
         let res: Result<(), Error> = match packet.inner {
-            // In v4 protocol the connect packet maybe null, by default we use the null string
-            // It will be then serialized to a "nullish" value for the handler
             PacketData::Connect(auth) => self
-                .sock_connect(auth.unwrap_or("null".to_string()), packet.ns, &socket)
+                .sock_connect(auth, packet.ns, &socket)
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(&socket, packet);
