@@ -73,12 +73,13 @@ impl Packet {
     }
 
     /// Get the max size the packet could have when serialized
-    /// If b64 is true, it returns the max size when serialized to base64
+    ///
+    ///  If b64 is true, it returns the max size when serialized to base64
     ///
     /// The base64 max size factor is `ceil(n / 3) * 4`
     pub(crate) fn get_size_hint(&self, b64: bool) -> usize {
         match self {
-            Packet::Open(_) => 200, // max possible size for the open packet serialized
+            Packet::Open(_) => 151, // max possible size for the open packet serialized
             Packet::Close => 1,
             Packet::Ping => 1,
             Packet::Pong => 1,
@@ -211,7 +212,7 @@ mod tests {
     use crate::config::EngineIoConfig;
 
     use super::*;
-    use std::convert::TryInto;
+    use std::{convert::TryInto, time::Duration};
 
     #[test]
     fn test_open_packet() {
@@ -280,5 +281,57 @@ mod tests {
         let packet_str = "b4AQID".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
         assert_eq!(packet, Packet::BinaryV3(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_packet_get_size_hint() {
+        // Max serialized packet
+        let open = OpenPacket::new(
+            TransportType::Polling,
+            Sid::MAX,
+            &EngineIoConfig {
+                max_buffer_size: usize::MAX,
+                max_payload: u64::MAX,
+                ping_interval: Duration::MAX,
+                ping_timeout: Duration::MAX,
+                transports: TransportType::Polling as u8 | TransportType::Websocket as u8,
+                ..Default::default()
+            },
+        );
+        let size = serde_json::to_string(&open).unwrap().len();
+        let packet = Packet::Open(open);
+        assert_eq!(packet.get_size_hint(false), size);
+
+        let packet = Packet::Close;
+        assert_eq!(packet.get_size_hint(false), 1);
+
+        let packet = Packet::Ping;
+        assert_eq!(packet.get_size_hint(false), 1);
+
+        let packet = Packet::Pong;
+        assert_eq!(packet.get_size_hint(false), 1);
+
+        let packet = Packet::PingUpgrade;
+        assert_eq!(packet.get_size_hint(false), 6);
+
+        let packet = Packet::PongUpgrade;
+        assert_eq!(packet.get_size_hint(false), 6);
+
+        let packet = Packet::Message("hello".to_string());
+        assert_eq!(packet.get_size_hint(false), 6);
+
+        let packet = Packet::Upgrade;
+        assert_eq!(packet.get_size_hint(false), 1);
+
+        let packet = Packet::Noop;
+        assert_eq!(packet.get_size_hint(false), 1);
+
+        let packet = Packet::Binary(vec![1, 2, 3]);
+        assert_eq!(packet.get_size_hint(false), 4);
+        assert_eq!(packet.get_size_hint(true), 5);
+
+        let packet = Packet::BinaryV3(vec![1, 2, 3]);
+        assert_eq!(packet.get_size_hint(false), 4);
+        assert_eq!(packet.get_size_hint(true), 6);
     }
 }
