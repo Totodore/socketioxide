@@ -19,4 +19,5 @@ mod body;
 mod engine;
 mod futures;
 mod packet;
+mod peekable;
 mod transport;

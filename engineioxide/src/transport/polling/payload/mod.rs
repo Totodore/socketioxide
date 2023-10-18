@@ -1,9 +1,9 @@
 //! Payload encoder and decoder for polling transport.
 
-use crate::{errors::Error, packet::Packet, service::ProtocolVersion};
+use crate::{errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion};
 use futures::Stream;
 use http::Request;
-use tokio::sync::{mpsc::Receiver, MutexGuard};
+use tokio::sync::MutexGuard;
 
 mod buf;
 mod decoder;
@@ -61,30 +61,47 @@ pub fn decoder(
     }
 }
 
+/// A payload to transmit to the client through http polling
+pub struct Payload {
+    pub data: Vec<u8>,
+    pub has_binary: bool,
+}
+impl Payload {
+    pub fn new(data: impl Into<Vec<u8>>, has_binary: bool) -> Self {
+        Self {
+            data: data.into(),
+            has_binary,
+        }
+    }
+}
+
 pub async fn encoder(
-    rx: MutexGuard<'_, Receiver<Packet>>,
+    rx: MutexGuard<'_, PeekableReceiver<Packet>>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
-) -> Result<(Vec<u8>, bool), Error> {
+    max_payload: u64,
+) -> Result<Payload, Error> {
     #[cfg(all(feature = "v3", feature = "v4"))]
     {
         match protocol {
-            ProtocolVersion::V4 => Ok((encoder::v4_encoder(rx).await?, false)),
-            ProtocolVersion::V3 if supports_binary => encoder::v3_binary_encoder(rx).await,
-            ProtocolVersion::V3 => Ok((encoder::v3_string_encoder(rx).await?, false)),
+            ProtocolVersion::V4 => encoder::v4_encoder(rx, max_payload).await,
+            ProtocolVersion::V3 if supports_binary => {
+                encoder::v3_binary_encoder(rx, max_payload).await
+            }
+            ProtocolVersion::V3 => encoder::v3_string_encoder(rx, max_payload).await,
         }
     }
 
     #[cfg(all(feature = "v3", not(feature = "v4")))]
     {
         if supports_binary {
-            encoder::v3_binary_encoder(rx).await
+            encoder::v3_binary_encoder(rx, max_payload).await
         } else {
-            Ok((encoder::v3_string_encoder(rx).await?, false))
+            encoder::v3_string_encoder(rx, max_payload).await
         }
     }
     #[cfg(all(feature = "v4", not(feature = "v3")))]
     {
-        Ok((encoder::v4_encoder(rx).await?, false))
+        encoder::v4_encoder(rx, max_payload).await
     }
 }
