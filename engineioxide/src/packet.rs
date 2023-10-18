@@ -71,6 +71,38 @@ impl Packet {
             _ => panic!("Packet is not a binary"),
         }
     }
+
+    /// Get the max size the packet could have when serialized
+    /// If b64 is true, it returns the max size when serialized to base64
+    ///
+    /// The base64 max size factor is `ceil(n / 3) * 4`
+    pub(crate) fn get_size_hint(&self, b64: bool) -> usize {
+        match self {
+            Packet::Open(_) => 200, // max possible size for the open packet serialized
+            Packet::Close => 1,
+            Packet::Ping => 1,
+            Packet::Pong => 1,
+            Packet::PingUpgrade => 6,
+            Packet::PongUpgrade => 6,
+            Packet::Message(msg) => 1 + msg.len(),
+            Packet::Upgrade => 1,
+            Packet::Noop => 1,
+            Packet::Binary(data) => {
+                if b64 {
+                    1 + ((data.len() as f64) / 3.).ceil() as usize * 4
+                } else {
+                    1 + data.len()
+                }
+            }
+            Packet::BinaryV3(data) => {
+                if b64 {
+                    2 + ((data.len() as f64) / 3.).ceil() as usize * 4
+                } else {
+                    1 + data.len()
+                }
+            }
+        }
+    }
 }
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
