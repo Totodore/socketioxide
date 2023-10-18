@@ -15,6 +15,7 @@ use crate::{
     packet::{OpenPacket, Packet},
     service::ProtocolVersion,
     sid_generator::Sid,
+    transport::polling::payload::Payload,
     DisconnectReason, SocketReq,
 };
 
@@ -49,7 +50,7 @@ where
 
     engine.handler.on_connect(socket);
 
-    let packet: String = Packet::Open(packet).try_into()?;
+    let packet: String = Packet::Open(packet).try_into().unwrap();
     let packet = {
         #[cfg(feature = "v3")]
         {
@@ -97,13 +98,16 @@ where
 
     debug!("[sid={sid}] polling request");
 
-    #[cfg(feature = "v3")]
-    let (payload, is_binary) = payload::encoder(rx, protocol, socket.supports_binary).await?;
-    #[cfg(not(feature = "v3"))]
-    let (payload, is_binary) = payload::encoder(rx, protocol).await?;
+    let max_payload = engine.config.max_payload;
 
-    debug!("[sid={sid}] sending data: {:?}", payload);
-    Ok(http_response(StatusCode::OK, payload, is_binary)?)
+    #[cfg(feature = "v3")]
+    let Payload { data, has_binary } =
+        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await?;
+    #[cfg(not(feature = "v3"))]
+    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await?;
+
+    debug!("[sid={sid}] sending data: {:?}", data);
+    Ok(http_response(StatusCode::OK, data, has_binary)?)
 }
 
 /// Handle http polling post request
