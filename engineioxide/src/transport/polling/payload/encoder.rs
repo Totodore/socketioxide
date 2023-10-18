@@ -155,14 +155,23 @@ pub async fn v3_binary_encoder(
     let mut data: Vec<u8> = Vec::new();
     let mut packet_buffer: Vec<Packet> = Vec::new();
 
+    // estimated size of the `packet_buffer` in bytes
+    let mut estimated_size: usize = 0;
+    // number of digits of the max packet size, used to approximate the payload size
+    let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
+
     debug!("encoding payload with v3 binary encoder");
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
 
-    while let Some(packet) = try_recv_packet(&mut rx, data.len(), max_payload, false) {
+    while let Some(packet) = try_recv_packet(&mut rx, estimated_size, max_payload, false) {
         if packet.is_binary() {
             has_binary = true;
         }
+
+        const PUNCTUATION_LEN: usize = 2;
+        estimated_size += packet.get_size_hint(false) + max_packet_size_len + PUNCTUATION_LEN;
+
         packet_buffer.push(packet);
     }
 
@@ -206,7 +215,17 @@ pub async fn v3_string_encoder(
 
     debug!("encoding payload with v3 string encoder");
 
-    while let Some(packet) = try_recv_packet(&mut rx, data.len(), max_payload, true) {
+    const PUNCTUATION_LEN: usize = 2;
+    // number of digits of the max packet size, used to approximate the payload size
+    let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
+    // Current size of the payload
+    let current_size = data.len() + PUNCTUATION_LEN + max_packet_size_len;
+    while let Some(packet) = try_recv_packet(
+        &mut rx,
+        current_size,
+        max_payload,
+        true,
+    ) {
         v3_string_packet_encoder(packet, &mut data)?;
     }
 
@@ -288,6 +307,29 @@ mod tests {
 
     #[cfg(feature = "v3")]
     #[tokio::test]
+    async fn max_payload_v3_b64() {
+        const MAX_PAYLOAD: u64 = 10;
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
+        tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
+        tx.try_send(Packet::Message("hello€".into())).unwrap();
+        {
+            let rx = mutex.lock().await;
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            assert_eq!(data, "7:4hello€".as_bytes());
+        }
+        {
+            let rx = mutex.lock().await;
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            assert_eq!(data, "10:b4AQIDBA==7:4hello€7:4hello€".as_bytes());
+        }
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
     async fn encode_v3binary_payload() {
         const PAYLOAD: [u8; 20] = [
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
@@ -308,35 +350,28 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn max_payload_v3_binary() {
-        const MAX_PAYLOAD: u64 = 15;
+        const MAX_PAYLOAD: u64 = 25;
 
         #[rustfmt::skip]
-        const PAYLOAD: [u8; 47] = [
+        const PAYLOAD: [u8; 23] = [
             0, 1, 1, 255, 52, 104, 101, 108, 108, 111, 111, 111, 226, 130, 172, 
             1, 5, 255, 4, 1, 2, 3, 4,
-            0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 
-            0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 
         ];
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
         tx.try_send(Packet::Message("hellooo€".into())).unwrap();
-        tx.try_send(Packet::Binary(vec![1, 2, 3, 4])).unwrap();
+        tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         {
             let rx = mutex.lock().await;
             let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
-            assert_eq!(data, PAYLOAD[..15]);
+            assert_eq!(data, PAYLOAD);
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
-            assert_eq!(data, "bAQIDBA==\x1e4hello€".as_bytes());
-        }
-        {
-            let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
-            assert_eq!(data, "4hello€".as_bytes());
+            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            assert_eq!(data, "7:4hello€7:4hello€".as_bytes());
         }
     }
 }
