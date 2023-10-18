@@ -18,7 +18,10 @@ use tokio::{
 use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
-use crate::{config::EngineIoConfig, errors::Error, packet::Packet, service::ProtocolVersion};
+use crate::{
+    config::EngineIoConfig, errors::Error, packet::Packet, peekable::PeekableReceiver,
+    service::ProtocolVersion,
+};
 use crate::{sid_generator::Sid, transport::TransportType};
 
 /// Http Request data used to create a socket
@@ -118,7 +121,7 @@ where
     /// * From the [encoder](crate::service::encoder) if the transport is polling
     /// * From the fn [`on_ws_req_init`](crate::engine::EngineIo) if the transport is websocket
     /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback. Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
-    pub(crate) internal_rx: Mutex<Receiver<Packet>>,
+    pub(crate) internal_rx: Mutex<PeekableReceiver<Packet>>,
 
     /// Channel to send [Packet] to the internal connection
     internal_tx: mpsc::Sender<Packet>,
@@ -166,7 +169,7 @@ where
             protocol,
             transport: AtomicU8::new(transport as u8),
 
-            internal_rx: Mutex::new(internal_rx),
+            internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
@@ -409,7 +412,7 @@ where
             protocol: ProtocolVersion::V4,
             transport: AtomicU8::new(TransportType::Websocket as u8),
 
-            internal_rx: Mutex::new(internal_rx),
+            internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
