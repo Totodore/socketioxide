@@ -31,8 +31,8 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 * Api that mimics the [socket.io](https://socket.io/docs/v4/server-api/) javascript api as much as possible
 * Well tested with the official [end to end test-suite](https://github.com/totodore/socketioxide/actions) 
 * Socket.io versions supported :
-  * [🔌protocol v5](https://socket.io/docs/v4/) : based on engine.io v4, feature flag `v5` (default)
-  * [🔌protocol v4](https://github.com/socketio/socket.io-protocol/tree/v4) : based on engine.io v3, feature flag `v4`
+  * [🔌protocol v5](https://socket.io/docs/v4/) : based on engine.io v4 under the feature flag `v5` (default), (socket.io js from v3.0.0..latest)
+  * [🔌protocol v4](https://github.com/socketio/socket.io-protocol/tree/v4) : based on engine.io v3, feature flag `v4`, (socket.io js from v1.0.3..latest)
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
