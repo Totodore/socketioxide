@@ -1,8 +1,12 @@
 # 0.6.0
 ## socketioxide
 * New API for creating the socket.io layer/service. A cheaply clonable `SocketIo` struct is now returned with the layer/service and allows to access namespaces/rooms/sockets everywhere in the application. Moreover, it is now possible to add and remove namespaces dynamically through the `SocketIo` struct.
+* The socket.io v4 protocol is now available under the feature flag `v4`, it matches every socket.io js version from 1.0.3 to current . The `v5` protocol is still the default and is more performant, it matches every socket.io js version from v3.0.0 to current.
+
 ## engineioxide
 * The socket parameter for the handler is now an `Arc<Socket>`.
+* The `max_payload` option is now applied when encoding a packet. Before, it was only applied when decoding a packet.
+* With `websocket` transport, packets are now bufferred before being flushed. Before, they were flushed one by one.
 
 # 0.5.1
 ## socketioxide
