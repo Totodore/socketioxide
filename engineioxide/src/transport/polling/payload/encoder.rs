@@ -220,12 +220,7 @@ pub async fn v3_string_encoder(
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
     // Current size of the payload
     let current_size = data.len() + PUNCTUATION_LEN + max_packet_size_len;
-    while let Some(packet) = try_recv_packet(
-        &mut rx,
-        current_size,
-        max_payload,
-        true,
-    ) {
+    while let Some(packet) = try_recv_packet(&mut rx, current_size, max_payload, true) {
         v3_string_packet_encoder(packet, &mut data)?;
     }
 
@@ -352,10 +347,9 @@ mod tests {
     async fn max_payload_v3_binary() {
         const MAX_PAYLOAD: u64 = 25;
 
-        #[rustfmt::skip]
         const PAYLOAD: [u8; 23] = [
-            0, 1, 1, 255, 52, 104, 101, 108, 108, 111, 111, 111, 226, 130, 172, 
-            1, 5, 255, 4, 1, 2, 3, 4,
+            0, 1, 1, 255, 52, 104, 101, 108, 108, 111, 111, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2,
+            3, 4,
         ];
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
