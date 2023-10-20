@@ -399,15 +399,12 @@ impl<D> Socket<D>
 where
     D: Default + Send + Sync + 'static,
 {
-    pub fn new_dummy(
-        sid: Sid,
-        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
-    ) -> Socket<D> {
+    pub fn new_dummy(close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>) -> Socket<D> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         Self {
-            id: sid,
+            id: Sid::new(),
             protocol: ProtocolVersion::V4,
             transport: AtomicU8::new(TransportType::Websocket as u8),
 
