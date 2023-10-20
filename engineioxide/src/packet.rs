@@ -228,12 +228,13 @@ mod tests {
 
     #[test]
     fn test_open_packet_deserialize() {
-        let packet_str = "0{\"sid\":\"1\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}";
+        let sid = Sid::new();
+        let packet_str = format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}");
         let packet = Packet::try_from(packet_str.to_string()).unwrap();
         assert_eq!(
             packet,
             Packet::Open(OpenPacket {
-                sid: Sid::new(),
+                sid,
                 upgrades: vec!["websocket".to_string()],
                 ping_interval: 25000,
                 ping_timeout: 20000,
