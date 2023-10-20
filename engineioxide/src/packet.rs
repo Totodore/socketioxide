@@ -181,7 +181,7 @@ impl TryFrom<String> for Packet {
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
-    sid: String,
+    sid: Sid,
     upgrades: Vec<String>,
     ping_interval: u64,
     ping_timeout: u64,
@@ -198,7 +198,7 @@ impl OpenPacket {
             vec![]
         };
         OpenPacket {
-            sid: sid.to_string(),
+            sid,
             upgrades,
             ping_interval: config.ping_interval.as_millis() as u64,
             ping_timeout: config.ping_timeout.as_millis() as u64,
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(
             packet,
             Packet::Open(OpenPacket {
-                sid: "1".to_string(),
+                sid: Sid::new(),
                 upgrades: vec!["websocket".to_string()],
                 ping_interval: 25000,
                 ping_timeout: 20000,

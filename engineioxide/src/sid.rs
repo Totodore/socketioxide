@@ -7,7 +7,7 @@ use base64::Engine;
 use rand::Rng;
 
 /// A 128 bit session id type representing a base64 16 char string
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Sid([u8; 16]);
 
 impl Sid {
@@ -49,13 +49,13 @@ impl FromStr for Sid {
         use SidDecodeError::*;
 
         let mut id = [0u8; 16];
-        let mut i = 0;
 
         // Verify the length of the string
         if s.len() != 16 {
             return Err(InvalidLength);
         }
 
+        let mut i = 0;
         // Verify that the string is a valid base64 url safe string without padding
         for byte in &s.as_bytes()[0..16] {
             if (byte >= &b'A' && byte <= &b'z')
@@ -73,6 +73,12 @@ impl FromStr for Sid {
     }
 }
 
+impl Default for Sid {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Display for Sid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // SAFETY: SID is always a base64 chars string
@@ -84,6 +90,25 @@ impl serde::Serialize for Sid {
         serializer.serialize_str(self.to_str())
     }
 }
+
+struct SidVisitor;
+impl<'de> serde::de::Visitor<'de> for SidVisitor {
+    type Value = Sid;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("a valid sid")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        Sid::from_str(v).map_err(serde::de::Error::custom)
+    }
+}
+impl<'de> serde::Deserialize<'de> for Sid {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(SidVisitor)
+    }
+}
+
 impl Debug for Sid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_str())

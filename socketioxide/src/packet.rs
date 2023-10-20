@@ -53,10 +53,7 @@ impl Packet {
     /// Sends a connect packet with payload.
     #[cfg(feature = "v5")]
     fn connect_v5(ns: String, sid: Sid) -> Self {
-        let val = serde_json::to_string(&ConnectPacket {
-            sid: sid.to_string(),
-        })
-        .unwrap();
+        let val = serde_json::to_string(&ConnectPacket { sid }).unwrap();
         Self {
             inner: PacketData::Connect(Some(val)),
             ns,
@@ -424,7 +421,7 @@ impl TryFrom<String> for Packet {
 /// Connect packet sent by the client
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectPacket {
-    sid: String,
+    sid: Sid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
