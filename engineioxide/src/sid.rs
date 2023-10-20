@@ -45,11 +45,7 @@ impl FromStr for Sid {
 
         // Verify that the string is a valid base64 url safe string without padding
         for (idx, byte) in s.as_bytes()[0..16].iter().enumerate() {
-            if (b'A'..=b'z').contains(byte)
-                || (b'0'..=b'9').contains(byte)
-                || byte == &b'_'
-                || byte == &b'-'
-            {
+            if byte.is_ascii_alphanumeric() || byte == &b'_' || byte == &b'-' {
                 id[idx] = *byte;
             } else {
                 return Err(InvalidBase64String);
