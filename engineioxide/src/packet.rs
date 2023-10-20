@@ -2,7 +2,7 @@ use base64::{engine::general_purpose, Engine};
 use serde::{de::Error, Deserialize, Serialize};
 
 use crate::config::EngineIoConfig;
-use crate::sid_generator::Sid;
+use crate::sid::Sid;
 use crate::transport::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
@@ -79,7 +79,7 @@ impl Packet {
     /// The base64 max size factor is `ceil(n / 3) * 4`
     pub(crate) fn get_size_hint(&self, b64: bool) -> usize {
         match self {
-            Packet::Open(_) => 151, // max possible size for the open packet serialized
+            Packet::Open(_) => 156, // max possible size for the open packet serialized
             Packet::Close => 1,
             Packet::Ping => 1,
             Packet::Pong => 1,
@@ -216,13 +216,14 @@ mod tests {
 
     #[test]
     fn test_open_packet() {
+        let sid = Sid::new();
         let packet = Packet::Open(OpenPacket::new(
             TransportType::Polling,
-            1i64.into(),
+            sid,
             &EngineIoConfig::default(),
         ));
         let packet_str: String = packet.try_into().unwrap();
-        assert_eq!(packet_str, "0{\"sid\":\"AAAAAAAAAAE\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}");
+        assert_eq!(packet_str, format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"));
     }
 
     #[test]
@@ -288,7 +289,7 @@ mod tests {
         // Max serialized packet
         let open = OpenPacket::new(
             TransportType::Polling,
-            Sid::MAX,
+            Sid::new(),
             &EngineIoConfig {
                 max_buffer_size: usize::MAX,
                 max_payload: u64::MAX,

@@ -14,7 +14,7 @@ use crate::{
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
     service::ProtocolVersion,
-    sid_generator::Sid,
+    sid::Sid,
     transport::polling::payload::Payload,
     DisconnectReason, SocketReq,
 };

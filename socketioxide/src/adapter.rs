@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::sid_generator::Sid;
+use engineioxide::sid::Sid;
 use futures::{
     stream::{self, BoxStream},
     StreamExt,
@@ -344,7 +344,7 @@ mod test {
 
     #[tokio::test]
     async fn test_add_all() {
-        let socket: Sid = 1i64.into();
+        let socket = Sid::new();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1", "room2"]).unwrap();
@@ -356,7 +356,7 @@ mod test {
 
     #[tokio::test]
     async fn test_del() {
-        let socket: Sid = 1i64.into();
+        let socket = Sid::new();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1", "room2"]).unwrap();
@@ -369,7 +369,7 @@ mod test {
 
     #[tokio::test]
     async fn test_del_all() {
-        let socket: Sid = 1i64.into();
+        let socket = Sid::new();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1", "room2"]).unwrap();
@@ -382,26 +382,29 @@ mod test {
 
     #[tokio::test]
     async fn test_socket_room() {
-        let ns = Namespace::new_dummy([1i64, 2, 3].map(Into::into));
+        let sid1 = Sid::new();
+        let sid2 = Sid::new();
+        let sid3 = Sid::new();
+        let ns = Namespace::new_dummy([sid1, sid2, sid3]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
-        adapter.add_all(1i64.into(), ["room1", "room2"]).unwrap();
-        adapter.add_all(2i64.into(), ["room1"]).unwrap();
-        adapter.add_all(3i64.into(), ["room2"]).unwrap();
+        adapter.add_all(sid1, ["room1", "room2"]).unwrap();
+        adapter.add_all(sid2, ["room1"]).unwrap();
+        adapter.add_all(sid3, ["room2"]).unwrap();
         assert!(adapter
-            .socket_rooms(1i64.into())
+            .socket_rooms(sid1)
             .unwrap()
             .contains(&"room1".into()));
         assert!(adapter
-            .socket_rooms(1i64.into())
+            .socket_rooms(sid1)
             .unwrap()
             .contains(&"room2".into()));
-        assert_eq!(adapter.socket_rooms(2i64.into()).unwrap(), ["room1"]);
-        assert_eq!(adapter.socket_rooms(3i64.into()).unwrap(), ["room2"]);
+        assert_eq!(adapter.socket_rooms(sid2).unwrap(), ["room1"]);
+        assert_eq!(adapter.socket_rooms(sid3).unwrap(), ["room2"]);
     }
 
     #[tokio::test]
     async fn test_add_socket() {
-        let socket: Sid = 0i64.into();
+        let socket = Sid::new();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1"]).unwrap();
@@ -418,7 +421,7 @@ mod test {
 
     #[tokio::test]
     async fn test_del_socket() {
-        let socket: Sid = 0i64.into();
+        let socket = Sid::new();
         let ns = Namespace::new_dummy([socket]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1"]).unwrap();
@@ -450,9 +453,9 @@ mod test {
 
     #[tokio::test]
     async fn test_sockets() {
-        let socket0: Sid = 0i64.into();
-        let socket1: Sid = 1i64.into();
-        let socket2: Sid = 2i64.into();
+        let socket0 = Sid::new();
+        let socket1 = Sid::new();
+        let socket2 = Sid::new();
         let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket0, ["room1", "room2"]).unwrap();
@@ -477,9 +480,9 @@ mod test {
 
     #[tokio::test]
     async fn test_disconnect_socket() {
-        let socket0: Sid = 0i64.into();
-        let socket1: Sid = 1i64.into();
-        let socket2: Sid = 2i64.into();
+        let socket0 = Sid::new();
+        let socket1 = Sid::new();
+        let socket2 = Sid::new();
         let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter
@@ -510,9 +513,9 @@ mod test {
     }
     #[tokio::test]
     async fn test_apply_opts() {
-        let socket0: Sid = 0i64.into();
-        let socket1: Sid = 1i64.into();
-        let socket2: Sid = 2i64.into();
+        let socket0 = Sid::new();
+        let socket1 = Sid::new();
+        let socket2 = Sid::new();
         let ns = Namespace::new_dummy([socket0, socket1, socket2]);
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         // Add socket 0 to room1 and room2
@@ -543,7 +546,7 @@ mod test {
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].id, socket2);
 
-        let opts = BroadcastOptions::new(Some(10000i64.into()));
+        let opts = BroadcastOptions::new(Some(Sid::new()));
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 0);
     }

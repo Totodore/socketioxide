@@ -5,7 +5,7 @@ use crate::{
     errors::Error,
     futures::ResponseFuture,
     handler::EngineIoHandler,
-    sid_generator::Sid,
+    sid::Sid,
     transport::{polling, ws, TransportType},
 };
 use bytes::Bytes;
@@ -346,10 +346,10 @@ mod tests {
     #[cfg(feature = "v3")]
     fn request_info_polling_with_sid() {
         let req = build_request(
-            "http://localhost:3000/socket.io/?EIO=3&transport=polling&sid=AAAAAAAAAHs",
+            "http://localhost:3000/socket.io/?EIO=3&transport=polling&sid=AAAAAAAAAAAAAAHs",
         );
         let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
-        assert_eq!(info.sid, Some(123i64.into()));
+        assert_eq!(info.sid, Some("AAAAAAAAAAAAAAHs".parse().unwrap()));
         assert_eq!(info.transport, TransportType::Polling);
         assert_eq!(info.protocol, ProtocolVersion::V3);
         assert_eq!(info.method, Method::GET);
@@ -359,10 +359,10 @@ mod tests {
     #[cfg(feature = "v4")]
     fn request_info_websocket_with_sid() {
         let req = build_request(
-            "http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAHs",
+            "http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAAAAAAHs",
         );
         let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
-        assert_eq!(info.sid, Some(123i64.into()));
+        assert_eq!(info.sid, Some("AAAAAAAAAAAAAAHs".parse().unwrap()));
         assert_eq!(info.transport, TransportType::Websocket);
         assert_eq!(info.protocol, ProtocolVersion::V4);
         assert_eq!(info.method, Method::GET);

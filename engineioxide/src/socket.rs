@@ -22,7 +22,7 @@ use crate::{
     config::EngineIoConfig, errors::Error, packet::Packet, peekable::PeekableReceiver,
     service::ProtocolVersion,
 };
-use crate::{sid_generator::Sid, transport::TransportType};
+use crate::{sid::Sid, transport::TransportType};
 
 /// Http Request data used to create a socket
 #[derive(Debug)]
@@ -153,7 +153,6 @@ where
     D: Default + Send + Sync + 'static,
 {
     pub(crate) fn new(
-        sid: Sid,
         protocol: ProtocolVersion,
         transport: TransportType,
         config: &EngineIoConfig,
@@ -165,7 +164,7 @@ where
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         Self {
-            id: sid,
+            id: Sid::new(),
             protocol,
             transport: AtomicU8::new(transport as u8),
 

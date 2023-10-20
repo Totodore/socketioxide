@@ -6,11 +6,10 @@ use std::{
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
-    sid_generator::generate_sid,
     socket::{DisconnectReason, Socket, SocketReq},
     transport::TransportType,
 };
-use crate::{service::ProtocolVersion, sid_generator::Sid};
+use crate::{service::ProtocolVersion, sid::Sid};
 use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
@@ -50,10 +49,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let engine = self.clone();
         let close_fn = Box::new(move |sid, reason| engine.close_session(sid, reason));
 
-        let sid = generate_sid();
-
         let socket = Socket::new(
-            sid,
             protocol,
             transport,
             &self.config,
@@ -64,7 +60,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
         );
         let socket = Arc::new(socket);
         {
-            self.sockets.write().unwrap().insert(sid, socket.clone());
+            self.sockets
+                .write()
+                .unwrap()
+                .insert(socket.id, socket.clone());
         }
         socket
     }
