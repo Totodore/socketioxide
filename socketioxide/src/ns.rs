@@ -12,7 +12,7 @@ use crate::{
     SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
-use engineioxide::sid_generator::Sid;
+use engineioxide::sid::Sid;
 use futures::Future;
 use serde::de::DeserializeOwned;
 

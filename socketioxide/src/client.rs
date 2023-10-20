@@ -6,7 +6,7 @@ use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EI
 use futures::{Future, TryFutureExt};
 use serde::de::DeserializeOwned;
 
-use engineioxide::sid_generator::Sid;
+use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
 use tracing::debug;
 use tracing::error;

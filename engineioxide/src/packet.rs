@@ -2,7 +2,7 @@ use base64::{engine::general_purpose, Engine};
 use serde::{de::Error, Deserialize, Serialize};
 
 use crate::config::EngineIoConfig;
-use crate::sid_generator::Sid;
+use crate::sid::Sid;
 use crate::transport::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
@@ -79,7 +79,7 @@ impl Packet {
     /// The base64 max size factor is `ceil(n / 3) * 4`
     pub(crate) fn get_size_hint(&self, b64: bool) -> usize {
         match self {
-            Packet::Open(_) => 151, // max possible size for the open packet serialized
+            Packet::Open(_) => 156, // max possible size for the open packet serialized
             Packet::Close => 1,
             Packet::Ping => 1,
             Packet::Pong => 1,
@@ -181,7 +181,7 @@ impl TryFrom<String> for Packet {
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
-    sid: String,
+    sid: Sid,
     upgrades: Vec<String>,
     ping_interval: u64,
     ping_timeout: u64,
@@ -198,7 +198,7 @@ impl OpenPacket {
             vec![]
         };
         OpenPacket {
-            sid: sid.to_string(),
+            sid,
             upgrades,
             ping_interval: config.ping_interval.as_millis() as u64,
             ping_timeout: config.ping_timeout.as_millis() as u64,
@@ -216,23 +216,25 @@ mod tests {
 
     #[test]
     fn test_open_packet() {
+        let sid = Sid::new();
         let packet = Packet::Open(OpenPacket::new(
             TransportType::Polling,
-            1i64.into(),
+            sid,
             &EngineIoConfig::default(),
         ));
         let packet_str: String = packet.try_into().unwrap();
-        assert_eq!(packet_str, "0{\"sid\":\"AAAAAAAAAAE\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}");
+        assert_eq!(packet_str, format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"));
     }
 
     #[test]
     fn test_open_packet_deserialize() {
-        let packet_str = "0{\"sid\":\"1\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}";
+        let sid = Sid::new();
+        let packet_str = format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}");
         let packet = Packet::try_from(packet_str.to_string()).unwrap();
         assert_eq!(
             packet,
             Packet::Open(OpenPacket {
-                sid: "1".to_string(),
+                sid,
                 upgrades: vec!["websocket".to_string()],
                 ping_interval: 25000,
                 ping_timeout: 20000,
@@ -288,7 +290,7 @@ mod tests {
         // Max serialized packet
         let open = OpenPacket::new(
             TransportType::Polling,
-            Sid::MAX,
+            Sid::new(),
             &EngineIoConfig {
                 max_buffer_size: usize::MAX,
                 max_payload: u64::MAX,

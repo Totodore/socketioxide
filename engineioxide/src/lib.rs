@@ -10,7 +10,7 @@ pub mod errors;
 pub mod handler;
 pub mod layer;
 pub mod service;
-pub mod sid_generator;
+pub mod sid;
 pub mod socket;
 
 pub use service::ProtocolVersion;

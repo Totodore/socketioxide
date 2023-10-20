@@ -7,7 +7,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use engineioxide::socket::DisconnectReason;
 use engineioxide::{handler::EngineIoHandler, service::EngineIoService, socket::Socket};
 
-use engineioxide::sid_generator::Sid;
+use engineioxide::sid::Sid;
 use http::Request;
 use http_body::{Empty, Full};
 use serde::{Deserialize, Serialize};

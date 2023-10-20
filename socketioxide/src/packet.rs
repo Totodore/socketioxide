@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::errors::Error;
-use engineioxide::sid_generator::Sid;
+use engineioxide::sid::Sid;
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
@@ -53,10 +53,7 @@ impl Packet {
     /// Sends a connect packet with payload.
     #[cfg(feature = "v5")]
     fn connect_v5(ns: String, sid: Sid) -> Self {
-        let val = serde_json::to_string(&ConnectPacket {
-            sid: sid.to_string(),
-        })
-        .unwrap();
+        let val = serde_json::to_string(&ConnectPacket { sid }).unwrap();
         Self {
             inner: PacketData::Connect(Some(val)),
             ns,
@@ -424,7 +421,7 @@ impl TryFrom<String> for Packet {
 /// Connect packet sent by the client
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectPacket {
-    sid: String,
+    sid: Sid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -434,14 +431,13 @@ pub struct ConnectErrorPacket {
 
 #[cfg(test)]
 mod test {
-    use engineioxide::sid_generator::generate_sid;
     use serde_json::json;
 
     use super::*;
 
     #[test]
     fn packet_decode_connect() {
-        let sid: Sid = generate_sid();
+        let sid = Sid::new();
         let payload = format!("0{}", json!({"sid": sid}));
         let packet = Packet::try_from(payload).unwrap();
 
@@ -463,7 +459,7 @@ mod test {
     fn packet_encode_connect() {
         assert!(cfg!(feature = "v5"));
 
-        let sid: Sid = generate_sid();
+        let sid = Sid::new();
         let payload = format!("0{}", json!({"sid": sid}));
         let packet: String = Packet::connect("/".to_string(), sid, ProtocolVersion::V5)
             .try_into()

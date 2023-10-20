@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 use tracing::debug;
 
-use crate::sid_generator::Sid;
+use crate::sid::Sid;
 use crate::{body::ResponseBody, packet::Packet};
 
 #[derive(thiserror::Error, Debug)]

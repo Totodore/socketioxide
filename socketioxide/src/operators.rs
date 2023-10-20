@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use engineioxide::sid_generator::Sid;
+use engineioxide::sid::Sid;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;

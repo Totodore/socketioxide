@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason};
+use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;

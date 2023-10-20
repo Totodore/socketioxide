@@ -1,5 +1,5 @@
 use crate::{adapter::Adapter, Socket};
-use engineioxide::{sid_generator::Sid, socket::DisconnectReason as EIoDisconnectReason};
+use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
