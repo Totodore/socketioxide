@@ -13,22 +13,10 @@ pub struct Sid([u8; 16]);
 impl Sid {
     /// Generate a new random session id (base64 10 chars)
     pub fn new() -> Self {
-        let mut random = [0u8; 12]; // 12 bytes = 16 chars base64
-        let mut id = [0u8; 16];
-
-        rand::thread_rng().fill(&mut random);
-
-        base64::prelude::BASE64_URL_SAFE_NO_PAD
-            .encode_slice(&random, &mut id)
-            .unwrap();
-
-        let id = Sid(id);
-
-        tracing::debug!("Generated new session id: {}", id);
-        id
+        Self::default()
     }
 
-    fn to_str(&self) -> &str {
+    fn as_str(&self) -> &str {
         // SAFETY: SID is always a base64 chars string
         unsafe { std::str::from_utf8_unchecked(&self.0) }
     }
@@ -55,19 +43,17 @@ impl FromStr for Sid {
             return Err(InvalidLength);
         }
 
-        let mut i = 0;
         // Verify that the string is a valid base64 url safe string without padding
-        for byte in &s.as_bytes()[0..16] {
-            if (byte >= &b'A' && byte <= &b'z')
-                || (byte >= &b'0' && byte <= &b'9')
+        for (idx, byte) in s.as_bytes()[0..16].iter().enumerate() {
+            if (b'A'..=b'z').contains(byte)
+                || (b'0'..=b'9').contains(byte)
                 || byte == &b'_'
                 || byte == &b'-'
             {
-                id[i] = *byte;
+                id[idx] = *byte;
             } else {
                 return Err(InvalidBase64String);
             }
-            i += 1;
         }
         Ok(Sid(id))
     }
@@ -75,19 +61,27 @@ impl FromStr for Sid {
 
 impl Default for Sid {
     fn default() -> Self {
-        Self::new()
+        let mut random = [0u8; 12]; // 12 bytes = 16 chars base64
+        let mut id = [0u8; 16];
+
+        rand::thread_rng().fill(&mut random);
+
+        base64::prelude::BASE64_URL_SAFE_NO_PAD
+            .encode_slice(random, &mut id)
+            .unwrap();
+
+        Sid(id)
     }
 }
 
 impl Display for Sid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // SAFETY: SID is always a base64 chars string
-        write!(f, "{}", self.to_str())
+        write!(f, "{}", self.as_str())
     }
 }
 impl serde::Serialize for Sid {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.to_str())
+        serializer.serialize_str(self.as_str())
     }
 }
 
@@ -111,7 +105,7 @@ impl<'de> serde::Deserialize<'de> for Sid {
 
 impl Debug for Sid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_str())
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -126,8 +120,8 @@ mod tests {
         let id = Sid::new();
         let id2 = Sid::from_str(&id.to_string()).unwrap();
         assert_eq!(id, id2);
-        let id = Sid::from_str("AAAAAAAAAAAAAAHs").unwrap();
-        assert_eq!(id.to_string(), "AAAAAAAAAAAAAAHs");
+        let id = Sid::from_str("AA9AAA0AAzAAAAHs").unwrap();
+        assert_eq!(id.to_string(), "AA9AAA0AAzAAAAHs");
     }
 
     #[test]
