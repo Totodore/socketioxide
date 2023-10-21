@@ -248,9 +248,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         };
         if let Err(ref err) = res {
             #[cfg(feature = "tracing")]
-            debug!(
+            tracing::debug!(
                 "error while processing packet to socket {}: {}",
-                socket.id, err
+                socket.id,
+                err
             );
             if let Some(reason) = err.into() {
                 socket.close(reason);
