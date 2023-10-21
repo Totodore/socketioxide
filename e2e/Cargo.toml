@@ -6,8 +6,11 @@ edition = "2021"
 [dependencies]
 engineioxide = { path = "../engineioxide", default-features = false, features = [
     "test-utils",
+    "tracing",
 ] }
-socketioxide = { path = "../socketioxide", default-features = false }
+socketioxide = { path = "../socketioxide", default-features = false, features = [
+    "tracing",
+] }
 hyper = { version = "0.14.26" }
 tokio = { version = "1.13.0", features = ["full"] }
 tower = { version = "0.4.13" }
