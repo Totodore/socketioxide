@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -23,7 +24,7 @@ use crate::{ProtocolVersion, Socket};
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
     pub(crate) config: Arc<SocketIoConfig>,
-    ns: RwLock<HashMap<String, Arc<Namespace<A>>>>,
+    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
 }
 
 impl<A: Adapter> Client<A> {
@@ -58,7 +59,7 @@ impl<A: Adapter> Client<A> {
     fn sock_connect(
         &self,
         auth: Option<String>,
-        ns_path: String,
+        ns_path: &str,
         esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), serde_json::Error> {
         debug!("auth: {:?}", auth);
@@ -72,7 +73,7 @@ impl<A: Adapter> Client<A> {
                 tx.send(()).unwrap();
             }
 
-            let connect_packet = Packet::connect(ns_path, sid, protocol);
+            let connect_packet = Packet::connect(&ns_path, sid, protocol);
             if let Err(err) = esocket.emit(connect_packet.try_into()?) {
                 debug!("sending error during socket connection: {err:?}");
             }
@@ -88,7 +89,7 @@ impl<A: Adapter> Client<A> {
             esocket.close(EIoDisconnectReason::TransportClose);
             Ok(())
         } else {
-            let packet = Packet::invalid_namespace(ns_path).try_into().unwrap();
+            let packet = Packet::invalid_namespace(&ns_path).try_into().unwrap();
             if let Err(e) = esocket.emit(packet) {
                 error!("error while sending invalid namespace packet: {}", e);
             }
@@ -97,7 +98,7 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Cache-in the socket data until all the binary payloads are received
-    fn sock_recv_bin_packet(&self, socket: &EIoSocket<SocketData>, packet: Packet) {
+    fn sock_recv_bin_packet(&self, socket: &EIoSocket<SocketData>, packet: Packet<'static>) {
         socket
             .data
             .partial_bin_packet
@@ -133,7 +134,7 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Add a new namespace handler
-    pub fn add_ns<C, F, V>(&self, path: String, callback: C)
+    pub fn add_ns<C, F, V>(&self, path: Cow<'static, str>, callback: C)
     where
         C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
@@ -168,7 +169,7 @@ impl<A: Adapter> Client<A> {
 pub struct SocketData {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
-    pub partial_bin_packet: Mutex<Option<Packet>>,
+    pub partial_bin_packet: Mutex<Option<Packet<'static>>>,
 
     /// Channel used to notify the socket that it has been connected to a namespace
     #[cfg(feature = "v5")]
@@ -230,7 +231,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => self
-                .sock_connect(auth, packet.ns, &socket)
+                .sock_connect(auth, &packet.ns, &socket)
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 self.sock_recv_bin_packet(&socket, packet);

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     sync::{Arc, RwLock},
 };
@@ -17,14 +18,14 @@ use futures::Future;
 use serde::de::DeserializeOwned;
 
 pub struct Namespace<A: Adapter> {
-    pub path: String,
+    pub path: Cow<'static, str>,
     pub(crate) adapter: A,
     handler: BoxedNamespaceHandler<A>,
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
 }
 
 impl<A: Adapter> Namespace<A> {
-    pub fn new<C, F, V>(path: String, callback: C) -> Arc<Self>
+    pub fn new<C, F, V>(path: Cow<'static, str>, callback: C) -> Arc<Self>
     where
         C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
@@ -100,7 +101,7 @@ impl<A: Adapter> Namespace<A> {
 #[cfg(test)]
 impl<A: Adapter> Namespace<A> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
-        let ns = Namespace::new("/".to_string(), |_, _: ()| async {});
+        let ns = Namespace::new(Cow::Borrowed("/"), |_, _: ()| async {});
         for sid in sockets {
             ns.sockets
                 .write()

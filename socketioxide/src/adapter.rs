@@ -95,7 +95,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
-        packet: Packet,
+        packet: Packet<'static>,
         opts: BroadcastOptions,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError>;
 
@@ -207,7 +207,7 @@ impl Adapter for LocalAdapter {
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
-        packet: Packet,
+        packet: Packet<'static>,
         opts: BroadcastOptions,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         let duration = opts.flags.iter().find_map(|flag| match flag {

@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
@@ -320,7 +320,7 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ```
     #[inline]
-    pub fn ns<C, F, V>(&self, path: impl Into<String>, callback: C)
+    pub fn ns<C, F, V>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
         C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,

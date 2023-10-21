@@ -358,14 +358,14 @@ impl<A: Adapter> Operators<A> {
         &mut self,
         event: impl Into<String>,
         data: impl serde::Serialize,
-    ) -> Result<Packet, serde_json::Error> {
-        let ns = self.ns.clone();
+    ) -> Result<Packet<'static>, serde_json::Error> {
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
-            Packet::event(ns.path.clone(), event.into(), data)
+            Packet::event(ns, event.into(), data)
         } else {
             let binary = std::mem::take(&mut self.binary);
-            Packet::bin_event(ns.path.clone(), event.into(), data, binary)
+            Packet::bin_event(ns, event.into(), data, binary)
         };
         Ok(packet)
     }

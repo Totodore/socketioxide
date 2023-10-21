@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt::Debug,
     sync::Mutex,
@@ -238,9 +239,9 @@ impl<A: Adapter> Socket<A> {
         event: impl Into<String>,
         data: impl Serialize,
     ) -> Result<(), serde_json::Error> {
-        let ns = self.ns.path.clone();
+        let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        if let Err(err) = self.send(Packet::event(ns, event.into(), data)) {
+        if let Err(err) = self.send(Packet::event(Cow::Borrowed(ns), event.into(), data)) {
             debug!("sending error during emit message: {err:?}");
         }
         Ok(())
@@ -271,9 +272,9 @@ impl<A: Adapter> Socket<A> {
     where
         V: DeserializeOwned + Send + Sync + 'static,
     {
-        let ns = self.ns.path.clone();
+        let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        let packet = Packet::event(ns, event.into(), data);
+        let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
 
         self.send_with_ack(packet, None).await
     }
@@ -454,7 +455,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
-        self.send(Packet::disconnect(self.ns.path.clone()))?;
+        self.send(Packet::disconnect(&self.ns.path))?;
         self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())
     }
@@ -470,7 +471,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Get the current namespace path.
-    pub fn ns(&self) -> &String {
+    pub fn ns(&self) -> &str {
         &self.ns.path
     }
 
@@ -493,9 +494,9 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    pub(crate) async fn send_with_ack<V: DeserializeOwned>(
+    pub(crate) async fn send_with_ack<'a, V: DeserializeOwned>(
         &self,
-        mut packet: Packet,
+        mut packet: Packet<'a>,
         timeout: Option<Duration>,
     ) -> Result<AckResponse<V>, AckError> {
         let (tx, rx) = oneshot::channel();

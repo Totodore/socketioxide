@@ -46,20 +46,17 @@ impl<A: Adapter, S: Clone> SocketIoService<A, S> {
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
     pub fn with_config_inner(inner: S, config: Arc<SocketIoConfig>) -> (Self, Arc<Client<A>>) {
-        let client = Arc::new(Client::new(config.clone()));
-        let svc =
-            EngineIoService::with_config_inner(inner, client.clone(), config.engine_config.clone());
+        let engine_config = config.engine_config.clone();
+        let client = Arc::new(Client::new(config));
+        let svc = EngineIoService::with_config_inner(inner, client.clone(), engine_config);
         (Self { engine_svc: svc }, client)
     }
 
     /// Create a new [`EngineIoService`] with a custom inner service and an existing client
     /// It is mainly used with a [`SocketIoLayer`](crate::layer::SocketIoLayer) that owns the client
     pub fn with_client(inner: S, client: Arc<Client<A>>) -> Self {
-        let svc = EngineIoService::with_config_inner(
-            inner,
-            client.clone(),
-            client.config.engine_config.clone(),
-        );
+        let engine_config = client.config.engine_config.clone();
+        let svc = EngineIoService::with_config_inner(inner, client, engine_config);
         Self { engine_svc: svc }
     }
 }
