@@ -8,8 +8,6 @@ use serde::de::DeserializeOwned;
 
 use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
-use tracing::debug;
-use tracing::error;
 
 use crate::adapter::Adapter;
 use crate::{
@@ -38,7 +36,8 @@ impl<A: Adapter> Client<A> {
     ///
     /// Returns true if the packet is complete and should be processed
     fn apply_payload_on_packet(&self, data: Vec<u8>, socket: &EIoSocket<SocketData>) -> bool {
-        debug!("[sid={}] applying payload on packet", socket.id);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] applying payload on packet", socket.id);
         if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
             match packet.inner {
                 PacketData::BinaryEvent(_, ref mut bin, _)
@@ -49,7 +48,8 @@ impl<A: Adapter> Client<A> {
                 _ => unreachable!("partial_bin_packet should only be set for binary packets"),
             }
         } else {
-            debug!("[sid={}] socket received unexpected bin data", socket.id);
+            #[cfg(feature = "tracing")]
+            tracing::debug!("[sid={}] socket received unexpected bin data", socket.id);
             false
         }
     }
@@ -61,7 +61,8 @@ impl<A: Adapter> Client<A> {
         ns_path: String,
         esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) -> Result<(), Error> {
-        debug!("auth: {:?}", auth);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("auth: {:?}", auth);
         let sid = esocket.id;
         if let Some(ns) = self.get_ns(&ns_path) {
             ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
@@ -72,15 +73,17 @@ impl<A: Adapter> Client<A> {
             }
             Ok(())
         } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
-            error!(
+            #[cfg(feature = "tracing")]
+            tracing::error!(
                 "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
             );
             esocket.close(EIoDisconnectReason::TransportClose);
             Ok(())
         } else {
             let packet = Packet::invalid_namespace(ns_path).try_into().unwrap();
-            if let Err(e) = esocket.emit(packet) {
-                error!("error while sending invalid namespace packet: {}", e);
+            if let Err(_e) = esocket.emit(packet) {
+                #[cfg(feature = "tracing")]
+                tracing::error!("error while sending invalid namespace packet: {}", _e);
             }
             Ok(())
         }
@@ -107,13 +110,15 @@ impl<A: Adapter> Client<A> {
     /// after the [`SocketIoConfig::connect_timeout`] duration
     #[cfg(feature = "v5")]
     fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
-        debug!("spawning connect timeout task");
+        #[cfg(feature = "tracing")]
+        tracing::debug!("spawning connect timeout task");
         let (tx, rx) = oneshot::channel();
         socket.data.connect_recv_tx.lock().unwrap().replace(tx);
 
         tokio::spawn(
             tokio::time::timeout(self.config.connect_timeout, rx).map_err(move |_| {
-                debug!("connect timeout for socket {}", socket.id);
+                #[cfg(feature = "tracing")]
+                tracing::debug!("connect timeout for socket {}", socket.id);
                 socket.close(EIoDisconnectReason::TransportClose);
             }),
         );
@@ -126,14 +131,16 @@ impl<A: Adapter> Client<A> {
         F: Future<Output = ()> + Send + 'static,
         V: DeserializeOwned + Send + Sync + 'static,
     {
-        debug!("adding namespace {}", path);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("adding namespace {}", path);
         let ns = Namespace::new(path.clone(), callback);
         self.ns.write().unwrap().insert(path, ns);
     }
 
     /// Delete a namespace handler
     pub fn delete_ns(&self, path: &str) {
-        debug!("deleting namespace {}", path);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("deleting namespace {}", path);
         self.ns.write().unwrap().remove(path);
     }
 
@@ -142,12 +149,14 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Close all engine.io connections and all clients
-    #[tracing::instrument(skip(self))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub(crate) async fn close(&self) {
-        debug!("closing all namespaces");
+        #[cfg(feature = "tracing")]
+        tracing::debug!("closing all namespaces");
         let ns = self.ns.read().unwrap().clone();
         futures::future::join_all(ns.values().map(|ns| ns.close())).await;
-        debug!("all namespaces closed");
+        #[cfg(feature = "tracing")]
+        tracing::debug!("all namespaces closed");
     }
 }
 
@@ -166,9 +175,10 @@ pub struct SocketData {
 impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 
-    #[tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string()))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
     fn on_connect(&self, socket: Arc<EIoSocket<SocketData>>) {
-        debug!("eio socket connect");
+        #[cfg(feature = "tracing")]
+        tracing::debug!("eio socket connect");
 
         let protocol: ProtocolVersion = socket.protocol.into();
 
@@ -176,7 +186,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         // Because we connect by default to the root namespace, we should ensure before that the root namespace is defined
         #[cfg(feature = "v4")]
         if protocol == ProtocolVersion::V4 {
-            debug!("connecting to default namespace for v4");
+            #[cfg(feature = "tracing")]
+            tracing::debug!("connecting to default namespace for v4");
             self.sock_connect(None, "/".into(), &socket).unwrap();
         }
 
@@ -186,10 +197,11 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    #[tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string()))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
     fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
-        debug!("eio socket disconnected");
-        let res: Result<Vec<_>, _> = self
+        #[cfg(feature = "tracing")]
+        tracing::debug!("eio socket disconnected");
+        let _res: Result<Vec<_>, _> = self
             .ns
             .read()
             .unwrap()
@@ -197,23 +209,32 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .filter_map(|ns| ns.get_socket(socket.id).ok())
             .map(|s| s.close(reason.clone().into()))
             .collect();
-        match res {
-            Ok(vec) => debug!("disconnect handle spawned for {} namespaces", vec.len()),
-            Err(e) => error!("error while disconnecting socket: {}", e),
+
+        #[cfg(feature = "tracing")]
+        match _res {
+            Ok(vec) => {
+                tracing::debug!("disconnect handle spawned for {} namespaces", vec.len())
+            }
+            Err(_e) => {
+                tracing::debug!("error while disconnecting socket: {}", _e)
+            }
         }
     }
 
     fn on_message(&self, msg: String, socket: Arc<EIoSocket<SocketData>>) {
-        debug!("Received message: {:?}", msg);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
             Ok(packet) => packet,
-            Err(e) => {
-                debug!("socket serialization error: {}", e);
+            Err(_e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("socket serialization error: {}", _e);
                 socket.close(EIoDisconnectReason::PacketParsingError);
                 return;
             }
         };
-        debug!("Packet: {:?}", packet);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Packet: {:?}", packet);
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => self
@@ -226,7 +247,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             _ => self.sock_propagate_packet(packet, socket.id),
         };
         if let Err(ref err) = res {
-            error!(
+            #[cfg(feature = "tracing")]
+            debug!(
                 "error while processing packet to socket {}: {}",
                 socket.id, err
             );
@@ -243,9 +265,11 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         if self.apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
-                    debug!(
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(
                         "error while propagating packet to socket {}: {}",
-                        socket.id, err
+                        socket.id,
+                        err
                     );
                     if let Some(reason) = err.into() {
                         socket.close(reason);

@@ -14,7 +14,6 @@ use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
-use tracing::debug;
 
 use crate::{
     adapter::{Adapter, Room},
@@ -244,8 +243,9 @@ impl<A: Adapter> Socket<A> {
     ) -> Result<(), serde_json::Error> {
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        if let Err(err) = self.send(Packet::event(ns, event.into(), data)) {
-            debug!("sending error during emit message: {err:?}");
+        if let Err(_e) = self.send(Packet::event(ns, event.into(), data)) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("sending error during emit message: {_e:?}");
         }
         Ok(())
     }
@@ -467,7 +467,8 @@ impl<A: Adapter> Socket<A> {
     /// Return a future that resolves when the underlying transport is closed.
     pub(crate) async fn close_underlying_transport(&self) {
         if !self.esocket.is_closed() {
-            debug!("closing underlying transport for socket: {}", self.id);
+            #[cfg(feature = "tracing")]
+            tracing::debug!("closing underlying transport for socket: {}", self.id);
             self.esocket.close(EIoDisconnectReason::ClosingServer);
         }
         self.esocket.closed().await;
