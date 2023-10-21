@@ -60,23 +60,13 @@ impl<A: Adapter> Client<A> {
         auth: Option<String>,
         ns_path: String,
         esocket: &Arc<engineioxide::Socket<SocketData>>,
-    ) -> Result<(), serde_json::Error> {
+    ) -> Result<(), Error> {
         debug!("auth: {:?}", auth);
         let sid = esocket.id;
         if let Some(ns) = self.get_ns(&ns_path) {
-            let protocol: ProtocolVersion = esocket.protocol.into();
+            ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
 
             // cancel the connect timeout task for v5
-            #[cfg(feature = "v5")]
-            if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                tx.send(()).unwrap();
-            }
-
-            let connect_packet = Packet::connect(ns_path, sid, protocol);
-            if let Err(err) = esocket.emit(connect_packet.try_into()?) {
-                debug!("sending error during socket connection: {err:?}");
-            }
-            ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                 tx.send(()).unwrap();
             }
@@ -108,12 +98,9 @@ impl<A: Adapter> Client<A> {
 
     /// Propagate a packet to a its target namespace
     fn sock_propagate_packet(&self, packet: Packet, sid: Sid) -> Result<(), Error> {
-        if let Some(ns) = self.get_ns(&packet.ns) {
-            ns.recv(sid, packet.inner)
-        } else {
-            debug!("invalid namespace requested: {}", packet.ns);
-            Ok(())
-        }
+        self.get_ns(&packet.ns)
+            .ok_or(Error::InvalidNamespace(packet.ns))?
+            .recv(sid, packet.inner)
     }
 
     /// Spawn a task that will close the socket if it is not connected to a namespace

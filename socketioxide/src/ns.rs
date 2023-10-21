@@ -7,9 +7,9 @@ use crate::{
     adapter::Adapter,
     errors::Error,
     handler::{BoxedNamespaceHandler, CallbackHandler},
-    packet::PacketData,
+    packet::{Packet, PacketData},
     socket::Socket,
-    SocketIoConfig,
+    ProtocolVersion, SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
@@ -46,10 +46,15 @@ impl<A: Adapter> Namespace<A> {
         esocket: Arc<engineioxide::Socket<SocketData>>,
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
-    ) -> Result<(), serde_json::Error> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket, config).into();
+    ) -> Result<(), Error> {
+        let protocol: ProtocolVersion = esocket.protocol.into();
+        let socket: Arc<Socket<A>> = Socket::new(self.clone(), esocket, config).into();
         self.sockets.write().unwrap().insert(sid, socket.clone());
-        self.handler.call(socket, auth)
+
+        socket.send(Packet::connect(self.path.clone(), socket.id, protocol))?;
+
+        self.handler.call(socket, auth)?;
+        Ok(())
     }
 
     /// Remove a socket from a namespace and propagate the event to the adapter
