@@ -29,6 +29,7 @@ pub fn decoder(
     {
         use futures::future::Either;
         use http::header::CONTENT_TYPE;
+        #[cfg(feature = "tracing")]
         tracing::debug!("decoding payload {:?}", body.headers().get(CONTENT_TYPE));
         let is_binary =
             body.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
