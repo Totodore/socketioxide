@@ -32,7 +32,7 @@ itertools = "0.11.0"
 dashmap = "5.4.0"
 
 [features]
-default = ["v4", "v5"]
+default = ["v5"]
 v5 = ["engineioxide/v4"]
 v4 = ["engineioxide/v3"]
 
