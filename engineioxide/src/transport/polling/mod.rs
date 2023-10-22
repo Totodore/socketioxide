@@ -122,7 +122,6 @@ pub async fn post_req<R, B, H>(
 where
     H: EngineIoHandler,
     R: Body + Send + Unpin + 'static,
-    <R as Body>::Error: std::fmt::Debug,
     <R as Body>::Data: Send,
     B: Send + 'static,
 {

@@ -12,7 +12,7 @@ use bytes::Bytes;
 use futures::future::{ready, Ready};
 use http::{Method, Request};
 use http_body::{Body, Empty};
-use hyper::{service::Service, Response};
+use hyper::{body::Incoming, Response};
 use std::{
     convert::Infallible,
     fmt::Debug,
@@ -20,6 +20,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use tower::Service;
 
 /// A [`Service`] that handles engine.io requests as a middleware.
 /// If the request is not an engine.io request, it forwards it to the inner service.
@@ -74,13 +75,10 @@ impl<S: Clone, H: EngineIoHandler> Clone for EngineIoService<H, S> {
 }
 
 /// The service implementation for [`EngineIoService`].
-impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<H, S>
+impl<ResBody, S, H> Service<Request<Incoming>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,
-    ReqBody: Body + Send + Unpin + 'static + Debug,
-    <ReqBody as Body>::Error: Debug,
-    <ReqBody as Body>::Data: Send,
-    S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+    S: Service<Request<Incoming>, Response = Response<ResBody>>,
     H: EngineIoHandler,
 {
     type Response = Response<ResponseBody<ResBody>>;
@@ -95,7 +93,7 @@ where
     /// Each request is parsed to a [`RequestInfo`]
     /// If the request is an `EngineIo` request, it is handled by the corresponding [`transport`](crate::transport).
     /// Otherwise, it is forwarded to the inner service.
-    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+    fn call(&mut self, req: Request<Incoming>) -> Self::Future {
         if req.uri().path().starts_with(&self.engine.config.req_path) {
             let engine = self.engine.clone();
             match RequestInfo::parse(&req, &self.engine.config) {
