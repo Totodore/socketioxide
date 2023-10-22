@@ -22,19 +22,19 @@ base64 = "0.21.0"
 bytes = "1.4.0"
 futures = "0.3.27"
 http = "0.2.9"
-http-body = "0.4.5"
 hyper = { version = "1.0.0-rc.4", features = ["http1", "client", "server"] }
 pin-project = "1.0.12"
 serde = { version = "1.0.155", features = ["derive"] }
 serde_json = "1.0.94"
 thiserror = "1.0.40"
-tokio = "1.26.0"
+tokio = { version = "1.26.0", features = ["time", "rt"] }
 tokio-tungstenite = "0.20.1"
 tower = "0.4.13"
 tracing = "0.1.37"
 rand = "0.8.5"
 memchr = { version = "2.5.0", optional = true }
 unicode-segmentation = { version = "1.10.1", optional = true }
+http-body-util = "0.1.0-rc.3"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
@@ -43,14 +43,9 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 hyper-util = { git = "https://github.com/hyperium/hyper-util", features = [
     "full",
 ] }
-http-body-util = "0.1.0-rc.3"
 
 [features]
 default = ["v4"]
 v4 = []
 v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
-
-[[bench]]
-name = "benchmark_polling"
-harness = false

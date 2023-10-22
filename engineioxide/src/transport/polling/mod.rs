@@ -1,9 +1,11 @@
 //! The polling transport module handles polling, post and init requests
 use std::sync::Arc;
 
+use bytes::Buf;
 use futures::StreamExt;
 use http::{Request, Response, StatusCode};
-use http_body::Body;
+use hyper::body::Body;
+use std::fmt::Debug;
 use tracing::debug;
 
 use crate::{
@@ -117,12 +119,13 @@ pub async fn post_req<R, B, H>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Sid,
-    body: Request<R>,
+    req: Request<R>,
 ) -> Result<Response<ResponseBody<B>>, Error>
 where
     H: EngineIoHandler,
-    R: Body + Send + Unpin + 'static,
-    <R as Body>::Data: Send,
+    R: Body + Unpin,
+    <R as Body>::Error: std::error::Error,
+    <R as Body>::Data: Debug + Buf,
     B: Send + 'static,
 {
     let socket = engine.get_socket(sid).ok_or(Error::UnknownSessionID(sid))?;
@@ -130,7 +133,7 @@ where
         return Err(Error::TransportMismatch);
     }
 
-    let packets = payload::decoder(body, protocol, engine.config.max_payload);
+    let packets = payload::decoder(req, protocol, engine.config.max_payload);
     futures::pin_mut!(packets);
 
     while let Some(packet) = packets.next().await {

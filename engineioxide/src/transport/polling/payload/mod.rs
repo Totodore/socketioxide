@@ -1,8 +1,11 @@
 //! Payload encoder and decoder for polling transport.
 
 use crate::{errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion};
+use bytes::Buf;
 use futures::Stream;
 use http::Request;
+use hyper::body::Body;
+use std::fmt::Debug;
 use tokio::sync::MutexGuard;
 
 mod buf;
@@ -20,18 +23,24 @@ const STRING_PACKET_IDENTIFIER_V3: u8 = 0x00;
 #[cfg(feature = "v3")]
 const BINARY_PACKET_IDENTIFIER_V3: u8 = 0x01;
 
-pub fn decoder(
-    body: Request<impl http_body::Body + Unpin>,
+pub fn decoder<B, D, E>(
+    req: Request<B>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, Error>> {
+) -> impl Stream<Item = Result<Packet, Error>>
+where
+    B: Body<Data = D, Error = E> + Unpin,
+    D: Debug + Buf,
+    E: std::error::Error,
+{
     #[cfg(all(feature = "v3", feature = "v4"))]
     {
         use futures::future::Either;
         use http::header::CONTENT_TYPE;
-        tracing::debug!("decoding payload {:?}", body.headers().get(CONTENT_TYPE));
+        tracing::debug!("decoding payload {:?}", req.headers().get(CONTENT_TYPE));
         let is_binary =
-            body.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
+            req.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
+        let body = req.into_body();
         match protocol {
             ProtocolVersion::V4 => Either::Left(decoder::v4_decoder(body, max_payload)),
             ProtocolVersion::V3 if is_binary => {
@@ -46,9 +55,10 @@ pub fn decoder(
     #[cfg(all(feature = "v3", not(feature = "v4")))]
     {
         let is_binary =
-            body.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
+            req.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
         use futures::future::Either;
         use http::header::CONTENT_TYPE;
+        let body = req.into_body();
         if is_binary {
             Either::Left(decoder::v3_binary_decoder(body, max_payload))
         } else {
@@ -57,7 +67,7 @@ pub fn decoder(
     }
     #[cfg(all(feature = "v4", not(feature = "v3")))]
     {
-        decoder::v4_decoder(body, max_payload)
+        decoder::v4_decoder(req.into_body(), max_payload)
     }
 }
 

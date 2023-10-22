@@ -6,13 +6,13 @@ use std::{
 use bytes::{Buf, Bytes};
 use engineioxide::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 use http_body_util::{BodyExt, Full};
+use hyper::server::conn::http1;
 use hyper_util::{
     client::{connect::HttpConnector, legacy::Client},
-    rt::TokioExecutor,
-    server::conn::auto,
+    rt::TokioIo,
 };
 use serde::{Deserialize, Serialize};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// An OpenPacket is used to initiate a connection
@@ -69,30 +69,27 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     .0
 }
 
-pub async fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
+pub fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .max_payload(1e6 as u64)
         .build();
 
-    let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
 
     let svc = EngineIoService::with_config(handler, config);
-
-    // Tcp listener on addr
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    let listener = TcpListener::bind(addr).await.unwrap();
-
-    let local_addr = listener.local_addr().unwrap();
-
     tokio::spawn(async move {
+        // Tcp listener on addr
+        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+        println!("Listening on: {}", addr);
         loop {
             let (stream, _) = listener.accept().await.unwrap();
+            println!("Accepted connection");
+            let io = TokioIo::new(stream);
+            let svc = svc.clone();
             tokio::task::spawn(async move {
-                let _ = auto::Builder::new(TokioExecutor::new())
-                    .serve_connection(stream, svc)
-                    .await;
+                let _ = http1::Builder::new().serve_connection(io, svc).await;
             });
         }
     });
