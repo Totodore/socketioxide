@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 engineioxide = { path = "../engineioxide" }
-socketioxide = { path = "../socketioxide" }
+socketioxide = { path = "../socketioxide", features = ["v5", "extensions"] }
 axum = { version = "0.6.20" }
 warp = { version = "0.3.6" }
 hyper = { version = "0.14.27" }
