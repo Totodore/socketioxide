@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        engineio-version: [engineio-v3,engineio-v4]
+        engineio-version: [v3, v4]
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        socketio-version: [socketio-v4, socketio-v5]
+        socketio-version: [v4, v5]
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
