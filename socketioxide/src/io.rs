@@ -5,7 +5,10 @@ use engineioxide::{
     service::NotFoundService,
 };
 use futures::{stream::BoxStream, Future};
+use hyper::server::conn::http1;
+use hyper_util::rt::TokioIo;
 use serde::de::DeserializeOwned;
+use tokio::net::ToSocketAddrs;
 
 use crate::{
     adapter::{Adapter, LocalAdapter},
@@ -219,6 +222,28 @@ impl SocketIoBuilder {
 
         let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
         (svc, SocketIo(client))
+    }
+
+    pub async fn build_server(
+        self,
+        addr: impl ToSocketAddrs,
+    ) -> (impl Future<Output = impl Send>, SocketIo) {
+        let (svc, io) = self.build_svc();
+        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+        let fut = async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let io = TokioIo::new(stream);
+                let svc = svc.clone();
+                tokio::task::spawn(async move {
+                    let _ = http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .with_upgrades()
+                        .await;
+                });
+            }
+        };
+        (fut, io)
     }
 }
 

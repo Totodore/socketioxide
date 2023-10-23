@@ -25,8 +25,8 @@ serde = { version = "1.0.155", features = ["derive"] }
 serde_json = "1.0.94"
 tower = "0.4.13"
 tower-http = "0.4.0"
-http = "0.2.9"
-http-body = "0.4.5"
+hyper = { version = "1.0.0-rc.4" }
+hyper-util = { git = "https://github.com/hyperium/hyper-util" }
 tracing = "0.1.37"
 thiserror = "1.0.40"
 itertools = "0.11.0"
@@ -48,14 +48,12 @@ tokio = { version = "1.26.0", features = [
     "macros",
     "parking_lot",
     "rt-multi-thread",
+    "time",
 ] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 tokio-tungstenite = "0.20.0"
-hyper = { version = "0.14.25", features = [
-    "http1",
-    "http2",
-    "server",
-    "stream",
-    "runtime",
-    "client",
+hyper = { version = "1.0.0-rc.4", features = ["http1", "client", "server"] }
+hyper-util = { git = "https://github.com/hyperium/hyper-util", features = [
+    "full",
 ] }
+http-body-util = "0.1.0-rc.3"

@@ -1,11 +1,10 @@
 use engineioxide::service::{EngineIoService, MakeEngineIoService};
-use http::{Request, Response};
-use http_body::Body;
-use std::{
-    sync::Arc,
-    task::{Context, Poll},
+use hyper::service::Service;
+use hyper::{
+    body::{Body, Incoming},
+    Request, Response,
 };
-use tower::Service;
+use std::sync::Arc;
 
 use crate::{adapter::Adapter, client::Client, SocketIoConfig};
 
@@ -16,25 +15,45 @@ use crate::{adapter::Adapter, client::Client, SocketIoConfig};
 pub struct SocketIoService<A: Adapter, S: Clone> {
     engine_svc: EngineIoService<Arc<Client<A>>, S>,
 }
-impl<A: Adapter, ReqBody, ResBody, S> Service<Request<ReqBody>> for SocketIoService<A, S>
+impl<A: Adapter, ResBody, S> Service<Request<Incoming>> for SocketIoService<A, S>
 where
     ResBody: Body + Send + 'static,
-    ReqBody: Body + Send + 'static + std::fmt::Debug + Unpin,
-    <ReqBody as Body>::Error: std::fmt::Debug,
-    <ReqBody as Body>::Data: Send,
-    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone,
+    ResBody::Data: Send,
+    ResBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    S: Service<Request<Incoming>, Response = Response<ResBody>> + Clone,
 {
-    type Response = <EngineIoService<Arc<Client<A>>, S> as Service<Request<ReqBody>>>::Response;
-    type Error = <EngineIoService<Arc<Client<A>>, S> as Service<Request<ReqBody>>>::Error;
-    type Future = <EngineIoService<Arc<Client<A>>, S> as Service<Request<ReqBody>>>::Future;
+    type Response = <EngineIoService<Arc<Client<A>>, S> as Service<Request<Incoming>>>::Response;
+    type Error = <EngineIoService<Arc<Client<A>>, S> as Service<Request<Incoming>>>::Error;
+    type Future = <EngineIoService<Arc<Client<A>>, S> as Service<Request<Incoming>>>::Future;
 
     #[inline(always)]
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.engine_svc.poll_ready(cx)
-    }
-    #[inline(always)]
-    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+    fn call(&self, req: Request<Incoming>) -> Self::Future {
         self.engine_svc.call(req)
+    }
+}
+
+impl<A: Adapter, ResBody, S> tower::Service<Request<Incoming>> for SocketIoService<A, S>
+where
+    ResBody: Body + Send + 'static,
+    ResBody::Data: Send,
+    ResBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    S: tower::Service<Request<Incoming>, Response = Response<ResBody>> + Clone,
+{
+    type Response =
+        <EngineIoService<Arc<Client<A>>, S> as tower::Service<Request<Incoming>>>::Response;
+    type Error = <EngineIoService<Arc<Client<A>>, S> as tower::Service<Request<Incoming>>>::Error;
+    type Future = <EngineIoService<Arc<Client<A>>, S> as tower::Service<Request<Incoming>>>::Future;
+
+    #[inline(always)]
+    fn call(&mut self, req: Request<Incoming>) -> Self::Future {
+        self.engine_svc.call(req)
+    }
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.engine_svc.poll_ready(cx)
     }
 }
 
