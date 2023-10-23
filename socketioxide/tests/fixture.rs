@@ -3,9 +3,14 @@ use std::{
     time::Duration,
 };
 
+use axum::body::Bytes;
 use futures::SinkExt;
-use http::Request;
-use hyper::{body::Buf, Server};
+use http_body_util::{BodyExt, Full};
+use hyper::{body::Buf, server::conn::http1, Request};
+use hyper_util::{
+    client::{connect::HttpConnector, legacy::Client},
+    rt::TokioIo,
+};
 use serde::{Deserialize, Serialize};
 use socketioxide::SocketIo;
 use tokio::net::TcpStream;
@@ -25,12 +30,12 @@ struct OpenPacket {
 pub async fn send_req(
     port: u16,
     params: String,
-    method: http::Method,
+    method: hyper::Method,
     body: Option<String>,
 ) -> String {
     let body = body
-        .map(|b| hyper::Body::from(b))
-        .unwrap_or_else(hyper::Body::empty);
+        .map(|b| Full::new(Bytes::from(b)))
+        .unwrap_or(Full::new(Bytes::new()));
     let req = Request::builder()
         .method(method)
         .uri(format!(
@@ -39,13 +44,15 @@ pub async fn send_req(
         ))
         .body(body)
         .unwrap();
-    let mut res = hyper::Client::new().request(req).await.unwrap();
+
+    let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build(HttpConnector::new());
+    let mut res = client.request(req).await.unwrap();
     let is_json = res
         .headers()
         .get("Content-Type")
         .map(|v| v == "application/json")
         .unwrap_or_default();
-    let body = hyper::body::aggregate(res.body_mut()).await.unwrap();
+    let body = res.body_mut().collect().await.unwrap().to_bytes();
     if is_json {
         String::from_utf8(body.chunk().to_vec()).unwrap()
     } else {
@@ -58,13 +65,13 @@ pub async fn send_req(
 }
 
 pub async fn create_polling_connection(port: u16) -> String {
-    let body = send_req(port, format!("transport=polling"), http::Method::GET, None).await;
+    let body = send_req(port, format!("transport=polling"), hyper::Method::GET, None).await;
     let open_packet: OpenPacket = serde_json::from_str(&body).unwrap();
 
     send_req(
         port,
         format!("transport=polling&sid={}", open_packet.sid),
-        http::Method::POST,
+        hyper::Method::POST,
         Some("40{}".to_string()),
     )
     .await;
@@ -84,17 +91,15 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     ws
 }
 
-pub fn create_server(port: u16) -> SocketIo {
-    let (svc, io) = SocketIo::builder()
+pub async fn create_server(port: u16) -> SocketIo {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    println!("Listening on: {}", addr);
+    let (server, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
-        .build_svc();
-
-    let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-
-    let server = Server::bind(addr).serve(svc.into_make_service());
+        .build_server(addr)
+        .await;
 
     tokio::spawn(server);
-
     io
 }

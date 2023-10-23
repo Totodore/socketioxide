@@ -49,7 +49,7 @@ pub async fn polling_heartbeat_timeout() {
 
     // tracing::subscriber::set_global_default(subscriber).unwrap();
 
-    let io = create_server(1234);
+    let io = create_server(1234).await;
     let mut rx = attach_handler(&io, 1);
     create_polling_connection(1234).await;
 
@@ -63,7 +63,7 @@ pub async fn polling_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn ws_heartbeat_timeout() {
-    let io = create_server(12344);
+    let io = create_server(12344).await;
     let mut rx = attach_handler(&io, 1);
     let _stream = create_ws_connection(12344).await;
 
@@ -77,14 +77,14 @@ pub async fn ws_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn polling_transport_closed() {
-    let io = create_server(1235);
+    let io = create_server(1235).await;
     let mut rx = attach_handler(&io, 1);
     let sid = create_polling_connection(1235).await;
 
     send_req(
         1235,
         format!("transport=polling&sid={sid}"),
-        http::Method::POST,
+        hyper::Method::POST,
         Some("1".into()),
     )
     .await;
@@ -99,7 +99,7 @@ pub async fn polling_transport_closed() {
 
 #[tokio::test]
 pub async fn ws_transport_closed() {
-    let io = create_server(12345);
+    let io = create_server(12345).await;
     let mut rx = attach_handler(&io, 1);
     let mut stream = create_ws_connection(12345).await;
 
@@ -115,7 +115,7 @@ pub async fn ws_transport_closed() {
 
 #[tokio::test]
 pub async fn multiple_http_polling() {
-    let io = create_server(1236);
+    let io = create_server(1236).await;
     let mut rx = attach_handler(&io, 1);
     let sid = create_polling_connection(1236).await;
 
@@ -123,7 +123,7 @@ pub async fn multiple_http_polling() {
     send_req(
         1236,
         format!("transport=polling&sid={sid}"),
-        http::Method::GET,
+        hyper::Method::GET,
         None,
     )
     .await;
@@ -132,13 +132,13 @@ pub async fn multiple_http_polling() {
         send_req(
             1236,
             format!("transport=polling&sid={sid}"),
-            http::Method::GET,
+            hyper::Method::GET,
             None,
         ),
         send_req(
             1236,
             format!("transport=polling&sid={sid}"),
-            http::Method::GET,
+            hyper::Method::GET,
             None,
         ),
     ]));
@@ -153,13 +153,13 @@ pub async fn multiple_http_polling() {
 
 #[tokio::test]
 pub async fn polling_packet_parsing() {
-    let io = create_server(1237);
+    let io = create_server(1237).await;
     let mut rx = attach_handler(&io, 1);
     let sid = create_polling_connection(1237).await;
     send_req(
         1237,
         format!("transport=polling&sid={sid}"),
-        http::Method::POST,
+        hyper::Method::POST,
         Some("aizdunazidaubdiz".into()),
     )
     .await;
@@ -174,7 +174,7 @@ pub async fn polling_packet_parsing() {
 
 #[tokio::test]
 pub async fn ws_packet_parsing() {
-    let io = create_server(12347);
+    let io = create_server(12347).await;
     let mut rx = attach_handler(&io, 1);
     let mut stream = create_ws_connection(12347).await;
     stream
@@ -194,7 +194,7 @@ pub async fn ws_packet_parsing() {
 
 #[tokio::test]
 pub async fn client_ns_disconnect() {
-    let io = create_server(12348);
+    let io = create_server(12348).await;
     let mut rx = attach_handler(&io, 1);
     let mut stream = create_ws_connection(12348).await;
 
@@ -211,7 +211,7 @@ pub async fn client_ns_disconnect() {
 #[tokio::test]
 pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
-    let io = create_server(12349);
+    let io = create_server(12349).await;
 
     io.ns("/", move |socket, _: Value| {
         println!("Socket connected on / namespace with id: {}", socket.id);
@@ -242,7 +242,7 @@ pub async fn server_ns_disconnect() {
 
 #[tokio::test]
 pub async fn server_ws_closing() {
-    let io = create_server(12350);
+    let io = create_server(12350).await;
     let _rx = attach_handler(&io, 100);
 
     let mut streams =
@@ -268,7 +268,7 @@ pub async fn server_ws_closing() {
 
 #[tokio::test]
 pub async fn server_http_closing() {
-    let io = create_server(12351);
+    let io = create_server(12351).await;
     let _rx = attach_handler(&io, 100);
     let mut sids =
         futures::future::join_all((0..100).map(|_| create_polling_connection(12351))).await;
@@ -276,7 +276,7 @@ pub async fn server_http_closing() {
         send_req(
             12351,
             format!("transport=polling&sid={s}"),
-            http::Method::GET,
+            hyper::Method::GET,
             None,
         )
     }))
@@ -289,7 +289,7 @@ pub async fn server_http_closing() {
         send_req(
             12351,
             format!("transport=polling&sid={s}"),
-            http::Method::GET,
+            hyper::Method::GET,
             None,
         )
     }))
