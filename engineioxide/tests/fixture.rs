@@ -69,7 +69,7 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     .0
 }
 
-pub fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
+pub async fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
@@ -79,17 +79,20 @@ pub fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
 
     let svc = EngineIoService::with_config(handler, config);
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    println!("Listening on: {}", addr);
     tokio::spawn(async move {
         // Tcp listener on addr
-        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-        println!("Listening on: {}", addr);
         loop {
             let (stream, _) = listener.accept().await.unwrap();
             println!("Accepted connection");
             let io = TokioIo::new(stream);
             let svc = svc.clone();
             tokio::task::spawn(async move {
-                let _ = http1::Builder::new().serve_connection(io, svc).await;
+                let _ = http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .with_upgrades()
+                    .await;
             });
         }
     });
