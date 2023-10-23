@@ -28,7 +28,11 @@ http = "0.2.9"
 http-body = "0.4.5"
 thiserror = "1.0.40"
 itertools = "0.11.0"
-dashmap = "5.4.0"
+
+# Extensions
+dashmap = { version = "5.4.0", optional = true }
+
+# Tracing
 tracing = { version = "0.1.37", optional = true }
 
 [features]
@@ -36,6 +40,7 @@ default = ["v5"]
 v5 = ["engineioxide/v4"]
 v4 = ["engineioxide/v3"]
 tracing = ["dep:tracing", "engineioxide/tracing"]
+extensions = ["dep:dashmap"]
 
 [dev-dependencies]
 engineioxide = { path = "../engineioxide", version = "0.6.0", features = [

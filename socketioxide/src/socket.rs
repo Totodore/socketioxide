@@ -15,10 +15,12 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+#[cfg(feature = "extensions")]
+use crate::extensions::Extensions;
+
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
-    extensions::Extensions,
     handler::{AckResponse, AckSender, BoxedMessageHandler, CallbackHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
@@ -103,6 +105,8 @@ pub struct Socket<A: Adapter> {
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     pub id: Sid,
+
+    #[cfg(feature = "extensions")]
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData>>,
 }
@@ -125,6 +129,7 @@ impl<A: Adapter> Socket<A> {
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
             id,
+            #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
             config,
             esocket,
@@ -596,6 +601,7 @@ impl<A: Adapter> Socket<A> {
             message_handlers: RwLock::new(HashMap::new()),
             disconnect_handler: Mutex::new(None),
             config: Arc::new(SocketIoConfig::default()),
+            #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
             esocket: engineioxide::Socket::new_dummy(close_fn).into(),
         }
