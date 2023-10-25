@@ -64,7 +64,7 @@ impl<A: Adapter> Client<A> {
         debug!("auth: {:?}", auth);
         let sid = esocket.id;
         if let Some(ns) = self.get_ns(&ns_path) {
-            let protocol: ProtocolVersion = esocket.protocol.into();
+            ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
 
             // cancel the connect timeout task for v5
             #[cfg(feature = "v5")]
@@ -72,14 +72,6 @@ impl<A: Adapter> Client<A> {
                 tx.send(()).unwrap();
             }
 
-            let connect_packet = Packet::connect(ns_path, sid, protocol);
-            if let Err(err) = esocket.emit(connect_packet.try_into()?) {
-                debug!("sending error during socket connection: {err:?}");
-            }
-            ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
-            if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                tx.send(()).unwrap();
-            }
             Ok(())
         } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
             error!(
