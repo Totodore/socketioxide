@@ -51,6 +51,11 @@ impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
     pub fn with_config_inner(inner: S, handler: H, config: EngineIoConfig) -> Self {
+        #[cfg(all(feature = "v3", feature = "tracing"))]
+        tracing::debug!("starting engine.io with v3 protocol");
+        #[cfg(all(feature = "v4", feature = "tracing"))]
+        tracing::debug!("starting engine.io with v4 protocol");
+
         EngineIoService {
             inner,
             engine: Arc::new(EngineIo::new(handler, config)),
