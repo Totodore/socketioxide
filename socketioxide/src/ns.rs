@@ -52,9 +52,9 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.write().unwrap().insert(sid, socket.clone());
 
         let protocol = esocket.protocol.into();
-        if let Err(e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
+        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
             #[cfg(feature = "tracing")]
-            tracing::debug!("error sending connect packet: {:?}, closing conn", e);
+            tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);
             return Ok(());
         }

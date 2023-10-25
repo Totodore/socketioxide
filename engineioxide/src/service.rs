@@ -143,9 +143,9 @@ where
                     tracing::debug!("error parsing request: {:?}", e);
                     ResponseFuture::ready(Ok(e.into()))
                 }
-                req => {
+                _req => {
                     #[cfg(feature = "tracing")]
-                    tracing::debug!("invalid request: {:?}", req);
+                    tracing::debug!("invalid request: {:?}", _req);
                     ResponseFuture::empty_response(400)
                 }
             }
