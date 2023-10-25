@@ -9,7 +9,7 @@ use crate::{
     handler::{BoxedNamespaceHandler, CallbackHandler},
     packet::{Packet, PacketData},
     socket::Socket,
-    ProtocolVersion, SocketIoConfig,
+    SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
