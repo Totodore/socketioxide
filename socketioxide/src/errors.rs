@@ -19,13 +19,10 @@ pub enum Error {
     InvalidEventName,
 
     #[error("invalid namespace")]
-    InvalidNamespace(String),
+    InvalidNamespace,
 
     #[error("cannot find socketio socket")]
     SocketGone(Sid),
-
-    #[error("send error: {0}")]
-    SendError(#[from] SendError),
 
     /// An engineio error
     #[error("engineio error: {0}")]
@@ -47,7 +44,7 @@ impl From<&Error> for Option<EIoDisconnectReason> {
             Error::SerializeError(_) | Error::InvalidPacketType | Error::InvalidEventName => {
                 Some(PacketParsingError)
             }
-            Error::Adapter(_) | Error::InvalidNamespace(_) | Error::SendError(_) => None,
+            Error::Adapter(_) | Error::InvalidNamespace => None,
         }
     }
 }

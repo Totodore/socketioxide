@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason, ProtocolVersion};
+use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -113,22 +113,18 @@ pub struct Socket<A: Adapter> {
 
 impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
+        sid: Sid,
         ns: Arc<Namespace<A>>,
         esocket: Arc<engineioxide::Socket<SocketData>>,
         config: Arc<SocketIoConfig>,
     ) -> Self {
-        let id = if esocket.protocol == ProtocolVersion::V3 {
-            esocket.id
-        } else {
-            Sid::new()
-        };
         Self {
             ns,
             message_handlers: RwLock::new(HashMap::new()),
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
-            id,
+            id: sid,
             #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
             config,
@@ -593,17 +589,11 @@ impl<A: Adapter> Debug for Socket<A> {
 impl<A: Adapter> Socket<A> {
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
         let close_fn = Box::new(move |_, _| ());
-        Socket {
-            id: sid,
+        Socket::new(
+            sid,
             ns,
-            ack_counter: AtomicI64::new(0),
-            ack_message: Mutex::new(HashMap::new()),
-            message_handlers: RwLock::new(HashMap::new()),
-            disconnect_handler: Mutex::new(None),
-            config: Arc::new(SocketIoConfig::default()),
-            #[cfg(feature = "extensions")]
-            extensions: Extensions::new(),
-            esocket: engineioxide::Socket::new_dummy(close_fn).into(),
-        }
+            engineioxide::Socket::new_dummy(sid, close_fn).into(),
+            Arc::new(SocketIoConfig::default()),
+        )
     }
 }
