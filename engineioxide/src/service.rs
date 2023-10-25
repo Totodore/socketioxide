@@ -143,8 +143,16 @@ where
                     method: Method::GET,
                     ..
                 }) => ResponseFuture::ready(ws::new_req(engine, protocol, sid, req)),
-                Err(e) => ResponseFuture::ready(Ok(e.into())),
-                _ => ResponseFuture::empty_response(400),
+                Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("error parsing request: {:?}", e);
+                    ResponseFuture::ready(Ok(e.into()))
+                }
+                req => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("invalid request: {:?}", req);
+                    ResponseFuture::empty_response(400)
+                }
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
