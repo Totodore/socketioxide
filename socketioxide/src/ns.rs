@@ -7,7 +7,7 @@ use crate::{
     adapter::Adapter,
     errors::Error,
     handler::{BoxedNamespaceHandler, CallbackHandler},
-    packet::PacketData,
+    packet::{Packet, PacketData},
     socket::Socket,
     SocketIoConfig,
 };
@@ -47,9 +47,19 @@ impl<A: Adapter> Namespace<A> {
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
     ) -> Result<(), serde_json::Error> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket, config).into();
+        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
+
         self.sockets.write().unwrap().insert(sid, socket.clone());
-        self.handler.call(socket, auth)
+
+        let protocol = esocket.protocol.into();
+        if let Err(e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
+            tracing::error!("error sending connect packet: {:?}, closing conn", e);
+            esocket.close(engineioxide::DisconnectReason::PacketParsingError);
+            return Ok(());
+        }
+
+        self.handler.call(socket, auth)?;
+        Ok(())
     }
 
     /// Remove a socket from a namespace and propagate the event to the adapter
