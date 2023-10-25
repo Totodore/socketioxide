@@ -56,7 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = Server::bind(addr).serve(svc.into_make_service());
     tracing::subscriber::set_global_default(subscriber)?;
 
-    info!("Starting server");
+    #[cfg(feature = "v3")]
+    info!("Starting server with v3 protocol");
+    #[cfg(feature = "v4")]
+    info!("Starting server with v4 protocol");
 
     server.await?;
 
