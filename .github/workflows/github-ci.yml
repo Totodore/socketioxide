@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        engineio-version: [engineio-v3,engineio-v4]
+        engineio-version: [v3, v4]
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -95,7 +95,7 @@ jobs:
         with:
           repository: totodore/engine.io-protocol
           path: engine.io-protocol
-          ref: v3
+          ref: ${{ matrix.engineio-version }}
       - uses: actions/setup-node@v3
         with:
           node-version: 16
@@ -112,8 +112,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-e2e --release --features ${{ matrix.engineio-version }} --no-default-features
-          cargo run --bin engineioxide-e2e --release --features ${{ matrix.engineio-version }} --no-default-features > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --bin engineioxide-e2e --release --features engineio-${{ matrix.engineio-version }} --no-default-features
+          cargo run --bin engineioxide-e2e --release --features engineio-${{ matrix.engineio-version }} --no-default-features > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        socketio-version: [socketio-v4, socketio-v5]
+        socketio-version: [v4, v5]
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -134,7 +134,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           repository: totodore/socket.io-protocol
-          ref: v4-testsuite
+          ref: ${{ matrix.socketio-version }}
           path: socket.io-protocol
       - uses: actions/setup-node@v3
         with:
@@ -151,8 +151,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin socketioxide-e2e --release --features ${{ matrix.socketio-version }} --no-default-features
-          cargo run --bin socketioxide-e2e --release --features ${{ matrix.socketio-version }} --no-default-features > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build --bin socketioxide-e2e --release --features socketio-${{ matrix.socketio-version }} --no-default-features
+          cargo run --bin socketioxide-e2e --release --features socketio-${{ matrix.socketio-version }} --no-default-features > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
