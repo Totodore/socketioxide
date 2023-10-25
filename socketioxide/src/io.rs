@@ -165,6 +165,11 @@ impl SocketIoBuilder {
     pub fn build_layer_with_adapter<A: Adapter>(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
+        #[cfg(all(feature = "v4", feature = "tracing"))]
+        tracing::debug!("starting socket.io with v4 protocol");
+        #[cfg(all(feature = "v5", feature = "tracing"))]
+        tracing::debug!("starting socket.io with v5 protocol");
+
         let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
         (layer, SocketIo(client))
     }
@@ -192,6 +197,11 @@ impl SocketIoBuilder {
     ) -> (SocketIoService<A, NotFoundService>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
 
+        #[cfg(all(feature = "v4", feature = "tracing"))]
+        tracing::debug!("starting socket.io with v4 protocol");
+        #[cfg(all(feature = "v5", feature = "tracing"))]
+        tracing::debug!("starting socket.io with v5 protocol");
+
         let (svc, client) =
             SocketIoService::with_config_inner(NotFoundService, Arc::new(self.config));
         (svc, SocketIo(client))
@@ -216,6 +226,11 @@ impl SocketIoBuilder {
         svc: S,
     ) -> (SocketIoService<A, S>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+
+        #[cfg(all(feature = "v4", feature = "tracing"))]
+        tracing::debug!("starting socket.io with v4 protocol");
+        #[cfg(all(feature = "v5", feature = "tracing"))]
+        tracing::debug!("starting socket.io with v5 protocol");
 
         let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
         (svc, SocketIo(client))
