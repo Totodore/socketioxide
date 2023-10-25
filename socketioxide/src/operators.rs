@@ -4,7 +4,6 @@ use engineioxide::sid::Sid;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
-use tracing::debug;
 
 use crate::errors::BroadcastError;
 use crate::{
@@ -245,8 +244,9 @@ impl<A: Adapter> Operators<A> {
         data: impl serde::Serialize,
     ) -> Result<(), serde_json::Error> {
         let packet = self.get_packet(event, data)?;
-        if let Err(err) = self.ns.adapter.broadcast(packet, self.opts) {
-            debug!("broadcast error: {err:?}");
+        if let Err(_e) = self.ns.adapter.broadcast(packet, self.opts) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("broadcast error: {_e:?}");
         }
         Ok(())
     }

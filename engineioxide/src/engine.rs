@@ -10,7 +10,6 @@ use crate::{
     transport::TransportType,
 };
 use crate::{service::ProtocolVersion, sid::Sid};
-use tracing::debug;
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 
@@ -84,7 +83,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
             socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
             socket.abort_heartbeat();
             self.handler.on_disconnect(socket, reason);
-            debug!(
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
                 "remaining sockets: {:?}",
                 self.sockets.read().unwrap().len()
             );

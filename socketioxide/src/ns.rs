@@ -52,8 +52,9 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.write().unwrap().insert(sid, socket.clone());
 
         let protocol = esocket.protocol.into();
-        if let Err(e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
-            tracing::error!("error sending connect packet: {:?}, closing conn", e);
+        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);
             return Ok(());
         }
@@ -99,10 +100,12 @@ impl<A: Adapter> Namespace<A> {
     /// * Remove all the sockets from the namespace
     pub async fn close(&self) {
         self.adapter.close().ok();
+        #[cfg(feature = "tracing")]
         tracing::debug!("closing all sockets in namespace {}", self.path);
         let sockets = self.sockets.read().unwrap().clone();
         futures::future::join_all(sockets.values().map(|s| s.close_underlying_transport())).await;
         self.sockets.write().unwrap().shrink_to_fit();
+        #[cfg(feature = "tracing")]
         tracing::debug!("all sockets in namespace {} closed", self.path);
     }
 }

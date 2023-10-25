@@ -41,7 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", data).ok();
     });
-    info!("Starting server");
+
+    #[cfg(feature = "v5")]
+    info!("Starting server with v5 protocol");
+    #[cfg(feature = "v4")]
+    info!("Starting server with v4 protocol");
 
     Server::bind(&"127.0.0.1:3000".parse().unwrap())
         .serve(svc.into_make_service())
