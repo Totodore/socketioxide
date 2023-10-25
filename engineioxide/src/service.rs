@@ -231,6 +231,8 @@ impl FromStr for ProtocolVersion {
 
     #[cfg(all(feature = "v3", feature = "v4"))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("parsing protocol version from all: {}", s);
         match s {
             "3" => Ok(ProtocolVersion::V3),
             "4" => Ok(ProtocolVersion::V4),
@@ -240,6 +242,8 @@ impl FromStr for ProtocolVersion {
 
     #[cfg(all(feature = "v4", not(feature = "v3")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("parsing protocol version from v4: {}", s);
         match s {
             "4" => Ok(ProtocolVersion::V4),
             _ => Err(Error::UnsupportedProtocolVersion),
@@ -248,6 +252,8 @@ impl FromStr for ProtocolVersion {
 
     #[cfg(all(feature = "v3", not(feature = "v4")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("parsing protocol version from v3: {}", s);
         match s {
             "3" => Ok(ProtocolVersion::V3),
             _ => Err(Error::UnsupportedProtocolVersion),
