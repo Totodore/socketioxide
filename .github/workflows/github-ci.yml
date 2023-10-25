@@ -95,7 +95,7 @@ jobs:
         with:
           repository: totodore/engine.io-protocol
           path: engine.io-protocol
-          ref: v3
+          ref: ${{ matrix.engineio-version }}
       - uses: actions/setup-node@v3
         with:
           node-version: 16
@@ -134,7 +134,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           repository: totodore/socket.io-protocol
-          ref: v4-testsuite
+          ref: ${{ matrix.socketio-version }}
           path: socket.io-protocol
       - uses: actions/setup-node@v3
         with:

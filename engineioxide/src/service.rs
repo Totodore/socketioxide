@@ -51,11 +51,6 @@ impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
     pub fn with_config_inner(inner: S, handler: H, config: EngineIoConfig) -> Self {
-        #[cfg(all(feature = "v3", feature = "tracing"))]
-        tracing::debug!("starting engine.io with v3 protocol");
-        #[cfg(all(feature = "v4", feature = "tracing"))]
-        tracing::debug!("starting engine.io with v4 protocol");
-
         EngineIoService {
             inner,
             engine: Arc::new(EngineIo::new(handler, config)),
@@ -231,8 +226,6 @@ impl FromStr for ProtocolVersion {
 
     #[cfg(all(feature = "v3", feature = "v4"))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("parsing protocol version from all: {}", s);
         match s {
             "3" => Ok(ProtocolVersion::V3),
             "4" => Ok(ProtocolVersion::V4),
@@ -242,8 +235,6 @@ impl FromStr for ProtocolVersion {
 
     #[cfg(all(feature = "v4", not(feature = "v3")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("parsing protocol version from v4: {}", s);
         match s {
             "4" => Ok(ProtocolVersion::V4),
             _ => Err(Error::UnsupportedProtocolVersion),
@@ -252,8 +243,6 @@ impl FromStr for ProtocolVersion {
 
     #[cfg(all(feature = "v3", not(feature = "v4")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("parsing protocol version from v3: {}", s);
         match s {
             "3" => Ok(ProtocolVersion::V3),
             _ => Err(Error::UnsupportedProtocolVersion),
