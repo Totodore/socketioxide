@@ -107,7 +107,8 @@ impl<A: Adapter> Client<A> {
         if let Some(ns) = self.get_ns(&packet.ns) {
             ns.recv(sid, packet.inner)
         } else {
-            debug!("invalid namespace requested: {}", packet.ns);
+            #[cfg(feature = "tracing")]
+            tracing::debug!("invalid namespace requested: {}", packet.ns);
             Ok(())
         }
     }
