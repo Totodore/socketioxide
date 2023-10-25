@@ -225,6 +225,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "engineio-echo"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "engineioxide",
+ "futures",
+ "hyper",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "warp",
+]
+
+[[package]]
 name = "engineioxide"
 version = "0.6.0"
 dependencies = [
@@ -1022,6 +1040,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "socketio-chat"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "futures",
+ "serde",
+ "serde_json",
+ "socketioxide",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "socketio-echo"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "futures",
+ "hyper",
+ "serde",
+ "serde_json",
+ "socketioxide",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "warp",
+]
+
+[[package]]
 name = "socketioxide"
 version = "0.6.0"
 dependencies = [
@@ -1054,25 +1106,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "socketioxide-examples"
-version = "0.6.0"
-dependencies = [
- "axum",
- "engineioxide",
- "futures",
- "hyper",
- "serde",
- "serde_json",
- "socketioxide",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "warp",
 ]
 
 [[package]]
