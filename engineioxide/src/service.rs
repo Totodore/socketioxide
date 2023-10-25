@@ -238,8 +238,7 @@ impl FromStr for ProtocolVersion {
         }
     }
 
-    #[cfg(feature = "v4")]
-    #[cfg(not(feature = "v3"))]
+    #[cfg(all(feature = "v4", not(feature = "v3")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "4" => Ok(ProtocolVersion::V4),
@@ -247,8 +246,7 @@ impl FromStr for ProtocolVersion {
         }
     }
 
-    #[cfg(feature = "v3")]
-    #[cfg(not(feature = "v4"))]
+    #[cfg(all(feature = "v3", not(feature = "v4")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "3" => Ok(ProtocolVersion::V3),
