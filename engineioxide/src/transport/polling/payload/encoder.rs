@@ -8,7 +8,6 @@
 //!
 
 use tokio::sync::MutexGuard;
-use tracing::debug;
 
 use crate::{
     errors::Error, packet::Packet, peekable::PeekableReceiver, transport::polling::payload::Payload,
@@ -32,7 +31,8 @@ fn try_recv_packet(
 ) -> Option<Packet> {
     if let Some(packet) = rx.peek() {
         if (payload_len + packet.get_size_hint(b64)) as u64 > max_payload {
-            debug!("payload too big, stopping encoding for this payload");
+            #[cfg(feature = "tracing")]
+            tracing::debug!("payload too big, stopping encoding for this payload");
             return None;
         }
     }
@@ -40,12 +40,14 @@ fn try_recv_packet(
     let packet = rx.try_recv().ok();
 
     if let Some(Packet::Close) = packet {
-        debug!("Received close packet, closing channel");
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Received close packet, closing channel");
         rx.try_recv().ok();
         rx.close();
     }
 
-    debug!("sending packet: {:?}", packet);
+    #[cfg(feature = "tracing")]
+    tracing::debug!("sending packet: {:?}", packet);
     packet
 }
 
@@ -54,11 +56,13 @@ fn try_recv_packet(
 async fn recv_packet(rx: &mut MutexGuard<'_, PeekableReceiver<Packet>>) -> Result<Packet, Error> {
     let packet = rx.recv().await.ok_or(Error::Aborted)?;
     if packet == Packet::Close {
-        debug!("Received close packet, closing channel");
+        #[cfg(feature = "tracing")]
+        tracing::debug!("Received close packet, closing channel");
         rx.close();
     }
 
-    debug!("sending packet: {:?}", packet);
+    #[cfg(feature = "tracing")]
+    tracing::debug!("sending packet: {:?}", packet);
     Ok(packet)
 }
 
@@ -71,7 +75,8 @@ pub async fn v4_encoder(
 ) -> Result<Payload, Error> {
     use crate::transport::polling::payload::PACKET_SEPARATOR_V4;
 
-    debug!("encoding payload with v4 encoder");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("encoding payload with v4 encoder");
     let mut data: String = String::new();
 
     // Send all packets in the buffer
@@ -160,7 +165,8 @@ pub async fn v3_binary_encoder(
     // number of digits of the max packet size, used to approximate the payload size
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
 
-    debug!("encoding payload with v3 binary encoder");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("encoding payload with v3 binary encoder");
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
 
@@ -200,7 +206,8 @@ pub async fn v3_binary_encoder(
         };
     }
 
-    debug!("sending packet: {:?}", &data);
+    #[cfg(feature = "tracing")]
+    tracing::debug!("sending packet: {:?}", &data);
     Ok(Payload::new(data, has_binary))
 }
 
@@ -213,7 +220,8 @@ pub async fn v3_string_encoder(
 ) -> Result<Payload, Error> {
     let mut data: Vec<u8> = Vec::new();
 
-    debug!("encoding payload with v3 string encoder");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("encoding payload with v3 string encoder");
 
     const PUNCTUATION_LEN: usize = 2;
     // number of digits of the max packet size, used to approximate the payload size

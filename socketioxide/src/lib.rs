@@ -70,6 +70,8 @@
 compile_error!("At least one protocol version must be enabled");
 
 pub mod adapter;
+
+#[cfg(feature = "extensions")]
 pub mod extensions;
 pub mod layer;
 pub mod service;

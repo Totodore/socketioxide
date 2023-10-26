@@ -1,13 +1,12 @@
 [package]
-name = "socketioxide-examples"
+name = "engineio-echo"
 version = "0.6.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-engineioxide = { path = "../engineioxide" }
-socketioxide = { path = "../socketioxide" }
+engineioxide = { path = "../../engineioxide" }
 axum = { version = "0.6.20" }
 warp = { version = "0.3.6" }
 hyper = { version = "0.14.27" }
@@ -22,28 +21,12 @@ futures = "0.3.28"
 
 [[example]]
 name = "engineio-axum-echo"
-path = "src/engineio-echo/axum_echo.rs"
+path = "src/axum_echo.rs"
 
 [[example]]
 name = "engineio-hyper-echo"
-path = "src/engineio-echo/hyper_echo.rs"
+path = "src/hyper_echo.rs"
 
 [[example]]
 name = "engineio-warp-echo"
-path = "src/engineio-echo/warp_echo.rs"
-
-[[example]]
-name = "socketio-axum-echo"
-path = "src/socketio-echo/axum_echo.rs"
-
-[[example]]
-name = "socketio-hyper-echo"
-path = "src/socketio-echo/hyper_echo.rs"
-
-[[example]]
-name = "socketio-warp-echo"
-path = "src/socketio-echo/warp_echo.rs"
-
-[[example]]
-name = "chat"
-path = "src/chat/main.rs"
+path = "src/warp_echo.rs"

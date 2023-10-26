@@ -7,7 +7,6 @@
 
 use futures::Stream;
 use http::StatusCode;
-use tracing::debug;
 
 use crate::{errors::Error, packet::Packet};
 use bytes::Buf;
@@ -55,8 +54,9 @@ async fn poll_body(
             state.end_of_stream = true;
             Ok(())
         }
-        Err(e) => {
-            debug!("error reading body stream: {:?}", e);
+        Err(_e) => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("error reading body stream: {:?}", _e);
             Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))
         }
     }
@@ -68,7 +68,8 @@ pub fn v4_decoder(
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, Error>> {
     use super::PACKET_SEPARATOR_V4;
-    debug!("decoding payload with v4 decoder");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("decoding payload with v4 decoder");
 
     let state = Payload::new(body);
 
@@ -123,7 +124,8 @@ pub fn v3_binary_decoder(
     };
 
     let state = Payload::new(body);
-    debug!("decoding payload with v3 binary decoder");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("decoding payload with v3 binary decoder");
 
     futures::stream::unfold(state, move |mut state| async move {
         let mut packet_buf: Vec<u8> = Vec::new();
@@ -213,7 +215,8 @@ pub fn v3_string_decoder(
 
     use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
 
-    debug!("decoding payload with v3 string decoder");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("decoding payload with v3 string decoder");
     let state = Payload::new(body);
 
     futures::stream::unfold(state, move |mut state| async move {

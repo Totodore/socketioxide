@@ -17,7 +17,6 @@ use futures::{
 };
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
-use tracing::debug;
 
 use crate::{
     errors::{AckError, AdapterError, BroadcastError},
@@ -153,7 +152,8 @@ impl Adapter for LocalAdapter {
     }
 
     fn close(&self) -> Result<(), Infallible> {
-        debug!("closing local adapter: {}", self.ns.upgrade().unwrap().path);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("closing local adapter: {}", self.ns.upgrade().unwrap().path);
         let mut rooms = self.rooms.write().unwrap();
         rooms.clear();
         rooms.shrink_to_fit();
@@ -193,6 +193,7 @@ impl Adapter for LocalAdapter {
     fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let sockets = self.apply_opts(opts);
 
+        #[cfg(feature = "tracing")]
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
         let errors: Vec<_> = sockets
             .into_iter()
@@ -215,6 +216,7 @@ impl Adapter for LocalAdapter {
             _ => None,
         });
         let sockets = self.apply_opts(opts);
+        #[cfg(feature = "tracing")]
         tracing::debug!(
             "broadcasting packet to {} sockets: {:?}",
             sockets.len(),

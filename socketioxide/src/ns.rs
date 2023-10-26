@@ -9,7 +9,7 @@ use crate::{
     handler::{BoxedNamespaceHandler, CallbackHandler},
     packet::{Packet, PacketData},
     socket::Socket,
-    ProtocolVersion, SocketIoConfig,
+    SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
@@ -46,12 +46,18 @@ impl<A: Adapter> Namespace<A> {
         esocket: Arc<engineioxide::Socket<SocketData>>,
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
-    ) -> Result<(), Error> {
-        let protocol: ProtocolVersion = esocket.protocol.into();
-        let socket: Arc<Socket<A>> = Socket::new(self.clone(), esocket, config).into();
+    ) -> Result<(), serde_json::Error> {
+        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
+
         self.sockets.write().unwrap().insert(sid, socket.clone());
 
-        socket.send(Packet::connect(self.path.clone(), socket.id, protocol))?;
+        let protocol = esocket.protocol.into();
+        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
+            esocket.close(engineioxide::DisconnectReason::PacketParsingError);
+            return Ok(());
+        }
 
         self.handler.call(socket, auth)?;
         Ok(())
@@ -94,10 +100,12 @@ impl<A: Adapter> Namespace<A> {
     /// * Remove all the sockets from the namespace
     pub async fn close(&self) {
         self.adapter.close().ok();
+        #[cfg(feature = "tracing")]
         tracing::debug!("closing all sockets in namespace {}", self.path);
         let sockets = self.sockets.read().unwrap().clone();
         futures::future::join_all(sockets.values().map(|s| s.close_underlying_transport())).await;
         self.sockets.write().unwrap().shrink_to_fit();
+        #[cfg(feature = "tracing")]
         tracing::debug!("all sockets in namespace {} closed", self.path);
     }
 }
