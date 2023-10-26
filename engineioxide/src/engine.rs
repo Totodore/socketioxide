@@ -9,7 +9,7 @@ use crate::{
     socket::{DisconnectReason, Socket, SocketReq},
     transport::TransportType,
 };
-use crate::{service::ProtocolVersion, sid::Sid};
+use crate::{sid::Sid, ProtocolVersion};
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 

@@ -1,43 +1,14 @@
+//! Response Body implementation with
+
 use bytes::Bytes;
 use http::HeaderMap;
 use http_body::{Body, Full, SizeHint};
 use pin_project::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-#[pin_project]
-pub struct ResponseBody<B> {
-    #[pin]
-    inner: ResponseBodyInner<B>,
-}
-
-impl<B> ResponseBody<B> {
-    pub fn empty_response() -> Self {
-        Self {
-            inner: ResponseBodyInner::EmptyResponse,
-        }
-    }
-
-    pub fn custom_response(body: Full<Bytes>) -> Self {
-        Self {
-            inner: ResponseBodyInner::CustomBody { body },
-        }
-    }
-
-    pub fn new(body: B) -> Self {
-        Self {
-            inner: ResponseBodyInner::Body { body },
-        }
-    }
-}
-
-impl<B> Default for ResponseBody<B> {
-    fn default() -> Self {
-        Self::empty_response()
-    }
-}
 
 #[pin_project(project = BodyProj)]
-enum ResponseBodyInner<B> {
+pub enum ResponseBody<B> {
     EmptyResponse,
     CustomBody {
         #[pin]
@@ -48,7 +19,24 @@ enum ResponseBodyInner<B> {
         body: B,
     },
 }
+impl<B> Default for ResponseBody<B> {
+    fn default() -> Self {
+        Self::empty_response()
+    }
+}
+impl<B> ResponseBody<B> {
+    pub fn empty_response() -> Self {
+        ResponseBody::EmptyResponse
+    }
 
+    pub fn custom_response(body: Full<Bytes>) -> Self {
+        ResponseBody::CustomBody { body }
+    }
+
+    pub fn new(body: B) -> Self {
+        ResponseBody::Body { body }
+    }
+}
 impl<B> Body for ResponseBody<B>
 where
     B: Body<Data = Bytes>,
@@ -61,7 +49,7 @@ where
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        match self.project().inner.project() {
+        match self.project() {
             BodyProj::EmptyResponse => Poll::Ready(None),
             BodyProj::Body { body } => body.poll_data(cx),
             BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
@@ -72,7 +60,7 @@ where
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
-        match self.project().inner.project() {
+        match self.project() {
             BodyProj::EmptyResponse => Poll::Ready(Ok(None)),
             BodyProj::Body { body } => body.poll_trailers(cx),
             BodyProj::CustomBody { body } => body.poll_trailers(cx).map_err(|err| match err {}),
@@ -80,22 +68,22 @@ where
     }
 
     fn is_end_stream(&self) -> bool {
-        match &self.inner {
-            ResponseBodyInner::EmptyResponse => true,
-            ResponseBodyInner::Body { body } => body.is_end_stream(),
-            ResponseBodyInner::CustomBody { body } => body.is_end_stream(),
+        match self {
+            ResponseBody::EmptyResponse => true,
+            ResponseBody::Body { body } => body.is_end_stream(),
+            ResponseBody::CustomBody { body } => body.is_end_stream(),
         }
     }
 
     fn size_hint(&self) -> SizeHint {
-        match &self.inner {
-            ResponseBodyInner::EmptyResponse => {
+        match self {
+            ResponseBody::EmptyResponse => {
                 let mut hint = SizeHint::default();
                 hint.set_upper(0);
                 hint
             }
-            ResponseBodyInner::Body { body } => body.size_hint(),
-            ResponseBodyInner::CustomBody { body } => body.size_hint(),
+            ResponseBody::Body { body } => body.size_hint(),
+            ResponseBody::CustomBody { body } => body.size_hint(),
         }
     }
 }
@@ -112,22 +100,22 @@ where
     type Error = B::Error;
 
     fn is_end_stream(&self) -> bool {
-        match &self.inner {
-            ResponseBodyInner::EmptyResponse => true,
-            ResponseBodyInner::Body { body } => body.is_end_stream(),
-            ResponseBodyInner::CustomBody { body } => body.is_end_stream(),
+        match &self {
+            ResponseBody::EmptyResponse => true,
+            ResponseBody::Body { body } => body.is_end_stream(),
+            ResponseBody::CustomBody { body } => body.is_end_stream(),
         }
     }
 
     fn size_hint(&self) -> http_body_v1::SizeHint {
-        match &self.inner {
-            ResponseBodyInner::EmptyResponse => {
+        match &self {
+            ResponseBody::EmptyResponse => {
                 let mut hint = http_body_v1::SizeHint::default();
                 hint.set_upper(0);
                 hint
             }
-            ResponseBodyInner::Body { body } => body.size_hint(),
-            ResponseBodyInner::CustomBody { body } => {
+            ResponseBody::Body { body } => body.size_hint(),
+            ResponseBody::CustomBody { body } => {
                 let size_hint = body.size_hint();
                 let mut out = http_body_v1::SizeHint::new();
                 out.set_lower(size_hint.lower());
@@ -143,23 +131,25 @@ where
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<http_body_v1::Frame<Self::Data>, Self::Error>>> {
-        match self.project().inner.project() {
+        match self.project() {
             BodyProj::EmptyResponse => Poll::Ready(None),
             BodyProj::Body { body } => body.poll_frame(cx),
-            BodyProj::CustomBody { body } => {
-                match body.poll_data(cx) {
-                    Poll::Ready(Some(Ok(buf))) => return Poll::Ready(Some(Ok(Frame::data(buf)))),
-                    Poll::Ready(Some(Err(err))) => unreachable!("unreachable error!"),
+            BodyProj::CustomBody { mut body } => {
+                match body.as_mut().poll_data(cx) {
+                    Poll::Ready(Some(Ok(buf))) => {
+                        return Poll::Ready(Some(Ok(http_body_v1::Frame::data(buf))))
+                    }
+                    Poll::Ready(Some(Err(_))) => unreachable!("unreachable error!"),
                     Poll::Ready(None) => {}
                     Poll::Pending => return Poll::Pending,
                 }
 
-                match body.poll_trailers(cx) {
+                match body.as_mut().poll_trailers(cx) {
                     Poll::Ready(Ok(Some(trailers))) => {
-                        Poll::Ready(Some(Ok(Frame::trailers(trailers))))
+                        Poll::Ready(Some(Ok(http_body_v1::Frame::trailers(trailers))))
                     }
                     Poll::Ready(Ok(None)) => Poll::Ready(None),
-                    Poll::Ready(Err(err)) => unreachable!("unreachable error!"),
+                    Poll::Ready(Err(_)) => unreachable!("unreachable error!"),
                     Poll::Pending => Poll::Pending,
                 }
             }

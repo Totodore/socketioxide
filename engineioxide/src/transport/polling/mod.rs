@@ -1,18 +1,17 @@
 //! The polling transport module handles polling, post and init requests
 use std::sync::Arc;
 
+use bytes::Bytes;
 use futures::StreamExt;
 use http::{Request, Response, StatusCode};
-use http_body::Body;
+use http_body::{Body, Full};
 
 use crate::{
-    body::ResponseBody,
     engine::EngineIo,
     errors::Error,
-    futures::http_response,
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    service::ProtocolVersion,
+    server::{ProtocolVersion, ResponseBody},
     sid::Sid,
     transport::polling::payload::Payload,
     DisconnectReason, SocketReq,
@@ -21,6 +20,28 @@ use crate::{
 use super::TransportType;
 
 mod payload;
+
+/// Create a response for http request
+fn http_response<B, D>(
+    code: StatusCode,
+    data: D,
+    is_binary: bool,
+) -> Result<Response<ResponseBody<B>>, http::Error>
+where
+    D: Into<Bytes>,
+{
+    use http::header::*;
+    let body: Bytes = data.into();
+    let res = Response::builder()
+        .status(code)
+        .header(CONTENT_LENGTH, body.len());
+    if is_binary {
+        res.header(CONTENT_TYPE, "application/octet-stream")
+    } else {
+        res.header(CONTENT_TYPE, "text/plain; charset=UTF-8")
+    }
+    .body(ResponseBody::custom_response(Full::new(body)))
+}
 
 pub fn open_req<H, B, R>(
     engine: Arc<EngineIo<H>>,

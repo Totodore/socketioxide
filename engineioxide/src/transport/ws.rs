@@ -10,27 +10,39 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
 };
-use http::{Request, Response, StatusCode};
+use http::{HeaderValue, Request, Response, StatusCode};
 use hyper::upgrade::Upgraded;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::{
-    tungstenite::{protocol::Role, Message},
+    tungstenite::{handshake::derive_accept_key, protocol::Role, Message},
     WebSocketStream,
 };
 
 use crate::{
-    body::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
     errors::Error,
-    futures::ws_response,
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    service::ProtocolVersion,
     sid::Sid,
     transport::TransportType,
-    DisconnectReason, Socket, SocketReq,
+    DisconnectReason, ProtocolVersion, Socket, SocketReq, server::ResponseBody,
 };
+
+/// Create a response for websocket upgrade
+fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
+    let derived = derive_accept_key(ws_key.as_bytes());
+    let sec = derived.parse::<HeaderValue>().unwrap();
+    Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header(http::header::UPGRADE, HeaderValue::from_static("websocket"))
+        .header(
+            http::header::CONNECTION,
+            HeaderValue::from_static("Upgrade"),
+        )
+        .header(http::header::SEC_WEBSOCKET_ACCEPT, sec)
+        .body(ResponseBody::empty_response())
+}
 
 /// Upgrade a websocket request to create a websocket connection.
 ///

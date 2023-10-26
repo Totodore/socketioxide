@@ -1,51 +1,15 @@
-use crate::body::ResponseBody;
 use crate::errors::Error;
-use bytes::Bytes;
+use crate::server::body::response::ResponseBody;
 use futures::ready;
-use http::header::{CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, SEC_WEBSOCKET_ACCEPT, UPGRADE};
-use http::{HeaderValue, Response, StatusCode};
-use http_body::{Body, Full};
+use http::Response;
+use http_body::Body;
 use pin_project::pin_project;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 
 pub(crate) type BoxFuture<B> =
     Pin<Box<dyn Future<Output = Result<Response<ResponseBody<B>>, Error>> + Send>>;
-
-/// Create a response for http request
-pub fn http_response<B, D>(
-    code: StatusCode,
-    data: D,
-    is_binary: bool,
-) -> Result<Response<ResponseBody<B>>, http::Error>
-where
-    D: Into<Bytes>,
-{
-    let body: Bytes = data.into();
-    let res = Response::builder()
-        .status(code)
-        .header(CONTENT_LENGTH, body.len());
-    if is_binary {
-        res.header(CONTENT_TYPE, "application/octet-stream")
-    } else {
-        res.header(CONTENT_TYPE, "text/plain; charset=UTF-8")
-    }
-    .body(ResponseBody::custom_response(Full::new(body)))
-}
-
-/// Create a response for websocket upgrade
-pub fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
-    let derived = derive_accept_key(ws_key.as_bytes());
-    let sec = derived.parse::<HeaderValue>().unwrap();
-    Response::builder()
-        .status(StatusCode::SWITCHING_PROTOCOLS)
-        .header(UPGRADE, HeaderValue::from_static("websocket"))
-        .header(CONNECTION, HeaderValue::from_static("Upgrade"))
-        .header(SEC_WEBSOCKET_ACCEPT, sec)
-        .body(ResponseBody::empty_response())
-}
 
 #[pin_project]
 pub struct ResponseFuture<F, B> {

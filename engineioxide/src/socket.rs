@@ -19,7 +19,7 @@ use tokio_tungstenite::tungstenite;
 
 use crate::{
     config::EngineIoConfig, errors::Error, packet::Packet, peekable::PeekableReceiver,
-    service::ProtocolVersion,
+    ProtocolVersion,
 };
 use crate::{sid::Sid, transport::TransportType};
 

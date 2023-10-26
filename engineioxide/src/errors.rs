@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 
 use crate::sid::Sid;
-use crate::{body::ResponseBody, packet::Packet};
+use crate::{packet::Packet, server::ResponseBody};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

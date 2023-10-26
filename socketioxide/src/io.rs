@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
-    service::NotFoundService,
+    NotFoundService,
 };
 use futures::{stream::BoxStream, Future};
 use serde::de::DeserializeOwned;

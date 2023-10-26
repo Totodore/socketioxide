@@ -5,8 +5,8 @@ use std::{sync::Arc, time::Duration};
 use engineioxide::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
-    service::EngineIoService,
     socket::{DisconnectReason, Socket},
+    EngineIoService,
 };
 use hyper::Server;
 use tracing::Level;
