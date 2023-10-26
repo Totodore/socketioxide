@@ -3,16 +3,12 @@ use std::{
     time::Duration,
 };
 
-use bytes::{Buf, Bytes};
+use bytes::Buf;
 use engineioxide::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
-use http_body_util::{BodyExt, Full};
-use hyper_util::{
-    client::{connect::HttpConnector, legacy::Client},
-    rt::TokioExecutor,
-    server::conn::auto,
-};
+use http::Request;
+use hyper::Server;
 use serde::{Deserialize, Serialize};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// An OpenPacket is used to initiate a connection
@@ -34,9 +30,9 @@ pub async fn send_req(
     body: Option<String>,
 ) -> String {
     let body = body
-        .map(|b| Full::new(Bytes::from(b)))
-        .unwrap_or(Full::new(Bytes::new()));
-    let req = hyper::Request::builder()
+        .map(|b| hyper::Body::from(b))
+        .unwrap_or_else(hyper::Body::empty);
+    let req = Request::builder()
         .method(method)
         .uri(format!(
             "http://127.0.0.1:{port}/engine.io/?EIO=4&{}",
@@ -44,10 +40,8 @@ pub async fn send_req(
         ))
         .body(body)
         .unwrap();
-
-    let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build(HttpConnector::new());
-    let mut res = client.request(req).await.unwrap();
-    let body = res.body_mut().collect().await.unwrap().to_bytes();
+    let mut res = hyper::Client::new().request(req).await.unwrap();
+    let body = hyper::body::aggregate(res.body_mut()).await.unwrap();
     String::from_utf8(body.chunk().to_vec())
         .unwrap()
         .chars()
@@ -69,7 +63,7 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     .0
 }
 
-pub async fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
+pub fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
@@ -80,20 +74,7 @@ pub async fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
 
     let svc = EngineIoService::with_config(handler, config);
 
-    // Tcp listener on addr
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let server = Server::bind(addr).serve(svc.into_make_service());
 
-    let local_addr = listener.local_addr().unwrap();
-
-    tokio::spawn(async move {
-        loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            tokio::task::spawn(async move {
-                let _ = auto::Builder::new(TokioExecutor::new())
-                    .serve_connection(stream, svc)
-                    .await;
-            });
-        }
-    });
+    tokio::spawn(server);
 }

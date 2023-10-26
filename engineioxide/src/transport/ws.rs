@@ -33,9 +33,6 @@ use crate::{
     DisconnectReason, Socket, SocketReq,
 };
 
-mod tokio_io;
-use tokio_io::TokioIo;
-
 /// Upgrade a websocket request to create a websocket connection.
 ///
 /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
@@ -80,7 +77,7 @@ async fn on_init<H: EngineIoHandler>(
     sid: Option<Sid>,
     req_data: SocketReq,
 ) -> Result<(), Error> {
-    let ws_init = move || WebSocketStream::from_raw_socket(TokioIo::new(conn), Role::Server, None);
+    let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, None);
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {
             None => return Err(Error::UnknownSessionID(sid)),
@@ -127,7 +124,7 @@ async fn on_init<H: EngineIoHandler>(
 /// Forwards all packets received from a websocket to a EngineIo [`Socket`]
 async fn forward_to_handler<H: EngineIoHandler>(
     engine: &Arc<EngineIo<H>>,
-    mut rx: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
+    mut rx: SplitStream<WebSocketStream<Upgraded>>,
     socket: &Arc<Socket<H::Data>>,
 ) -> Result<(), Error> {
     while let Some(msg) = rx.try_next().await? {
@@ -164,7 +161,7 @@ async fn forward_to_handler<H: EngineIoHandler>(
 /// The websocket stream is flushed only when the internal channel is drained
 fn forward_to_socket<H: EngineIoHandler>(
     socket: Arc<Socket<H::Data>>,
-    mut tx: SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>,
+    mut tx: SplitSink<WebSocketStream<Upgraded>, Message>,
 ) -> JoinHandle<()> {
     // Pipe between websocket and internal socket channel
     tokio::spawn(async move {
@@ -213,7 +210,7 @@ fn forward_to_socket<H: EngineIoHandler>(
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
 async fn init_handshake(
     sid: Sid,
-    ws: &mut WebSocketStream<TokioIo<Upgraded>>,
+    ws: &mut WebSocketStream<Upgraded>,
     config: &EngineIoConfig,
 ) -> Result<(), Error> {
     let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, config));
@@ -248,7 +245,7 @@ async fn init_handshake(
 async fn upgrade_handshake<H: EngineIoHandler>(
     protocol: ProtocolVersion,
     socket: &Arc<Socket<H::Data>>,
-    ws: &mut WebSocketStream<TokioIo<Upgraded>>,
+    ws: &mut WebSocketStream<Upgraded>,
 ) -> Result<(), Error> {
     debug!("websocket connection upgrade");
 

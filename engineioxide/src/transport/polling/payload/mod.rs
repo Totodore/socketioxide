@@ -21,7 +21,7 @@ const STRING_PACKET_IDENTIFIER_V3: u8 = 0x00;
 const BINARY_PACKET_IDENTIFIER_V3: u8 = 0x01;
 
 pub fn decoder(
-    body: Request<impl http_body::Body + Unpin>,
+    body: Request<impl http_body::Body<Error = impl std::fmt::Debug> + Unpin>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, Error>> {
