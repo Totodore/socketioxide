@@ -1,6 +1,6 @@
 use bytes::Bytes;
-use http_body_util::Full;
-use hyper::body::{Body, Frame, SizeHint};
+use http::HeaderMap;
+use http_body::{Body, Full, SizeHint};
 use pin_project::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -57,14 +57,25 @@ where
     type Data = Bytes;
     type Error = B::Error;
 
-    fn poll_frame(
+    fn poll_data(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
         match self.project().inner.project() {
             BodyProj::EmptyResponse => Poll::Ready(None),
-            BodyProj::Body { body } => body.poll_frame(cx),
-            BodyProj::CustomBody { body } => body.poll_frame(cx).map_err(|err| match err {}),
+            BodyProj::Body { body } => body.poll_data(cx),
+            BodyProj::CustomBody { body } => body.poll_data(cx).map_err(|err| match err {}),
+        }
+    }
+
+    fn poll_trailers(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
+        match self.project().inner.project() {
+            BodyProj::EmptyResponse => Poll::Ready(Ok(None)),
+            BodyProj::Body { body } => body.poll_trailers(cx),
+            BodyProj::CustomBody { body } => body.poll_trailers(cx).map_err(|err| match err {}),
         }
     }
 

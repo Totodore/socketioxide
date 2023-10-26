@@ -7,17 +7,15 @@
 
 use futures::Stream;
 use http::StatusCode;
-use http_body_util::BodyExt;
-use hyper::body::Body;
 use tracing::debug;
 
 use crate::{errors::Error, packet::Packet};
 use bytes::Buf;
-use std::{fmt::Debug, io::BufRead};
+use std::io::BufRead;
 
 use super::buf::BufList;
 
-struct Payload<B: Body> {
+struct Payload<B: http_body::Body> {
     body: B,
     buffer: BufList<B::Data>,
     end_of_stream: bool,
@@ -27,7 +25,7 @@ struct Payload<B: Body> {
     yield_packets: u32,
 }
 
-impl<B: Body> Payload<B> {
+impl<B: http_body::Body> Payload<B> {
     fn new(body: B) -> Self {
         Self {
             body,
@@ -42,42 +40,30 @@ impl<B: Body> Payload<B> {
 
 /// Polls the body stream for data and adds it to the chunk list in the state
 /// Returns an error if the packet length exceeds the maximum allowed payload size
-async fn poll_body<B, D, E>(state: &mut Payload<B>, max_payload: u64) -> Result<(), Error>
-where
-    B: Body<Data = D, Error = E> + Unpin,
-    D: Debug + Buf,
-    E: std::error::Error,
-{
-    match state.body.frame().await.transpose() {
-        Ok(Some(frame)) if frame.is_data() => {
-            let data = frame.into_data().unwrap();
-            let remaining = data.remaining() as u64;
-            if state.current_payload_size + remaining <= max_payload {
-                state.current_payload_size += remaining;
-                state.buffer.push(data);
-                Ok(())
-            } else {
-                Err(Error::PayloadTooLarge)
-            }
+async fn poll_body(state: &mut Payload<Incoming>, max_payload: u64) -> Result<(), Error> {
+    match state.body.data().await.transpose() {
+        Ok(Some(data)) if state.current_payload_size + (data.remaining() as u64) <= max_payload => {
+            state.current_payload_size += data.remaining() as u64;
+            state.buffer.push(data);
+            Ok(())
         }
-        Ok(_) => {
+        Ok(Some(_)) => Err(Error::PayloadTooLarge),
+        Ok(None) => {
             state.end_of_stream = true;
             Ok(())
         }
         Err(e) => {
-            debug!("error reading body stream: {}", e);
+            // debug!("error reading body stream: {:?}", e);
             Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))
         }
     }
 }
 
 #[cfg(feature = "v4")]
-pub fn v4_decoder<B, D, E>(body: B, max_payload: u64) -> impl Stream<Item = Result<Packet, Error>>
-where
-    B: Body<Data = D, Error = E> + Unpin,
-    D: Debug + Buf,
-    E: std::error::Error,
-{
+pub fn v4_decoder(
+    body: impl http_body::Body + Unpin,
+    max_payload: u64,
+) -> impl Stream<Item = Result<Packet, Error>> {
     use super::PACKET_SEPARATOR_V4;
     debug!("decoding payload with v4 decoder");
 
@@ -123,15 +109,10 @@ where
 }
 
 #[cfg(feature = "v3")]
-pub fn v3_binary_decoder<B, D, E>(
-    body: B,
+pub fn v3_binary_decoder(
+    body: impl http_body::Body + Unpin,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, Error>>
-where
-    B: Body<Data = D, Error = E> + Unpin,
-    D: Debug + Buf,
-    E: std::error::Error,
-{
+) -> impl Stream<Item = Result<Packet, Error>> {
     use std::io::Read;
 
     use crate::transport::polling::payload::{
@@ -220,15 +201,10 @@ where
 }
 
 #[cfg(feature = "v3")]
-pub fn v3_string_decoder<B, D, E>(
-    body: B,
+pub fn v3_string_decoder(
+    body: impl http_body::Body + Unpin,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, Error>>
-where
-    B: Body<Data = D, Error = E> + Unpin,
-    D: Debug + Buf,
-    E: std::error::Error,
-{
+) -> impl Stream<Item = Result<Packet, Error>> {
     use std::io::ErrorKind;
     use unicode_segmentation::UnicodeSegmentation;
 
@@ -356,7 +332,7 @@ mod tests {
 
     use bytes::Bytes;
     use futures::StreamExt;
-    use http_body_util::Full;
+    use http_body::Full;
 
     use crate::packet::Packet;
 
@@ -394,8 +370,7 @@ mod tests {
         for i in 1..DATA.len() {
             println!("payload stream v4 chunk size: {i}");
             let stream = http_body_util::StreamBody::new(futures::stream::iter(
-                DATA.chunks(i)
-                    .map(|i| Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(i))),
+                DATA.chunks(i).map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v4_decoder(stream, MAX_PAYLOAD);
             futures::pin_mut!(payload);
@@ -423,8 +398,7 @@ mod tests {
         const MAX_PAYLOAD: u64 = 3;
         for i in 1..DATA.len() {
             let stream = http_body_util::StreamBody::new(futures::stream::iter(
-                DATA.chunks(i)
-                    .map(|i| Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(i))),
+                DATA.chunks(i).map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v4_decoder(stream, MAX_PAYLOAD);
             futures::pin_mut!(payload);
@@ -487,8 +461,7 @@ mod tests {
         for i in 1..DATA.len() {
             println!("payload stream v3 chunk size: {i}");
             let stream = http_body_util::StreamBody::new(futures::stream::iter(
-                DATA.chunks(i)
-                    .map(|i| Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(i))),
+                DATA.chunks(i).map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_string_decoder(stream, MAX_PAYLOAD);
             futures::pin_mut!(payload);
@@ -522,9 +495,7 @@ mod tests {
         for i in 1..PAYLOAD.len() {
             println!("payload stream v3 chunk size: {i}");
             let stream = http_body_util::StreamBody::new(futures::stream::iter(
-                PAYLOAD
-                    .chunks(i)
-                    .map(|i| Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(i))),
+                PAYLOAD.chunks(i).map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_binary_decoder(stream, MAX_PAYLOAD);
             futures::pin_mut!(payload);
@@ -548,8 +519,7 @@ mod tests {
         const MAX_PAYLOAD: u64 = 3;
         for i in 1..DATA.len() {
             let stream = http_body_util::StreamBody::new(futures::stream::iter(
-                DATA.chunks(i)
-                    .map(|i| Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(i))),
+                DATA.chunks(i).map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_binary_decoder(stream, MAX_PAYLOAD);
             futures::pin_mut!(payload);
@@ -558,8 +528,7 @@ mod tests {
         }
         for i in 1..DATA.len() {
             let stream = http_body_util::StreamBody::new(futures::stream::iter(
-                DATA.chunks(i)
-                    .map(|i| Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(i))),
+                DATA.chunks(i).map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_string_decoder(stream, MAX_PAYLOAD);
             futures::pin_mut!(payload);

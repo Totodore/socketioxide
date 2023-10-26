@@ -11,11 +11,8 @@ use crate::{
 use bytes::Bytes;
 use futures::future::{ready, Ready};
 use http::{Method, Request};
-use http_body_util::Empty;
-use hyper::{
-    body::{Body, Incoming},
-    Response,
-};
+use http_body::{Body, Empty};
+use hyper::{body::Incoming, Response};
 use std::{
     convert::Infallible,
     fmt::Debug,
@@ -81,8 +78,6 @@ impl<S: Clone, H: EngineIoHandler> Clone for EngineIoService<H, S> {
 impl<ResBody, S, H> Service<Request<Incoming>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,
-    ResBody::Data: Send,
-    ResBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     S: Service<Request<Incoming>, Response = Response<ResBody>>,
     H: EngineIoHandler,
 {
@@ -99,75 +94,6 @@ where
     /// If the request is an `EngineIo` request, it is handled by the corresponding [`transport`](crate::transport).
     /// Otherwise, it is forwarded to the inner service.
     fn call(&mut self, req: Request<Incoming>) -> Self::Future {
-        if req.uri().path().starts_with(&self.engine.config.req_path) {
-            let engine = self.engine.clone();
-            match RequestInfo::parse(&req, &self.engine.config) {
-                Ok(RequestInfo {
-                    protocol,
-                    sid: None,
-                    transport: TransportType::Polling,
-                    method: Method::GET,
-                    #[cfg(feature = "v3")]
-                    b64,
-                }) => ResponseFuture::ready(polling::open_req(
-                    engine,
-                    protocol,
-                    req,
-                    #[cfg(feature = "v3")]
-                    !b64,
-                )),
-                Ok(RequestInfo {
-                    protocol,
-                    sid: Some(sid),
-                    transport: TransportType::Polling,
-                    method: Method::GET,
-                    ..
-                }) => ResponseFuture::async_response(Box::pin(polling::polling_req(
-                    engine, protocol, sid,
-                ))),
-                Ok(RequestInfo {
-                    protocol,
-                    sid: Some(sid),
-                    transport: TransportType::Polling,
-                    method: Method::POST,
-                    ..
-                }) => ResponseFuture::async_response(Box::pin(polling::post_req(
-                    engine, protocol, sid, req,
-                ))),
-                Ok(RequestInfo {
-                    protocol,
-                    sid,
-                    transport: TransportType::Websocket,
-                    method: Method::GET,
-                    ..
-                }) => ResponseFuture::ready(ws::new_req(engine, protocol, sid, req)),
-                Err(e) => ResponseFuture::ready(Ok(e.into())),
-                _ => ResponseFuture::empty_response(400),
-            }
-        } else {
-            ResponseFuture::new(self.inner.call(req))
-        }
-    }
-}
-
-/// The service implementation for [`EngineIoService`].
-impl<ResBody, S, H> hyper::service::Service<Request<Incoming>> for EngineIoService<H, S>
-where
-    ResBody: Body + Send + 'static,
-    ResBody::Data: Send,
-    ResBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    S: hyper::service::Service<Request<Incoming>, Response = Response<ResBody>>,
-    H: EngineIoHandler,
-{
-    type Response = Response<ResponseBody<ResBody>>;
-    type Error = S::Error;
-    type Future = ResponseFuture<S::Future, ResBody>;
-
-    /// Handle the request.
-    /// Each request is parsed to a [`RequestInfo`]
-    /// If the request is an `EngineIo` request, it is handled by the corresponding [`transport`](crate::transport).
-    /// Otherwise, it is forwarded to the inner service.
-    fn call(&self, req: Request<Incoming>) -> Self::Future {
         if req.uri().path().starts_with(&self.engine.config.req_path) {
             let engine = self.engine.clone();
             match RequestInfo::parse(&req, &self.engine.config) {
@@ -256,31 +182,24 @@ impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
 /// A [`Service`] that always returns a 404 response and that is compatible with [`EngineIoService`].
 #[derive(Debug, Clone)]
 pub struct NotFoundService;
-impl Service<Request<Incoming>> for NotFoundService {
-    type Response = Response<Empty<()>>;
+impl<ReqBody> Service<Request<ReqBody>> for NotFoundService
+where
+    ReqBody: Body + Send + 'static + Debug,
+    <ReqBody as Body>::Error: Debug,
+    <ReqBody as Body>::Data: Send,
+{
+    type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
-    type Future = Ready<Result<Response<Empty<()>>, Infallible>>;
+    type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
 
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _: Request<Incoming>) -> Self::Future {
+    fn call(&mut self, _: Request<ReqBody>) -> Self::Future {
         ready(Ok(Response::builder()
             .status(404)
-            .body(Empty::new())
-            .unwrap()))
-    }
-}
-impl hyper::service::Service<Request<Incoming>> for NotFoundService {
-    type Response = Response<Empty<Bytes>>;
-    type Error = Infallible;
-    type Future = Ready<Result<Response<Empty<Bytes>>, Infallible>>;
-
-    fn call(&self, _: Request<Incoming>) -> Self::Future {
-        ready(Ok(Response::builder()
-            .status(404)
-            .body(Empty::new())
+            .body(ResponseBody::empty_response())
             .unwrap()))
     }
 }
