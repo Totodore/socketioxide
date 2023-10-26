@@ -40,6 +40,14 @@ tracing = { version = "0.1.37", optional = true }
 memchr = { version = "2.5.0", optional = true }
 unicode-segmentation = { version = "1.10.1", optional = true }
 
+# Hyper v1.0
+hyper-v1 = { package = "hyper", version = "1.0.0-rc.4", optional = true, features = [
+    "server",
+    "http1",
+    "http2",
+] }
+http-body-v1 = { package = "http-body", version = "1.0.0-rc.2", optional = true }
+
 [dev-dependencies]
 tokio = { version = "1.26.0", features = ["macros", "parking_lot"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
@@ -53,8 +61,9 @@ hyper = { version = "0.14.25", features = [
 ] }
 
 [features]
-default = ["v4"]
+default = ["v4", "hyper-v1"]
 v4 = []
 v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
 tracing = ["dep:tracing"]
+hyper-v1 = ["dep:hyper-v1", "dep:http-body-v1"]

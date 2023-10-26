@@ -55,8 +55,8 @@ dependencies = [
  "bytes",
  "futures-util",
  "http",
- "http-body",
- "hyper",
+ "http-body 0.4.5",
+ "hyper 0.14.27",
  "itoa",
  "matchit",
  "memchr",
@@ -85,7 +85,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "http",
- "http-body",
+ "http-body 0.4.5",
  "mime",
  "rustversion",
  "tower-layer",
@@ -231,7 +231,7 @@ dependencies = [
  "axum",
  "engineioxide",
  "futures",
- "hyper",
+ "hyper 0.14.27",
  "serde",
  "serde_json",
  "tokio",
@@ -251,8 +251,10 @@ dependencies = [
  "bytes",
  "futures",
  "http",
- "http-body",
- "hyper",
+ "http-body 0.4.5",
+ "http-body 1.0.0-rc.2",
+ "hyper 0.14.27",
+ "hyper 1.0.0-rc.4",
  "memchr",
  "pin-project",
  "rand",
@@ -273,7 +275,7 @@ version = "0.6.0"
 dependencies = [
  "engineioxide",
  "futures",
- "hyper",
+ "hyper 0.14.27",
  "serde_json",
  "tokio",
  "tracing",
@@ -495,6 +497,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-body"
+version = "1.0.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "951dfc2e32ac02d67c90c0d65bd27009a635dc9b381a2cc7d284ab01e3a0150d"
+dependencies = [
+ "bytes",
+ "http",
+]
+
+[[package]]
 name = "http-range-header"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -524,7 +536,7 @@ dependencies = [
  "futures-util",
  "h2",
  "http",
- "http-body",
+ "http-body 0.4.5",
  "httparse",
  "httpdate",
  "itoa",
@@ -532,6 +544,27 @@ dependencies = [
  "socket2 0.4.9",
  "tokio",
  "tower-service",
+ "tracing",
+ "want",
+]
+
+[[package]]
+name = "hyper"
+version = "1.0.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d280a71f348bcc670fc55b02b63c53a04ac0bf2daff2980795aeaf53edae10e6"
+dependencies = [
+ "bytes",
+ "futures-channel",
+ "futures-util",
+ "h2",
+ "http",
+ "http-body 1.0.0-rc.2",
+ "httparse",
+ "httpdate",
+ "itoa",
+ "pin-project-lite",
+ "tokio",
  "tracing",
  "want",
 ]
@@ -1061,7 +1094,7 @@ version = "0.6.0"
 dependencies = [
  "axum",
  "futures",
- "hyper",
+ "hyper 0.14.27",
  "serde",
  "serde_json",
  "socketioxide",
@@ -1082,8 +1115,8 @@ dependencies = [
  "engineioxide",
  "futures",
  "http",
- "http-body",
- "hyper",
+ "http-body 0.4.5",
+ "hyper 0.14.27",
  "itertools",
  "serde",
  "serde_json",
@@ -1100,7 +1133,7 @@ name = "socketioxide-e2e"
 version = "0.6.0"
 dependencies = [
  "futures",
- "hyper",
+ "hyper 0.14.27",
  "serde_json",
  "socketioxide",
  "tokio",
@@ -1270,7 +1303,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "http",
- "http-body",
+ "http-body 0.4.5",
  "http-range-header",
  "pin-project-lite",
  "tower-layer",
@@ -1468,7 +1501,7 @@ dependencies = [
  "futures-util",
  "headers",
  "http",
- "hyper",
+ "hyper 0.14.27",
  "log",
  "mime",
  "mime_guess",
