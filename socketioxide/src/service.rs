@@ -1,4 +1,4 @@
-use engineioxide::{EngineIoService, MakeEngineIoService};
+use engineioxide::service::{EngineIoService, MakeEngineIoService};
 use http::{Request, Response};
 use http_body::Body;
 use std::{

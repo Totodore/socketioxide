@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-pub use crate::transport::TransportType;
+pub use crate::service::TransportType;
 
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {

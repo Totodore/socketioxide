@@ -1,4 +1,4 @@
-//! Response Body implementation with
+//! Response Body wrapper in order to return a custom body or the body from the inner service
 
 use bytes::Bytes;
 use http::HeaderMap;

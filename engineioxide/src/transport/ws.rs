@@ -19,14 +19,16 @@ use tokio_tungstenite::{
 };
 
 use crate::{
+    body::response::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
     errors::Error,
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
+    service::ProtocolVersion,
+    service::TransportType,
     sid::Sid,
-    transport::TransportType,
-    DisconnectReason, ProtocolVersion, Socket, SocketReq, server::ResponseBody,
+    DisconnectReason, Socket, SocketReq,
 };
 
 /// Create a response for websocket upgrade

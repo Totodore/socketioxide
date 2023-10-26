@@ -1,8 +1,6 @@
 pub use async_trait::async_trait;
 
-pub use server::{
-    EngineIoLayer, EngineIoService, MakeEngineIoService, NotFoundService, ProtocolVersion,
-};
+pub use service::{ProtocolVersion, TransportType};
 /// A Packet type to use when sending data to the client
 pub use socket::{DisconnectReason, Socket, SocketReq};
 
@@ -12,11 +10,13 @@ compile_error!("At least one protocol version must be enabled");
 pub mod config;
 pub mod errors;
 pub mod handler;
+pub mod layer;
+pub mod service;
 pub mod sid;
 pub mod socket;
 
+mod body;
 mod engine;
 mod packet;
 mod peekable;
-mod server;
 mod transport;

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use engineioxide::{
     handler::EngineIoHandler,
+    service::EngineIoService,
     socket::{DisconnectReason, Socket},
-    EngineIoService,
 };
 use hyper::Server;
 use tracing::info;

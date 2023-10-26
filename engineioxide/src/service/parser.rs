@@ -2,9 +2,47 @@
 
 use std::str::FromStr;
 
-use http::{Method, Request};
+use http::{Method, Request, Response};
 
-use crate::{config::EngineIoConfig, errors::Error, sid::Sid, transport::TransportType};
+use crate::{body::response::ResponseBody, config::EngineIoConfig, sid::Sid};
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseError {
+    #[error("transport unknown")]
+    UnknownTransport,
+    #[error("bad handshake method")]
+    BadHandshakeMethod,
+    #[error("transport mismatch")]
+    TransportMismatch,
+    #[error("unsupported protocol version")]
+    UnsupportedProtocolVersion,
+}
+
+/// Convert an error into an http response
+/// If it is a known error, return the appropriate http status code
+/// Otherwise, return a 500
+impl<B> From<ParseError> for Response<ResponseBody<B>> {
+    fn from(err: ParseError) -> Self {
+        use ParseError::*;
+        let conn_err_resp = |message: &'static str| {
+            Response::builder()
+                .status(400)
+                .header("Content-Type", "application/json")
+                .body(ResponseBody::custom_response(message.into()))
+                .unwrap()
+        };
+        match err {
+            UnknownTransport => conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}"),
+            BadHandshakeMethod => {
+                conn_err_resp("{\"code\":\"2\",\"message\":\"Bad handshake method\"}")
+            }
+            TransportMismatch => conn_err_resp("{\"code\":\"3\",\"message\":\"Bad request\"}"),
+            UnsupportedProtocolVersion => {
+                conn_err_resp("{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}")
+            }
+        }
+    }
+}
 
 /// The engine.io protocol
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -14,14 +52,14 @@ pub enum ProtocolVersion {
 }
 
 impl FromStr for ProtocolVersion {
-    type Err = Error;
+    type Err = ParseError;
 
     #[cfg(all(feature = "v3", feature = "v4"))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "3" => Ok(ProtocolVersion::V3),
             "4" => Ok(ProtocolVersion::V4),
-            _ => Err(Error::UnsupportedProtocolVersion),
+            _ => Err(ParseError::UnsupportedProtocolVersion),
         }
     }
 
@@ -29,7 +67,7 @@ impl FromStr for ProtocolVersion {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "4" => Ok(ProtocolVersion::V4),
-            _ => Err(Error::UnsupportedProtocolVersion),
+            _ => Err(ParseError::UnsupportedProtocolVersion),
         }
     }
 
@@ -37,7 +75,42 @@ impl FromStr for ProtocolVersion {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "3" => Ok(ProtocolVersion::V3),
-            _ => Err(Error::UnsupportedProtocolVersion),
+            _ => Err(ParseError::UnsupportedProtocolVersion),
+        }
+    }
+}
+
+/// The type of the [`transport`](crate::transport) used by the client.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum TransportType {
+    Polling = 0x01,
+    Websocket = 0x02,
+}
+
+impl FromStr for TransportType {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "websocket" => Ok(TransportType::Websocket),
+            "polling" => Ok(TransportType::Polling),
+            _ => Err(ParseError::UnknownTransport),
+        }
+    }
+}
+impl From<TransportType> for &'static str {
+    fn from(t: TransportType) -> Self {
+        match t {
+            TransportType::Polling => "polling",
+            TransportType::Websocket => "websocket",
+        }
+    }
+}
+impl From<TransportType> for String {
+    fn from(t: TransportType) -> Self {
+        match t {
+            TransportType::Polling => "polling".into(),
+            TransportType::Websocket => "websocket".into(),
         }
     }
 }
@@ -60,14 +133,15 @@ pub struct RequestInfo {
 
 impl RequestInfo {
     /// Parse the request URI to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    pub fn parse<B>(req: &Request<B>, config: &EngineIoConfig) -> Result<Self, Error> {
-        let query = req.uri().query().ok_or(Error::UnknownTransport)?;
+    pub fn parse<B>(req: &Request<B>, config: &EngineIoConfig) -> Result<Self, ParseError> {
+        use ParseError::*;
+        let query = req.uri().query().ok_or(UnknownTransport)?;
 
         let protocol: ProtocolVersion = query
             .split('&')
             .find(|s| s.starts_with("EIO="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(Error::UnsupportedProtocolVersion)
+            .ok_or(UnsupportedProtocolVersion)
             .and_then(|t| t.parse())?;
 
         let sid = query
@@ -80,11 +154,11 @@ impl RequestInfo {
             .split('&')
             .find(|s| s.starts_with("transport="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(Error::UnknownTransport)
+            .ok_or(UnknownTransport)
             .and_then(|t| t.parse())?;
 
         if !config.allowed_transport(transport) {
-            return Err(Error::TransportMismatch);
+            return Err(TransportMismatch);
         }
 
         #[cfg(feature = "v3")]
@@ -96,7 +170,7 @@ impl RequestInfo {
 
         let method = req.method().clone();
         if !matches!(method, Method::GET) && sid.is_none() {
-            Err(Error::BadHandshakeMethod)
+            Err(BadHandshakeMethod)
         } else {
             Ok(RequestInfo {
                 protocol,
@@ -189,13 +263,13 @@ mod tests {
     fn transport_unknown_err() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=grpc");
         let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
-        assert!(matches!(err, Error::UnknownTransport));
+        assert!(matches!(err, ParseError::UnknownTransport));
     }
     #[test]
     fn unsupported_protocol_version() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=2&transport=polling");
         let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
-        assert!(matches!(err, Error::UnsupportedProtocolVersion));
+        assert!(matches!(err, ParseError::UnsupportedProtocolVersion));
     }
     #[test]
     #[cfg(feature = "v4")]
@@ -204,7 +278,7 @@ mod tests {
             .body(())
             .unwrap();
         let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
-        assert!(matches!(err, Error::BadHandshakeMethod));
+        assert!(matches!(err, ParseError::BadHandshakeMethod));
     }
 
     #[test]
@@ -219,7 +293,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(err, Error::TransportMismatch));
+        assert!(matches!(err, ParseError::TransportMismatch));
 
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket");
         let err = RequestInfo::parse(
@@ -230,6 +304,6 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(matches!(err, Error::TransportMismatch))
+        assert!(matches!(err, ParseError::TransportMismatch))
     }
 }

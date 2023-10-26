@@ -1,6 +1,6 @@
 //! Payload encoder and decoder for polling transport.
 
-use crate::{errors::Error, packet::Packet, peekable::PeekableReceiver, server::ProtocolVersion};
+use crate::{errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion};
 use futures::Stream;
 use http::Request;
 use tokio::sync::MutexGuard;

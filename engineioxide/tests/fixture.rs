@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::Buf;
-use engineioxide::{config::EngineIoConfig, handler::EngineIoHandler, EngineIoService};
+use engineioxide::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 use http::Request;
 use hyper::Server;
 use serde::{Deserialize, Serialize};

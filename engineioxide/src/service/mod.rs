@@ -8,7 +8,7 @@ use crate::{
     config::EngineIoConfig,
     engine::EngineIo,
     handler::EngineIoHandler,
-    transport::{polling, ws, TransportType},
+    transport::{polling, ws},
 };
 
 #[cfg(feature = "hyper-v1")]
@@ -20,7 +20,7 @@ mod tower_service;
 mod futures;
 mod parser;
 
-pub use self::parser::ProtocolVersion;
+pub use self::parser::{ProtocolVersion, TransportType};
 use self::{futures::ResponseFuture, parser::RequestInfo};
 
 /// A [`Service`] that handles engine.io requests as a middleware.
@@ -46,6 +46,7 @@ impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
 }
 
 impl<S, H: EngineIoHandler> EngineIoService<H, S> {
+    /// Dispatch a request according to the [`RequestInfo`] to the appropriate [`transport`](crate::transport).
     fn dispatch_req<F, ReqBody, ResBody>(&self, req: Request<ReqBody>) -> ResponseFuture<F, ResBody>
     where
         ReqBody: Body + Send + Unpin + 'static,

@@ -1,6 +1,6 @@
 use tower::Layer;
 
-use crate::{config::EngineIoConfig, handler::EngineIoHandler, server::services::EngineIoService};
+use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H: EngineIoHandler> {

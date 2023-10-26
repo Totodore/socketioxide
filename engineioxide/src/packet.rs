@@ -3,7 +3,7 @@ use serde::{de::Error, Deserialize, Serialize};
 
 use crate::config::EngineIoConfig;
 use crate::sid::Sid;
-use crate::transport::TransportType;
+use crate::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
 #[derive(Debug, PartialEq, PartialOrd)]

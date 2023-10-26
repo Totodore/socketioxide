@@ -7,17 +7,16 @@ use http::{Request, Response, StatusCode};
 use http_body::{Body, Full};
 
 use crate::{
+    body::response::ResponseBody,
     engine::EngineIo,
     errors::Error,
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    server::{ProtocolVersion, ResponseBody},
+    service::{ProtocolVersion, TransportType},
     sid::Sid,
     transport::polling::payload::Payload,
     DisconnectReason, SocketReq,
 };
-
-use super::TransportType;
 
 mod payload;
 

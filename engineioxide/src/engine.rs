@@ -6,10 +6,10 @@ use std::{
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
+    service::TransportType,
     socket::{DisconnectReason, Socket, SocketReq},
-    transport::TransportType,
 };
-use crate::{sid::Sid, ProtocolVersion};
+use crate::{service::ProtocolVersion, sid::Sid};
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 

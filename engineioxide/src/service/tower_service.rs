@@ -10,9 +10,9 @@ use futures::future::{self, Ready};
 use http::{Request, Response};
 use http_body::{Body, Empty};
 
-use crate::{handler::EngineIoHandler, server::ResponseBody, EngineIoService};
+use crate::{body::response::ResponseBody, handler::EngineIoHandler};
 
-use super::{futures::ResponseFuture, MakeEngineIoService, NotFoundService};
+use super::{futures::ResponseFuture, EngineIoService, MakeEngineIoService, NotFoundService};
 
 /// The service implementation for [`EngineIoService`].
 impl<ReqBody, ResBody, S, H> tower::Service<Request<ReqBody>> for EngineIoService<H, S>
