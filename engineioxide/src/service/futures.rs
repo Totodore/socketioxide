@@ -2,7 +2,6 @@ use crate::body::response::ResponseBody;
 use crate::errors::Error;
 use futures::ready;
 use http::Response;
-use http_body::Body;
 use pin_project::pin_project;
 use std::future::Future;
 use std::pin::Pin;
@@ -45,7 +44,6 @@ impl<F, B> ResponseFuture<F, B> {
 
 impl<ResBody, F, E> Future for ResponseFuture<F, ResBody>
 where
-    ResBody: Body,
     F: Future<Output = Result<Response<ResBody>, E>>,
 {
     type Output = Result<Response<ResponseBody<ResBody>>, E>;

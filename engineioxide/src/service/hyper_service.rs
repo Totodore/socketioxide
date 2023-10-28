@@ -20,7 +20,7 @@ use super::{futures::ResponseFuture, EngineIoService, MakeEngineIoService, NotFo
 /// Tower Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] Body for hyper 1.0
 impl<ReqBody, ResBody, S, H> tower::Service<Request<ReqBody>> for EngineIoService<H, S>
 where
-    ResBody: http_body_v1::Body + http_body::Body + Send + 'static,
+    ResBody: http_body_v1::Body + Send + 'static,
     ReqBody: http_body_v1::Body + Send + Unpin + 'static + std::fmt::Debug,
     ReqBody::Error: std::fmt::Debug,
     ReqBody::Data: Send,
@@ -48,7 +48,7 @@ where
 /// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] Body
 impl<ResBody, S, H> hyper_v1::service::Service<Request<Incoming>> for EngineIoService<H, S>
 where
-    ResBody: http_body_v1::Body + http_body::Body + Send + 'static,
+    ResBody: http_body_v1::Body + Send + 'static,
     S: hyper_v1::service::Service<Request<Incoming>, Response = Response<ResBody>>,
     H: EngineIoHandler,
 {

@@ -52,7 +52,7 @@ impl<S, H: EngineIoHandler> EngineIoService<H, S> {
         ReqBody: Body + Send + Unpin + 'static,
         ReqBody::Data: Send,
         ReqBody::Error: std::fmt::Debug,
-        ResBody: Body + Send + 'static,
+        ResBody: Send + 'static,
         F: Future,
     {
         let engine = self.engine.clone();
