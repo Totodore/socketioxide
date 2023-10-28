@@ -35,7 +35,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-test
-      - run: cargo test --features engineioxide/v3,engineioxide/v4,socketioxide/v4,socketioxide/v5
+      - run: cargo test --features engineioxide/v3,engineioxide/v4,socketioxide/v4,socketioxide/v5,tracing
 
   rust-clippy-analyze:
     name: Run rust-clippy analyzing
