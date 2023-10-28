@@ -6,7 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-engineioxide = { path = "../../engineioxide", feature = ["hyper-v1"] }
+engineioxide = { path = "../../engineioxide", features = [
+    "hyper-v1",
+    "tracing",
+] }
 salvo = { version = "0.58.2", features = ["tower-compat"] }
 tokio = { version = "1.33.0", features = ["full"] }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

@@ -1,11 +1,11 @@
 use salvo::prelude::*;
-use salvo::tower_compat::TowerServiceCompat;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use engineioxide::{
+    config::EngineIoConfig,
     handler::EngineIoHandler,
-    service::EngineIoService,
+    layer::EngineIoLayer,
     socket::{DisconnectReason, Socket},
 };
 use tracing::Level;
@@ -45,14 +45,21 @@ async fn hello() -> &'static str {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
         .with_line_number(true)
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::TRACE)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let svc = EngineIoService::new(MyHandler).compat();
+    let config = EngineIoConfig::builder()
+        .ping_interval(Duration::from_millis(300))
+        .ping_timeout(Duration::from_millis(200))
+        .max_payload(1e6 as u64)
+        .build();
 
-    let router = Router::new().get(hello);
-    let acceptor = TcpListener::new("127.0.0.1:5800").bind().await;
+    let layer = EngineIoLayer::from_config(MyHandler, config).compat();
+
+    //TODO: currently the layer is never called
+    let router = Router::new().hoop(layer).get(hello);
+    let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
     Server::new(acceptor).serve(router).await;
 
     Ok(())
