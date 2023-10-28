@@ -530,9 +530,9 @@ impl<A: Adapter> Socket<A> {
     // Receive data from client:
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Event(e, data, ack) => self.recv_event(e, data, ack),
+            PacketData::Event(e, data, ack) => self.recv_event(&e, data, ack),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
-            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(e, packet, ack),
+            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(&e, packet, ack),
             PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
             PacketData::Disconnect => self
                 .close(DisconnectReason::ClientNSDisconnect)
@@ -541,8 +541,8 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    fn recv_event(self: Arc<Self>, e: String, data: Value, ack: Option<i64>) -> Result<(), Error> {
-        if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
+    fn recv_event(self: Arc<Self>, e: &str, data: Value, ack: Option<i64>) -> Result<(), Error> {
+        if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), data, vec![], ack)?;
         }
         Ok(())
@@ -550,11 +550,11 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_bin_event(
         self: Arc<Self>,
-        e: String,
+        e: &str,
         packet: BinaryPacket,
         ack: Option<i64>,
     ) -> Result<(), Error> {
-        if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
+        if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), packet.data, packet.bin, ack)?;
         }
         Ok(())

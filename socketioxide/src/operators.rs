@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
@@ -240,7 +241,7 @@ impl<A: Adapter> Operators<A> {
     /// });
     pub fn emit(
         mut self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<(), serde_json::Error> {
         let packet = self.get_packet(event, data)?;
@@ -277,7 +278,7 @@ impl<A: Adapter> Operators<A> {
     /// });
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         mut self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         let packet = self.get_packet(event, data)?;
@@ -356,7 +357,7 @@ impl<A: Adapter> Operators<A> {
     /// Create a packet with the given event and data.
     fn get_packet(
         &mut self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
         let ns = self.ns.path.clone();

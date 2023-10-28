@@ -569,7 +569,7 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn emit(
         &self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<(), serde_json::Error> {
         self.get_default_op().emit(event, data)
@@ -608,7 +608,7 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         &self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         self.get_default_op().emit_with_ack(event, data)
