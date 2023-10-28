@@ -72,9 +72,7 @@ impl<'a> Packet<'a> {
 impl<'a> Packet<'a> {
     pub fn invalid_namespace(ns: &'a str) -> Self {
         Self {
-            inner: PacketData::ConnectError(ConnectErrorPacket {
-                message: "Invalid namespace".to_string(),
-            }),
+            inner: PacketData::ConnectError,
             ns: Cow::Borrowed(ns),
         }
     }
@@ -132,7 +130,7 @@ pub enum PacketData<'a> {
     Disconnect,
     Event(Cow<'a, str>, Value, Option<i64>),
     EventAck(Value, i64),
-    ConnectError(ConnectErrorPacket),
+    ConnectError,
     BinaryEvent(Cow<'a, str>, BinaryPacket, Option<i64>),
     BinaryAck(BinaryPacket, i64),
 }
@@ -151,7 +149,7 @@ impl<'a> PacketData<'a> {
             PacketData::Disconnect => 1,
             PacketData::Event(_, _, _) => 2,
             PacketData::EventAck(_, _) => 3,
-            PacketData::ConnectError(_) => 4,
+            PacketData::ConnectError => 4,
             PacketData::BinaryEvent(_, _, _) => 5,
             PacketData::BinaryAck(_, _) => 6,
         }
@@ -247,8 +245,8 @@ impl<'a> TryInto<String> for Packet<'a> {
         }
 
         match self.inner {
-            PacketData::Connect(data) => res.push_str(&data.unwrap_or_default()),
-            PacketData::Disconnect => (),
+            PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
+            PacketData::Disconnect | PacketData::Connect(None) => (),
             PacketData::Event(event, data, ack) => {
                 if let Some(ack) = ack {
                     res.push_str(&ack.to_string());
@@ -273,7 +271,7 @@ impl<'a> TryInto<String> for Packet<'a> {
                 }?;
                 res.push_str(&packet)
             }
-            PacketData::ConnectError(data) => res.push_str(&serde_json::to_string(&data)?),
+            PacketData::ConnectError => res.push_str("{ \"message:\": \"Invalid namespace\" }"),
             PacketData::BinaryEvent(event, bin, ack) => {
                 res.push_str(&bin.payload_count.to_string());
                 res.push('-');
@@ -404,10 +402,6 @@ impl<'a> TryFrom<String> for Packet<'a> {
                 let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::EventAck(packet, ack.ok_or(Error::InvalidPacketType)?)
             }
-            '4' => {
-                let payload = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
-                PacketData::ConnectError(payload)
-            }
             '5' => {
                 let (event, payload) = deserialize_event_packet(data)?;
                 PacketData::BinaryEvent(event.into(), BinaryPacket::incoming(payload), ack)
@@ -430,14 +424,9 @@ impl<'a> TryFrom<String> for Packet<'a> {
 }
 
 /// Connect packet sent by the client
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectPacket {
     sid: Sid,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConnectErrorPacket {
-    message: String,
 }
 
 #[cfg(test)]

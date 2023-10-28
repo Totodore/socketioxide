@@ -79,7 +79,7 @@ impl<A: Adapter> Namespace<A> {
     pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
-            PacketData::ConnectError(_) => Ok(()),
+            PacketData::ConnectError => Err(Error::InvalidPacketType),
             packet => self.get_socket(sid)?.recv(packet),
         }
     }
