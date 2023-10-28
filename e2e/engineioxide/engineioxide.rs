@@ -9,7 +9,7 @@ use engineioxide::{
     socket::{DisconnectReason, Socket},
 };
 use hyper::Server;
-use tracing::{info, Level};
+use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Debug, Clone)]
@@ -56,7 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = Server::bind(addr).serve(svc.into_make_service());
     tracing::subscriber::set_global_default(subscriber)?;
 
-    info!("Starting server");
+    #[cfg(feature = "v3")]
+    tracing::info!("Starting server with v3 protocol");
+    #[cfg(feature = "v4")]
+    tracing::info!("Starting server with v4 protocol");
 
     server.await?;
 

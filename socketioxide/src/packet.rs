@@ -4,7 +4,6 @@ use crate::ProtocolVersion;
 use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::debug;
 
 use crate::errors::Error;
 use engineioxide::sid::Sid;
@@ -321,7 +320,8 @@ impl<'a> TryInto<String> for Packet<'a> {
 /// ["<event name>", ...<JSON-stringified payload without binary>]
 /// ```
 fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
-    debug!("Deserializing event packet: {:?}", data);
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Deserializing event packet: {:?}", data);
     let packet = match serde_json::from_str::<Value>(data)? {
         Value::Array(packet) => packet,
         _ => return Err(Error::InvalidEventName),
@@ -338,7 +338,8 @@ fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
 }
 
 fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, serde_json::Error> {
-    debug!("Deserializing packet: {:?}", data);
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Deserializing packet: {:?}", data);
     let packet = if data.is_empty() {
         None
     } else {

@@ -138,8 +138,16 @@ where
                     method: Method::GET,
                     ..
                 }) => ResponseFuture::ready(ws::new_req(engine, protocol, sid, req)),
-                Err(e) => ResponseFuture::ready(Ok(e.into())),
-                _ => ResponseFuture::empty_response(400),
+                Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("error parsing request: {:?}", e);
+                    ResponseFuture::ready(Ok(e.into()))
+                }
+                _req => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("invalid request: {:?}", _req);
+                    ResponseFuture::empty_response(400)
+                }
             }
         } else {
             ResponseFuture::new(self.inner.call(req))
@@ -225,8 +233,7 @@ impl FromStr for ProtocolVersion {
         }
     }
 
-    #[cfg(feature = "v4")]
-    #[cfg(not(feature = "v3"))]
+    #[cfg(all(feature = "v4", not(feature = "v3")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "4" => Ok(ProtocolVersion::V4),
@@ -234,8 +241,7 @@ impl FromStr for ProtocolVersion {
         }
     }
 
-    #[cfg(feature = "v3")]
-    #[cfg(not(feature = "v4"))]
+    #[cfg(all(feature = "v3", not(feature = "v4")))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "3" => Ok(ProtocolVersion::V3),

@@ -16,7 +16,6 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_tungstenite::tungstenite;
-use tracing::debug;
 
 use crate::{
     config::EngineIoConfig, errors::Error, packet::Packet, peekable::PeekableReceiver,
@@ -193,7 +192,8 @@ where
 
     /// Sends a packet to the connection.
     pub(crate) fn send(&self, packet: Packet) -> Result<(), TrySendError<Packet>> {
-        debug!("[sid={}] sending packet: {:?}", self.id, packet);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] sending packet: {:?}", self.id, packet);
         self.internal_tx.try_send(packet)?;
         Ok(())
     }
@@ -205,9 +205,10 @@ where
         let socket = self.clone();
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = socket.heartbeat_job(interval, timeout).await {
+            if let Err(_e) = socket.heartbeat_job(interval, timeout).await {
                 socket.close(DisconnectReason::HeartbeatTimeout);
-                debug!("[sid={}] heartbeat error: {:?}", socket.id, e);
+                #[cfg(feature = "tracing")]
+                tracing::debug!("[sid={}] heartbeat error: {:?}", socket.id, _e);
             }
         });
         self.heartbeat_handle
@@ -264,7 +265,8 @@ where
         )))
         .await;
 
-        debug!("[sid={}] heartbeat sender routine started", self.id);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] heartbeat sender routine started", self.id);
 
         loop {
             // Some clients send the pong packet in first. If that happens, we should consume it.
@@ -288,7 +290,8 @@ where
             .try_lock()
             .expect("Pong rx should be locked only once");
 
-        debug!("[sid={}] heartbeat receiver routine started", self.id);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] heartbeat receiver routine started", self.id);
 
         loop {
             tokio::time::timeout(interval + timeout, heartbeat_rx.recv())
@@ -296,7 +299,8 @@ where
                 .map_err(|_| Error::HeartbeatTimeout)?
                 .ok_or(Error::HeartbeatTimeout)?;
 
-            debug!("[sid={}] ping received, sending pong", self.id);
+            #[cfg(feature = "tracing")]
+            tracing::debug!("[sid={}] ping received, sending pong", self.id);
             self.internal_tx
                 .try_send(Packet::Pong)
                 .map_err(|_| Error::HeartbeatTimeout)?;
@@ -390,7 +394,8 @@ where
     D: Default + Send + Sync + 'static,
 {
     fn drop(&mut self) {
-        debug!("[sid={}] dropping socket", self.id);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] dropping socket", self.id);
     }
 }
 
@@ -399,12 +404,15 @@ impl<D> Socket<D>
 where
     D: Default + Send + Sync + 'static,
 {
-    pub fn new_dummy(close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>) -> Socket<D> {
+    pub fn new_dummy(
+        sid: Sid,
+        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+    ) -> Socket<D> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         Self {
-            id: Sid::new(),
+            id: sid,
             protocol: ProtocolVersion::V4,
             transport: AtomicU8::new(TransportType::Websocket as u8),
 

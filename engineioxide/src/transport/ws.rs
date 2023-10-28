@@ -17,7 +17,6 @@ use tokio_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
-use tracing::debug;
 
 use crate::{
     body::ResponseBody,
@@ -55,10 +54,19 @@ pub fn new_req<R, B, H: EngineIoHandler>(
     tokio::spawn(async move {
         match hyper::upgrade::on(req).await {
             Ok(conn) => match on_init(engine, conn, protocol, sid, req_data).await {
-                Ok(_) => debug!("ws closed"),
-                Err(e) => debug!("ws closed with error: {:?}", e),
+                Ok(_) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("ws closed")
+                }
+                Err(_e) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("ws closed with error: {:?}", _e)
+                }
             },
-            Err(e) => debug!("ws upgrade error: {}", e),
+            Err(_e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("ws upgrade error: {}", _e)
+            }
         }
     });
 
@@ -96,7 +104,8 @@ async fn on_init<H: EngineIoHandler>(
             #[cfg(feature = "v3")]
             false,
         );
-        debug!("[sid={}] new websocket connection", socket.id);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] new websocket connection", socket.id);
         let mut ws = ws_init().await;
         init_handshake(socket.id, &mut ws, &engine.config).await?;
         socket
@@ -110,7 +119,8 @@ async fn on_init<H: EngineIoHandler>(
     engine.handler.on_connect(socket.clone());
 
     if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
-        debug!("[sid={}] error when handling packet: {:?}", socket.id, e);
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] error when handling packet: {:?}", socket.id, e);
         if let Some(reason) = e.into() {
             engine.close_session(socket.id, reason);
         }
@@ -131,7 +141,8 @@ async fn forward_to_handler<H: EngineIoHandler>(
         match msg {
             Message::Text(msg) => match Packet::try_from(msg)? {
                 Packet::Close => {
-                    debug!("[sid={}] closing session", socket.id);
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("[sid={}] closing session", socket.id);
                     engine.close_session(socket.id, DisconnectReason::TransportClose);
                     break;
                 }
@@ -189,8 +200,9 @@ fn forward_to_socket<H: EngineIoHandler>(
                         tx.feed(Message::Text(packet)).await
                     }
                 };
-                if let Err(e) = res {
-                    debug!("[sid={}] error sending packet: {}", socket.id, e);
+                if let Err(_e) = res {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("[sid={}] error sending packet: {}", socket.id, _e);
                 }
             };
         }
@@ -241,13 +253,14 @@ async fn init_handshake(
 ///│                                                      │
 ///│            -----  WebSocket frames -----             │
 /// ```
-#[tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string()))]
+#[cfg_attr(feature = "tracing", tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string())))]
 async fn upgrade_handshake<H: EngineIoHandler>(
     protocol: ProtocolVersion,
     socket: &Arc<Socket<H::Data>>,
     ws: &mut WebSocketStream<Upgraded>,
 ) -> Result<(), Error> {
-    debug!("websocket connection upgrade");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("websocket connection upgrade");
 
     #[cfg(feature = "v4")]
     {
@@ -285,16 +298,21 @@ async fn upgrade_handshake<H: EngineIoHandler>(
     let msg = match ws.next().await {
         Some(Ok(Message::Text(d))) => d,
         Some(Ok(Message::Close(_))) => {
-            debug!("ws stream closed before upgrade");
+            #[cfg(feature = "tracing")]
+            tracing::debug!("ws stream closed before upgrade");
             Err(Error::UpgradeError)?
         }
         _ => {
-            debug!("unexpected ws message before upgrade");
+            #[cfg(feature = "tracing")]
+            tracing::debug!("unexpected ws message before upgrade");
             Err(Error::UpgradeError)?
         }
     };
     match Packet::try_from(msg)? {
-        Packet::Upgrade => debug!("ws upgraded successful"),
+        Packet::Upgrade => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("ws upgraded successful")
+        }
         p => Err(Error::BadPacket(p))?,
     };
 

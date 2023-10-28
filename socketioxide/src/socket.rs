@@ -10,17 +10,18 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason, ProtocolVersion};
+use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
-use tracing::debug;
+
+#[cfg(feature = "extensions")]
+use crate::extensions::Extensions;
 
 use crate::{
     adapter::{Adapter, Room},
     errors::{AckError, Error},
-    extensions::Extensions,
     handler::{AckResponse, AckSender, BoxedMessageHandler, CallbackHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
@@ -105,28 +106,27 @@ pub struct Socket<A: Adapter> {
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     pub id: Sid,
+
+    #[cfg(feature = "extensions")]
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData>>,
 }
 
 impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
+        sid: Sid,
         ns: Arc<Namespace<A>>,
         esocket: Arc<engineioxide::Socket<SocketData>>,
         config: Arc<SocketIoConfig>,
     ) -> Self {
-        let id = if esocket.protocol == ProtocolVersion::V3 {
-            esocket.id
-        } else {
-            Sid::new()
-        };
         Self {
             ns,
             message_handlers: RwLock::new(HashMap::new()),
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
-            id,
+            id: sid,
+            #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
             config,
             esocket,
@@ -245,8 +245,9 @@ impl<A: Adapter> Socket<A> {
     ) -> Result<(), serde_json::Error> {
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        if let Err(err) = self.send(Packet::event(Cow::Borrowed(ns), event.into(), data)) {
-            debug!("sending error during emit message: {err:?}");
+        if let Err(_e) = self.send(Packet::event(ns, event.into(), data)) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("sending error during emit message: {_e:?}");
         }
         Ok(())
     }
@@ -468,7 +469,8 @@ impl<A: Adapter> Socket<A> {
     /// Return a future that resolves when the underlying transport is closed.
     pub(crate) async fn close_underlying_transport(&self) {
         if !self.esocket.is_closed() {
-            debug!("closing underlying transport for socket: {}", self.id);
+            #[cfg(feature = "tracing")]
+            tracing::debug!("closing underlying transport for socket: {}", self.id);
             self.esocket.close(EIoDisconnectReason::ClosingServer);
         }
         self.esocket.closed().await;
@@ -588,16 +590,11 @@ impl<A: Adapter> Debug for Socket<A> {
 impl<A: Adapter> Socket<A> {
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
         let close_fn = Box::new(move |_, _| ());
-        Socket {
-            id: sid,
+        Socket::new(
+            sid,
             ns,
-            ack_counter: AtomicI64::new(0),
-            ack_message: Mutex::new(HashMap::new()),
-            message_handlers: RwLock::new(HashMap::new()),
-            disconnect_handler: Mutex::new(None),
-            config: Arc::new(SocketIoConfig::default()),
-            extensions: Extensions::new(),
-            esocket: engineioxide::Socket::new_dummy(close_fn).into(),
-        }
+            engineioxide::Socket::new_dummy(sid, close_fn).into(),
+            Arc::new(SocketIoConfig::default()),
+        )
     }
 }
