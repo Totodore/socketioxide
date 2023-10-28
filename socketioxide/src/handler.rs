@@ -154,9 +154,9 @@ impl<A: Adapter> AckSender<A> {
             };
 
             let packet = if self.binary.is_empty() {
-                Packet::ack(&ns, data, ack_id)
+                Packet::ack(ns, data, ack_id)
             } else {
-                Packet::bin_ack(&ns, data, self.binary, ack_id)
+                Packet::bin_ack(ns, data, self.binary, ack_id)
             };
             self.socket
                 .send(packet)

@@ -37,8 +37,8 @@ impl<'a> Packet<'a> {
         #[cfg(all(feature = "v5", feature = "v4"))]
         {
             match protocol {
-                ProtocolVersion::V4 => Self::connect_v4(ns.into()),
-                ProtocolVersion::V5 => Self::connect_v5(ns.into(), sid),
+                ProtocolVersion::V4 => Self::connect_v4(ns),
+                ProtocolVersion::V5 => Self::connect_v5(ns, sid),
             }
         }
     }

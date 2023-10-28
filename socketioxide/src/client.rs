@@ -79,7 +79,7 @@ impl<A: Adapter> Client<A> {
             esocket.close(EIoDisconnectReason::TransportClose);
             Ok(())
         } else {
-            let packet = Packet::invalid_namespace(&ns_path).try_into().unwrap();
+            let packet = Packet::invalid_namespace(ns_path).try_into().unwrap();
             if let Err(e) = esocket.emit(packet) {
                 error!("error while sending invalid namespace packet: {}", e);
             }
