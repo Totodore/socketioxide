@@ -171,3 +171,5 @@ jobs:
       - uses: boa-dev/criterion-compare-action@v3
         with:
           features: "engineioxide/v3,engineioxide/v4,socketioxide/v4,socketioxide/v5,tracing,test-utils"
+          # Compare with main branch / PR base branch
+          branchName: ${{ github.base_ref }}
