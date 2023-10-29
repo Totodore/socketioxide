@@ -72,14 +72,14 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
 
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(|s| Cow::Borrowed(s))
+        self.into_iter().map(Cow::Borrowed)
     }
 }
 impl<const COUNT: usize> RoomParam for [String; COUNT] {
     type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(|s| Cow::Owned(s))
+        self.into_iter().map(Cow::Owned)
     }
 }
 
