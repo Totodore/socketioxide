@@ -74,6 +74,9 @@ pub mod extensions;
 pub mod layer;
 pub mod service;
 
+#[cfg(feature = "test-utils")]
+pub use packet::*;
+
 pub use engineioxide::config::TransportType;
 pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};

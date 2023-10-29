@@ -36,6 +36,7 @@ dashmap = "5.4.0"
 default = ["v4", "v5"]
 v5 = ["engineioxide/v4"]
 v4 = ["engineioxide/v3"]
+test-utils = []
 
 [dev-dependencies]
 engineioxide = { path = "../engineioxide", version = "0.6.0", features = [
@@ -59,3 +60,13 @@ hyper = { version = "0.14.25", features = [
     "runtime",
     "client",
 ] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "packet_encode"
+path = "benches/packet_encode.rs"
+harness = false
+[[bench]]
+name = "packet_decode"
+path = "benches/packet_decode.rs"
+harness = false
