@@ -442,7 +442,7 @@ impl<'a> TryFrom<String> for Packet<'a> {
         let start_index = i;
         let ack: Option<i64> = loop {
             match chars.get(i) {
-                Some(c) if (b'0'..=b'9').contains(&c) => i += 1,
+                Some(c) if c.is_ascii_digit() => i += 1,
                 Some(b'[') | Some(b'{') if i > start_index => {
                     break value[start_index..i].parse().ok()
                 }
