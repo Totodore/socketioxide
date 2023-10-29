@@ -153,7 +153,7 @@ impl<'a> Packet<'a> {
 
         let nsp_size = if self.ns == "/" {
             0
-        } else if self.ns.starts_with("/") {
+        } else if self.ns.starts_with('/') {
             self.ns.len() + NS_PUNCTUATION_SIZE
         } else {
             self.ns.len() + NS_PUNCTUATION_SIZE + 1 // (1 for the leading slash)
