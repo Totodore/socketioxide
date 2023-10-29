@@ -257,7 +257,6 @@ dependencies = [
  "ciborium",
  "clap",
  "criterion-plot",
- "futures",
  "is-terminal",
  "itertools 0.10.5",
  "num-traits",
@@ -270,7 +269,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tinytemplate",
- "tokio",
  "walkdir",
 ]
 
@@ -372,13 +370,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "engineio-echo"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "engineioxide",
+ "futures",
+ "hyper",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "warp",
+]
+
+[[package]]
 name = "engineioxide"
 version = "0.6.0"
 dependencies = [
  "async-trait",
  "base64",
  "bytes",
- "criterion",
  "futures",
  "http",
  "http-body",
@@ -395,6 +410,19 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "engineioxide-e2e"
+version = "0.6.0"
+dependencies = [
+ "engineioxide",
+ "futures",
+ "hyper",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1302,6 +1330,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "socketio-chat"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "futures",
+ "serde",
+ "serde_json",
+ "socketioxide",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "socketio-echo"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "futures",
+ "hyper",
+ "serde",
+ "serde_json",
+ "socketioxide",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "warp",
+]
+
+[[package]]
 name = "socketioxide"
 version = "0.6.0"
 dependencies = [
@@ -1320,7 +1382,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tower",
- "tower-http",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1329,34 +1390,13 @@ dependencies = [
 name = "socketioxide-e2e"
 version = "0.6.0"
 dependencies = [
- "engineioxide",
  "futures",
  "hyper",
  "serde_json",
  "socketioxide",
  "tokio",
- "tower",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "socketioxide-examples"
-version = "0.6.0"
-dependencies = [
- "axum",
- "engineioxide",
- "futures",
- "hyper",
- "serde",
- "serde_json",
- "socketioxide",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "warp",
 ]
 
 [[package]]

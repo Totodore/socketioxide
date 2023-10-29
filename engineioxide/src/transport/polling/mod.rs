@@ -4,7 +4,6 @@ use std::sync::Arc;
 use futures::StreamExt;
 use http::{Request, Response, StatusCode};
 use http_body::Body;
-use tracing::debug;
 
 use crate::{
     body::ResponseBody,
@@ -96,7 +95,8 @@ where
         }
     };
 
-    debug!("[sid={sid}] polling request");
+    #[cfg(feature = "tracing")]
+    tracing::debug!("[sid={sid}] polling request");
 
     let max_payload = engine.config.max_payload;
 
@@ -106,7 +106,8 @@ where
     #[cfg(not(feature = "v3"))]
     let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await?;
 
-    debug!("[sid={sid}] sending data: {:?}", data);
+    #[cfg(feature = "tracing")]
+    tracing::debug!("[sid={sid}] sending data: {:?}", data);
     Ok(http_response(StatusCode::OK, data, has_binary)?)
 }
 
@@ -137,7 +138,8 @@ where
     while let Some(packet) = packets.next().await {
         match packet {
             Ok(Packet::Close) => {
-                debug!("[sid={sid}] closing session");
+                #[cfg(feature = "tracing")]
+                tracing::debug!("[sid={sid}] closing session");
                 socket.send(Packet::Noop)?;
                 engine.close_session(sid, DisconnectReason::TransportClose);
                 break;
@@ -155,11 +157,13 @@ where
                 Ok(())
             }
             Ok(p) => {
-                debug!("[sid={sid}] bad packet received: {:?}", &p);
+                #[cfg(feature = "tracing")]
+                tracing::debug!("[sid={sid}] bad packet received: {:?}", &p);
                 Err(Error::BadPacket(p))
             }
             Err(e) => {
-                debug!("[sid={sid}] error parsing packet: {:?}", e);
+                #[cfg(feature = "tracing")]
+                tracing::debug!("[sid={sid}] error parsing packet: {:?}", e);
                 engine.close_session(sid, DisconnectReason::PacketParsingError);
                 return Err(e);
             }

@@ -7,7 +7,7 @@ use crate::{
     adapter::Adapter,
     errors::Error,
     handler::{BoxedNamespaceHandler, CallbackHandler},
-    packet::PacketData,
+    packet::{Packet, PacketData},
     socket::Socket,
     SocketIoConfig,
 };
@@ -47,9 +47,20 @@ impl<A: Adapter> Namespace<A> {
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
     ) -> Result<(), serde_json::Error> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket, config).into();
+        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
+
         self.sockets.write().unwrap().insert(sid, socket.clone());
-        self.handler.call(socket, auth)
+
+        let protocol = esocket.protocol.into();
+        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
+            esocket.close(engineioxide::DisconnectReason::PacketParsingError);
+            return Ok(());
+        }
+
+        self.handler.call(socket, auth)?;
+        Ok(())
     }
 
     /// Remove a socket from a namespace and propagate the event to the adapter
@@ -89,10 +100,12 @@ impl<A: Adapter> Namespace<A> {
     /// * Remove all the sockets from the namespace
     pub async fn close(&self) {
         self.adapter.close().ok();
+        #[cfg(feature = "tracing")]
         tracing::debug!("closing all sockets in namespace {}", self.path);
         let sockets = self.sockets.read().unwrap().clone();
         futures::future::join_all(sockets.values().map(|s| s.close_underlying_transport())).await;
         self.sockets.write().unwrap().shrink_to_fit();
+        #[cfg(feature = "tracing")]
         tracing::debug!("all sockets in namespace {} closed", self.path);
     }
 }

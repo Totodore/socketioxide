@@ -1,7 +1,6 @@
 use http::{Response, StatusCode};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
-use tracing::debug;
 
 use crate::sid::Sid;
 use crate::{body::ResponseBody, packet::Packet};
@@ -93,8 +92,9 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
             Error::UnsupportedProtocolVersion => {
                 conn_err_resp("{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}")
             }
-            e => {
-                debug!("uncaught error {e:?}");
+            _e => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("uncaught error {_e:?}");
                 Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .body(ResponseBody::empty_response())
