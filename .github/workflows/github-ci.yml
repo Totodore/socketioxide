@@ -163,7 +163,6 @@ jobs:
         run:  cat client.txt
 
   benchmarks:
-    name: run benchmarks
     runs-on: ubuntu-latest
     needs: [engine_io, socket_io, test]
     steps:
