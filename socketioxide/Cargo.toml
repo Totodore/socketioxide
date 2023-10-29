@@ -3,6 +3,8 @@ name = "socketioxide"
 version = "0.6.0"
 edition = "2021"
 rust-version = "1.63.0"
+
+[lib]
 bench = false
 
 authors = ["Théodore Prévot <"]
