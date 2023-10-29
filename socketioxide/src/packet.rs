@@ -204,10 +204,10 @@ impl<'a> PacketData<'a> {
 
     /// Set the ack id for the packet
     /// It will only set the ack id for the packets that support it
-    pub(crate) fn set_ack_id(&mut self, ack_id: i64) {
+    pub(crate) fn set_ack_id(&mut self, ack_id: u32) {
         match self {
             PacketData::Event(_, _, ack) | PacketData::BinaryEvent(_, _, ack) => {
-                *ack = Some(ack_id)
+                *ack = Some(ack_id as i64)
             }
             _ => {}
         };
@@ -327,6 +327,15 @@ impl<'a> TryInto<String> for Packet<'a> {
             }
         };
 
+        fn insert_number(mut v: usize, res: &mut String) {
+            debug_assert!(v > 0);
+            while v > 0 {
+                let n = (v % 10) as u8;
+                v /= 10;
+                res.push((n + 0x30) as char);
+            }
+        }
+
         if !self.inner.is_binary() {
             push_nsp(&mut res);
         }
@@ -336,35 +345,35 @@ impl<'a> TryInto<String> for Packet<'a> {
             PacketData::Disconnect | PacketData::Connect(None) => (),
             PacketData::Event(_, _, ack) => {
                 if let Some(ack) = ack {
-                    res.push_str(&ack.to_string());
+                    insert_number(ack as usize, &mut res);
                 }
 
                 res.push_str(&data.unwrap())
             }
             PacketData::EventAck(_, ack) => {
-                res.push_str(&ack.to_string());
+                insert_number(ack as usize, &mut res);
                 res.push_str(&data.unwrap())
             }
             PacketData::ConnectError => res.push_str("{\"message\":\"Invalid namespace\"}"),
             PacketData::BinaryEvent(_, bin, ack) => {
-                res.push_str(&bin.payload_count.to_string());
+                insert_number(bin.payload_count, &mut res);
                 res.push('-');
 
                 push_nsp(&mut res);
 
                 if let Some(ack) = ack {
-                    res.push_str(&ack.to_string());
+                    insert_number(ack as usize, &mut res);
                 }
 
                 res.push_str(&data.unwrap())
             }
-            PacketData::BinaryAck(packet, ack) => {
-                res.push_str(&packet.payload_count.to_string());
+            PacketData::BinaryAck(bin, ack) => {
+                insert_number(bin.payload_count, &mut res);
                 res.push('-');
 
                 push_nsp(&mut res);
+                insert_number(ack as usize, &mut res);
 
-                res.push_str(&ack.to_string());
                 res.push_str(&data.unwrap())
             }
         };

@@ -2,11 +2,8 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
-    sync::Mutex,
-    sync::{
-        atomic::{AtomicI64, Ordering},
-        Arc, RwLock,
-    },
+    sync::{atomic::AtomicU32, Mutex},
+    sync::{atomic::Ordering, Arc, RwLock},
     time::Duration,
 };
 
@@ -103,8 +100,8 @@ pub struct Socket<A: Adapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
-    ack_counter: AtomicI64,
+    ack_message: Mutex<HashMap<u32, oneshot::Sender<AckResponse<Value>>>>,
+    ack_counter: AtomicU32,
     pub id: Sid,
 
     #[cfg(feature = "extensions")]
@@ -124,7 +121,7 @@ impl<A: Adapter> Socket<A> {
             message_handlers: RwLock::new(HashMap::new()),
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
-            ack_counter: AtomicI64::new(0),
+            ack_counter: AtomicU32::new(0),
             id: sid,
             #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
@@ -561,14 +558,14 @@ impl<A: Adapter> Socket<A> {
     }
 
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
-        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
+        if let Some(tx) = self.ack_message.lock().unwrap().remove(&(ack as u32)) {
             tx.send((data, vec![])).ok();
         }
         Ok(())
     }
 
     fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
-        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
+        if let Some(tx) = self.ack_message.lock().unwrap().remove(&(ack as u32)) {
             tx.send((packet.data, packet.bin)).ok();
         }
         Ok(())
