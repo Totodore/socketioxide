@@ -17,6 +17,6 @@ serde = "1.0.188"
 serde_json = "1.0.107"
 futures = "0.3.28"
 
-[[example]]
+[[bin]]
 name = "chat"
 path = "src/main.rs"
