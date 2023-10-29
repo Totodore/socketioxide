@@ -304,9 +304,18 @@ impl<'a> TryInto<String> for Packet<'a> {
 
         // Add the ns if it is not the default one and the packet is not binary
         // In case of bin packet, we should first add the payload count before ns
-        if !self.ns.is_empty() && self.ns != "/" && !self.inner.is_binary() {
-            res.push_str(&self.ns);
-            res.push(',');
+        let push_nsp = |res: &mut String| {
+            if !self.ns.is_empty() && self.ns != "/" {
+                if !self.ns.starts_with('/') {
+                    res.push('/');
+                }
+                res.push_str(&self.ns);
+                res.push(',');
+            }
+        };
+
+        if !self.inner.is_binary() {
+            push_nsp(&mut res);
         }
 
         match self.inner {
@@ -328,10 +337,7 @@ impl<'a> TryInto<String> for Packet<'a> {
                 res.push_str(&bin.payload_count.to_string());
                 res.push('-');
 
-                if !self.ns.is_empty() && self.ns != "/" {
-                    res.push_str(&self.ns);
-                    res.push(',');
-                }
+                push_nsp(&mut res);
 
                 if let Some(ack) = ack {
                     res.push_str(&ack.to_string());
@@ -342,10 +348,9 @@ impl<'a> TryInto<String> for Packet<'a> {
             PacketData::BinaryAck(packet, ack) => {
                 res.push_str(&packet.payload_count.to_string());
                 res.push('-');
-                if !self.ns.is_empty() && self.ns != "/" {
-                    res.push_str(&self.ns);
-                    res.push(',');
-                }
+
+                push_nsp(&mut res);
+
                 res.push_str(&ack.to_string());
                 res.push_str(&data.unwrap())
             }
