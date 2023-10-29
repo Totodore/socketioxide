@@ -20,4 +20,3 @@ futures = "0.3.28"
 [[bin]]
 name = "chat"
 path = "src/main.rs"
-bench = false

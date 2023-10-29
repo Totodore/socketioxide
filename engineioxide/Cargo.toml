@@ -16,10 +16,6 @@ categories = [
 ]
 license = "MIT"
 
-[lib]
-bench = false
-
-
 [dependencies]
 async-trait = "0.1.66"
 base64 = "0.21.0"

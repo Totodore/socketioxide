@@ -17,7 +17,6 @@ futures = "0.3.27"
 [[bin]]
 name = "socketioxide-e2e"
 path = "socketioxide.rs"
-bench = false
 
 
 [features]

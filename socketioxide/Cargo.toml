@@ -18,8 +18,6 @@ categories = [
 license = "MIT"
 readme = "../README.md"
 
-[lib]
-bench = false
 
 [dependencies]
 engineioxide = { path = "../engineioxide", version = "0.6.0", default-features = false }
