@@ -4,9 +4,6 @@ version = "0.6.0"
 edition = "2021"
 rust-version = "1.63.0"
 
-[lib]
-bench = false
-
 authors = ["Théodore Prévot <"]
 description = "Engine IO server implementation in rust as a Tower Service."
 repository = "https://github.com/totodore/socketioxide"
@@ -18,6 +15,10 @@ categories = [
     "web-programming::websocket",
 ]
 license = "MIT"
+
+[lib]
+bench = false
+
 
 [dependencies]
 async-trait = "0.1.66"

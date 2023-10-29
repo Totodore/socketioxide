@@ -4,8 +4,6 @@ version = "0.6.0"
 edition = "2021"
 rust-version = "1.63.0"
 
-[lib]
-bench = false
 
 authors = ["Théodore Prévot <"]
 description = "Socket IO server implementation in rust as a Tower Service."
@@ -19,6 +17,9 @@ categories = [
 ]
 license = "MIT"
 readme = "../README.md"
+
+[lib]
+bench = false
 
 [dependencies]
 engineioxide = { path = "../engineioxide", version = "0.6.0", default-features = false }
