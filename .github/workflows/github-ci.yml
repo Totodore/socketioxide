@@ -35,7 +35,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo test --all-features
+      - run: cargo test --tests --all-features
 
   rust-clippy-analyze:
     name: Run rust-clippy analyzing
@@ -182,3 +182,21 @@ jobs:
           features: "engineioxide/v3,engineioxide/v4,socketioxide/v4,socketioxide/v5,tracing,test-utils"
           # Compare with main branch / PR base branch
           branchName: ${{ github.base_ref }}
+  doctest:
+    runs-on: ubuntu-latest
+    needs: [engine_io, socket_io, test]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo test --doc --all-features
