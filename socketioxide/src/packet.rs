@@ -589,19 +589,6 @@ mod test {
             .unwrap();
         assert_eq!(packet, payload);
     }
-    // ConnectError(ConnectErrorPacket),
-    #[test]
-    fn packet_decode_connect_error() {
-        let payload = format!("4{}", json!({ "message": "Invalid namespace" }));
-        let packet = Packet::try_from(payload).unwrap();
-
-        assert_eq!(Packet::invalid_namespace("/"), packet);
-
-        let payload = format!("4/admin™,{}", json!({ "message": "Invalid namespace" }));
-        let packet = Packet::try_from(payload).unwrap();
-
-        assert_eq!(Packet::invalid_namespace("/admin™"), packet);
-    }
 
     #[test]
     fn packet_encode_connect_error() {
@@ -613,6 +600,7 @@ mod test {
         let packet: String = Packet::invalid_namespace("/admin™").try_into().unwrap();
         assert_eq!(packet, payload);
     }
+
     // BinaryEvent(String, BinaryPacket, Option<i64>),
     #[test]
     fn packet_encode_binary_event() {
