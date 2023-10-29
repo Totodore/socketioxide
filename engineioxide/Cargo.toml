@@ -3,6 +3,7 @@ name = "engineioxide"
 version = "0.6.0"
 edition = "2021"
 rust-version = "1.63.0"
+bench = false
 
 authors = ["Théodore Prévot <"]
 description = "Engine IO server implementation in rust as a Tower Service."
