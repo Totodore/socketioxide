@@ -271,7 +271,7 @@ impl<'a> TryInto<String> for Packet<'a> {
                 }?;
                 res.push_str(&packet)
             }
-            PacketData::ConnectError => res.push_str("{\"message:\":\"Invalid namespace\"}"),
+            PacketData::ConnectError => res.push_str("{\"message\":\"Invalid namespace\"}"),
             PacketData::BinaryEvent(event, bin, ack) => {
                 res.push_str(&bin.payload_count.to_string());
                 res.push('-');
