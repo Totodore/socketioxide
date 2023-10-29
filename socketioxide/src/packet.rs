@@ -245,7 +245,7 @@ impl<'a> TryInto<String> for Packet<'a> {
         }
 
         match self.inner {
-            PacketData::Connect(Some(data)) => res.push_str(&serde_json::to_string(&data)?),
+            PacketData::Connect(Some(data)) => res.push_str(&data),
             PacketData::Disconnect | PacketData::Connect(None) => (),
             PacketData::Event(event, data, ack) => {
                 if let Some(ack) = ack {
