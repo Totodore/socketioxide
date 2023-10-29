@@ -34,7 +34,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-test
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo test --all-features
 
   rust-clippy-analyze:
@@ -109,12 +109,12 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-e2e --release --features ${{ matrix.engineio-version }}
-          cargo run --bin engineioxide-e2e --release --features ${{ matrix.engineio-version }} > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }}
+          cargo run --bin engineioxide-e2e --features ${{ matrix.engineio-version }} > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -149,12 +149,12 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Install deps & run tests 
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin socketioxide-e2e --release --features ${{ matrix.socketio-version }}
-          cargo run --bin socketioxide-e2e --release --features ${{ matrix.socketio-version }} > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build --bin socketioxide-e2e --features ${{ matrix.socketio-version }}
+          cargo run --bin socketioxide-e2e --features ${{ matrix.socketio-version }} > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -168,6 +168,15 @@ jobs:
     needs: [engine_io, socket_io, test]
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-bench
       - uses: boa-dev/criterion-compare-action@v3
         with:
           features: "engineioxide/v3,engineioxide/v4,socketioxide/v4,socketioxide/v5,tracing,test-utils"
