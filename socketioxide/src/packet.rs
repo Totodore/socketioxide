@@ -116,34 +116,48 @@ impl<'a> Packet<'a> {
     /// Get the max size the packet could have when serialized
     /// This is used to pre-allocate a buffer for the packet
     ///
-    /// Disclaimer: This is not the exact size of the packet, it does not include serialized `Value` size
+    /// #### Disclaimer: The size does not include serialized `Value` size
     fn get_size_hint(&self) -> usize {
         use PacketData::*;
+        const PACKET_INDEX_SIZE: usize = 1;
+        const BINARY_PUNCTUATION_SIZE: usize = 2;
+        const ACK_PUNCTUATION_SIZE: usize = 1;
+        const NS_PUNCTUATION_SIZE: usize = 1;
+
         let data_size = match &self.inner {
             Connect(Some(data)) => data.len(),
             Connect(None) => 0,
             Disconnect => 0,
-            Event(_, _, Some(ack)) => ack.checked_ilog10().unwrap_or(0) as usize + 1,
+            Event(_, _, Some(ack)) => {
+                ack.checked_ilog10().unwrap_or(0) as usize + ACK_PUNCTUATION_SIZE
+            }
             Event(_, _, None) => 0,
             BinaryEvent(_, bin, None) => {
-                bin.payload_count.checked_ilog10().unwrap_or(0) as usize + 2
+                bin.payload_count.checked_ilog10().unwrap_or(0) as usize + BINARY_PUNCTUATION_SIZE
             }
             BinaryEvent(_, bin, Some(ack)) => {
                 ack.checked_ilog10().unwrap_or(0) as usize
                     + bin.payload_count.checked_ilog10().unwrap_or(0) as usize
-                    + 3
+                    + ACK_PUNCTUATION_SIZE
+                    + BINARY_PUNCTUATION_SIZE
             }
-            EventAck(_, ack) => ack.checked_ilog10().unwrap_or(0) as usize + 1,
+            EventAck(_, ack) => ack.checked_ilog10().unwrap_or(0) as usize + ACK_PUNCTUATION_SIZE,
             BinaryAck(bin, ack) => {
                 ack.checked_ilog10().unwrap_or(0) as usize
                     + bin.payload_count.checked_ilog10().unwrap_or(0) as usize
-                    + 3
+                    + ACK_PUNCTUATION_SIZE
+                    + BINARY_PUNCTUATION_SIZE
             }
             ConnectError => 31,
         };
 
-        let nsp_size = if self.ns == "/" { 0 } else { self.ns.len() + 1 };
-        const PACKET_INDEX_SIZE: usize = 1;
+        let nsp_size = if self.ns == "/" {
+            0
+        } else if self.ns.starts_with("/") {
+            self.ns.len() + NS_PUNCTUATION_SIZE
+        } else {
+            self.ns.len() + NS_PUNCTUATION_SIZE + 1 // (1 for the leading slash)
+        };
         data_size + nsp_size + PACKET_INDEX_SIZE
     }
 }
@@ -816,5 +830,51 @@ mod test {
         }
 
         assert_eq!(packet, comparison_packet(54, "/admin™"));
+    }
+
+    #[test]
+    fn packet_size_hint() {
+        let sid = Sid::new();
+        let len = serde_json::to_string(&ConnectPacket { sid }).unwrap().len();
+        let packet = Packet::connect("/", sid, ProtocolVersion::V5);
+        assert_eq!(packet.get_size_hint(), len + 1);
+
+        let packet = Packet::connect("/admin", sid, ProtocolVersion::V5);
+        assert_eq!(packet.get_size_hint(), len + 8);
+
+        let packet = Packet::connect("admin", sid, ProtocolVersion::V4);
+        assert_eq!(packet.get_size_hint(), 8);
+
+        let packet = Packet::disconnect("/");
+        assert_eq!(packet.get_size_hint(), 1);
+
+        let packet = Packet::disconnect("/admin");
+        assert_eq!(packet.get_size_hint(), 8);
+
+        let packet = Packet::event("/", "event", json!({ "data": "value™" }));
+        assert_eq!(packet.get_size_hint(), 1);
+
+        let packet = Packet::event("/admin", "event", json!({ "data": "value™" }));
+        assert_eq!(packet.get_size_hint(), 8);
+
+        let packet = Packet::ack("/", json!("data"), 54);
+        assert_eq!(packet.get_size_hint(), 3);
+
+        let packet = Packet::ack("/admin", json!("data"), 54);
+        assert_eq!(packet.get_size_hint(), 10);
+
+        let packet = Packet::bin_event("/", "event", json!({ "data": "value™" }), vec![vec![1]]);
+        assert_eq!(packet.get_size_hint(), 3);
+
+        let packet = Packet::bin_event(
+            "/admin",
+            "event",
+            json!({ "data": "value™" }),
+            vec![vec![1]],
+        );
+        assert_eq!(packet.get_size_hint(), 10);
+
+        let packet = Packet::bin_ack("/", json!("data"), vec![vec![1]], 54);
+        assert_eq!(packet.get_size_hint(), 5);
     }
 }
