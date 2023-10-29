@@ -109,12 +109,12 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }}
-          cargo run --bin engineioxide-e2e --features ${{ matrix.engineio-version }} > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
+          cargo run --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -149,12 +149,12 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
       - name: Install deps & run tests 
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin socketioxide-e2e --features ${{ matrix.socketio-version }}
-          cargo run --bin socketioxide-e2e --features ${{ matrix.socketio-version }} > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release
+          cargo run --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -181,6 +181,7 @@ jobs:
           features: "engineioxide/v3,engineioxide/v4,socketioxide/v4,socketioxide/v5,tracing,test-utils"
           # Compare with main branch / PR base branch
           branchName: ${{ github.base_ref }}
+
   doctest:
     runs-on: ubuntu-latest
     needs: [engine_io, socket_io, test]
