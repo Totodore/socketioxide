@@ -83,6 +83,7 @@ jobs:
     
   engine_io:
     runs-on: ubuntu-latest
+    needs: [test]
     strategy:
       matrix:
         engineio-version: [v3, v4]
@@ -123,6 +124,7 @@ jobs:
 
   socket_io:
     runs-on: ubuntu-latest
+    needs: [test]
     strategy:
       matrix:
         socketio-version: [v4, v5]
@@ -159,3 +161,13 @@ jobs:
       - name: Client output
         if: always()
         run:  cat client.txt
+
+  benchmarks:
+    name: run benchmarks
+    runs-on: ubuntu-latest
+    needs: [engine_io, socket_io, test]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: boa-dev/criterion-compare-action@v3
+        with:
+          features: "engineioxide/v3,engineioxide/v4,socketioxide/v4,socketioxide/v5,tracing,test-utils"
