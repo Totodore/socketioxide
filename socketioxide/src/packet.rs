@@ -113,6 +113,40 @@ impl<'a> Packet<'a> {
             ns: Cow::Borrowed(ns),
         }
     }
+
+    /// Get the max size the packet could have when serialized
+    /// This is used to pre-allocate a buffer for the packet
+    ///
+    /// Disclaimer: This is not the exact size of the packet, it does not include serialized `Value` size
+    fn get_size_hint(&self) -> usize {
+        use PacketData::*;
+        let data_size = match &self.inner {
+            Connect(Some(data)) => data.len(),
+            Connect(None) => 0,
+            Disconnect => 0,
+            Event(_, _, Some(ack)) => ack.checked_ilog10().unwrap_or(0) as usize + 1,
+            Event(_, _, None) => 0,
+            BinaryEvent(_, bin, None) => {
+                bin.payload_count.checked_ilog10().unwrap_or(0) as usize + 2
+            }
+            BinaryEvent(_, bin, Some(ack)) => {
+                ack.checked_ilog10().unwrap_or(0) as usize
+                    + bin.payload_count.checked_ilog10().unwrap_or(0) as usize
+                    + 3
+            }
+            EventAck(_, ack) => ack.checked_ilog10().unwrap_or(0) as usize + 1,
+            BinaryAck(bin, ack) => {
+                ack.checked_ilog10().unwrap_or(0) as usize
+                    + bin.payload_count.checked_ilog10().unwrap_or(0) as usize
+                    + 3
+            }
+            ConnectError => 31,
+        };
+
+        let nsp_size = if self.ns == "/" { 0 } else { self.ns.len() + 1 };
+        const PACKET_INDEX_SIZE: usize = 1;
+        data_size + nsp_size + PACKET_INDEX_SIZE
+    }
 }
 
 /// | Type          | ID  | Usage                                                                                 |
@@ -143,15 +177,15 @@ pub struct BinaryPacket {
 }
 
 impl<'a> PacketData<'a> {
-    fn index(&self) -> u8 {
+    fn index(&self) -> char {
         match self {
-            PacketData::Connect(_) => 0,
-            PacketData::Disconnect => 1,
-            PacketData::Event(_, _, _) => 2,
-            PacketData::EventAck(_, _) => 3,
-            PacketData::ConnectError => 4,
-            PacketData::BinaryEvent(_, _, _) => 5,
-            PacketData::BinaryAck(_, _) => 6,
+            PacketData::Connect(_) => '0',
+            PacketData::Disconnect => '1',
+            PacketData::Event(_, _, _) => '2',
+            PacketData::EventAck(_, _) => '3',
+            PacketData::ConnectError => '4',
+            PacketData::BinaryEvent(_, _, _) => '5',
+            PacketData::BinaryAck(_, _) => '6',
         }
     }
 
@@ -235,78 +269,85 @@ impl BinaryPacket {
 impl<'a> TryInto<String> for Packet<'a> {
     type Error = serde_json::Error;
 
-    fn try_into(self) -> Result<String, Self::Error> {
-        let mut res = self.inner.index().to_string();
+    fn try_into(mut self) -> Result<String, Self::Error> {
+        use PacketData::*;
+
+        // Serialize the data if there is any
+        // pre-serializing allows to preallocate the buffer
+        let data = match &mut self.inner {
+            Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
+                // Expand the packet if it is an array -> ["event", ...data]
+                let packet = match data {
+                    Value::Array(ref mut v) => {
+                        v.insert(0, Value::String(e.to_string()));
+                        serde_json::to_string(&v)
+                    }
+                    _ => serde_json::to_string(&(e, data)),
+                }?;
+                Some(packet)
+            }
+            EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
+                // Enforce that the packet is an array -> [data]
+                let packet = match data {
+                    Value::Array(_) => serde_json::to_string(&data),
+                    Value::Null => Ok("[]".to_string()),
+                    _ => serde_json::to_string(&[data]),
+                }?;
+                Some(packet)
+            }
+            _ => None,
+        };
+
+        let capacity = self.get_size_hint() + data.as_ref().map(|d| d.len()).unwrap_or(0);
+        let mut res = String::with_capacity(capacity);
+        res.push(self.inner.index());
 
         // Add the ns if it is not the default one and the packet is not binary
         // In case of bin packet, we should first add the payload count before ns
         if !self.ns.is_empty() && self.ns != "/" && !self.inner.is_binary() {
-            res.push_str(&format!("{},", self.ns));
+            res.push_str(&self.ns);
+            res.push(',');
         }
 
         match self.inner {
             PacketData::Connect(Some(data)) => res.push_str(&data),
             PacketData::Disconnect | PacketData::Connect(None) => (),
-            PacketData::Event(event, data, ack) => {
+            PacketData::Event(_, _, ack) => {
                 if let Some(ack) = ack {
                     res.push_str(&ack.to_string());
                 }
-                // Expand the packet if it is an array -> ["event", ...data]
-                let packet = match data {
-                    Value::Array(mut v) => {
-                        v.insert(0, Value::String(event.to_string()));
-                        serde_json::to_string(&v)
-                    }
-                    _ => serde_json::to_string(&(event, data)),
-                }?;
-                res.push_str(&packet)
+
+                res.push_str(&data.unwrap())
             }
-            PacketData::EventAck(data, ack) => {
+            PacketData::EventAck(_, ack) => {
                 res.push_str(&ack.to_string());
-                // Enforce that the packet is an array -> [data]
-                let packet = match data {
-                    Value::Array(_) => serde_json::to_string(&data),
-                    Value::Null => serde_json::to_string::<[(); 0]>(&[]),
-                    _ => serde_json::to_string(&[data]),
-                }?;
-                res.push_str(&packet)
+                res.push_str(&data.unwrap())
             }
             PacketData::ConnectError => res.push_str("{\"message\":\"Invalid namespace\"}"),
-            PacketData::BinaryEvent(event, bin, ack) => {
+            PacketData::BinaryEvent(_, bin, ack) => {
                 res.push_str(&bin.payload_count.to_string());
                 res.push('-');
+
                 if !self.ns.is_empty() && self.ns != "/" {
-                    res.push_str(&format!("{},", self.ns));
+                    res.push_str(&self.ns);
+                    res.push(',');
                 }
 
                 if let Some(ack) = ack {
                     res.push_str(&ack.to_string());
                 }
-                // Expand the packet if it is an array -> ["event", ...data]
-                let packet = match bin.data {
-                    Value::Array(mut v) => {
-                        v.insert(0, Value::String(event.to_string()));
-                        serde_json::to_string(&v)
-                    }
-                    _ => serde_json::to_string(&(event, bin.data)),
-                }?;
 
-                res.push_str(&packet)
+                res.push_str(&data.unwrap())
             }
             PacketData::BinaryAck(packet, ack) => {
                 res.push_str(&packet.payload_count.to_string());
                 res.push('-');
                 if !self.ns.is_empty() && self.ns != "/" {
-                    res.push_str(&format!("{},", self.ns));
+                    res.push_str(&self.ns);
+                    res.push(',');
                 }
                 res.push_str(&ack.to_string());
-                // Enforce that the packet is an array -> [data]
-                let packet = match packet.data {
-                    Value::Array(_) => serde_json::to_string(&packet.data),
-                    Value::Null => serde_json::to_string::<[(); 0]>(&[]),
-                    _ => serde_json::to_string(&[packet.data]),
-                }?;
-                res.push_str(&packet)
+                res.push_str(&data.unwrap())
             }
         };
         Ok(res)
