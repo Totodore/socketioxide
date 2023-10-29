@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use crate::ProtocolVersion;
-use itertools::{Itertools, PeekingNext};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -402,57 +401,72 @@ impl<'a> TryFrom<String> for Packet<'a> {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let mut chars = value.chars();
-        let index = chars.next().ok_or(Error::InvalidPacketType)?;
+        // It is possible to parse the packet from a byte slice because separators are only ASCII
+        let chars = value.as_bytes();
+        let mut i = 1;
+        let index = (b'0'..=b'6')
+            .contains(&chars[0])
+            .then_some(chars[0])
+            .ok_or(Error::InvalidPacketType)?;
 
-        let attachments: u8 = if index == '5' || index == '6' {
-            chars
-                .take_while_ref(|c| *c != '-')
-                .collect::<String>()
-                .parse()
-                .unwrap_or(0)
+        // Move the cursor to skip the payload count if it is a binary packet
+        if index == b'5' || index == b'6' {
+            while chars.get(i) != Some(&b'-') {
+                i += 1;
+            }
+            i += 1;
+        }
+
+        let start_index = i;
+        // Custom nsps will start with a slash
+        let ns = if chars.get(i) == Some(&b'/') {
+            loop {
+                match chars.get(i) {
+                    Some(b',') => {
+                        i += 1;
+                        break Cow::Owned(value[start_index..i - 1].to_string());
+                    }
+                    // It maybe possible depending on clients that ns does not end with a comma
+                    // if it is the end of the packet
+                    // e.g `1/custom`
+                    None => {
+                        break Cow::Owned(value[start_index..i].to_string());
+                    }
+                    Some(_) => i += 1,
+                }
+            }
         } else {
-            0
+            Cow::Borrowed("/")
         };
 
-        // If there are attachments, skip the `-` separator
-        chars.peeking_next(|c| attachments > 0 && !c.is_ascii_digit());
+        let start_index = i;
+        let ack: Option<i64> = loop {
+            match chars.get(i) {
+                Some(c) if (b'0'..=b'9').contains(&c) => i += 1,
+                Some(b'[') | Some(b'{') if i > start_index => {
+                    break value[start_index..i].parse().ok()
+                }
+                _ => break None,
+            }
+        };
 
-        let mut ns: String = chars
-            .take_while_ref(|c| *c != ',' && *c != '{' && *c != '[' && !c.is_ascii_digit())
-            .collect();
-
-        // If there is a namespace, skip the `,` separator
-        if !ns.is_empty() {
-            chars.next();
-        }
-        if !ns.starts_with('/') {
-            ns.insert(0, '/');
-        }
-
-        let ack: Option<i64> = chars
-            .take_while_ref(|c| c.is_ascii_digit())
-            .collect::<String>()
-            .parse()
-            .ok();
-
-        let data = chars.as_str();
+        let data = &value[i..];
         let inner = match index {
-            '0' => PacketData::Connect((!data.is_empty()).then(|| data.to_string())),
-            '1' => PacketData::Disconnect,
-            '2' => {
+            b'0' => PacketData::Connect((!data.is_empty()).then(|| data.to_string())),
+            b'1' => PacketData::Disconnect,
+            b'2' => {
                 let (event, payload) = deserialize_event_packet(data)?;
                 PacketData::Event(event.into(), payload, ack)
             }
-            '3' => {
+            b'3' => {
                 let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::EventAck(packet, ack.ok_or(Error::InvalidPacketType)?)
             }
-            '5' => {
+            b'5' => {
                 let (event, payload) = deserialize_event_packet(data)?;
                 PacketData::BinaryEvent(event.into(), BinaryPacket::incoming(payload), ack)
             }
-            '6' => {
+            b'6' => {
                 let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::BinaryAck(
                     BinaryPacket::incoming(packet),
@@ -462,10 +476,7 @@ impl<'a> TryFrom<String> for Packet<'a> {
             _ => return Err(Error::InvalidPacketType),
         };
 
-        Ok(Self {
-            inner,
-            ns: Cow::Owned(ns),
-        })
+        Ok(Self { inner, ns })
     }
 }
 
