@@ -158,17 +158,44 @@ where
     }
 }
 
-/// A body that is always empty.
-#[cfg(feature = "hyper-v1")]
+/// A body that is always empty and that implements [`http_body::Body`] and [`http_body_v1::Body`].
 pub struct Empty<D> {
     _marker: std::marker::PhantomData<fn() -> D>,
 }
 
+impl<D: bytes::Buf> http_body::Body for Empty<D> {
+    type Data = D;
+
+    type Error = Infallible;
+
+    #[inline(always)]
+    fn poll_data(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
+        Poll::Ready(None)
+    }
+
+    #[inline(always)]
+    fn poll_trailers(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
+        Poll::Ready(Ok(None))
+    }
+
+    #[inline(always)]
+    fn is_end_stream(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(feature = "hyper-v1")]
 impl<D: bytes::Buf> http_body_v1::Body for Empty<D> {
     type Data = D;
     type Error = Infallible;
 
-    #[inline]
+    #[inline(always)]
     fn poll_frame(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
@@ -176,10 +203,12 @@ impl<D: bytes::Buf> http_body_v1::Body for Empty<D> {
         Poll::Ready(None)
     }
 
+    #[inline(always)]
     fn is_end_stream(&self) -> bool {
         true
     }
 
+    #[inline(always)]
     fn size_hint(&self) -> http_body_v1::SizeHint {
         http_body_v1::SizeHint::with_exact(0)
     }

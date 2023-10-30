@@ -8,12 +8,12 @@ use crate::{
     handler::EngineIoHandler,
 };
 use bytes::Bytes;
+use futures::future::{self, Ready};
 use http::Request;
 use hyper::Response;
 use hyper_v1::body::Incoming;
 use std::{
     convert::Infallible,
-    future::{ready, Ready},
     task::{Context, Poll},
 };
 
@@ -93,33 +93,14 @@ impl<H: EngineIoHandler, S> std::fmt::Debug for EngineIoHyperService<H, S> {
     }
 }
 
-/// A [`Service`] that always returns a 404 response and that is compatible with [`EngineIoHyperService`].
-pub struct HyperNotFoundService;
-
-impl tower::Service<Request<Incoming>> for HyperNotFoundService {
-    type Response = Response<ResponseBody<Empty<Bytes>>>;
-    type Error = Infallible;
-    type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
-
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, _: Request<Incoming>) -> Self::Future {
-        ready(Ok(Response::builder()
-            .status(404)
-            .body(ResponseBody::empty_response())
-            .unwrap()))
-    }
-}
-
-impl hyper_v1::service::Service<Request<Incoming>> for HyperNotFoundService {
+/// Implement a custom [`hyper_v1::service::Service`] for the [`NotFoundService`]
+impl hyper_v1::service::Service<Request<Incoming>> for NotFoundService {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
     type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
 
     fn call(&self, _: Request<Incoming>) -> Self::Future {
-        ready(Ok(Response::builder()
+        future::ready(Ok(Response::builder()
             .status(404)
             .body(ResponseBody::empty_response())
             .unwrap()))

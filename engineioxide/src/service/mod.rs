@@ -7,11 +7,13 @@ use std::{
 use ::futures::future::{self, Ready};
 use bytes::Bytes;
 use http::{Request, Response};
-use http_body::{Body, Empty};
+use http_body::Body;
 use tower::Service;
 
 use crate::{
-    body::response::ResponseBody, config::EngineIoConfig, engine::EngineIo,
+    body::response::{Empty, ResponseBody},
+    config::EngineIoConfig,
+    engine::EngineIo,
     handler::EngineIoHandler,
 };
 
@@ -141,16 +143,12 @@ impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
     }
 }
 
-/// A [`Service`] that always returns a 404 response and that is compatible with [`EngineIoService`].
+/// A [`Service`] that always returns a 404 response and that is compatible with [`EngineIoService`]
+/// *and* a [`hyper_v1::EngineIoHyperService`].
 #[derive(Debug, Clone)]
 pub struct NotFoundService;
 
-impl<ReqBody> Service<Request<ReqBody>> for NotFoundService
-where
-    ReqBody: Body + Send + 'static + std::fmt::Debug,
-    <ReqBody as Body>::Error: std::fmt::Debug,
-    <ReqBody as Body>::Data: Send,
-{
+impl<ReqBody> Service<Request<ReqBody>> for NotFoundService {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
     type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
