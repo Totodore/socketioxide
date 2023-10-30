@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
 
-    let svc = EngineIoService::with_config(MyHandler, config);
+    let svc = EngineIoService::with_config(MyHandler, config).with_hyper_v1();
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await?;

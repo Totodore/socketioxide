@@ -1,10 +1,83 @@
 //! A Parser module to parse any `EngineIo` query
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
+use futures::Future;
 use http::{Method, Request, Response};
 
-use crate::{body::response::ResponseBody, config::EngineIoConfig, sid::Sid};
+use crate::{
+    body::response::ResponseBody,
+    config::EngineIoConfig,
+    engine::EngineIo,
+    handler::EngineIoHandler,
+    service::futures::ResponseFuture,
+    sid::Sid,
+    transport::{polling, ws},
+};
+
+/// Dispatch a request according to the [`RequestInfo`] to the appropriate [`transport`](crate::transport).
+pub fn dispatch_req<F, H, ReqBody, ResBody>(
+    req: Request<ReqBody>,
+    engine: Arc<EngineIo<H>>,
+) -> ResponseFuture<F, ResBody>
+where
+    ReqBody: http_body::Body + Send + Unpin + 'static,
+    ReqBody::Data: Send,
+    ReqBody::Error: std::fmt::Debug,
+    ResBody: Send + 'static,
+    H: EngineIoHandler,
+    F: Future,
+{
+    match RequestInfo::parse(&req, &engine.config) {
+        Ok(RequestInfo {
+            protocol,
+            sid: None,
+            transport: TransportType::Polling,
+            method: Method::GET,
+            #[cfg(feature = "v3")]
+            b64,
+        }) => ResponseFuture::ready(polling::open_req(
+            engine,
+            protocol,
+            req,
+            #[cfg(feature = "v3")]
+            !b64,
+        )),
+        Ok(RequestInfo {
+            protocol,
+            sid: Some(sid),
+            transport: TransportType::Polling,
+            method: Method::GET,
+            ..
+        }) => ResponseFuture::async_response(Box::pin(polling::polling_req(engine, protocol, sid))),
+        Ok(RequestInfo {
+            protocol,
+            sid: Some(sid),
+            transport: TransportType::Polling,
+            method: Method::POST,
+            ..
+        }) => {
+            ResponseFuture::async_response(Box::pin(polling::post_req(engine, protocol, sid, req)))
+        }
+        Ok(RequestInfo {
+            protocol,
+            sid,
+            transport: TransportType::Websocket,
+            method: Method::GET,
+            ..
+        }) => ResponseFuture::ready(ws::new_req(engine, protocol, sid, req)),
+        Err(e) => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("error parsing request: {:?}", e);
+            ResponseFuture::ready(Ok(e.into()))
+        }
+        _req => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("invalid request: {:?}", _req);
+            ResponseFuture::empty_response(400)
+        }
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseError {
@@ -133,7 +206,7 @@ pub struct RequestInfo {
 
 impl RequestInfo {
     /// Parse the request URI to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    pub fn parse<B>(req: &Request<B>, config: &EngineIoConfig) -> Result<Self, ParseError> {
+    fn parse<B>(req: &Request<B>, config: &EngineIoConfig) -> Result<Self, ParseError> {
         use ParseError::*;
         let query = req.uri().query().ok_or(UnknownTransport)?;
 

@@ -164,13 +164,6 @@ pub struct Empty<D> {
     _marker: std::marker::PhantomData<fn() -> D>,
 }
 
-impl<D> Empty<D> {
-    /// Create a new `Empty`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 impl<D: bytes::Buf> http_body_v1::Body for Empty<D> {
     type Data = D;
     type Error = Infallible;

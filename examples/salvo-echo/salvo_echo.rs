@@ -55,7 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
 
-    let layer = EngineIoLayer::from_config(MyHandler, config).compat();
+    let layer = EngineIoLayer::from_config(MyHandler, config)
+        .with_hyper_v1()
+        .compat();
 
     let router = Router::with_path("/engine.io").hoop(layer).goal(hello);
     let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
