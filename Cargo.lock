@@ -576,6 +576,8 @@ dependencies = [
  "engineioxide",
  "futures",
  "hyper 0.14.27",
+ "hyper 1.0.0-rc.4",
+ "hyper-util",
  "serde_json",
  "tokio",
  "tracing",

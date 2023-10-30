@@ -8,7 +8,9 @@ use engineioxide::{
     service::EngineIoService,
     socket::{DisconnectReason, Socket},
 };
-use hyper::Server;
+use hyper_util::rt::TokioIo;
+use hyper_v1::server::conn::http1;
+use tokio::net::TcpListener;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
@@ -43,6 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_line_number(true)
         .with_max_level(Level::DEBUG)
         .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
@@ -50,18 +53,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
 
-    let addr = &"127.0.0.1:3000".parse().unwrap();
-    let svc = EngineIoService::with_config(MyHandler, config);
+    let svc = EngineIoService::with_config(MyHandler, config).with_hyper_v1();
 
-    let server = Server::bind(addr).serve(svc.into_make_service());
-    tracing::subscriber::set_global_default(subscriber)?;
+    let listener = TcpListener::bind("127.0.0.1:3000").await?;
 
     #[cfg(feature = "v3")]
     tracing::info!("Starting server with v3 protocol");
     #[cfg(feature = "v4")]
     tracing::info!("Starting server with v4 protocol");
 
-    server.await?;
+    // We start a loop to continuously accept incoming connections
+    loop {
+        let (stream, _) = listener.accept().await?;
 
-    Ok(())
+        // Use an adapter to access something implementing `tokio::io` traits as if they implement
+        // `hyper::rt` IO traits.
+        let io = TokioIo::new(stream);
+        let svc = svc.clone();
+
+        // Spawn a tokio task to serve multiple connections concurrently
+        tokio::task::spawn(async move {
+            // Finally, we bind the incoming connection to our `hello` service
+            if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
+                println!("Error serving connection: {:?}", err);
+            }
+        });
+    }
 }
