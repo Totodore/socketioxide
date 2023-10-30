@@ -64,8 +64,6 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
 }
 
 pub fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
-    assert!(cfg!(not(feature = "hyper-v1")));
-
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
