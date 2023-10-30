@@ -4,6 +4,7 @@
 //! Other adapters can be made to share the state between multiple servers.
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     convert::Infallible,
     sync::{Arc, RwLock, Weak},
@@ -15,7 +16,6 @@ use futures::{
     stream::{self, BoxStream},
     StreamExt,
 };
-use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
 };
 
 /// A room identifier
-pub type Room = String;
+pub type Room = Cow<'static, str>;
 
 /// Flags that can be used to modify the behavior of the broadcast methods.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -47,9 +47,9 @@ pub struct BroadcastOptions {
     /// The flags to apply to the broadcast.
     pub flags: HashSet<BroadcastFlags>,
     /// The rooms to broadcast to.
-    pub rooms: Vec<Room>,
+    pub rooms: HashSet<Room>,
     /// The rooms to exclude from the broadcast.
-    pub except: Vec<Room>,
+    pub except: HashSet<Room>,
     /// The socket id of the sender.
     pub sid: Option<Sid>,
 }
@@ -57,8 +57,8 @@ impl BroadcastOptions {
     pub fn new(sid: Option<Sid>) -> Self {
         Self {
             flags: HashSet::new(),
-            rooms: Vec::new(),
-            except: Vec::new(),
+            rooms: HashSet::new(),
+            except: HashSet::new(),
             sid,
         }
     }
@@ -94,7 +94,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
-        packet: Packet,
+        packet: Packet<'static>,
         opts: BroadcastOptions,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError>;
 
@@ -208,7 +208,7 @@ impl Adapter for LocalAdapter {
 
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
-        packet: Packet,
+        packet: Packet<'static>,
         opts: BroadcastOptions,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
@@ -241,7 +241,7 @@ impl Adapter for LocalAdapter {
     }
 
     //TODO: make this operation O(1)
-    fn socket_rooms(&self, sid: Sid) -> Result<Vec<String>, Infallible> {
+    fn socket_rooms(&self, sid: Sid) -> Result<Vec<Cow<'static, str>>, Infallible> {
         let rooms_map = self.rooms.read().unwrap();
         Ok(rooms_map
             .iter()
@@ -300,7 +300,6 @@ impl LocalAdapter {
                 .iter()
                 .filter_map(|room| rooms_map.get(room))
                 .flatten()
-                .unique()
                 .filter(|sid| {
                     !except.contains(*sid)
                         && (!opts.flags.contains(&BroadcastFlags::Broadcast)
@@ -321,7 +320,7 @@ impl LocalAdapter {
         }
     }
 
-    fn get_except_sids(&self, except: &Vec<Room>) -> HashSet<Sid> {
+    fn get_except_sids(&self, except: &HashSet<Room>) -> HashSet<Sid> {
         let mut except_sids = HashSet::new();
         let rooms_map = self.rooms.read().unwrap();
         for room in except {
@@ -336,6 +335,12 @@ impl LocalAdapter {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    macro_rules! hash_set {
+        {$($v: expr),* $(,)?} => {
+            std::collections::HashSet::from([$($v,)*])
+        };
+    }
 
     #[tokio::test]
     async fn test_server_count() {
@@ -412,7 +417,7 @@ mod test {
         adapter.add_all(socket, ["room1"]).unwrap();
 
         let mut opts = BroadcastOptions::new(Some(socket));
-        opts.rooms = vec!["room1".to_string()];
+        opts.rooms = hash_set!["room1".into()];
         adapter.add_sockets(opts, "room2").unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
 
@@ -429,7 +434,7 @@ mod test {
         adapter.add_all(socket, ["room1"]).unwrap();
 
         let mut opts = BroadcastOptions::new(Some(socket));
-        opts.rooms = vec!["room1".to_string()];
+        opts.rooms = hash_set!["room1".into()];
         adapter.add_sockets(opts, "room2").unwrap();
 
         {
@@ -441,7 +446,7 @@ mod test {
         }
 
         let mut opts = BroadcastOptions::new(Some(socket));
-        opts.rooms = vec!["room1".to_string()];
+        opts.rooms = hash_set!["room1".into()];
         adapter.del_sockets(opts, "room2").unwrap();
 
         {
@@ -498,7 +503,7 @@ mod test {
             .unwrap();
 
         let mut opts = BroadcastOptions::new(Some(socket0));
-        opts.rooms = vec!["room5".to_string()];
+        opts.rooms = hash_set!["room5".into()];
         match adapter.disconnect_socket(opts) {
             // todo it returns Ok, in previous commits it also returns Ok
             Err(BroadcastError::SendError(_)) | Ok(_) => {}
@@ -531,15 +536,15 @@ mod test {
 
         // socket 2 is the sender
         let mut opts = BroadcastOptions::new(Some(socket2));
-        opts.rooms = vec!["room1".to_string()];
-        opts.except = vec!["room2".to_string()];
+        opts.rooms = hash_set!["room1".into()];
+        opts.except = hash_set!["room2".into()];
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].id, socket1);
 
         let mut opts = BroadcastOptions::new(Some(socket2));
         opts.flags.insert(BroadcastFlags::Broadcast);
-        opts.except = vec!["room2".to_string()];
+        opts.except = hash_set!["room2".into()];
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
 

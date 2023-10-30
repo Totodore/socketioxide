@@ -1,8 +1,8 @@
+use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
 use futures::stream::BoxStream;
-use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
 use crate::errors::BroadcastError;
@@ -25,28 +25,61 @@ pub trait RoomParam: 'static {
 
 impl RoomParam for Room {
     type IntoIter = std::iter::Once<Room>;
+    #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         std::iter::once(self)
     }
 }
+impl RoomParam for String {
+    type IntoIter = std::iter::Once<Room>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        std::iter::once(Cow::Owned(self))
+    }
+}
+impl RoomParam for Vec<String> {
+    type IntoIter = std::iter::Map<std::vec::IntoIter<String>, fn(String) -> Room>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter().map(Cow::Owned)
+    }
+}
+impl RoomParam for Vec<&'static str> {
+    type IntoIter = std::iter::Map<std::vec::IntoIter<&'static str>, fn(&'static str) -> Room>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter().map(Cow::Borrowed)
+    }
+}
+
 impl RoomParam for Vec<Room> {
     type IntoIter = std::vec::IntoIter<Room>;
+    #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter()
     }
 }
 impl RoomParam for &'static str {
     type IntoIter = std::iter::Once<Room>;
+    #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
-        std::iter::once(self.to_string())
+        std::iter::once(Cow::Borrowed(self))
     }
 }
 impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
     type IntoIter =
         std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
 
+    #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(|s| s.to_string())
+        self.into_iter().map(Cow::Borrowed)
+    }
+}
+impl<const COUNT: usize> RoomParam for [String; COUNT] {
+    type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter().map(Cow::Owned)
     }
 }
 
@@ -88,7 +121,7 @@ impl<A: Adapter> Operators<A> {
     ///     });
     /// });
     pub fn to(mut self, rooms: impl RoomParam) -> Self {
-        self.opts.rooms.extend(rooms.into_room_iter().unique());
+        self.opts.rooms.extend(rooms.into_room_iter());
         self.opts.flags.insert(BroadcastFlags::Broadcast);
         self
     }
@@ -114,7 +147,7 @@ impl<A: Adapter> Operators<A> {
     ///     });
     /// });
     pub fn within(mut self, rooms: impl RoomParam) -> Self {
-        self.opts.rooms.extend(rooms.into_room_iter().unique());
+        self.opts.rooms.extend(rooms.into_room_iter());
         self
     }
 
@@ -138,7 +171,7 @@ impl<A: Adapter> Operators<A> {
     ///     });
     /// });
     pub fn except(mut self, rooms: impl RoomParam) -> Self {
-        self.opts.except.extend(rooms.into_room_iter().unique());
+        self.opts.except.extend(rooms.into_room_iter());
         self.opts.flags.insert(BroadcastFlags::Broadcast);
         self
     }
@@ -240,7 +273,7 @@ impl<A: Adapter> Operators<A> {
     /// });
     pub fn emit(
         mut self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<(), serde_json::Error> {
         let packet = self.get_packet(event, data)?;
@@ -277,7 +310,7 @@ impl<A: Adapter> Operators<A> {
     /// });
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         mut self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         let packet = self.get_packet(event, data)?;
@@ -356,16 +389,16 @@ impl<A: Adapter> Operators<A> {
     /// Create a packet with the given event and data.
     fn get_packet(
         &mut self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<Packet, serde_json::Error> {
-        let ns = self.ns.clone();
+    ) -> Result<Packet<'static>, serde_json::Error> {
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
-            Packet::event(ns.path.clone(), event.into(), data)
+            Packet::event(ns, event.into(), data)
         } else {
             let binary = std::mem::take(&mut self.binary);
-            Packet::bin_event(ns.path.clone(), event.into(), data, binary)
+            Packet::bin_event(ns, event.into(), data, binary)
         };
         Ok(packet)
     }

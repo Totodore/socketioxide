@@ -142,7 +142,7 @@ impl<A: Adapter> AckSender<A> {
     /// Send the ack response to the client.
     pub fn send(self, data: impl Serialize) -> Result<(), AckSenderError<A>> {
         if let Some(ack_id) = self.ack_id {
-            let ns = self.socket.ns().clone();
+            let ns = self.socket.ns();
             let data = match serde_json::to_value(&data) {
                 Err(err) => {
                     return Err(AckSenderError::SendError {
