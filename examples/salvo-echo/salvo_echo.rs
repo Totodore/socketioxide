@@ -57,8 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let layer = EngineIoLayer::from_config(MyHandler, config).compat();
 
-    //TODO: currently the layer is never called
-    let router = Router::new().hoop(layer).get(hello);
+    let router = Router::with_path("/engine.io").hoop(layer).goal(hello);
     let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
     Server::new(acceptor).serve(router).await;
 
