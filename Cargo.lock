@@ -985,6 +985,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-util"
+version = "0.0.0"
+source = "git+https://github.com/hyperium/hyper-util.git#ced9f812460420017705fa7cae4dca7be9e23f4a"
+dependencies = [
+ "bytes",
+ "futures-channel",
+ "futures-util",
+ "http",
+ "http-body 1.0.0-rc.2",
+ "hyper 1.0.0-rc.4",
+ "once_cell",
+ "pin-project-lite",
+ "socket2 0.5.5",
+ "tokio",
+ "tower",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "hyper-v1-echo"
+version = "0.6.0"
+dependencies = [
+ "engineioxide",
+ "futures",
+ "hyper 1.0.0-rc.4",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "idna"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
