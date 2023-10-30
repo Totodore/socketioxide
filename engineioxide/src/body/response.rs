@@ -4,6 +4,7 @@ use bytes::Bytes;
 use http::HeaderMap;
 use http_body::{Body, Full, SizeHint};
 use pin_project::pin_project;
+use std::convert::Infallible;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -153,6 +154,54 @@ where
                     Poll::Pending => Poll::Pending,
                 }
             }
+        }
+    }
+}
+
+/// A body that is always empty.
+#[cfg(feature = "hyper-v1")]
+pub struct Empty<D> {
+    _marker: std::marker::PhantomData<fn() -> D>,
+}
+
+impl<D> Empty<D> {
+    /// Create a new `Empty`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<D: bytes::Buf> http_body_v1::Body for Empty<D> {
+    type Data = D;
+    type Error = Infallible;
+
+    #[inline]
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body_v1::Frame<Self::Data>, Self::Error>>> {
+        Poll::Ready(None)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        true
+    }
+
+    fn size_hint(&self) -> http_body_v1::SizeHint {
+        http_body_v1::SizeHint::with_exact(0)
+    }
+}
+
+impl<D> std::fmt::Debug for Empty<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Empty").finish()
+    }
+}
+
+impl<D> Default for Empty<D> {
+    fn default() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
         }
     }
 }

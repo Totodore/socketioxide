@@ -1,12 +1,14 @@
 //! Implement Services for hyper 1.0
 //! Only enabled with feature flag `hyper-v1`
 use crate::{
-    body::{request::IncomingBody, response::ResponseBody},
+    body::{
+        request::IncomingBody,
+        response::{Empty, ResponseBody},
+    },
     handler::EngineIoHandler,
 };
 use bytes::Bytes;
 use http::Request;
-use http_body::Empty;
 use hyper::Response;
 use hyper_v1::body::Incoming;
 use std::{
