@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
@@ -55,7 +55,6 @@ impl Default for SocketIoConfig {
 pub struct SocketIoBuilder {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
-    req_path: String,
 }
 
 impl SocketIoBuilder {
@@ -63,8 +62,7 @@ impl SocketIoBuilder {
     pub fn new() -> Self {
         Self {
             config: SocketIoConfig::default(),
-            engine_config_builder: EngineIoConfigBuilder::new(),
-            req_path: "/socket.io".to_string(),
+            engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
         }
     }
 
@@ -73,7 +71,7 @@ impl SocketIoBuilder {
     /// Defaults to "/socket.io".
     #[inline]
     pub fn req_path(mut self, req_path: String) -> Self {
-        self.req_path = req_path;
+        self.engine_config_builder = self.engine_config_builder.req_path(req_path);
         self
     }
 
@@ -163,7 +161,7 @@ impl SocketIoBuilder {
     ///
     /// The layer can be used as a tower layer
     pub fn build_layer_with_adapter<A: Adapter>(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
-        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+        self.config.engine_config = self.engine_config_builder.build();
 
         let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
         (layer, SocketIo(client))
@@ -190,7 +188,7 @@ impl SocketIoBuilder {
     pub fn build_svc_with_adapter<A: Adapter>(
         mut self,
     ) -> (SocketIoService<A, NotFoundService>, SocketIo<A>) {
-        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+        self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) =
             SocketIoService::with_config_inner(NotFoundService, Arc::new(self.config));
@@ -215,7 +213,7 @@ impl SocketIoBuilder {
         mut self,
         svc: S,
     ) -> (SocketIoService<A, S>, SocketIo<A>) {
-        self.config.engine_config = self.engine_config_builder.req_path(self.req_path).build();
+        self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
         (svc, SocketIo(client))
@@ -320,7 +318,7 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ```
     #[inline]
-    pub fn ns<C, F, V>(&self, path: impl Into<String>, callback: C)
+    pub fn ns<C, F, V>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
         C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
@@ -569,7 +567,7 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn emit(
         &self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<(), serde_json::Error> {
         self.get_default_op().emit(event, data)
@@ -608,7 +606,7 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn emit_with_ack<V: DeserializeOwned + Send>(
         &self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
         self.get_default_op().emit_with_ack(event, data)

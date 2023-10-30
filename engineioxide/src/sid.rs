@@ -11,6 +11,7 @@ use rand::Rng;
 pub struct Sid([u8; 16]);
 
 impl Sid {
+    pub const ZERO: Self = Self([0u8; 16]);
     /// Generate a new random session id (base64 10 chars)
     pub fn new() -> Self {
         Self::default()

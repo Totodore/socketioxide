@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt::Debug,
     sync::Mutex,
@@ -242,7 +243,7 @@ impl<A: Adapter> Socket<A> {
         event: impl Into<String>,
         data: impl Serialize,
     ) -> Result<(), serde_json::Error> {
-        let ns = self.ns.path.clone();
+        let ns = self.ns();
         let data = serde_json::to_value(data)?;
         if let Err(_e) = self.send(Packet::event(ns, event.into(), data)) {
             #[cfg(feature = "tracing")]
@@ -276,9 +277,9 @@ impl<A: Adapter> Socket<A> {
     where
         V: DeserializeOwned + Send + Sync + 'static,
     {
-        let ns = self.ns.path.clone();
+        let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        let packet = Packet::event(ns, event.into(), data);
+        let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
 
         self.send_with_ack(packet, None).await
     }
@@ -459,7 +460,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
-        self.send(Packet::disconnect(self.ns.path.clone()))?;
+        self.send(Packet::disconnect(&self.ns.path))?;
         self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())
     }
@@ -476,7 +477,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Get the current namespace path.
-    pub fn ns(&self) -> &String {
+    pub fn ns(&self) -> &str {
         &self.ns.path
     }
 
@@ -499,9 +500,9 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    pub(crate) async fn send_with_ack<V: DeserializeOwned>(
+    pub(crate) async fn send_with_ack<'a, V: DeserializeOwned>(
         &self,
-        mut packet: Packet,
+        mut packet: Packet<'a>,
         timeout: Option<Duration>,
     ) -> Result<AckResponse<V>, AckError> {
         let (tx, rx) = oneshot::channel();
@@ -529,9 +530,9 @@ impl<A: Adapter> Socket<A> {
     // Receive data from client:
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Event(e, data, ack) => self.recv_event(e, data, ack),
+            PacketData::Event(e, data, ack) => self.recv_event(&e, data, ack),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
-            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(e, packet, ack),
+            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(&e, packet, ack),
             PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
             PacketData::Disconnect => self
                 .close(DisconnectReason::ClientNSDisconnect)
@@ -540,8 +541,8 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    fn recv_event(self: Arc<Self>, e: String, data: Value, ack: Option<i64>) -> Result<(), Error> {
-        if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
+    fn recv_event(self: Arc<Self>, e: &str, data: Value, ack: Option<i64>) -> Result<(), Error> {
+        if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), data, vec![], ack)?;
         }
         Ok(())
@@ -549,11 +550,11 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_bin_event(
         self: Arc<Self>,
-        e: String,
+        e: &str,
         packet: BinaryPacket,
         ack: Option<i64>,
     ) -> Result<(), Error> {
-        if let Some(handler) = self.message_handlers.read().unwrap().get(&e) {
+        if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), packet.data, packet.bin, ack)?;
         }
         Ok(())
