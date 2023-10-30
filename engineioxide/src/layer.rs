@@ -42,6 +42,7 @@ impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
 #[derive(Debug, Clone)]
 pub struct EngineIoHyperLayer<H: EngineIoHandler>(EngineIoLayer<H>);
 
+#[cfg(feature = "hyper-v1")]
 impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoHyperLayer<H> {
     type Service = service::hyper_v1::EngineIoHyperService<H, S>;
 
