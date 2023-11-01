@@ -1011,12 +1011,12 @@ dependencies = [
 name = "hyper-v1-echo"
 version = "0.6.0"
 dependencies = [
- "engineioxide",
  "futures",
  "hyper 1.0.0-rc.4",
  "hyper-util",
  "serde",
  "serde_json",
+ "socketioxide",
  "tokio",
  "tracing",
  "tracing-subscriber",

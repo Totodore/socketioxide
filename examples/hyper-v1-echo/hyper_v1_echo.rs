@@ -1,41 +1,12 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::net::SocketAddr;
 
-use engineioxide::{
-    config::EngineIoConfig,
-    handler::EngineIoHandler,
-    service::EngineIoService,
-    socket::{DisconnectReason, Socket},
-};
 use hyper_util::rt::TokioIo;
 use hyper_v1::server::conn::http1;
+use serde_json::Value;
+use socketioxide::SocketIo;
 use tokio::net::TcpListener;
-use tracing::Level;
+use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
-
-#[derive(Debug, Clone)]
-struct MyHandler;
-
-#[engineioxide::async_trait]
-impl EngineIoHandler for MyHandler {
-    type Data = ();
-
-    fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
-        println!("socket connect {}", socket.id);
-    }
-    fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
-        println!("socket disconnect {}: {:?}", socket.id, reason);
-    }
-
-    fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
-        println!("Ping pong message {:?}", msg);
-        socket.emit(msg).ok();
-    }
-
-    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
-        println!("Ping pong binary message {:?}", data);
-        socket.emit_binary(data).ok();
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,16 +16,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = EngineIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
-        .build();
+    let (svc, io) = SocketIo::new_svc();
 
-    let svc = EngineIoService::with_config(MyHandler, config).with_hyper_v1();
+    io.ns("/", |socket, auth: Value| async move {
+        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
+        socket.emit("auth", auth).ok();
+
+        socket.on("message", |socket, data: Value, bin, _| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            socket.bin(bin).emit("message-back", data).ok();
+        });
+
+        socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            ack.bin(bin).send(data).ok();
+        });
+
+        socket.on_disconnect(|socket, reason| async move {
+            info!("Socket.IO disconnected: {} {}", socket.id, reason);
+        });
+    });
+
+    io.ns("/custom", |socket, auth: Value| async move {
+        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
+        socket.emit("auth", auth).ok();
+    });
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await?;
+
+    // Convert the `SocketIoService` so it works with hyper 1.0
+    let svc = svc.with_hyper_v1();
+
     // We start a loop to continuously accept incoming connections
     loop {
         let (stream, _) = listener.accept().await?;
