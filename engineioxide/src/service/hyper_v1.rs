@@ -51,7 +51,12 @@ where
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with(&self.0.engine.config.req_path) {
             let req = req.map(IncomingBody::new);
-            dispatch_req(req, self.0.engine.clone())
+            dispatch_req(
+                req,
+                self.0.engine.clone(),
+                #[cfg(feature = "hyper-v1")]
+                true, // hyper-v1 enabled
+            )
         } else {
             ResponseFuture::new(self.0.inner.call(req))
         }
@@ -72,7 +77,11 @@ where
     fn call(&self, req: Request<Incoming>) -> Self::Future {
         if req.uri().path().starts_with(&self.0.engine.config.req_path) {
             let req = req.map(IncomingBody::new);
-            dispatch_req(req, self.0.engine.clone())
+            dispatch_req(
+                req,
+                self.0.engine.clone(),
+                true, // hyper-v1 enabled
+            )
         } else {
             ResponseFuture::new(self.0.inner.call(req))
         }

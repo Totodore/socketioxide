@@ -108,7 +108,12 @@ where
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         if req.uri().path().starts_with(&self.engine.config.req_path) {
-            dispatch_req(req, self.engine.clone())
+            dispatch_req(
+                req,
+                self.engine.clone(),
+                #[cfg(feature = "hyper-v1")]
+                false, // hyper-v1 disabled
+            )
         } else {
             ResponseFuture::new(self.inner.call(req))
         }

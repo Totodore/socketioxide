@@ -7,12 +7,15 @@
 use std::sync::Arc;
 
 use futures::{
+    future::Either,
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
 };
 use http::{HeaderValue, Request, Response, StatusCode};
-use hyper::upgrade::Upgraded;
-use tokio::task::JoinHandle;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    task::JoinHandle,
+};
 use tokio_tungstenite::{
     tungstenite::{handshake::derive_accept_key, protocol::Role, Message},
     WebSocketStream,
@@ -50,11 +53,14 @@ fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, htt
 ///
 /// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
 /// the http polling request is closed and the SID is kept for the websocket
+///
+/// It can be used with hyper-v1 by setting the `hyper_v1` parameter to true
 pub fn new_req<R, B, H: EngineIoHandler>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Option<Sid>,
     req: Request<R>,
+    #[cfg(feature = "hyper-v1")] hyper_v1: bool,
 ) -> Result<Response<ResponseBody<B>>, Error> {
     let (parts, _) = req.into_parts();
     let ws_key = parts
@@ -66,20 +72,43 @@ pub fn new_req<R, B, H: EngineIoHandler>(
 
     let req = Request::from_parts(parts, ());
     tokio::spawn(async move {
-        match hyper::upgrade::on(req).await {
-            Ok(conn) => match on_init(engine, conn, protocol, sid, req_data).await {
-                Ok(_) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("ws closed")
-                }
-                Err(_e) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("ws closed with error: {:?}", _e)
-                }
-            },
+        #[cfg(feature = "hyper-v1")]
+        let res = if hyper_v1 {
+            // Wraps the hyper-v1 upgrade so it implement `AsyncRead` and `AsyncWrite`
+            Either::Left(
+                hyper_v1::upgrade::on(req)
+                    .await
+                    .map(hyper_util::rt::TokioIo::new),
+            )
+        } else {
+            Either::Right(hyper::upgrade::on(req).await)
+        };
+        #[cfg(not(feature = "hyper-v1"))]
+        let res = Either::Right(hyper::upgrade::on(req).await);
+
+        let res = match res {
+            Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
+            Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
+            Either::Left(Err(_e)) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("ws upgrade error: {}", _e);
+                return;
+            }
+            Either::Right(Err(_e)) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("ws upgrade error: {}", _e);
+                return;
+            }
+        };
+
+        match res {
+            Ok(_) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("ws closed")
+            }
             Err(_e) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("ws upgrade error: {}", _e)
+                tracing::debug!("ws closed with error: {:?}", _e)
             }
         }
     });
@@ -92,13 +121,16 @@ pub fn new_req<R, B, H: EngineIoHandler>(
 /// Sends an open packet if it is not an upgrade from a polling request
 ///
 /// Read packets from the websocket and handle them, it will block until the connection is closed
-async fn on_init<H: EngineIoHandler>(
+async fn on_init<H: EngineIoHandler, S>(
     engine: Arc<EngineIo<H>>,
-    conn: Upgraded,
+    conn: S,
     protocol: ProtocolVersion,
     sid: Option<Sid>,
     req_data: SocketReq,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, None);
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {
@@ -106,7 +138,7 @@ async fn on_init<H: EngineIoHandler>(
             Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
             Some(socket) => {
                 let mut ws = ws_init().await;
-                upgrade_handshake::<H>(protocol, &socket, &mut ws).await?;
+                upgrade_handshake::<H, S>(protocol, &socket, &mut ws).await?;
                 (socket, ws)
             }
         }
@@ -128,7 +160,7 @@ async fn on_init<H: EngineIoHandler>(
         (socket, ws)
     };
     let (tx, rx) = ws.split();
-    let rx_handle = forward_to_socket::<H>(socket.clone(), tx);
+    let rx_handle = forward_to_socket::<H, S>(socket.clone(), tx);
 
     engine.handler.on_connect(socket.clone());
 
@@ -146,11 +178,14 @@ async fn on_init<H: EngineIoHandler>(
 }
 
 /// Forwards all packets received from a websocket to a EngineIo [`Socket`]
-async fn forward_to_handler<H: EngineIoHandler>(
+async fn forward_to_handler<H: EngineIoHandler, S>(
     engine: &Arc<EngineIo<H>>,
-    mut rx: SplitStream<WebSocketStream<Upgraded>>,
+    mut rx: SplitStream<WebSocketStream<S>>,
     socket: &Arc<Socket<H::Data>>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     while let Some(msg) = rx.try_next().await? {
         match msg {
             Message::Text(msg) => match Packet::try_from(msg)? {
@@ -184,10 +219,13 @@ async fn forward_to_handler<H: EngineIoHandler>(
 /// Forwards all packets waiting to be sent to the websocket
 ///
 /// The websocket stream is flushed only when the internal channel is drained
-fn forward_to_socket<H: EngineIoHandler>(
+fn forward_to_socket<H: EngineIoHandler, S>(
     socket: Arc<Socket<H::Data>>,
-    mut tx: SplitSink<WebSocketStream<Upgraded>, Message>,
-) -> JoinHandle<()> {
+    mut tx: SplitSink<WebSocketStream<S>, Message>,
+) -> JoinHandle<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     // Pipe between websocket and internal socket channel
     tokio::spawn(async move {
         let mut internal_rx = socket.internal_rx.try_lock().unwrap();
@@ -234,11 +272,14 @@ fn forward_to_socket<H: EngineIoHandler>(
     })
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
-async fn init_handshake(
+async fn init_handshake<S>(
     sid: Sid,
-    ws: &mut WebSocketStream<Upgraded>,
+    ws: &mut WebSocketStream<S>,
     config: &EngineIoConfig,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, config));
     ws.send(Message::Text(packet.try_into()?)).await?;
     Ok(())
@@ -268,11 +309,14 @@ async fn init_handshake(
 ///│            -----  WebSocket frames -----             │
 /// ```
 #[cfg_attr(feature = "tracing", tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string())))]
-async fn upgrade_handshake<H: EngineIoHandler>(
+async fn upgrade_handshake<H: EngineIoHandler, S>(
     protocol: ProtocolVersion,
     socket: &Arc<Socket<H::Data>>,
-    ws: &mut WebSocketStream<Upgraded>,
-) -> Result<(), Error> {
+    ws: &mut WebSocketStream<S>,
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     #[cfg(feature = "tracing")]
     tracing::debug!("websocket connection upgrade");
 

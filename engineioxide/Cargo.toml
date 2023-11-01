@@ -47,6 +47,7 @@ hyper-v1 = { package = "hyper", version = "1.0.0-rc.4", optional = true, feature
     "http2",
 ] }
 http-body-v1 = { package = "http-body", version = "1.0.0-rc.2", optional = true }
+hyper-util = { git = "https://github.com/hyperium/hyper-util.git", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.26.0", features = ["macros", "parking_lot"] }
@@ -66,4 +67,4 @@ v4 = []
 v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
 tracing = ["dep:tracing"]
-hyper-v1 = ["dep:hyper-v1", "dep:http-body-v1"]
+hyper-v1 = ["dep:hyper-v1", "dep:http-body-v1", "dep:hyper-util"]

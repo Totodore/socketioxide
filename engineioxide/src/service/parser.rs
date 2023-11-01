@@ -19,6 +19,7 @@ use crate::{
 pub fn dispatch_req<F, H, ReqBody, ResBody>(
     req: Request<ReqBody>,
     engine: Arc<EngineIo<H>>,
+    #[cfg(feature = "hyper-v1")] hyper_v1: bool,
 ) -> ResponseFuture<F, ResBody>
 where
     ReqBody: http_body::Body + Send + Unpin + 'static,
@@ -65,7 +66,14 @@ where
             transport: TransportType::Websocket,
             method: Method::GET,
             ..
-        }) => ResponseFuture::ready(ws::new_req(engine, protocol, sid, req)),
+        }) => ResponseFuture::ready(ws::new_req(
+            engine,
+            protocol,
+            sid,
+            req,
+            #[cfg(feature = "hyper-v1")]
+            hyper_v1,
+        )),
         Err(e) => {
             #[cfg(feature = "tracing")]
             tracing::debug!("error parsing request: {:?}", e);
