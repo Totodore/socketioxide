@@ -73,6 +73,8 @@ pub mod adapter;
 
 #[cfg(feature = "extensions")]
 pub mod extensions;
+#[cfg(feature = "hyper-v1")]
+pub mod hyper_v1;
 pub mod layer;
 pub mod service;
 
