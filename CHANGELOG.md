@@ -1,3 +1,17 @@
+# 0.7.0
+## socketioxide
+* The `extensions` field on sockets has been moved to a separate optional feature flag named `extensions`
+* All the `tracing` internal calls have been moved to a separate optional feature flag named `tracing`
+* A compatibility layer is now available for hyper v1 under the feature flag `hyper-v1`. You can call `with_hyper_v1` on the `SocketIoLayer` or the `SocketIoService` to get a layer/service working with hyper v1. The default is still hyper v0.
+* New example with hyper v1 standalone
+* New example with [salvo](https://salvo.rs) (based on hyper v1)
+* Socket.io packet encoding/decoding has been optimized, it is now between ~15% and ~50% faster than before
+
+## engineioxide
+* All the `tracing` internal calls have been moved to a separate optional feature flag named `tracing`
+* A compatibility layer is now available for hyper v1 under the feature flag `hyper-v1`. You can call `with_hyper_v1` on the `EngineIoLayer` or the `EngineIoService` to get a layer/service working with hyper v1. The default is still hyper v0.
+* Sid generation is now done manually without external crates
+
 # 0.6.0
 ## socketioxide
 * New API for creating the socket.io layer/service. A cheaply clonable `SocketIo` struct is now returned with the layer/service and allows to access namespaces/rooms/sockets everywhere in the application. Moreover, it is now possible to add and remove namespaces dynamically through the `SocketIo` struct.
