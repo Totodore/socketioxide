@@ -26,6 +26,9 @@ impl<A: Adapter> SocketIoLayer<A> {
         (layer, client)
     }
 
+    /// Convert this [`Layer`] into a [`SocketIoHyperLayer`] to use with hyper v1 and its dependent frameworks.
+    ///
+    /// This is only available when the `hyper-v1` feature is enabled.
     #[cfg(feature = "hyper-v1")]
     #[inline(always)]
     pub fn with_hyper_v1(self) -> SocketIoHyperLayer<A> {
@@ -41,6 +44,7 @@ impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
     }
 }
 
+/// A [`Layer`] for [`SocketIoService`] that works with hyper v1 and its dependent frameworks.
 #[cfg(feature = "hyper-v1")]
 pub struct SocketIoHyperLayer<A: Adapter>(SocketIoLayer<A>);
 
