@@ -1647,11 +1647,11 @@ dependencies = [
 name = "salvo-echo"
 version = "0.6.0"
 dependencies = [
- "engineioxide",
  "futures",
  "salvo",
  "serde",
  "serde_json",
+ "socketioxide",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1928,7 +1928,9 @@ dependencies = [
  "futures",
  "http",
  "http-body 0.4.5",
+ "http-body 1.0.0-rc.2",
  "hyper 0.14.27",
+ "hyper 1.0.0-rc.4",
  "serde",
  "serde_json",
  "thiserror",
