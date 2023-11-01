@@ -66,7 +66,7 @@ impl<A: Adapter> Client<A> {
         tracing::debug!("auth: {:?}", auth);
 
         let sid = esocket.id;
-        if let Some(ns) = self.get_ns(&ns_path) {
+        if let Some(ns) = self.get_ns(ns_path) {
             ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
 
             // cancel the connect timeout task for v5
@@ -196,7 +196,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         if protocol == ProtocolVersion::V4 {
             #[cfg(feature = "tracing")]
             tracing::debug!("connecting to default namespace for v4");
-            self.sock_connect(None, "/".into(), &socket).unwrap();
+            self.sock_connect(None, "/", &socket).unwrap();
         }
 
         #[cfg(feature = "v5")]
