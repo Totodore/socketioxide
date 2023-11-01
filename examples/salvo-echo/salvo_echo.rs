@@ -1,9 +1,8 @@
 use salvo::prelude::*;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use engineioxide::{
-    config::EngineIoConfig,
     handler::EngineIoHandler,
     layer::EngineIoLayer,
     socket::{DisconnectReason, Socket},
@@ -49,15 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = EngineIoConfig::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
-        .build();
-
-    let layer = EngineIoLayer::from_config(MyHandler, config)
-        .with_hyper_v1()
-        .compat();
+    let layer = EngineIoLayer::new(MyHandler).with_hyper_v1().compat();
 
     let router = Router::with_path("/engine.io").hoop(layer).goal(hello);
     let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
