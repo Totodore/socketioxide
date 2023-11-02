@@ -6,8 +6,8 @@ use std::{
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
+    service::TransportType,
     socket::{DisconnectReason, Socket, SocketReq},
-    transport::TransportType,
 };
 use crate::{service::ProtocolVersion, sid::Sid};
 

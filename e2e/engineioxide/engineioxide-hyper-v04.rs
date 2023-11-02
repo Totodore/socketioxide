@@ -43,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_line_number(true)
         .with_max_level(Level::DEBUG)
         .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
@@ -54,7 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let svc = EngineIoService::with_config(MyHandler, config);
 
     let server = Server::bind(addr).serve(svc.into_make_service());
-    tracing::subscriber::set_global_default(subscriber)?;
 
     #[cfg(feature = "v3")]
     tracing::info!("Starting server with v3 protocol");

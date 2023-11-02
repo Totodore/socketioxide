@@ -1,5 +1,5 @@
 [package]
-name = "socketio-echo"
+name = "hyper-echo"
 version = "0.6.0"
 edition = "2021"
 
@@ -7,26 +7,14 @@ edition = "2021"
 
 [dependencies]
 socketioxide = { path = "../../socketioxide" }
-axum = { version = "0.6.20" }
-warp = { version = "0.3.6" }
 hyper = { version = "0.14.27" }
 tokio = { version = "1.33.0", features = ["full"] }
-tower = { version = "0.4.13" }
-tower-http = { version = "0.4.4", features = ["cors"] }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 tracing = "0.1.37"
 serde = "1.0.188"
 serde_json = "1.0.107"
 futures = "0.3.28"
 
-[[example]]
-name = "socketio-axum-echo"
-path = "src/axum_echo.rs"
-
-[[example]]
-name = "socketio-hyper-echo"
-path = "src/hyper_echo.rs"
-
-[[example]]
-name = "socketio-warp-echo"
-path = "src/warp_echo.rs"
+[[bin]]
+name = "hyper-echo"
+path = "hyper_echo.rs"

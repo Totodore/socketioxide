@@ -59,6 +59,16 @@ impl<A: Adapter, S: Clone> SocketIoService<A, S> {
         let svc = EngineIoService::with_config_inner(inner, client, engine_config);
         Self { engine_svc: svc }
     }
+
+    /// Convert this [`Service`] into a [`SocketIoHyperService`](crate::hyper_v1::SocketIoHyperService)
+    /// to use with hyper v1 and its dependent frameworks.
+    ///
+    /// This is only available when the `hyper-v1` feature is enabled.
+    #[inline(always)]
+    #[cfg(feature = "hyper-v1")]
+    pub fn with_hyper_v1(self) -> crate::hyper_v1::SocketIoHyperService<A, S> {
+        crate::hyper_v1::SocketIoHyperService::new(self.engine_svc.with_hyper_v1())
+    }
 }
 
 impl<A: Adapter, S: Clone> Clone for SocketIoService<A, S> {

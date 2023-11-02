@@ -89,6 +89,7 @@ jobs:
     strategy:
       matrix:
         engineio-version: [v3, v4]
+        hyper-version: [hyper-v04, hyper-v1]
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
@@ -115,8 +116,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
-          cargo run --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --bin engineioxide-${{ matrix.hyper-version }}-e2e --features ${{ matrix.engineio-version }} --release
+          cargo run --bin engineioxide-${{ matrix.hyper-version }}-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt

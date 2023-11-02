@@ -1,0 +1,18 @@
+[package]
+name = "axum-echo"
+version = "0.6.0"
+edition = "2021"
+
+[dependencies]
+socketioxide = { path = "../../socketioxide" }
+axum = { version = "0.6.20" }
+tokio = { version = "1.33.0", features = ["full"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+tracing = "0.1.37"
+serde = "1.0.188"
+serde_json = "1.0.107"
+futures = "0.3.28"
+
+[[bin]]
+name = "axum-echo"
+path = "axum_echo.rs"

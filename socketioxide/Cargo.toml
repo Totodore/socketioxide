@@ -36,6 +36,14 @@ dashmap = { version = "5.4.0", optional = true }
 # Tracing
 tracing = { version = "0.1.37", optional = true }
 
+# Hyper v0.1
+http-body-v1 = { package = "http-body", version = "1.0.0-rc.2", optional = true }
+hyper-v1 = { package = "hyper", version = "1.0.0-rc.4", optional = true, features = [
+    "server",
+    "http1",
+    "http2",
+] }
+
 [features]
 default = ["v5"]
 v5 = ["engineioxide/v4"]
@@ -43,6 +51,7 @@ v4 = ["engineioxide/v3"]
 test-utils = []
 tracing = ["dep:tracing", "engineioxide/tracing"]
 extensions = ["dep:dashmap"]
+hyper-v1 = ["engineioxide/hyper-v1", "dep:http-body-v1", "dep:hyper-v1"]
 
 [dev-dependencies]
 engineioxide = { path = "../engineioxide", version = "0.6.0", features = [
