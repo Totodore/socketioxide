@@ -1,6 +1,6 @@
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
-A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). It integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, authorization, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).
+A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). It integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/), [***`Salvo`***](https://salvo.rs) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, authorization, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).
 
 > ⚠️ This crate is under active development and the API is not yet stable.
 
@@ -14,9 +14,11 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 
 ## Features :
 * Integrates with :
-  * [Axum](https://docs.rs/axum/latest/axum/): [🏓echo example](./examples/src/socketio-echo/axum_echo.rs)
-  * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](./examples/src/socketio-echo/warp_echo.rs)
-  * [Hyper](https://docs.rs/hyper/latest/hyper/): [🏓echo example](./examples/src/socketio-echo/hyper_echo.rs)
+  * [Axum](https://docs.rs/axum/latest/axum/): [🏓echo example](./examples/axum-echo/axum_echo.rs)
+  * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](./examples/warp-echo/warp_echo.rs)
+  * [Hyper](https://docs.rs/hyper/latest/hyper/): [🏓echo example](./examples/hyper-echo/hyper_echo.rs)
+  * [Hyper v1](https://docs.rs/hyper/1.0.0-rc.4/hyper/index.html): [🏓echo example](./examples/hyper-v1-echo/hyper_v1_echo.rs)
+  * [Salvo](https://docs.rs/salvo/latest/salvo/): [🏓echo example](./examples/salvo-echo/salvo_echo.rs)
 * Out of the box support for any other middleware based on tower :
   * [🔓CORS](https://docs.rs/tower-http/latest/tower_http/cors)
   * [📁Compression](https://docs.rs/tower-http/latest/tower_http/compression)
