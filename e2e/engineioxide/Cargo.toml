@@ -11,15 +11,13 @@ engineioxide = { path = "../../engineioxide", default-features = false, features
 hyper-v1 = { package = "hyper", version = "1.0.0-rc.4", features = [
     "server",
     "http1",
-    "http2",
 ] }
 hyper-util = { git = "https://github.com/hyperium/hyper-util.git" }
-hyper = { version = "0.14.26" }
-tokio = { version = "1.13.0", features = ["full"] }
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
-tracing = "0.1.37"
-serde_json = "1.0.95"
-futures = "0.3.27"
+hyper = "0.14.26"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
 
 [[bin]]
 name = "engineioxide-hyper-v1-e2e"

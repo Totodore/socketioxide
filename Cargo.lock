@@ -159,8 +159,6 @@ name = "axum-echo"
 version = "0.6.0"
 dependencies = [
  "axum",
- "futures",
- "serde",
  "serde_json",
  "socketioxide",
  "tokio",
@@ -531,9 +529,7 @@ dependencies = [
 name = "engineio-echo"
 version = "0.6.0"
 dependencies = [
- "futures",
  "hyper 0.14.27",
- "serde",
  "serde_json",
  "socketioxide",
  "tokio",
@@ -575,7 +571,6 @@ name = "engineioxide-e2e"
 version = "0.6.0"
 dependencies = [
  "engineioxide",
- "futures",
  "hyper 0.14.27",
  "hyper 1.0.0-rc.4",
  "hyper-util",
@@ -977,9 +972,7 @@ dependencies = [
 name = "hyper-echo"
 version = "0.6.0"
 dependencies = [
- "futures",
  "hyper 0.14.27",
- "serde",
  "serde_json",
  "socketioxide",
  "tokio",
@@ -1011,10 +1004,8 @@ dependencies = [
 name = "hyper-v1-echo"
 version = "0.6.0"
 dependencies = [
- "futures",
  "hyper 1.0.0-rc.4",
  "hyper-util",
- "serde",
  "serde_json",
  "socketioxide",
  "tokio",
@@ -1647,9 +1638,7 @@ dependencies = [
 name = "salvo-echo"
 version = "0.6.0"
 dependencies = [
- "futures",
  "salvo",
- "serde",
  "serde_json",
  "socketioxide",
  "tokio",
@@ -1945,7 +1934,6 @@ dependencies = [
 name = "socketioxide-e2e"
 version = "0.6.0"
 dependencies = [
- "futures",
  "hyper 0.14.27",
  "serde_json",
  "socketioxide",
