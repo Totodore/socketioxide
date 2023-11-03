@@ -10,7 +10,7 @@ use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-const TODOS: OnceLock<Vec<Todo>> = OnceLock::new();
+static TODOS: OnceLock<Vec<Todo>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Todo {
@@ -21,19 +21,21 @@ struct Todo {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder().with_line_number(true).finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_line_number(true)
+        .with_max_level(Level::DEBUG)
+        .finish();
 
     tracing::subscriber::set_global_default(subscriber)?;
 
     info!("Starting server");
 
     let (layer, io) = SocketIo::new_layer();
-    TODOS.set(vec![]).unwrap();
 
     io.ns("/", |s, _: Value| async move {
         info!("New connection: {}", s.id);
 
-        let todos = TODOS.get().cloned().unwrap_or_default();
+        let todos = TODOS.get_or_init(Vec::new).clone();
         s.emit("todos", todos).unwrap();
 
         s.on("update-store", |s, new_todos: Vec<Todo>, _, _| async move {
