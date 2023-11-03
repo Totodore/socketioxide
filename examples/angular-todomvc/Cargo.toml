@@ -1,0 +1,21 @@
+[package]
+name = "angular-todomvc"
+version.workspace = true
+edition.workspace = true
+
+
+[dependencies]
+socketioxide = { path = "../../socketioxide", features = [
+    "v5",
+    "extensions",
+    "tracing",
+] }
+axum = { version = "0.6.20" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tower-http = { version = "0.4.4", features = ["cors", "fs"] }
+tower.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures.workspace = true
