@@ -84,8 +84,10 @@ pub fn new_req<R, B, H: EngineIoHandler>(
             Either::Right(hyper::upgrade::on(req).await)
         };
         #[cfg(not(feature = "hyper-v1"))]
-        let res = Either::Right(hyper::upgrade::on(req).await);
-
+        let res = {
+            type Res = Result<hyper::upgrade::Upgraded, hyper::Error>;
+            Either::Right(hyper::upgrade::on(req).await) as Either<Res, Res>
+        };
         let res = match res {
             Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
             Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
