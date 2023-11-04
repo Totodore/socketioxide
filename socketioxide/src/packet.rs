@@ -289,7 +289,15 @@ impl<'a> TryInto<String> for Packet<'a> {
         // pre-serializing allows to preallocate the buffer
         let data = match &mut self.inner {
             Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
-                let packet = serde_json::to_string(&(e, data))?;
+                // Expand the packet if it is an array with data -> ["event", ...data]
+                let packet = match data {
+                    Value::Array(ref mut v) if v.len() > 0 => {
+                        v.insert(0, Value::String(e.to_string()));
+                        serde_json::to_string(&v)
+                    }
+                    Value::Array(_) => serde_json::to_string::<(_, [(); 0])>(&(e, [])),
+                    _ => serde_json::to_string(&(e, data)),
+                }?;
                 Some(packet)
             }
             EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
@@ -603,6 +611,12 @@ mod test {
 
         assert_eq!(packet, payload);
 
+        // Encode empty data
+        let payload = format!("2{}", json!(["event", []]));
+        let packet: String = Packet::event("/", "event", json!([])).try_into().unwrap();
+
+        assert_eq!(packet, payload);
+
         // Encode with ack ID
         let payload = format!("21{}", json!(["event", { "data": "value™" }]));
         let mut packet = Packet::event("/", "event", json!({ "data": "value™" }));
@@ -621,7 +635,7 @@ mod test {
 
         // Encode with NS and ack ID
         let payload = format!("2/admin™,1{}", json!(["event", { "data": "value™" }]));
-        let mut packet = Packet::event("/admin™", "event", json!({"data": "value™"}));
+        let mut packet = Packet::event("/admin™", "event", json!([{"data": "value™"}]));
         packet.inner.set_ack_id(1);
         let packet: String = packet.try_into().unwrap();
         assert_eq!(packet, payload);
@@ -668,7 +682,7 @@ mod test {
     // BinaryEvent(String, BinaryPacket, Option<i64>),
     #[test]
     fn packet_encode_binary_event() {
-        let json = json!(["event", [{ "data": "value™" }, { "_placeholder": true, "num": 0}]]);
+        let json = json!(["event", { "data": "value™" }, { "_placeholder": true, "num": 0}]);
 
         let payload = format!("51-{}", json);
         let packet: String =
