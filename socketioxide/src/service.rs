@@ -7,16 +7,20 @@ use std::{
 };
 use tower::Service;
 
-use crate::{adapter::Adapter, client::Client, SocketIoConfig};
+use crate::{
+    adapter::{Adapter, LocalAdapter},
+    client::Client,
+    SocketIoConfig,
+};
 
 /// The service for Socket.IO
 ///
 /// It is a wrapper around the Engine.IO service.
 /// Its main purpose is to be able to use it as standalone Socket.IO service
-pub struct SocketIoService<A: Adapter, S: Clone> {
+pub struct SocketIoService<S: Clone, A: Adapter = LocalAdapter> {
     engine_svc: EngineIoService<Arc<Client<A>>, S>,
 }
-impl<A: Adapter, ReqBody, ResBody, S> Service<Request<ReqBody>> for SocketIoService<A, S>
+impl<A: Adapter, ReqBody, ResBody, S> Service<Request<ReqBody>> for SocketIoService<S, A>
 where
     ResBody: Body + Send + 'static,
     ReqBody: Body + Send + 'static + std::fmt::Debug + Unpin,
@@ -38,7 +42,7 @@ where
     }
 }
 
-impl<A: Adapter, S: Clone> SocketIoService<A, S> {
+impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     #[inline(always)]
     pub fn into_make_service(self) -> MakeEngineIoService<Arc<Client<A>>, S> {
         self.engine_svc.into_make_service()
@@ -66,12 +70,12 @@ impl<A: Adapter, S: Clone> SocketIoService<A, S> {
     /// This is only available when the `hyper-v1` feature is enabled.
     #[inline(always)]
     #[cfg(feature = "hyper-v1")]
-    pub fn with_hyper_v1(self) -> crate::hyper_v1::SocketIoHyperService<A, S> {
+    pub fn with_hyper_v1(self) -> crate::hyper_v1::SocketIoHyperService<S, A> {
         crate::hyper_v1::SocketIoHyperService::new(self.engine_svc.with_hyper_v1())
     }
 }
 
-impl<A: Adapter, S: Clone> Clone for SocketIoService<A, S> {
+impl<A: Adapter, S: Clone> Clone for SocketIoService<S, A> {
     fn clone(&self) -> Self {
         Self {
             engine_svc: self.engine_svc.clone(),

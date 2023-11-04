@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use tower::Layer;
 
-use crate::{adapter::Adapter, client::Client, service::SocketIoService, SocketIoConfig};
+use crate::{
+    adapter::{Adapter, LocalAdapter},
+    client::Client,
+    service::SocketIoService,
+    SocketIoConfig,
+};
 
 /// A [`Layer`] for [`SocketIoService`], acting as a middleware.
-pub struct SocketIoLayer<A: Adapter> {
+pub struct SocketIoLayer<A: Adapter = LocalAdapter> {
     client: Arc<Client<A>>,
 }
 
@@ -37,7 +42,7 @@ impl<A: Adapter> SocketIoLayer<A> {
 }
 
 impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
-    type Service = SocketIoService<A, S>;
+    type Service = SocketIoService<S, A>;
 
     fn layer(&self, inner: S) -> Self::Service {
         SocketIoService::with_client(inner, self.client.clone())
@@ -56,7 +61,7 @@ impl<A: Adapter> Clone for SocketIoHyperLayer<A> {
 }
 #[cfg(feature = "hyper-v1")]
 impl<S: Clone, A: Adapter> Layer<S> for SocketIoHyperLayer<A> {
-    type Service = crate::hyper_v1::SocketIoHyperService<A, S>;
+    type Service = crate::hyper_v1::SocketIoHyperService<S, A>;
 
     fn layer(&self, inner: S) -> Self::Service {
         SocketIoService::with_client(inner, self.0.client.clone()).with_hyper_v1()
