@@ -1,7 +1,7 @@
 [package]
 name = "engineio-echo"
-version = "0.6.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,12 +9,10 @@ edition = "2021"
 socketioxide = { path = "../../socketioxide" }
 warp = { version = "0.3.6" }
 hyper = { version = "0.14.27" }
-tokio = { version = "1.33.0", features = ["full"] }
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-tracing = "0.1.37"
-serde = "1.0.188"
-serde_json = "1.0.107"
-futures = "0.3.28"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
 
 [[bin]]
 name = "warp-echo"
