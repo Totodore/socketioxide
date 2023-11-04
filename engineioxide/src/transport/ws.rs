@@ -140,7 +140,7 @@ where
             Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
             Some(socket) => {
                 let mut ws = ws_init().await;
-                upgrade_handshake::<H, S>(protocol, &socket, &mut ws).await?;
+                upgrade_handshake::<H, S>(&socket, &mut ws).await?;
                 (socket, ws)
             }
         }
@@ -310,7 +310,6 @@ where
 /// ```
 #[cfg_attr(feature = "tracing", tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string())))]
 async fn upgrade_handshake<H: EngineIoHandler, S>(
-    protocol: ProtocolVersion,
     socket: &Arc<Socket<H::Data>>,
     ws: &mut WebSocketStream<S>,
 ) -> Result<(), Error>
