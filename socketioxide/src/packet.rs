@@ -291,7 +291,7 @@ impl<'a> TryInto<String> for Packet<'a> {
             Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
                 // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
-                    Value::Array(ref mut v) if v.len() > 0 => {
+                    Value::Array(ref mut v) if !v.is_empty() => {
                         v.insert(0, Value::String(e.to_string()));
                         serde_json::to_string(&v)
                     }
