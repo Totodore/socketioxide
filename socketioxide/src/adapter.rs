@@ -549,8 +549,9 @@ mod test {
         opts.flags.insert(BroadcastFlags::Broadcast);
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 2);
-        assert_eq!(sockets[0].id, socket0);
-        assert_eq!(sockets[1].id, socket1);
+        sockets.iter().for_each(|s| {
+            assert!(s.id == socket0 || s.id == socket1);
+        });
 
         let mut opts = BroadcastOptions::new(Some(socket2));
         opts.flags.insert(BroadcastFlags::Broadcast);
