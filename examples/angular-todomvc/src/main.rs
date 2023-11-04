@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 use axum::Server;
 
@@ -10,7 +10,7 @@ use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-static TODOS: OnceLock<Vec<Todo>> = OnceLock::new();
+static TODOS: Mutex<Vec<Todo>> = Mutex::new(vec![]);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Todo {
@@ -35,12 +35,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     io.ns("/", |s, _: Value| async move {
         info!("New connection: {}", s.id);
 
-        let todos = TODOS.get_or_init(Vec::new).clone();
+        let todos = TODOS.lock().unwrap().clone();
         s.emit("todos", todos).unwrap();
 
         s.on("update-store", |s, new_todos: Vec<Todo>, _, _| async move {
             info!("Received update-store event: {:?}", new_todos);
-            TODOS.set(new_todos.clone()).unwrap();
+
+            let mut todos = TODOS.lock().unwrap();
+            todos.clear();
+            todos.extend_from_slice(&new_todos);
+
             s.broadcast().emit("update-store", new_todos).unwrap();
         });
     });
