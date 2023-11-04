@@ -311,7 +311,10 @@ impl LocalAdapter {
             let sockets = ns.get_sockets();
             sockets
                 .into_iter()
-                .filter(|socket| !except.contains(&socket.id))
+                .filter(|socket| {
+                    !except.contains(&socket.id)
+                        && opts.sid.map(|s| s != socket.id).unwrap_or_default()
+                })
                 .collect()
         } else if let Some(sock) = opts.sid.and_then(|sid| ns.get_socket(sid).ok()) {
             vec![sock]
@@ -541,6 +544,13 @@ mod test {
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].id, socket1);
+
+        let mut opts = BroadcastOptions::new(Some(socket2));
+        opts.flags.insert(BroadcastFlags::Broadcast);
+        let sockets = adapter.fetch_sockets(opts).unwrap();
+        assert_eq!(sockets.len(), 2);
+        assert_eq!(sockets[0].id, socket0);
+        assert_eq!(sockets[1].id, socket1);
 
         let mut opts = BroadcastOptions::new(Some(socket2));
         opts.flags.insert(BroadcastFlags::Broadcast);
