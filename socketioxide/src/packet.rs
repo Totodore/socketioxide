@@ -289,12 +289,13 @@ impl<'a> TryInto<String> for Packet<'a> {
         // pre-serializing allows to preallocate the buffer
         let data = match &mut self.inner {
             Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
-                // Expand the packet if it is an array -> ["event", ...data]
+                // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
-                    Value::Array(ref mut v) => {
+                    Value::Array(ref mut v) if !v.is_empty() => {
                         v.insert(0, Value::String(e.to_string()));
                         serde_json::to_string(&v)
                     }
+                    Value::Array(_) => serde_json::to_string::<(_, [(); 0])>(&(e, [])),
                     _ => serde_json::to_string(&(e, data)),
                 }?;
                 Some(packet)
@@ -610,6 +611,12 @@ mod test {
 
         assert_eq!(packet, payload);
 
+        // Encode empty data
+        let payload = format!("2{}", json!(["event", []]));
+        let packet: String = Packet::event("/", "event", json!([])).try_into().unwrap();
+
+        assert_eq!(packet, payload);
+
         // Encode with ack ID
         let payload = format!("21{}", json!(["event", { "data": "value™" }]));
         let mut packet = Packet::event("/", "event", json!({ "data": "value™" }));
@@ -620,7 +627,7 @@ mod test {
 
         // Encode with NS
         let payload = format!("2/admin™,{}", json!(["event", { "data": "value™" }]));
-        let packet: String = Packet::event("/admin™", "event", json!([{"data": "value™"}]))
+        let packet: String = Packet::event("/admin™", "event", json!({"data": "value™"}))
             .try_into()
             .unwrap();
 
