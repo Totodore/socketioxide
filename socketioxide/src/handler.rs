@@ -4,6 +4,7 @@ use futures::future::BoxFuture;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
+use crate::adapter::LocalAdapter;
 use crate::errors::AckSenderError;
 use crate::{adapter::Adapter, errors::Error, packet::Packet, Socket};
 
@@ -119,7 +120,7 @@ where
 /// AckSender is used to send an ack response to the client.
 /// If the client did not request an ack, it will not send anything.
 #[derive(Debug)]
-pub struct AckSender<A: Adapter> {
+pub struct AckSender<A: Adapter = LocalAdapter> {
     binary: Vec<Vec<u8>>,
     socket: Arc<Socket<A>>,
     ack_id: Option<i64>,
