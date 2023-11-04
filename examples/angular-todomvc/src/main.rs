@@ -7,7 +7,7 @@ use serde_json::Value;
 use socketioxide::SocketIo;
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
-use tracing::{error, info, Level};
+use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
 
 static TODOS: Mutex<Vec<Todo>> = Mutex::new(vec![]);
@@ -21,10 +21,7 @@ struct Todo {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .with_max_level(Level::DEBUG)
-        .finish();
+    let subscriber = FmtSubscriber::builder().with_line_number(true).finish();
 
     tracing::subscriber::set_global_default(subscriber)?;
 
@@ -36,7 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("New connection: {}", s.id);
 
         let todos = TODOS.lock().unwrap().clone();
-        s.emit("todos", todos).unwrap();
+
+        // Because variadic args are not supported, array arguments are flattened.
+        // Therefore to send a json array (required for the todomvc app) we need to wrap it in another array.
+        s.emit("todos", [todos]).unwrap();
 
         s.on("update-store", |s, new_todos: Vec<Todo>, _, _| async move {
             info!("Received update-store event: {:?}", new_todos);
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             todos.clear();
             todos.extend_from_slice(&new_todos);
 
-            s.broadcast().emit("update-store", new_todos).unwrap();
+            s.broadcast().emit("update-store", [new_todos]).unwrap();
         });
     });
 
