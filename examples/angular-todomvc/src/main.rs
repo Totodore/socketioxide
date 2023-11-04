@@ -21,7 +21,7 @@ struct Todo {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder().with_line_number(true).finish();
+    let subscriber = FmtSubscriber::new();
 
     tracing::subscriber::set_global_default(subscriber)?;
 
