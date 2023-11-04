@@ -20,7 +20,7 @@ use tokio::sync::oneshot;
 use crate::extensions::Extensions;
 
 use crate::{
-    adapter::{Adapter, Room},
+    adapter::{Adapter, LocalAdapter, Room},
     errors::{AckError, Error},
     handler::{AckResponse, AckSender, BoxedMessageHandler, CallbackHandler},
     ns::Namespace,
@@ -98,7 +98,7 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
-pub struct Socket<A: Adapter> {
+pub struct Socket<A: Adapter = LocalAdapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedMessageHandler<A>>>,
