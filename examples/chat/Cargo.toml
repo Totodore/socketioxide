@@ -6,13 +6,12 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-socketioxide = { path = "../../socketioxide", features = ["v5", "extensions"] }
+socketioxide = { path = "../../socketioxide", features = ["extensions"] }
 axum = { version = "0.6.20" }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
-tower-http = { version = "0.4.4", features = ["cors"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tower-http = { version = "0.4.4", features = ["cors", "fs"] }
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-futures.workspace = true
