@@ -320,14 +320,6 @@ where
     #[cfg(feature = "tracing")]
     tracing::debug!("websocket connection upgrade");
 
-    #[cfg(feature = "v4")]
-    {
-        // send a NOOP packet to any pending polling request so it closes gracefully
-        if protocol == ProtocolVersion::V4 {
-            socket.send(Packet::Noop)?;
-        }
-    }
-
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
         Some(Ok(Message::Text(d))) => d,
@@ -342,15 +334,8 @@ where
         p => Err(Error::BadPacket(p))?,
     };
 
-    #[cfg(feature = "v3")]
-    {
-        // send a NOOP packet to any pending polling request so it closes gracefully
-        // V3 protocol introduce _paused_ polling transport which require to close
-        // the polling request **after** the ping/pong handshake
-        if protocol == ProtocolVersion::V3 {
-            socket.send(Packet::Noop)?;
-        }
-    }
+    // send a NOOP packet to any pending polling request so it closes gracefully
+    socket.send(Packet::Noop)?;
 
     // Fetch the next packet from the ws stream, it should be an Upgrade packet
     let msg = match ws.next().await {
