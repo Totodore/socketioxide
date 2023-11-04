@@ -289,14 +289,7 @@ impl<'a> TryInto<String> for Packet<'a> {
         // pre-serializing allows to preallocate the buffer
         let data = match &mut self.inner {
             Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
-                // Expand the packet if it is an array -> ["event", ...data]
-                let packet = match data {
-                    Value::Array(ref mut v) => {
-                        v.insert(0, Value::String(e.to_string()));
-                        serde_json::to_string(&v)
-                    }
-                    _ => serde_json::to_string(&(e, data)),
-                }?;
+                let packet = serde_json::to_string(&(e, data))?;
                 Some(packet)
             }
             EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
