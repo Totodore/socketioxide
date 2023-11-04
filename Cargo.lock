@@ -182,6 +182,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "background-task"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "socketioxide",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
