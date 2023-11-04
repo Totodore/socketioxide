@@ -84,8 +84,10 @@ pub fn new_req<R, B, H: EngineIoHandler>(
             Either::Right(hyper::upgrade::on(req).await)
         };
         #[cfg(not(feature = "hyper-v1"))]
-        let res = Either::Right(hyper::upgrade::on(req).await);
-
+        let res = {
+            type Res = Result<hyper::upgrade::Upgraded, hyper::Error>;
+            Either::Right(hyper::upgrade::on(req).await) as Either<Res, Res>
+        };
         let res = match res {
             Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
             Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
@@ -138,7 +140,7 @@ where
             Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
             Some(socket) => {
                 let mut ws = ws_init().await;
-                upgrade_handshake::<H, S>(protocol, &socket, &mut ws).await?;
+                upgrade_handshake::<H, S>(&socket, &mut ws).await?;
                 (socket, ws)
             }
         }
@@ -308,7 +310,6 @@ where
 /// ```
 #[cfg_attr(feature = "tracing", tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string())))]
 async fn upgrade_handshake<H: EngineIoHandler, S>(
-    protocol: ProtocolVersion,
     socket: &Arc<Socket<H::Data>>,
     ws: &mut WebSocketStream<S>,
 ) -> Result<(), Error>

@@ -1,10 +1,6 @@
 use tower::Layer;
 
-use crate::{
-    config::EngineIoConfig,
-    handler::EngineIoHandler,
-    service::{self, EngineIoService},
-};
+use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H: EngineIoHandler> {
@@ -44,7 +40,7 @@ pub struct EngineIoHyperLayer<H: EngineIoHandler>(EngineIoLayer<H>);
 
 #[cfg(feature = "hyper-v1")]
 impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoHyperLayer<H> {
-    type Service = service::hyper_v1::EngineIoHyperService<H, S>;
+    type Service = crate::service::hyper_v1::EngineIoHyperService<H, S>;
 
     fn layer(&self, inner: S) -> Self::Service {
         EngineIoService::with_config_inner(inner, self.0.handler.clone(), self.0.config.clone())
