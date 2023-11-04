@@ -61,13 +61,9 @@ where
         supports_binary,
     );
 
-    socket
-        .clone()
-        .spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
-
     let packet = OpenPacket::new(TransportType::Polling, socket.id, &engine.config);
 
-    engine.handler.on_connect(socket);
+    socket.spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
 
     let packet: String = Packet::Open(packet).try_into().unwrap();
     let packet = {
