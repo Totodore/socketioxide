@@ -613,7 +613,7 @@ mod test {
 
         // Encode with NS
         let payload = format!("2/admin™,{}", json!(["event", { "data": "value™" }]));
-        let packet: String = Packet::event("/admin™", "event", json!([{"data": "value™"}]))
+        let packet: String = Packet::event("/admin™", "event", json!({"data": "value™"}))
             .try_into()
             .unwrap();
 
@@ -621,7 +621,7 @@ mod test {
 
         // Encode with NS and ack ID
         let payload = format!("2/admin™,1{}", json!(["event", { "data": "value™" }]));
-        let mut packet = Packet::event("/admin™", "event", json!([{"data": "value™"}]));
+        let mut packet = Packet::event("/admin™", "event", json!({"data": "value™"}));
         packet.inner.set_ack_id(1);
         let packet: String = packet.try_into().unwrap();
         assert_eq!(packet, payload);
@@ -668,7 +668,7 @@ mod test {
     // BinaryEvent(String, BinaryPacket, Option<i64>),
     #[test]
     fn packet_encode_binary_event() {
-        let json = json!(["event", { "data": "value™" }, { "_placeholder": true, "num": 0}]);
+        let json = json!(["event", [{ "data": "value™" }, { "_placeholder": true, "num": 0}]]);
 
         let payload = format!("51-{}", json);
         let packet: String =
