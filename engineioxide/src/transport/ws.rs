@@ -164,8 +164,6 @@ where
     let (tx, rx) = ws.split();
     let rx_handle = forward_to_socket::<H, S>(socket.clone(), tx);
 
-    engine.handler.on_connect(socket.clone());
-
     if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
         #[cfg(feature = "tracing")]
         tracing::debug!("[sid={}] error when handling packet: {:?}", socket.id, e);

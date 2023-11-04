@@ -64,6 +64,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
                 .unwrap()
                 .insert(socket.id, socket.clone());
         }
+        self.handler.on_connect(socket.clone());
         socket
     }
 
