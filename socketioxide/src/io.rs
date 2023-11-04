@@ -153,7 +153,7 @@ impl SocketIoBuilder {
     ///
     /// The layer can be used as a tower layer
     #[inline(always)]
-    pub fn build_layer(self) -> (SocketIoLayer<LocalAdapter>, SocketIo<LocalAdapter>) {
+    pub fn build_layer(self) -> (SocketIoLayer, SocketIo) {
         self.build_layer_with_adapter::<LocalAdapter>()
     }
 
@@ -172,12 +172,7 @@ impl SocketIoBuilder {
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
     #[inline(always)]
-    pub fn build_svc(
-        self,
-    ) -> (
-        SocketIoService<LocalAdapter, NotFoundService>,
-        SocketIo<LocalAdapter>,
-    ) {
+    pub fn build_svc(self) -> (SocketIoService<NotFoundService>, SocketIo) {
         self.build_svc_with_adapter::<LocalAdapter>()
     }
 
@@ -187,7 +182,7 @@ impl SocketIoBuilder {
     /// It can be used as a hyper service
     pub fn build_svc_with_adapter<A: Adapter>(
         mut self,
-    ) -> (SocketIoService<A, NotFoundService>, SocketIo<A>) {
+    ) -> (SocketIoService<NotFoundService, A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) =
@@ -199,10 +194,7 @@ impl SocketIoBuilder {
     ///
     /// It can be used as a hyper service
     #[inline(always)]
-    pub fn build_with_inner_svc<S: Clone>(
-        self,
-        svc: S,
-    ) -> (SocketIoService<LocalAdapter, S>, SocketIo<LocalAdapter>) {
+    pub fn build_with_inner_svc<S: Clone>(self, svc: S) -> (SocketIoService<S>, SocketIo) {
         self.build_with_inner_svc_with_adapter::<S, LocalAdapter>(svc)
     }
 
@@ -212,7 +204,7 @@ impl SocketIoBuilder {
     pub fn build_with_inner_svc_with_adapter<S: Clone, A: Adapter>(
         mut self,
         svc: S,
-    ) -> (SocketIoService<A, S>, SocketIo<A>) {
+    ) -> (SocketIoService<S, A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
@@ -242,26 +234,21 @@ impl SocketIo<LocalAdapter> {
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     ///
     /// It can be used as a hyper service
-    pub fn new_svc() -> (
-        SocketIoService<LocalAdapter, NotFoundService>,
-        SocketIo<LocalAdapter>,
-    ) {
+    pub fn new_svc() -> (SocketIoService<NotFoundService>, SocketIo) {
         Self::builder().build_svc()
     }
 
     /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
     ///
     /// It can be used as a hyper service
-    pub fn new_inner_svc<S: Clone>(
-        svc: S,
-    ) -> (SocketIoService<LocalAdapter, S>, SocketIo<LocalAdapter>) {
+    pub fn new_inner_svc<S: Clone>(svc: S) -> (SocketIoService<S>, SocketIo) {
         Self::builder().build_with_inner_svc(svc)
     }
 
     /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config
     ///
     /// The layer can be used as a tower layer
-    pub fn new_layer() -> (SocketIoLayer<LocalAdapter>, SocketIo<LocalAdapter>) {
+    pub fn new_layer() -> (SocketIoLayer, SocketIo) {
         Self::builder().build_layer()
     }
 }

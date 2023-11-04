@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use socketioxide::{adapter::Adapter, Socket};
+use socketioxide::Socket;
 use tracing::error;
 use uuid::Uuid;
 
@@ -40,7 +40,7 @@ struct PrivateMessageReq {
     content: String,
 }
 
-pub async fn on_connection<A: Adapter>(s: Arc<Socket<A>>, auth: Auth) {
+pub async fn on_connection(s: Arc<Socket>, auth: Auth) {
     if let Err(e) = session_connect(&s, auth) {
         error!("Failed to connect: {:?}", e);
         s.disconnect().ok();
@@ -85,7 +85,7 @@ enum ConnectError {
 }
 
 /// Handles the connection of a new user
-fn session_connect<A: Adapter>(s: &Socket<A>, auth: Auth) -> Result<(), ConnectError> {
+fn session_connect(s: &Socket, auth: Auth) -> Result<(), ConnectError> {
     let mut sessions = get_sessions().write().unwrap();
     if let Some(session) = auth.session_id.and_then(|id| sessions.get_mut(&id)) {
         session.connected = true;

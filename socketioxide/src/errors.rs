@@ -1,4 +1,7 @@
-use crate::{adapter::Adapter, Socket};
+use crate::{
+    adapter::{Adapter, LocalAdapter},
+    Socket,
+};
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::{
     fmt::{Debug, Display},
@@ -126,7 +129,7 @@ impl<T> From<TrySendError<T>> for SendError {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum AckSenderError<A: Adapter> {
+pub enum AckSenderError<A: Adapter = LocalAdapter> {
     #[error("Failed to send ack message")]
     SendError {
         /// The specific error that occurred while sending the message.

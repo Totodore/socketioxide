@@ -5,6 +5,7 @@ use engineioxide::sid::Sid;
 use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
 
+use crate::adapter::LocalAdapter;
 use crate::errors::BroadcastError;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
@@ -85,7 +86,7 @@ impl<const COUNT: usize> RoomParam for [String; COUNT] {
 
 /// Operators are used to select sockets to send a packet to, or to configure the packet that will be emitted.
 #[derive(Debug)]
-pub struct Operators<A: Adapter> {
+pub struct Operators<A: Adapter = LocalAdapter> {
     opts: BroadcastOptions,
     ns: Arc<Namespace<A>>,
     binary: Vec<Vec<u8>>,

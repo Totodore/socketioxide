@@ -3,7 +3,10 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::{adapter::Adapter, client::Client};
+use crate::{
+    adapter::{Adapter, LocalAdapter},
+    client::Client,
+};
 use engineioxide::service::hyper_v1::EngineIoHyperService;
 use http::{Request, Response};
 use http_body_v1::Body;
@@ -14,16 +17,18 @@ use tower::Service as TowerSvc;
 /// [`Service`](tower::Service) implementation for `hyper 1.0`
 /// It can be created with `with_hyper_v1` fn on [`SocketIoService`](crate::service::SocketIoService)
 /// or [`SocketIoLayer`](crate::layer::SocketIoLayer)
-pub struct SocketIoHyperService<A: Adapter, S: Clone>(EngineIoHyperService<Arc<Client<A>>, S>);
+pub struct SocketIoHyperService<S: Clone, A: Adapter = LocalAdapter>(
+    EngineIoHyperService<Arc<Client<A>>, S>,
+);
 
-impl<A: Adapter, S: Clone> SocketIoHyperService<A, S> {
+impl<A: Adapter, S: Clone> SocketIoHyperService<S, A> {
     pub(crate) fn new(svc: EngineIoHyperService<Arc<Client<A>>, S>) -> Self {
         Self(svc)
     }
 }
 
 /// Tower Service implementation with a [`http_body_v1::Body`] Body
-impl<A: Adapter, ReqBody, ResBody, S> TowerSvc<Request<ReqBody>> for SocketIoHyperService<A, S>
+impl<A: Adapter, ReqBody, ResBody, S> TowerSvc<Request<ReqBody>> for SocketIoHyperService<S, A>
 where
     ResBody: Body + Send + 'static,
     ReqBody: Body + Send + 'static + std::fmt::Debug + Unpin,
@@ -47,7 +52,7 @@ where
 }
 
 /// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] Body
-impl<ResBody, S, A> HyperSvc<Request<Incoming>> for SocketIoHyperService<A, S>
+impl<ResBody, S, A> HyperSvc<Request<Incoming>> for SocketIoHyperService<S, A>
 where
     ResBody: http_body_v1::Body + Send + 'static,
     S: hyper_v1::service::Service<Request<Incoming>, Response = Response<ResBody>>,
@@ -65,7 +70,7 @@ where
     }
 }
 
-impl<A: Adapter, S: Clone> Clone for SocketIoHyperService<A, S> {
+impl<A: Adapter, S: Clone> Clone for SocketIoHyperService<S, A> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
