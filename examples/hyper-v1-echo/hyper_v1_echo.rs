@@ -3,7 +3,8 @@ use std::net::SocketAddr;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{Socket, SocketIo};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -18,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (svc, io) = SocketIo::new_svc();
 
-    io.ns("/", |socket, auth: Value| async move {
+    io.ns("/", |socket: Arc<Socket>, auth: Value| async move {
         info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", auth).ok();
 
@@ -37,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     });
 
-    io.ns("/custom", |socket, auth: Value| async move {
+    io.ns("/custom", |socket: Arc<Socket>, auth: Value| async move {
         info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", auth).ok();
     });

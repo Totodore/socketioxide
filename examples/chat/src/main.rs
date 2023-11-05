@@ -1,10 +1,9 @@
-use std::sync::atomic::AtomicUsize;
+use std::sync::{atomic::AtomicUsize, Arc};
 
 use axum::Server;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{Socket, SocketIo};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
@@ -47,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", move |s, _: Value| async move {
+    io.ns("/", move |s: Arc<Socket>| async move {
         s.on("new message", |s, msg: String, _, _| async move {
             let username = s.extensions.get::<Username>().unwrap().clone();
             let msg = Res::Message {

@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use salvo::prelude::*;
 use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{Socket, SocketIo};
 
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -20,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", |socket, auth: Value| async move {
+    io.ns("/", |socket: Arc<Socket>, auth: Value| async move {
         info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", auth).ok();
 
@@ -39,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     });
 
-    io.ns("/custom", |socket, auth: Value| async move {
+    io.ns("/custom", |socket: Arc<Socket>, auth: Value| async move {
         info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", auth).ok();
     });

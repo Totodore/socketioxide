@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use hyper::Server;
 use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{Socket, SocketIo};
+use std::sync::Arc;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -23,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build_svc();
 
-    io.ns("/", |socket, data: Value| async move {
+    io.ns("/", |socket: Arc<Socket>, data: Value| async move {
         info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", data).ok();
 
@@ -37,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ack.bin(bin).send(data).ok();
         });
     });
-    io.ns("/custom", |socket, data: Value| async move {
+    io.ns("/custom", |socket: Arc<Socket>, data: Value| async move {
         info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
         socket.emit("auth", data).ok();
     });

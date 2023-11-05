@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
@@ -11,7 +12,7 @@ use crate::{adapter::Adapter, errors::Error, packet::Packet, Socket};
 pub type AckResponse<T> = (T, Vec<Vec<u8>>);
 
 pub(crate) type BoxedMessageHandler<A> = Box<dyn MessageCaller<A>>;
-pub(crate) type BoxedNamespaceHandler<A> = Box<dyn NamespaceCaller<A>>;
+pub(crate) type BoxedNamespaceHandler<A> = Box<dyn ErasedNamespaceCaller<A>>;
 pub(crate) trait MessageCaller<A: Adapter>: Send + Sync + 'static {
     fn call(
         &self,
@@ -22,8 +23,36 @@ pub(crate) trait MessageCaller<A: Adapter>: Send + Sync + 'static {
     ) -> Result<(), Error>;
 }
 
-pub(crate) trait NamespaceCaller<A: Adapter>: Send + Sync + 'static {
+pub(crate) trait ErasedNamespaceCaller<A: Adapter>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) -> Result<(), serde_json::Error>;
+}
+pub(crate) struct MakeErasedNamespaceCaller<A, T, F>(
+    pub(crate) Box<dyn NamespaceCaller<A, T, Future = F>>,
+);
+
+impl<A: Adapter, T: 'static, F: Send + Sync + 'static> MakeErasedNamespaceCaller<A, T, F> {
+    pub fn new_boxed<H>(handler: H) -> Box<dyn ErasedNamespaceCaller<A>>
+    where
+        H: NamespaceCaller<A, T, Future = F> + Send + Sync + 'static,
+    {
+        Box::new(Self(Box::new(handler)))
+    }
+}
+impl<A: Adapter, T: 'static, F: Send + Sync + 'static> ErasedNamespaceCaller<A>
+    for MakeErasedNamespaceCaller<A, T, F>
+{
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) -> Result<(), serde_json::Error> {
+        self.0.call(s, auth);
+        Ok(())
+    }
+}
+pub trait NamespaceCaller<A: Adapter, T>: Send + Sync + 'static {
+    type Future: Send + Sync + 'static;
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+
+    fn phantom(&self) -> std::marker::PhantomData<T> {
+        std::marker::PhantomData
+    }
 }
 
 pub(crate) struct CallbackHandler<Param, F, A>
@@ -45,21 +74,6 @@ where
     A: Adapter,
 {
     pub fn boxed_message_handler(handler: F) -> Box<Self> {
-        Box::new(Self {
-            param: std::marker::PhantomData,
-            adapter: std::marker::PhantomData,
-            handler,
-        })
-    }
-}
-
-impl<Param, F, A> CallbackHandler<Param, F, A>
-where
-    Param: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, Param) -> BoxFuture<'static, ()> + Send + Sync + 'static,
-    A: Adapter,
-{
-    pub fn boxed_ns_handler(handler: F) -> Box<Self> {
         Box::new(Self {
             param: std::marker::PhantomData,
             adapter: std::marker::PhantomData,
@@ -103,17 +117,52 @@ where
     }
 }
 
-impl<Param, F, A> NamespaceCaller<A> for CallbackHandler<Param, F, A>
+impl<F, A, Fut> NamespaceCaller<A, ((),)> for F
 where
-    Param: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, Param) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    F: Fn(Arc<Socket<A>>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + Sync + 'static,
     A: Adapter,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) -> Result<(), serde_json::Error> {
-        let v: Param = serde_json::from_str(&auth.unwrap_or("{}".to_string()))?;
-        let fut = (self.handler)(s, v);
+    type Future = Fut;
+    fn call(&self, s: Arc<Socket<A>>, _: Option<String>) {
+        let fut = (self)(s);
         tokio::spawn(fut);
-        Ok(())
+    }
+}
+
+impl<F, A, T, Fut> NamespaceCaller<A, ((), T)> for F
+where
+    T: DeserializeOwned + Send + Sync + 'static,
+    F: Fn(Arc<Socket<A>>, T) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + Sync + 'static,
+
+    A: Adapter,
+{
+    type Future = Fut;
+
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+        if let Ok(auth) = serde_json::from_str(&auth.unwrap_or("{}".to_string())) {
+            let fut = (self)(s, auth);
+            tokio::spawn(fut);
+        }
+    }
+}
+
+impl<F, A, T, Fut> NamespaceCaller<A, ((), (), T)> for F
+where
+    T: DeserializeOwned + Send + Sync + 'static,
+    F: Fn(Arc<Socket<A>>, Result<T, serde_json::Error>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + Sync + 'static,
+
+    A: Adapter,
+{
+    type Future = Fut;
+
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+        let v = serde_json::from_str(&auth.unwrap_or("{}".to_string()));
+
+        let fut = (self)(s, v);
+        tokio::spawn(fut);
     }
 }
 

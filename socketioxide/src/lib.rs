@@ -27,7 +27,7 @@
 //!
 //!     let (layer, io) = SocketIo::new_layer();
 //!
-//!     io.ns("/", |socket, auth: Value| async move {
+//!     io.ns("/", |socket: Arc<Socket>, auth: Value| async move {
 //!         println!("Socket connected on / namespace with id: {}", socket.id);
 //!
 //!         // Add a callback triggered when the socket receive an 'abc' event
@@ -50,7 +50,7 @@
 //!         });
 //!     });
 //!     
-//!     io.ns("/custom", |socket, auth: Value| async move {
+//!     io.ns("/custom", |socket: Arc<Socket>, auth: Value| async move {
 //!         println!("Socket connected on /custom namespace with id: {}", socket.id);
 //!     });
 //!

@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use axum::Server;
 
 use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{Socket, SocketIo};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
@@ -17,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", move |s, _: Value| async move {
+    io.ns("/", move |s: Arc<Socket>| async move {
         s.on("drawing", |s, data: Value, _, _| async move {
             s.broadcast().emit("drawing", data).unwrap();
         });

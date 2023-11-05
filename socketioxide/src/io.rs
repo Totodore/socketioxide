@@ -4,13 +4,13 @@ use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
     service::NotFoundService,
 };
-use futures::{stream::BoxStream, Future};
+use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
 
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    handler::AckResponse,
+    handler::{AckResponse, NamespaceCaller},
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
@@ -305,11 +305,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ```
     #[inline]
-    pub fn ns<C, F, V>(&self, path: impl Into<Cow<'static, str>>, callback: C)
+    pub fn ns<C, T: 'static>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
-        C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-        V: DeserializeOwned + Send + Sync + 'static,
+        C: NamespaceCaller<A, T>,
     {
         self.0.add_ns(path.into(), callback);
     }

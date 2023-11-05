@@ -7,15 +7,13 @@ use std::{
 use crate::{
     adapter::Adapter,
     errors::Error,
-    handler::{BoxedNamespaceHandler, CallbackHandler},
+    handler::{BoxedNamespaceHandler, MakeErasedNamespaceCaller, NamespaceCaller},
     packet::{Packet, PacketData},
     socket::Socket,
     SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
-use futures::Future;
-use serde::de::DeserializeOwned;
 
 pub struct Namespace<A: Adapter> {
     pub path: Cow<'static, str>,
@@ -25,16 +23,13 @@ pub struct Namespace<A: Adapter> {
 }
 
 impl<A: Adapter> Namespace<A> {
-    pub fn new<C, F, V>(path: Cow<'static, str>, callback: C) -> Arc<Self>
+    pub fn new<C, T: 'static>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
-        C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-        V: DeserializeOwned + Send + Sync + 'static,
+        C: NamespaceCaller<A, T> + Send + Sync + 'static,
     {
-        let handler = Box::new(move |s, v| Box::pin(callback(s, v)) as _);
         Arc::new_cyclic(|ns| Self {
             path,
-            handler: CallbackHandler::boxed_ns_handler(handler),
+            handler: MakeErasedNamespaceCaller::new_boxed(handler),
             sockets: HashMap::new().into(),
             adapter: A::new(ns.clone()),
         })

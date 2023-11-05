@@ -1,10 +1,9 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use axum::Server;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{Socket, SocketIo};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
@@ -29,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", |s, _: Value| async move {
+    io.ns("/", |s: Arc<Socket>| async move {
         info!("New connection: {}", s.id);
 
         let todos = TODOS.lock().unwrap().clone();

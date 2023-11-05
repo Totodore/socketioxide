@@ -8,11 +8,10 @@
 //! * Client namespace disconnect
 //! * Server namespace disconnect
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use futures::{SinkExt, StreamExt};
-use serde_json::Value;
-use socketioxide::{DisconnectReason, SocketIo};
+use socketioxide::{DisconnectReason, Socket, SocketIo};
 use tokio::sync::mpsc;
 
 mod fixture;
@@ -24,7 +23,7 @@ use crate::fixture::{create_polling_connection, create_ws_connection};
 
 fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectReason> {
     let (tx, rx) = mpsc::channel::<DisconnectReason>(chan_size);
-    io.ns("/", move |socket, _: Value| {
+    io.ns("/", move |socket: Arc<Socket>| {
         println!("Socket connected on / namespace with id: {}", socket.id);
         let tx = tx.clone();
         socket.on_disconnect(move |socket, reason| {
@@ -213,7 +212,7 @@ pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
     let io = create_server(12349);
 
-    io.ns("/", move |socket, _: Value| {
+    io.ns("/", move |socket: Arc<Socket>| {
         println!("Socket connected on / namespace with id: {}", socket.id);
         let sock = socket.clone();
         let tx = tx.clone();

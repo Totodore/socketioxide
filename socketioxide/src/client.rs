@@ -4,20 +4,20 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
-use futures::{Future, TryFutureExt};
-use serde::de::DeserializeOwned;
+use futures::TryFutureExt;
 
 use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
+use crate::handler::NamespaceCaller;
+use crate::ProtocolVersion;
 use crate::{
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
 };
-use crate::{ProtocolVersion, Socket};
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
@@ -133,11 +133,9 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Add a new namespace handler
-    pub fn add_ns<C, F, V>(&self, path: Cow<'static, str>, callback: C)
+    pub fn add_ns<C, T: 'static>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-        V: DeserializeOwned + Send + Sync + 'static,
+        C: NamespaceCaller<A, T>,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
