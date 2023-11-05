@@ -1,85 +1,79 @@
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 use crate::adapter::LocalAdapter;
 use crate::errors::AckSenderError;
-use crate::{adapter::Adapter, errors::Error, packet::Packet, Socket};
+use crate::{adapter::Adapter, packet::Packet, Socket};
+
+use super::MakeErasedHandler;
 
 pub type AckResponse<T> = (T, Vec<Vec<u8>>);
 
-pub(crate) type BoxedMessageHandler<A> = Box<dyn MessageCaller<A>>;
-pub(crate) trait MessageCaller<A: Adapter>: Send + Sync + 'static {
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        v: Value,
-        p: Vec<Vec<u8>>,
-        ack_id: Option<i64>,
-    ) -> Result<(), Error>;
-}
+pub(crate) type BoxedMessageHandler<A> = Box<dyn ErasedMessageHandler<A>>;
 
-pub(crate) struct CallbackHandler<Param, F, A>
-where
-    Param: Send + Sync + 'static,
-{
-    param: std::marker::PhantomData<Param>,
-    adapter: std::marker::PhantomData<A>,
-    handler: F,
+pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
+    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>);
 }
-
-impl<Param, F, A> CallbackHandler<Param, F, A>
-where
-    Param: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, Param, Vec<Vec<u8>>, AckSender<A>) -> BoxFuture<'static, ()>
-        + Send
-        + Sync
-        + 'static,
-    A: Adapter,
-{
-    pub fn boxed_message_handler(handler: F) -> Box<Self> {
-        Box::new(Self {
-            param: std::marker::PhantomData,
-            adapter: std::marker::PhantomData,
-            handler,
-        })
+pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
+    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>);
+    fn phantom(&self) -> std::marker::PhantomData<T> {
+        std::marker::PhantomData
     }
 }
 
-impl<Param, F, A> MessageCaller<A> for CallbackHandler<Param, F, A>
+impl<A, T, H> MakeErasedHandler<H, A, T>
 where
-    Param: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, Param, Vec<Vec<u8>>, AckSender<A>) -> BoxFuture<'static, ()>
-        + Send
-        + Sync
-        + 'static,
+    T: Send + Sync + 'static,
+    H: MessageHandler<A, T> + Send + Sync + 'static,
     A: Adapter,
 {
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        v: Value,
-        p: Vec<Vec<u8>>,
-        ack_id: Option<i64>,
-    ) -> Result<(), Error> {
+    pub fn new_message_boxed(inner: H) -> Box<dyn ErasedMessageHandler<A>> {
+        Box::new(MakeErasedHandler::new(inner))
+    }
+}
+
+impl<A, T, H> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T>
+where
+    T: Send + Sync + 'static,
+    H: MessageHandler<A, T> + Send + Sync + 'static,
+    A: Adapter,
+{
+    #[inline(always)]
+    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>) {
+        self.handler.call(s, v, p, ack_id);
+    }
+}
+
+impl<F, A, T, Fut> MessageHandler<A, (T,)> for F
+where
+    T: DeserializeOwned + Send + Sync + 'static,
+    F: Fn(Arc<Socket<A>>, T, Vec<Vec<u8>>, AckSender<A>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + Sync + 'static,
+    A: Adapter,
+{
+    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>) {
         // Unwrap array if it has only one element
-        let v = match v {
-            Value::Array(v) => {
-                if v.len() == 1 {
-                    v.into_iter().next().unwrap_or(Value::Null)
-                } else {
-                    Value::Array(v)
-                }
-            }
-            v => v,
-        };
-        let v: Param = serde_json::from_value(v)?;
+        let v = upwrap_array(v);
+        let v: T = serde_json::from_value(v).unwrap();
         let owned_socket = s.clone();
-        let fut = (self.handler)(s, v, p, AckSender::new(owned_socket, ack_id));
+        let fut = self(s, v, p, AckSender::new(owned_socket, ack_id));
         tokio::spawn(fut);
-        Ok(())
+    }
+}
+
+fn upwrap_array(v: Value) -> Value {
+    match v {
+        Value::Array(v) => {
+            if v.len() == 1 {
+                v.into_iter().next().unwrap_or(Value::Null)
+            } else {
+                Value::Array(v)
+            }
+        }
+        v => v,
     }
 }
 

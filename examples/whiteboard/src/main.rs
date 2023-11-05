@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (layer, io) = SocketIo::new_layer();
 
     io.ns("/", move |s: Arc<Socket>| async move {
-        s.on("drawing", |s, data: Value, _, _| async move {
+        s.on("drawing", |s: Arc<Socket>, data: Value, _, _| async move {
             s.broadcast().emit("drawing", data).unwrap();
         });
     });

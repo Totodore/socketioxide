@@ -49,7 +49,7 @@ pub async fn on_connection(s: Arc<Socket>, auth: Auth) {
 
     s.on(
         "private message",
-        |s, PrivateMessageReq { to, content }, _, _| async move {
+        |s: Arc<Socket>, PrivateMessageReq { to, content }, _, _| async move {
             let user_id = s.extensions.get::<Session>().unwrap().user_id;
             let message = Message {
                 from: user_id,

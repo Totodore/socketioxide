@@ -3,7 +3,7 @@ mod message;
 
 pub(crate) use connect::{BoxedConnectHandler, ConnectHandler};
 pub use message::{AckResponse, AckSender};
-pub(crate) use message::{BoxedMessageHandler, CallbackHandler};
+pub(crate) use message::{BoxedMessageHandler, MessageHandler};
 pub(crate) struct MakeErasedHandler<H, A, T> {
     handler: H,
     adapter: std::marker::PhantomData<A>,

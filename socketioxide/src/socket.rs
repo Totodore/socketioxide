@@ -22,7 +22,7 @@ use crate::extensions::Extensions;
 use crate::{
     adapter::{Adapter, LocalAdapter, Room},
     errors::{AckError, Error},
-    handler::{AckResponse, AckSender, BoxedMessageHandler, CallbackHandler},
+    handler::{AckResponse, BoxedMessageHandler, MakeErasedHandler, MessageHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
@@ -187,17 +187,15 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn on<C, F, V>(&self, event: impl Into<String>, callback: C)
+    pub fn on<H, T>(&self, event: impl Into<String>, handler: H)
     where
-        C: Fn(Arc<Socket<A>>, V, Vec<Vec<u8>>, AckSender<A>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-        V: DeserializeOwned + Send + Sync + 'static,
+        H: MessageHandler<A, T>,
+        T: DeserializeOwned + Send + Sync + 'static,
     {
-        let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
-        self.message_handlers.write().unwrap().insert(
-            event.into(),
-            CallbackHandler::boxed_message_handler(handler),
-        );
+        self.message_handlers
+            .write()
+            .unwrap()
+            .insert(event.into(), MakeErasedHandler::new_message_boxed(handler));
     }
 
     /// ## Register a disconnect handler.
@@ -543,7 +541,7 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_event(self: Arc<Self>, e: &str, data: Value, ack: Option<i64>) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(self.clone(), data, vec![], ack)?;
+            handler.call(self.clone(), data, vec![], ack);
         }
         Ok(())
     }
@@ -555,7 +553,7 @@ impl<A: Adapter> Socket<A> {
         ack: Option<i64>,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(self.clone(), packet.data, packet.bin, ack)?;
+            handler.call(self.clone(), packet.data, packet.bin, ack);
         }
         Ok(())
     }

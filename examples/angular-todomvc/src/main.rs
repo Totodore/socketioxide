@@ -37,15 +37,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Therefore to send a json array (required for the todomvc app) we need to wrap it in another array.
         s.emit("todos", [todos]).unwrap();
 
-        s.on("update-store", |s, new_todos: Vec<Todo>, _, _| async move {
-            info!("Received update-store event: {:?}", new_todos);
+        s.on(
+            "update-store",
+            |s: Arc<Socket>, new_todos: Vec<Todo>, _, _| async move {
+                info!("Received update-store event: {:?}", new_todos);
 
-            let mut todos = TODOS.lock().unwrap();
-            todos.clear();
-            todos.extend_from_slice(&new_todos);
+                let mut todos = TODOS.lock().unwrap();
+                todos.clear();
+                todos.extend_from_slice(&new_todos);
 
-            s.broadcast().emit("update-store", [new_todos]).unwrap();
-        });
+                s.broadcast().emit("update-store", [new_todos]).unwrap();
+            },
+        );
     });
 
     let app = axum::Router::new()
