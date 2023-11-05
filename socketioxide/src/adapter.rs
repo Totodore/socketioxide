@@ -20,11 +20,11 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     errors::{AckError, AdapterError, BroadcastError},
-    handler::AckResponse,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
     socket::Socket,
+    AckResponse,
 };
 
 /// A room identifier

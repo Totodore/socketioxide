@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    handler::{AckResponse, NamespaceCaller},
+    handler::{AckResponse, NamespaceHandler},
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
@@ -305,9 +305,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ```
     #[inline]
-    pub fn ns<C, T: 'static>(&self, path: impl Into<Cow<'static, str>>, callback: C)
+    pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
-        C: NamespaceCaller<A, T>,
+        C: NamespaceHandler<A, T>,
+        T: Send + Sync + 'static,
     {
         self.0.add_ns(path.into(), callback);
     }

@@ -10,7 +10,7 @@ use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
-use crate::handler::NamespaceCaller;
+use crate::handler::NamespaceHandler;
 use crate::ProtocolVersion;
 use crate::{
     errors::Error,
@@ -133,9 +133,10 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Add a new namespace handler
-    pub fn add_ns<C, T: 'static>(&self, path: Cow<'static, str>, callback: C)
+    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: NamespaceCaller<A, T>,
+        C: NamespaceHandler<A, T>,
+        T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);

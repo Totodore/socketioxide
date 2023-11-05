@@ -7,7 +7,7 @@ use std::{
 use crate::{
     adapter::Adapter,
     errors::Error,
-    handler::{BoxedNamespaceHandler, MakeErasedNamespaceCaller, NamespaceCaller},
+    handler::{BoxedNamespaceHandler, MakeErasedHandler, NamespaceHandler},
     packet::{Packet, PacketData},
     socket::Socket,
     SocketIoConfig,
@@ -23,13 +23,14 @@ pub struct Namespace<A: Adapter> {
 }
 
 impl<A: Adapter> Namespace<A> {
-    pub fn new<C, T: 'static>(path: Cow<'static, str>, handler: C) -> Arc<Self>
+    pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
-        C: NamespaceCaller<A, T> + Send + Sync + 'static,
+        C: NamespaceHandler<A, T> + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
         Arc::new_cyclic(|ns| Self {
             path,
-            handler: MakeErasedNamespaceCaller::new_boxed(handler),
+            handler: MakeErasedHandler::new_ns_boxed(handler),
             sockets: HashMap::new().into(),
             adapter: A::new(ns.clone()),
         })
@@ -55,7 +56,7 @@ impl<A: Adapter> Namespace<A> {
             return Ok(());
         }
 
-        self.handler.call(socket, auth)?;
+        self.handler.call(socket, auth);
         Ok(())
     }
 
