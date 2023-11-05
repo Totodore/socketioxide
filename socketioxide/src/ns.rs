@@ -7,7 +7,7 @@ use std::{
 use crate::{
     adapter::Adapter,
     errors::Error,
-    handler::{BoxedNamespaceHandler, MakeErasedHandler, NamespaceHandler},
+    handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::Socket,
     SocketIoConfig,
@@ -18,14 +18,14 @@ use engineioxide::sid::Sid;
 pub struct Namespace<A: Adapter> {
     pub path: Cow<'static, str>,
     pub(crate) adapter: A,
-    handler: BoxedNamespaceHandler<A>,
+    handler: BoxedConnectHandler<A>,
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
 }
 
 impl<A: Adapter> Namespace<A> {
     pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
-        C: NamespaceHandler<A, T> + Send + Sync + 'static,
+        C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         Arc::new_cyclic(|ns| Self {

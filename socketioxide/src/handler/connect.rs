@@ -7,25 +7,25 @@ use crate::{adapter::Adapter, Socket};
 
 use super::MakeErasedHandler;
 
-/// A Type Erased [`NamespaceHandler`] so it can be stored in a HashMap
-pub(crate) type BoxedNamespaceHandler<A> = Box<dyn ErasedNamespaceHandler<A>>;
-pub(crate) trait ErasedNamespaceHandler<A: Adapter>: Send + Sync + 'static {
+/// A Type Erased [`ConnectHandler`] so it can be stored in a HashMap
+pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
+pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 }
 
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
-    H: NamespaceHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + 'static,
 {
-    pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedNamespaceHandler<A>> {
+    pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler<A>> {
         Box::new(MakeErasedHandler::new(inner))
     }
 }
 
-impl<A: Adapter, T, H> ErasedNamespaceHandler<A> for MakeErasedHandler<H, A, T>
+impl<A: Adapter, T, H> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T>
 where
-    H: NamespaceHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     #[inline(always)]
@@ -34,14 +34,16 @@ where
     }
 }
 
-/// The Namespace Handler is implemented for functions with the following signatures:
+/// The [`ConnectHandler`] trait is implemented for functions with the following signatures:
 /// ```ignore
 /// fn(Arc<Socket<A>>) -> Fut + Send + Sync + 'static,
 /// fn(Arc<Socket<A>>, T) -> Fut + Send + Sync + 'static,
 /// fn(Arc<Socket<A>>, Result<T, serde_json::Error>) -> Fut + Send + Sync + 'static,
 /// ```
 /// Thanks to the multiple trait implementation, you can decide to extract the auth data or not
-pub trait NamespaceHandler<A: Adapter, T>: Send + Sync + 'static {
+///
+/// This handler is called when a new client connects to the server
+pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -49,7 +51,7 @@ pub trait NamespaceHandler<A: Adapter, T>: Send + Sync + 'static {
     }
 }
 
-impl<F, A, Fut> NamespaceHandler<A, ((),)> for F
+impl<F, A, Fut> ConnectHandler<A, ((),)> for F
 where
     F: Fn(Arc<Socket<A>>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
@@ -61,7 +63,7 @@ where
     }
 }
 
-impl<F, A, T, Fut> NamespaceHandler<A, ((), T)> for F
+impl<F, A, T, Fut> ConnectHandler<A, ((), T)> for F
 where
     T: DeserializeOwned + Send + Sync + 'static,
     F: Fn(Arc<Socket<A>>, T) -> Fut + Send + Sync + 'static,
@@ -81,7 +83,7 @@ where
     }
 }
 
-impl<F, A, T, Fut> NamespaceHandler<A, ((), (), T)> for F
+impl<F, A, T, Fut> ConnectHandler<A, ((), (), T)> for F
 where
     T: DeserializeOwned + Send + Sync + 'static,
     F: Fn(Arc<Socket<A>>, Result<T, serde_json::Error>) -> Fut + Send + Sync + 'static,

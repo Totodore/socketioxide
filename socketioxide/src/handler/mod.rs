@@ -1,7 +1,7 @@
 mod connect;
 mod message;
 
-pub(crate) use connect::{BoxedNamespaceHandler, NamespaceHandler};
+pub(crate) use connect::{BoxedConnectHandler, ConnectHandler};
 pub use message::{AckResponse, AckSender};
 pub(crate) use message::{BoxedMessageHandler, CallbackHandler};
 pub(crate) struct MakeErasedHandler<H, A, T> {
