@@ -15,7 +15,7 @@
 //! io.ns("/async_nsp", move |s: SocketRef| async move {
 //!     println!("Socket connected on /async_nsp namespace with id: {}", s.id);
 //! });
-//! // Here the auth data is not serialized, if there is any it is dropped
+//! // Here the auth data is not serialized, if there is a serialization error, the handler is not called
 //! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
 //!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
 //! });
