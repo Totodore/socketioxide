@@ -73,12 +73,19 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     }
 }
 
+mod private {
+    #[derive(Debug, Copy, Clone)]
+    pub enum Sync {}
+    #[derive(Debug, Copy, Clone)]
+    pub enum Async {}
+}
+
 macro_rules! impl_handler_async {
     (
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, ((Fut,), $($ty,)*)> for F
+        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, (private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
@@ -106,7 +113,7 @@ macro_rules! impl_handler {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)*> ConnectHandler<A, ((), $($ty,)*)> for F
+        impl<A, F, $($ty,)*> ConnectHandler<A, (private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
             A: Adapter,

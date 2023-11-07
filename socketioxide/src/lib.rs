@@ -32,14 +32,14 @@
 //!
 //!         // Add a callback triggered when the socket receive an 'abc' event
 //!         // The json data will be deserialized to MyData
-//!         socket.on("abc", |socket: SocketRef, data: MyData, bin, _| async move {
+//!         socket.on("abc", |socket: SocketRef, Data::<MyData>(data), Bin(bin)| async move {
 //!             println!("Received abc event: {:?} {:?}", data, bin);
 //!             socket.bin(bin).emit("abc", data).ok();
 //!         });
 //!
 //!         // Add a callback triggered when the socket receive an 'acb' event
 //!         // Ackknowledge the message with the ack callback
-//!         socket.on("acb", |_, data: Value, bin, ack: AckSender| async move {
+//!         socket.on("acb", |Data::<Value>(data), ack: AckSender, Bin(bin)| async move {
 //!             println!("Received acb event: {:?} {:?}", data, bin);
 //!             ack.bin(bin).send(data).ok();
 //!         });

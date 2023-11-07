@@ -298,7 +298,7 @@ impl<A: Adapter> SocketIo<A> {
     ///         socket.disconnect().ok();
     ///         return;
     ///     }
-    ///     socket.on("test", |socket: SocketRef, data: MyData, _, _| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });

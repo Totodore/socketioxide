@@ -58,7 +58,7 @@ pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
 impl<A, T, H> MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
-    H: MessageHandler<A, T> + Send + Sync + 'static,
+    H: MessageHandler<A, T>,
     A: Adapter,
 {
     pub fn new_message_boxed(inner: H) -> Box<dyn ErasedMessageHandler<A>> {
@@ -69,7 +69,7 @@ where
 impl<A, T, H> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
-    H: MessageHandler<A, T> + Send + Sync + 'static,
+    H: MessageHandler<A, T>,
     A: Adapter,
 {
     #[inline(always)]
@@ -84,6 +84,11 @@ mod private {
 
     #[derive(Debug, Clone, Copy)]
     pub enum ViaRequest {}
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Sync {}
+    #[derive(Debug, Clone, Copy)]
+    pub enum Async {}
 }
 
 /// A trait used to extract the arguments from the message event
@@ -137,7 +142,7 @@ where
 }
 
 /// Empty Async handler
-impl<A, F, Fut> MessageHandler<A, (Fut,)> for F
+impl<A, F, Fut> MessageHandler<A, (private::Async,)> for F
 where
     F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
     Fut: Future<Output = ()> + Send + 'static,
@@ -150,7 +155,7 @@ where
 }
 
 /// Empty Sync handler
-impl<A, F> MessageHandler<A, ()> for F
+impl<A, F> MessageHandler<A, (private::Sync,)> for F
 where
     F: FnOnce() + Send + Sync + Clone + 'static,
     A: Adapter,
@@ -165,7 +170,7 @@ macro_rules! impl_async_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, M, $($ty,)* $last, Fut> MessageHandler<A, ((Fut,), M, $($ty,)* $last,)> for F
+        impl<A, F, M, $($ty,)* $last, Fut> MessageHandler<A, (private::Async, M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
@@ -195,7 +200,7 @@ macro_rules! impl_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, M, $($ty,)* $last> MessageHandler<A, ((), M, $($ty,)* $last,)> for F
+        impl<A, F, M, $($ty,)* $last> MessageHandler<A, (private::Sync, M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) + Send + Sync + Clone + 'static,
             A: Adapter,
