@@ -11,9 +11,8 @@
 //! use axum::routing::get;
 //! use axum::Server;
 //! use serde::{Serialize, Deserialize};
-//! use socketioxide::{SocketIo, Socket};
+//! use socketioxide::{SocketIo, AckSender, extract::{SocketRef, Data}};
 //! use serde_json::Value;
-//! use std::sync::Arc;
 //!
 //! #[derive(Debug, Serialize, Deserialize)]
 //! struct MyData {
@@ -28,19 +27,19 @@
 //!
 //!     let (layer, io) = SocketIo::new_layer();
 //!
-//!     io.ns("/", |socket: Arc<Socket>| {
+//!     io.ns("/", |socket: SocketRef| {
 //!         println!("Socket connected on / namespace with id: {}", socket.id);
 //!
 //!         // Add a callback triggered when the socket receive an 'abc' event
 //!         // The json data will be deserialized to MyData
-//!         socket.on("abc", |socket: Arc<Socket>, data: MyData, bin, _| async move {
+//!         socket.on("abc", |socket: SocketRef, data: MyData, bin, _| async move {
 //!             println!("Received abc event: {:?} {:?}", data, bin);
 //!             socket.bin(bin).emit("abc", data).ok();
 //!         });
 //!
 //!         // Add a callback triggered when the socket receive an 'acb' event
 //!         // Ackknowledge the message with the ack callback
-//!         socket.on("acb", |_, data: Value, bin, ack| async move {
+//!         socket.on("acb", |_, data: Value, bin, ack: AckSender| async move {
 //!             println!("Received acb event: {:?} {:?}", data, bin);
 //!             ack.bin(bin).send(data).ok();
 //!         });
@@ -51,7 +50,7 @@
 //!         });
 //!     });
 //!     
-//!     io.ns("/custom", |socket: Arc<Socket>, auth: MyData| async move {
+//!     io.ns("/custom", |socket: SocketRef, Data(auth): Data<MyData>| {
 //!         println!("Socket connected on /custom namespace with id: {}", socket.id);
 //!     });
 //!

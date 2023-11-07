@@ -36,9 +36,9 @@ where
             .map(|a| serde_json::from_str::<T>(a))
             .unwrap_or(serde_json::from_str::<T>("{}"))
             .map(Data)
-            .map_err(|e| {
+            .map_err(|_e| {
                 #[cfg(feature = "tracing")]
-                tracing::error!("Error deserializing auth data: {}", e);
+                tracing::error!("Error deserializing auth data: {}", _e);
             })
     }
 }

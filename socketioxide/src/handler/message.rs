@@ -53,7 +53,7 @@ impl<F, A, T, Fut> MessageHandler<A, (T,)> for F
 where
     T: DeserializeOwned + Send + Sync + 'static,
     F: Fn(SocketRef<A>, T, Vec<Vec<u8>>, AckSender<A>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = ()> + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
     A: Adapter,
 {
     fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>) {

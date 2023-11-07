@@ -279,9 +279,7 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// #### Simple example with a closure:
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
-    /// # use serde_json::Value;
+    /// # use socketioxide::{SocketIo, extract::{SocketRef, Data}};
     /// # use serde::{Serialize, Deserialize};
     /// #[derive(Debug, Deserialize)]
     /// struct MyAuthData {
@@ -294,13 +292,13 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>, auth: MyAuthData| async move {
+    /// io.ns("/", |socket: SocketRef, Data(auth): Data<MyAuthData>| {
     ///     if auth.token.is_empty() {
     ///         println!("Invalid token, disconnecting");
     ///         socket.disconnect().ok();
     ///         return;
     ///     }
-    ///     socket.on("test", |socket, data: MyData, _, _| async move {
+    ///     socket.on("test", |socket: SocketRef, data: MyData, _, _| async move {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
@@ -337,9 +335,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("custom_ns", |socket, _: ()| async move {
+    /// io.ns("custom_ns", |socket: SocketRef| {
     ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.id);
     /// });
     ///
@@ -363,10 +361,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -391,10 +388,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -418,15 +414,14 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    ///     socket.on("register1", |socket, data: (), _, _| async move {
+    ///     socket.on("register1", |socket: SocketRef, data: (), _, _| async move {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket, data: (), _, _| async move {
+    ///     socket.on("register2", |socket: SocketRef, data: (), _, _| async move {
     ///         socket.join("room2");
     ///     });
     /// });
@@ -453,10 +448,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -480,13 +474,12 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use futures::stream::StreamExt;
-    /// # use std::time::{Duration, Socket};
-    /// # use std::sync::Arc;
+    /// # use std::time::Duration;
+    /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -518,11 +511,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use serde_json::{Value, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -547,11 +539,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use serde_json::{Value, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -581,12 +572,11 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// # use futures::stream::StreamExt;
     /// # use serde_json::Value;
-    /// # use futures::stream::{StreamE, Socket}xt
-    /// # use std::sync::Arc;;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -621,11 +611,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use serde_json::{Value, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -649,10 +638,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -672,10 +660,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -695,10 +682,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::{SocketIo, Socket};
-    /// # use std::sync::Arc;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: Arc<Socket>| {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
