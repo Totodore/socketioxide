@@ -100,12 +100,13 @@ mod private {
     )
 )]
 pub trait FromMessageParts<A: Adapter>: Sized {
+    type Error: std::error::Error + 'static;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
         p: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
-    ) -> Result<Self, ()>;
+    ) -> Result<Self, Self::Error>;
 }
 
 /// A trait used to extract and consume the arguments from the message event
@@ -117,12 +118,13 @@ pub trait FromMessageParts<A: Adapter>: Sized {
     )
 )]
 pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
+    type Error: std::error::Error + 'static;
     fn from_message(
         s: Arc<Socket<A>>,
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-    ) -> Result<Self, ()>;
+    ) -> Result<Self, Self::Error>;
 }
 
 /// All the types that implement [`FromMessageParts`] also implement [`FromMessage`]
@@ -131,12 +133,13 @@ where
     T: FromMessageParts<A>,
     A: Adapter,
 {
+    type Error = T::Error;
     fn from_message(
         s: Arc<Socket<A>>,
         mut v: Value,
         mut p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, Self::Error> {
         Self::from_message_parts(&s, &mut v, &mut p, &ack_id)
     }
 }
@@ -182,12 +185,20 @@ macro_rules! impl_async_handler {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id) {
                         Ok(v) => v,
-                        Err(_) => return,
+                        Err(_e) => {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("Error while extracting data: {}", _e);
+                            return;
+                        },
                     };
                 )*
                 let last = match $last::from_message(s, v, p, ack_id) {
                     Ok(v) => v,
-                    Err(_) => return,
+                    Err(_e) => {
+                        #[cfg(feature = "tracing")]
+                        tracing::error!("Error while extracting data: {}", _e);
+                        return;
+                    },
                 };
 
                 (self.clone())($($ty,)* last);

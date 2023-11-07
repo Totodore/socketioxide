@@ -59,7 +59,8 @@ where
 /// A trait used to extract the arguments from the connect event
 /// The `Result` is used to return an error if the extraction fails, in this case the handler is not called
 pub trait FromConnectParts<A: Adapter>: Sized {
-    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, ()>;
+    type Error: std::error::Error + 'static;
+    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
 }
 
 /// Define a handler for the connect event
@@ -96,7 +97,11 @@ macro_rules! impl_handler_async {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
-                        Err(_) => return,
+                        Err(_e) => {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("Error while extracting data: {}", _e);
+                            return;
+                        },
                     };
                 )*
 
@@ -123,7 +128,11 @@ macro_rules! impl_handler {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
-                        Err(_) => return,
+                        Err(_e) => {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("Error while extracting data: {}", _e);
+                            return;
+                        },
                     };
                 )*
 

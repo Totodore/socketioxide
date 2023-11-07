@@ -11,6 +11,7 @@
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
 //! * [`SocketRef`](SocketRef): extracts a reference to the [`Socket`]
 
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use super::message::FromMessageParts;
@@ -44,15 +45,12 @@ where
     T: DeserializeOwned,
     A: Adapter,
 {
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, ()> {
+    type Error = serde_json::Error;
+    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error> {
         auth.as_ref()
             .map(|a| serde_json::from_str::<T>(a))
             .unwrap_or(serde_json::from_str::<T>("{}"))
             .map(Data)
-            .map_err(|_e| {
-                #[cfg(feature = "tracing")]
-                tracing::error!("Error deserializing auth data: {}", _e);
-            })
     }
 }
 impl<T, A> FromMessageParts<A> for Data<T>
@@ -60,17 +58,15 @@ where
     T: DeserializeOwned,
     A: Adapter,
 {
+    type Error = serde_json::Error;
     fn from_message_parts(
         _: &Arc<Socket<A>>,
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, Self::Error> {
         upwrap_array(v);
-        serde_json::from_value(v.clone()).map(Data).map_err(|_e| {
-            #[cfg(feature = "tracing")]
-            tracing::error!("Error deserializing message data: {}", _e);
-        })
+        serde_json::from_value(v.clone()).map(Data)
     }
 }
 
@@ -82,7 +78,8 @@ where
     T: DeserializeOwned,
     A: Adapter,
 {
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, ()> {
+    type Error = Infallible;
+    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Infallible> {
         let v: Result<T, serde_json::Error> = auth
             .as_ref()
             .map(|a| serde_json::from_str(a))
@@ -95,12 +92,13 @@ where
     T: DeserializeOwned,
     A: Adapter,
 {
+    type Error = Infallible;
     fn from_message_parts(
         _: &Arc<Socket<A>>,
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, Infallible> {
         upwrap_array(v);
         Ok(TryData(serde_json::from_value(v.clone())))
     }
@@ -109,17 +107,19 @@ where
 pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, ()> {
+    type Error = Infallible;
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
 impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
+    type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
@@ -151,12 +151,13 @@ impl<A: Adapter> SocketRef<A> {
 /// if there is no binary data, it will return an empty vector
 pub struct Bin(pub Vec<Vec<u8>>);
 impl<A: Adapter> FromMessage<A> for Bin {
+    type Error = Infallible;
     fn from_message(
         _: Arc<Socket<A>>,
         _: serde_json::Value,
         bin: Vec<Vec<u8>>,
         _: Option<i64>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, Infallible> {
         Ok(Bin(bin))
     }
 }
@@ -171,12 +172,13 @@ pub struct AckSender<A: Adapter = LocalAdapter> {
     ack_id: Option<i64>,
 }
 impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
+    type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, Infallible> {
         Ok(Self::new(s.clone(), *ack_id))
     }
 }
