@@ -18,7 +18,7 @@
 //!
 //!     // `Bin` extractor must be the last argument because it consumes the rest of the packet
 //!     s.on("/binary_event", |s: SocketRef, TryData::<String>(data), Bin(bin)| {
-//!       println!("Socket received event with data: {} and binary data: {:?}", data, bin);
+//!       println!("Socket received event with data: {:?} and binary data: {:?}", data, bin);
 //!     })
 //! });
 //! ```

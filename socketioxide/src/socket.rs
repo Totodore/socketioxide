@@ -414,7 +414,7 @@ impl<A: Adapter> Socket<A> {
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, data: Value, bin, _| async move {
+    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")

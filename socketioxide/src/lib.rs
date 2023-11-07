@@ -11,7 +11,7 @@
 //! use axum::routing::get;
 //! use axum::Server;
 //! use serde::{Serialize, Deserialize};
-//! use socketioxide::{SocketIo, AckSender, extract::{SocketRef, Data}};
+//! use socketioxide::{SocketIo, extract::*};
 //! use serde_json::Value;
 //!
 //! #[derive(Debug, Serialize, Deserialize)]
