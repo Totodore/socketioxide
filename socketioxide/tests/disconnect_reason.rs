@@ -31,8 +31,6 @@ fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectR
             tx.try_send(reason).unwrap();
             async move {}
         });
-
-        async move {}
     });
     rx
 }

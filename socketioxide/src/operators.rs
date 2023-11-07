@@ -8,10 +8,10 @@ use serde::de::DeserializeOwned;
 use crate::adapter::LocalAdapter;
 use crate::errors::BroadcastError;
 use crate::extract::SocketRef;
+use crate::socket::AckResponse;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::AckError,
-    handler::AckResponse,
     ns::Namespace,
     packet::Packet,
 };

@@ -22,7 +22,7 @@ use crate::extensions::Extensions;
 use crate::{
     adapter::{Adapter, LocalAdapter, Room},
     errors::{AckError, Error},
-    handler::{AckResponse, BoxedMessageHandler, MakeErasedHandler, MessageHandler},
+    handler::{BoxedMessageHandler, MakeErasedHandler, MessageHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
@@ -95,6 +95,11 @@ impl From<EIoDisconnectReason> for DisconnectReason {
         }
     }
 }
+/// A response to an ack request
+pub struct AckResponse<T> {
+    pub data: T,
+    pub binary: Vec<Vec<u8>>,
+}
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
@@ -103,7 +108,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<(Value, Vec<Vec<u8>>)>>>,
     ack_counter: AtomicI64,
     pub id: Sid,
 
@@ -185,10 +190,11 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn on<H, T>(&self, event: impl Into<String>, handler: H)
+    pub fn on<H, T, Fut>(&self, event: impl Into<String>, handler: H)
     where
-        H: MessageHandler<A, T>,
-        T: DeserializeOwned + Send + Sync + 'static,
+        H: MessageHandler<A, T, Fut>,
+        T: Send + Sync + 'static,
+        Fut: Send + Sync + 'static,
     {
         self.message_handlers
             .write()
@@ -518,7 +524,10 @@ impl<A: Adapter> Socket<A> {
         self.send(packet)?;
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
-        Ok((serde_json::from_value(v.0)?, v.1))
+        Ok(AckResponse {
+            data: serde_json::from_value(v.0)?,
+            binary: v.1,
+        })
     }
 
     /// Called when the socket is gracefully disconnected from the server or the client

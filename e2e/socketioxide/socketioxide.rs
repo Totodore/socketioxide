@@ -5,8 +5,8 @@ use std::time::Duration;
 use hyper::Server;
 use serde_json::Value;
 use socketioxide::{
-    extract::{Data, SocketRef},
-    AckSender, SocketIo,
+    extract::{AckSender, Bin, Data, SocketRef},
+    SocketIo,
 };
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -17,7 +17,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 
     socket.on(
         "message",
-        |socket: SocketRef, data: Value, bin, _| async move {
+        |socket: SocketRef, Data::<Value>(data), Bin(bin)| {
             info!("Received event: {:?} {:?}", data, bin);
             socket.bin(bin).emit("message-back", data).ok();
         },
@@ -25,7 +25,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 
     socket.on(
         "message-with-ack",
-        |_: SocketRef, data: Value, bin, ack: AckSender| async move {
+        |Data::<Value>(data), ack: AckSender, Bin(bin)| {
             info!("Received event: {:?} {:?}", data, bin);
             ack.bin(bin).send(data).ok();
         },

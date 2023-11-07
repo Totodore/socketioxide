@@ -5,15 +5,8 @@ mod connect;
 pub mod extract;
 mod message;
 
-use std::sync::Arc;
-
 pub(crate) use connect::{BoxedConnectHandler, ConnectHandler};
-pub use message::{AckResponse, AckSender};
 pub(crate) use message::{BoxedMessageHandler, MessageHandler};
-
-use serde_json::Value;
-
-use crate::{adapter::Adapter, socket::Socket};
 
 /// A struct used to erase the type of a [`ConnectHandler`] or [`MessageHandler`] so it can be stored in a map
 pub(crate) struct MakeErasedHandler<H, A, T, Fut> {
@@ -31,8 +24,4 @@ impl<H, A, T, Fut> MakeErasedHandler<H, A, T, Fut> {
             fut: std::marker::PhantomData,
         }
     }
-}
-
-trait FromMessageParts<T, A: Adapter> {
-    fn from_message_parts(s: &Arc<Socket<A>>, v: &Value, ack_id: Option<i64>);
 }

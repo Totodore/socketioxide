@@ -11,11 +11,11 @@ use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
     extract::SocketRef,
-    handler::{AckResponse, ConnectHandler},
+    handler::ConnectHandler,
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    AckError, BroadcastError,
+    AckError, AckResponse, BroadcastError,
 };
 
 /// Configuration for Socket.IO & Engine.IO
