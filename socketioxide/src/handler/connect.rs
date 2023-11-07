@@ -114,7 +114,7 @@ macro_rules! impl_handler {
         #[allow(non_snake_case, unused)]
         impl<A, F, $($ty,)*> ConnectHandler<A, ($($ty,)*), ()> for F
         where
-            F: FnOnce($($ty,)*) -> () + Send + Sync + Clone + 'static,
+            F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
