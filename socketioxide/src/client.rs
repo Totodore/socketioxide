@@ -133,10 +133,11 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Add a new namespace handler
-    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
+    pub fn add_ns<C, T, Fut>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<A, T, Fut>,
         T: Send + Sync + 'static,
+        Fut: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);

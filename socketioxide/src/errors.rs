@@ -1,6 +1,6 @@
 use crate::{
     adapter::{Adapter, LocalAdapter},
-    Socket,
+    socket::Socket,
 };
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::{

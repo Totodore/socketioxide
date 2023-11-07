@@ -4,9 +4,11 @@ use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
+use super::extract::SocketRef;
 use crate::adapter::LocalAdapter;
 use crate::errors::AckSenderError;
-use crate::{adapter::Adapter, packet::Packet, Socket};
+use crate::socket::Socket;
+use crate::{adapter::Adapter, packet::Packet};
 
 use super::MakeErasedHandler;
 
@@ -24,7 +26,7 @@ pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
     }
 }
 
-impl<A, T, H> MakeErasedHandler<H, A, T>
+impl<A, T, H> MakeErasedHandler<H, A, T, ()>
 where
     T: Send + Sync + 'static,
     H: MessageHandler<A, T> + Send + Sync + 'static,
@@ -35,7 +37,7 @@ where
     }
 }
 
-impl<A, T, H> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T>
+impl<A, T, H> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T, ()>
 where
     T: Send + Sync + 'static,
     H: MessageHandler<A, T> + Send + Sync + 'static,
@@ -50,7 +52,7 @@ where
 impl<F, A, T, Fut> MessageHandler<A, (T,)> for F
 where
     T: DeserializeOwned + Send + Sync + 'static,
-    F: Fn(Arc<Socket<A>>, T, Vec<Vec<u8>>, AckSender<A>) -> Fut + Send + Sync + 'static,
+    F: Fn(SocketRef<A>, T, Vec<Vec<u8>>, AckSender<A>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
     A: Adapter,
 {
@@ -59,6 +61,7 @@ where
         let v = upwrap_array(v);
         let v: T = serde_json::from_value(v).unwrap();
         let owned_socket = s.clone();
+        let s = SocketRef::new(s);
         let fut = self(s, v, p, AckSender::new(owned_socket, ack_id));
         tokio::spawn(fut);
     }

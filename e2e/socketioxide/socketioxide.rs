@@ -4,10 +4,33 @@ use std::time::Duration;
 
 use hyper::Server;
 use serde_json::Value;
-use socketioxide::{AckSender, Socket, SocketIo};
-use std::sync::Arc;
+use socketioxide::{
+    extract::{Data, SocketRef},
+    AckSender, SocketIo,
+};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
+
+fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
+    info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
+    socket.emit("auth", data).ok();
+
+    socket.on(
+        "message",
+        |socket: SocketRef, data: Value, bin, _| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            socket.bin(bin).emit("message-back", data).ok();
+        },
+    );
+
+    socket.on(
+        "message-with-ack",
+        |_: SocketRef, data: Value, bin, ack: AckSender| async move {
+            info!("Received event: {:?} {:?}", data, bin);
+            ack.bin(bin).send(data).ok();
+        },
+    );
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,30 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build_svc();
 
-    io.ns("/", |socket: Arc<Socket>, data: Value| async move {
-        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
-        socket.emit("auth", data).ok();
-
-        socket.on(
-            "message",
-            |socket: Arc<Socket>, data: Value, bin, _| async move {
-                info!("Received event: {:?} {:?}", data, bin);
-                socket.bin(bin).emit("message-back", data).ok();
-            },
-        );
-
-        socket.on(
-            "message-with-ack",
-            |_: Arc<Socket>, data: Value, bin, ack: AckSender| async move {
-                info!("Received event: {:?} {:?}", data, bin);
-                ack.bin(bin).send(data).ok();
-            },
-        );
-    });
-    io.ns("/custom", |socket: Arc<Socket>, data: Value| async move {
-        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.id);
-        socket.emit("auth", data).ok();
-    });
+    io.ns("/", on_connect);
+    io.ns("/custom", on_connect);
 
     #[cfg(feature = "v5")]
     info!("Starting server with v5 protocol");

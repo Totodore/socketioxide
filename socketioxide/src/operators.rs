@@ -7,13 +7,13 @@ use serde::de::DeserializeOwned;
 
 use crate::adapter::LocalAdapter;
 use crate::errors::BroadcastError;
+use crate::extract::SocketRef;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::AckError,
     handler::AckResponse,
     ns::Namespace,
     packet::Packet,
-    Socket,
 };
 
 /// A trait for types that can be used as a room parameter.
@@ -81,6 +81,13 @@ impl<const COUNT: usize> RoomParam for [String; COUNT] {
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(Cow::Owned)
+    }
+}
+impl RoomParam for Sid {
+    type IntoIter = std::iter::Once<Room>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        std::iter::once(Cow::Owned(self.to_string()))
     }
 }
 
@@ -335,7 +342,7 @@ impl<A: Adapter> Operators<A> {
     ///     }
     ///   });
     /// });
-    pub fn sockets(self) -> Result<Vec<Arc<Socket<A>>>, A::Error> {
+    pub fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 
