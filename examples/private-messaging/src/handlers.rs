@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
-use socketioxide::Socket;
+use socketioxide::extract::{Data, SocketRef, TryData};
 use tracing::error;
 use uuid::Uuid;
 
@@ -40,7 +38,7 @@ struct PrivateMessageReq {
     content: String,
 }
 
-pub async fn on_connection(s: Arc<Socket>, auth: Auth) {
+pub fn on_connection(s: SocketRef, TryData(auth): TryData<Auth>) {
     if let Err(e) = session_connect(&s, auth) {
         error!("Failed to connect: {:?}", e);
         s.disconnect().ok();
@@ -49,7 +47,7 @@ pub async fn on_connection(s: Arc<Socket>, auth: Auth) {
 
     s.on(
         "private message",
-        |s: Arc<Socket>, PrivateMessageReq { to, content }, _, _| async move {
+        |s: SocketRef, Data(PrivateMessageReq { to, content })| {
             let user_id = s.extensions.get::<Session>().unwrap().user_id;
             let message = Message {
                 from: user_id,
@@ -85,7 +83,11 @@ enum ConnectError {
 }
 
 /// Handles the connection of a new user
-fn session_connect(s: &Socket, auth: Auth) -> Result<(), ConnectError> {
+fn session_connect(
+    s: &SocketRef,
+    auth: Result<Auth, serde_json::Error>,
+) -> Result<(), ConnectError> {
+    let auth = auth.map_err(ConnectError::EncodeError)?;
     let mut sessions = get_sessions().write().unwrap();
     if let Some(session) = auth.session_id.and_then(|id| sessions.get_mut(&id)) {
         session.connected = true;

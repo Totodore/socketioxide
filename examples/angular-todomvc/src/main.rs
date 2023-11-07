@@ -1,9 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use axum::Server;
 
 use serde::{Deserialize, Serialize};
-use socketioxide::{Socket, SocketIo};
+use socketioxide::{
+    extract::{Data, SocketRef},
+    SocketIo,
+};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
@@ -28,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", |s: Arc<Socket>| async move {
+    io.ns("/", |s: SocketRef| {
         info!("New connection: {}", s.id);
 
         let todos = TODOS.lock().unwrap().clone();
@@ -39,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "update-store",
-            |s: Arc<Socket>, new_todos: Vec<Todo>, _, _| async move {
+            |s: SocketRef, Data::<Vec<Todo>>(new_todos)| {
                 info!("Received update-store event: {:?}", new_todos);
 
                 let mut todos = TODOS.lock().unwrap();
