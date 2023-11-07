@@ -35,22 +35,20 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 }
 
-impl<A: Adapter, T, H, Fut> MakeErasedHandler<H, A, T, Fut>
+impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
-    H: ConnectHandler<A, T, Fut> + Send + Sync + 'static,
-    Fut: Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + 'static,
 {
     pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler<A>> {
         Box::new(MakeErasedHandler::new(inner))
     }
 }
 
-impl<A: Adapter, T, H, Fut> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T, Fut>
+impl<A: Adapter, T, H> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T>
 where
-    H: ConnectHandler<A, T, Fut> + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
-    Fut: Send + Sync + 'static,
 {
     #[inline(always)]
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
@@ -67,14 +65,10 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// Define a handler for the connect event
 /// It is implemented for closures with up to 16 arguments that implement the [`FromConnectParts`] trait
 /// The closure can be async or not
-pub trait ConnectHandler<A: Adapter, T, F>: Send + Sync + 'static {
+pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 
     fn phantom(&self) -> std::marker::PhantomData<T> {
-        std::marker::PhantomData
-    }
-
-    fn phantom_fut(&self) -> std::marker::PhantomData<F> {
         std::marker::PhantomData
     }
 }
@@ -84,7 +78,7 @@ macro_rules! impl_handler_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, ($($ty,)*), (Fut,)> for F
+        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, ((Fut,), $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
@@ -112,7 +106,7 @@ macro_rules! impl_handler {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)*> ConnectHandler<A, ($($ty,)*), ()> for F
+        impl<A, F, $($ty,)*> ConnectHandler<A, ((), $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
             A: Adapter,

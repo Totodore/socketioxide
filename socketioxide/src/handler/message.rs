@@ -42,34 +42,35 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 /// Define a handler for the connect event
 /// It is implemented for closures with up to 16 arguments that implement the [`FromMessageParts`] trait or the [`FromMessage`] trait for the last argument
 /// The closure can be async or not
-pub trait MessageHandler<A: Adapter, T, F>: Send + Sync + 'static {
+#[cfg_attr(
+    nightly_error_messages,
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+    )
+)]
+pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>);
     fn phantom(&self) -> std::marker::PhantomData<T> {
         std::marker::PhantomData
     }
-    fn phantom_fut(&self) -> std::marker::PhantomData<F> {
-        std::marker::PhantomData
-    }
 }
 
-impl<A, T, H, Fut> MakeErasedHandler<H, A, T, Fut>
+impl<A, T, H> MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
-    H: MessageHandler<A, T, Fut> + Send + Sync + 'static,
+    H: MessageHandler<A, T> + Send + Sync + 'static,
     A: Adapter,
-    Fut: Send + Sync + 'static,
 {
     pub fn new_message_boxed(inner: H) -> Box<dyn ErasedMessageHandler<A>> {
         Box::new(MakeErasedHandler::new(inner))
     }
 }
 
-impl<A, T, H, Fut> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T, Fut>
+impl<A, T, H> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
-    H: MessageHandler<A, T, Fut> + Send + Sync + 'static,
+    H: MessageHandler<A, T> + Send + Sync + 'static,
     A: Adapter,
-    Fut: Send + Sync + 'static,
 {
     #[inline(always)]
     fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>) {
@@ -87,7 +88,13 @@ mod private {
 
 /// A trait used to extract the arguments from the message event
 /// The `Result` is used to return an error if the extraction fails, in this case the handler is not called
-pub trait FromMessageParts<A: Adapter, M = private::ViaParts>: Sized {
+#[cfg_attr(
+    nightly_error_messages,
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+    )
+)]
+pub trait FromMessageParts<A: Adapter>: Sized {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
@@ -98,6 +105,12 @@ pub trait FromMessageParts<A: Adapter, M = private::ViaParts>: Sized {
 
 /// A trait used to extract and consume the arguments from the message event
 /// The `Result` is used to return an error if the extraction fails, in this case the handler is not called
+#[cfg_attr(
+    nightly_error_messages,
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+    )
+)]
 pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
     fn from_message(
         s: Arc<Socket<A>>,
@@ -124,7 +137,7 @@ where
 }
 
 /// Empty Async handler
-impl<A, F, Fut> MessageHandler<A, (), (Fut,)> for F
+impl<A, F, Fut> MessageHandler<A, (Fut,)> for F
 where
     F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
     Fut: Future<Output = ()> + Send + 'static,
@@ -137,7 +150,7 @@ where
 }
 
 /// Empty Sync handler
-impl<A, F> MessageHandler<A, (), ()> for F
+impl<A, F> MessageHandler<A, ()> for F
 where
     F: FnOnce() + Send + Sync + Clone + 'static,
     A: Adapter,
@@ -152,13 +165,13 @@ macro_rules! impl_async_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)* $last, Fut> MessageHandler<A, ($($ty,)* $last,), (Fut,)> for F
+        impl<A, F, M, $($ty,)* $last, Fut> MessageHandler<A, ((Fut,), M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
             A: Adapter,
             $( $ty: FromMessageParts<A> + Send, )*
-            $last: FromMessage<A> + Send,
+            $last: FromMessage<A, M> + Send,
         {
             fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Vec<u8>>, ack_id: Option<i64>) {
                 $(
@@ -182,12 +195,12 @@ macro_rules! impl_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)* $last> MessageHandler<A, ($($ty,)* $last,), ()> for F
+        impl<A, F, M, $($ty,)* $last> MessageHandler<A, ((), M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) + Send + Sync + Clone + 'static,
             A: Adapter,
             $( $ty: FromMessageParts<A> + Send, )*
-            $last: FromMessage<A> + Send,
+            $last: FromMessage<A, M> + Send,
         {
             fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Vec<u8>>, ack_id: Option<i64>) {
                 $(

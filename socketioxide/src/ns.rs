@@ -23,11 +23,10 @@ pub struct Namespace<A: Adapter> {
 }
 
 impl<A: Adapter> Namespace<A> {
-    pub fn new<C, T, Fut>(path: Cow<'static, str>, handler: C) -> Arc<Self>
+    pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
-        C: ConnectHandler<A, T, Fut> + Send + Sync + 'static,
+        C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
-        Fut: Send + Sync + 'static,
     {
         Arc::new_cyclic(|ns| Self {
             path,

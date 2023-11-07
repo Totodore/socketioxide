@@ -306,11 +306,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ```
     #[inline]
-    pub fn ns<C, T, Fut>(&self, path: impl Into<Cow<'static, str>>, callback: C)
+    pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
-        C: ConnectHandler<A, T, Fut>,
+        C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
-        Fut: Send + Sync + 'static,
     {
         self.0.add_ns(path.into(), callback);
     }
@@ -418,10 +417,10 @@ impl<A: Adapter> SocketIo<A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    ///     socket.on("register1", |socket: SocketRef, data: (), _, _| async move {
+    ///     socket.on("register1", |socket: SocketRef| {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket: SocketRef, data: (), _, _| async move {
+    ///     socket.on("register2", |socket: SocketRef| {
     ///         socket.join("room2");
     ///     });
     /// });

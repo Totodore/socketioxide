@@ -96,6 +96,7 @@ impl From<EIoDisconnectReason> for DisconnectReason {
     }
 }
 /// A response to an ack request
+#[derive(Debug)]
 pub struct AckResponse<T> {
     pub data: T,
     pub binary: Vec<Vec<u8>>,
@@ -190,11 +191,10 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn on<H, T, Fut>(&self, event: impl Into<String>, handler: H)
+    pub fn on<H, T>(&self, event: impl Into<String>, handler: H)
     where
-        H: MessageHandler<A, T, Fut>,
+        H: MessageHandler<A, T>,
         T: Send + Sync + 'static,
-        Fut: Send + Sync + 'static,
     {
         self.message_handlers
             .write()

@@ -83,7 +83,7 @@ pub use packet::*;
 
 pub use engineioxide::config::TransportType;
 pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
-pub use handler::extract;
+pub use handler::{extract, FromConnectParts, FromMessage, FromMessageParts};
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 pub use socket::{AckResponse, DisconnectReason};
 
