@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 engineioxide = { path = "../../engineioxide", default-features = false, features = [
     "tracing",
+    "hyper-v1",
 ] }
 hyper-v1 = { package = "hyper", version = "1.0.0-rc.4", features = [
     "server",
@@ -21,7 +22,6 @@ serde_json.workspace = true
 [[bin]]
 name = "engineioxide-hyper-v1-e2e"
 path = "engineioxide-hyper-v1.rs"
-required-features = ["engineioxide/hyper-v1"]
 
 [[bin]]
 name = "engineioxide-hyper-v04-e2e"
