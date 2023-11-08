@@ -73,7 +73,15 @@ jobs:
       - name: Get MSRV from package metadata
         id: msrv
         run: grep rust-version Cargo.toml | cut -d'"' -f2 | sed 's/^/version=/' >> $GITHUB_OUTPUT
-        
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ steps.msrv.outputs.version }}
       - uses: dtolnay/rust-toolchain@master
         with:
             toolchain: ${{ steps.msrv.outputs.version }}
