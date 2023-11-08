@@ -22,7 +22,7 @@ use crate::extensions::Extensions;
 use crate::{
     adapter::{Adapter, LocalAdapter, Room},
     errors::{AckError, Error},
-    handler::{AckResponse, AckSender, BoxedMessageHandler, CallbackHandler},
+    handler::{BoxedMessageHandler, MakeErasedHandler, MessageHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
@@ -95,6 +95,12 @@ impl From<EIoDisconnectReason> for DisconnectReason {
         }
     }
 }
+/// A response to an ack request
+#[derive(Debug)]
+pub struct AckResponse<T> {
+    pub data: T,
+    pub binary: Vec<Vec<u8>>,
+}
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
@@ -146,10 +152,8 @@ impl<A: Adapter> Socket<A> {
     ///
     /// #### Simple example with a closure:
     /// ```
-    /// # use socketioxide::SocketIo;
-    /// # use serde_json::Value;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde::{Serialize, Deserialize};
-    ///
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
     ///     name: String,
@@ -157,8 +161,8 @@ impl<A: Adapter> Socket<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: MyData, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
@@ -168,7 +172,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// #### Example with a closure and an ackknowledgement + binary data:
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use serde::{Serialize, Deserialize};
     ///
@@ -179,25 +183,23 @@ impl<A: Adapter> Socket<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: MyData, bin, ack| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
     ///         println!("Received a test message {:?}", data);
     ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
     /// ```
-    pub fn on<C, F, V>(&self, event: impl Into<String>, callback: C)
+    pub fn on<H, T>(&self, event: impl Into<String>, handler: H)
     where
-        C: Fn(Arc<Socket<A>>, V, Vec<Vec<u8>>, AckSender<A>) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-        V: DeserializeOwned + Send + Sync + 'static,
+        H: MessageHandler<A, T>,
+        T: Send + Sync + 'static,
     {
-        let handler = Box::new(move |s, v, p, ack_fn| Box::pin(callback(s, v, p, ack_fn)) as _);
-        self.message_handlers.write().unwrap().insert(
-            event.into(),
-            CallbackHandler::boxed_message_handler(handler),
-        );
+        self.message_handlers
+            .write()
+            .unwrap()
+            .insert(event.into(), MakeErasedHandler::new_message_boxed(handler));
     }
 
     /// ## Register a disconnect handler.
@@ -205,11 +207,12 @@ impl<A: Adapter> Socket<A> {
     /// A [`DisconnectReason`](crate::DisconnectReason) is passed to the callback to indicate the reason for the disconnection.
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef| async move {
     ///         // Close the current socket
     ///         socket.disconnect().ok();
     ///     });
@@ -229,11 +232,12 @@ impl<A: Adapter> Socket<A> {
     /// Emit a message to the client
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message to the client
     ///         socket.emit("test", data);
     ///     });
@@ -257,11 +261,12 @@ impl<A: Adapter> Socket<A> {
     /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement
     ///         match socket.emit_with_ack::<Value>("test", data).await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
@@ -313,11 +318,12 @@ impl<A: Adapter> Socket<A> {
     /// If you want to include the current socket, use the `within()` operator.
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
     ///         socket
@@ -336,11 +342,12 @@ impl<A: Adapter> Socket<A> {
     /// It does include the current socket contrary to the `to()` operator.
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 including the current socket
     ///         socket
@@ -357,17 +364,18 @@ impl<A: Adapter> Socket<A> {
     /// Filter out all clients selected with the previous operators which are in the given rooms.
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("register1", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("register1", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket, data: Value, _, _| async move {
+    ///     socket.on("register2", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         socket.join("room2");
     ///     });
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all clients in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
@@ -381,11 +389,12 @@ impl<A: Adapter> Socket<A> {
     /// When using the default in-memory adapter, this operator is a no-op.
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///     });
@@ -398,13 +407,14 @@ impl<A: Adapter> Socket<A> {
     ///
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///    socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
@@ -427,11 +437,12 @@ impl<A: Adapter> Socket<A> {
     /// Add a binary payload to the message.
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // This will send the binary payload received to all clients in this namespace with the test message
     ///         socket.bin(bin).emit("test", data);
     ///     });
@@ -443,11 +454,12 @@ impl<A: Adapter> Socket<A> {
     /// Broadcast to all clients without any filtering (except the current socket).
     /// ##### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });
@@ -512,7 +524,10 @@ impl<A: Adapter> Socket<A> {
         self.send(packet)?;
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
-        Ok((serde_json::from_value(v.0)?, v.1))
+        Ok(AckResponse {
+            data: serde_json::from_value(v.data)?,
+            binary: v.binary,
+        })
     }
 
     /// Called when the socket is gracefully disconnected from the server or the client
@@ -543,7 +558,7 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_event(self: Arc<Self>, e: &str, data: Value, ack: Option<i64>) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(self.clone(), data, vec![], ack)?;
+            handler.call(self.clone(), data, vec![], ack);
         }
         Ok(())
     }
@@ -555,21 +570,29 @@ impl<A: Adapter> Socket<A> {
         ack: Option<i64>,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(self.clone(), packet.data, packet.bin, ack)?;
+            handler.call(self.clone(), packet.data, packet.bin, ack);
         }
         Ok(())
     }
 
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            tx.send((data, vec![])).ok();
+            let res = AckResponse {
+                data,
+                binary: vec![],
+            };
+            tx.send(res).ok();
         }
         Ok(())
     }
 
     fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            tx.send((packet.data, packet.bin)).ok();
+            let res = AckResponse {
+                data: packet.data,
+                binary: packet.bin,
+            };
+            tx.send(res).ok();
         }
         Ok(())
     }

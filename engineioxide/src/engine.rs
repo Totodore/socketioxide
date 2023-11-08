@@ -58,12 +58,10 @@ impl<H: EngineIoHandler> EngineIo<H> {
             supports_binary,
         );
         let socket = Arc::new(socket);
-        {
-            self.sockets
-                .write()
-                .unwrap()
-                .insert(socket.id, socket.clone());
-        }
+        self.sockets
+            .write()
+            .unwrap()
+            .insert(socket.id, socket.clone());
         self.handler.on_connect(socket.clone());
         socket
     }
@@ -80,7 +78,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         let socket = self.sockets.write().unwrap().remove(&sid);
         if let Some(socket) = socket {
             // Try to close the internal channel if it is available
-            // For e.g with polling transport the channel is not always locked so it is necessary to close it here
+            // E.g. with polling transport the channel is not always locked so it is necessary to close it here
             socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
             socket.abort_heartbeat();
             self.handler.on_disconnect(socket, reason);

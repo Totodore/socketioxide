@@ -11,8 +11,7 @@
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use serde_json::Value;
-use socketioxide::{DisconnectReason, SocketIo};
+use socketioxide::{extract::SocketRef, DisconnectReason, SocketIo};
 use tokio::sync::mpsc;
 
 mod fixture;
@@ -24,7 +23,7 @@ use crate::fixture::{create_polling_connection, create_ws_connection};
 
 fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectReason> {
     let (tx, rx) = mpsc::channel::<DisconnectReason>(chan_size);
-    io.ns("/", move |socket, _: Value| {
+    io.ns("/", move |socket: SocketRef| {
         println!("Socket connected on / namespace with id: {}", socket.id);
         let tx = tx.clone();
         socket.on_disconnect(move |socket, reason| {
@@ -32,8 +31,6 @@ fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectR
             tx.try_send(reason).unwrap();
             async move {}
         });
-
-        async move {}
     });
     rx
 }
@@ -42,13 +39,6 @@ fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectR
 
 #[tokio::test]
 pub async fn polling_heartbeat_timeout() {
-    // let subscriber = FmtSubscriber::builder()
-    //     .with_line_number(true)
-    //     .with_max_level(Level::DEBUG)
-    //     .finish();
-
-    // tracing::subscriber::set_global_default(subscriber).unwrap();
-
     let io = create_server(1234);
     let mut rx = attach_handler(&io, 1);
     create_polling_connection(1234).await;
@@ -212,14 +202,16 @@ pub async fn client_ns_disconnect() {
 pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
     let io = create_server(12349);
-
-    io.ns("/", move |socket, _: Value| {
-        println!("Socket connected on / namespace with id: {}", socket.id);
-        let sock = socket.clone();
+    let io2 = io.clone();
+    io.ns("/", move |socket: SocketRef| {
+        let id = socket.id;
+        println!("Socket connected on / namespace with id: {}", id);
         let tx = tx.clone();
+
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            sock.disconnect().unwrap();
+            let s = io2.sockets().unwrap().into_iter().nth(0).unwrap();
+            s.disconnect().unwrap();
         });
 
         socket.on_disconnect(move |socket, reason| {
@@ -227,8 +219,6 @@ pub async fn server_ns_disconnect() {
             tx.try_send(reason).unwrap();
             async move {}
         });
-
-        async move {}
     });
 
     let _stream = create_ws_connection(12349).await;

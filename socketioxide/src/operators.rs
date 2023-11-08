@@ -7,13 +7,13 @@ use serde::de::DeserializeOwned;
 
 use crate::adapter::LocalAdapter;
 use crate::errors::BroadcastError;
+use crate::extract::SocketRef;
+use crate::socket::AckResponse;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::AckError,
-    handler::AckResponse,
     ns::Namespace,
     packet::Packet,
-    Socket,
 };
 
 /// A trait for types that can be used as a room parameter.
@@ -83,6 +83,13 @@ impl<const COUNT: usize> RoomParam for [String; COUNT] {
         self.into_iter().map(Cow::Owned)
     }
 }
+impl RoomParam for Sid {
+    type IntoIter = std::iter::Once<Room>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        std::iter::once(Cow::Owned(self.to_string()))
+    }
+}
 
 /// Operators are used to select sockets to send a packet to, or to configure the packet that will be emitted.
 #[derive(Debug)]
@@ -107,11 +114,11 @@ impl<A: Adapter> Operators<A> {
     /// If you want to include the current socket, use the `within()` operator.
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 except the current
     ///         socket
@@ -133,11 +140,11 @@ impl<A: Adapter> Operators<A> {
     /// If it is called from the `Namespace` level there will be no difference with the `to()` operator
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         let other_rooms = "room4".to_string();
     ///         // In room1, room2, room3 and room4 including the current socket
     ///         socket
@@ -155,17 +162,17 @@ impl<A: Adapter> Operators<A> {
     /// Filter out all sockets selected with the previous operators which are in the given rooms.
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///     socket.on("register1", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("register1", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket, data: Value, _, _| async move {
+    ///     socket.on("register2", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         socket.join("room2");
     ///     });
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
@@ -181,11 +188,11 @@ impl<A: Adapter> Operators<A> {
     /// When using the default in-memory adapter, this operator is a no-op.
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in this namespace and connected on this node
     ///         socket.local().emit("test", data);
     ///     });
@@ -198,11 +205,11 @@ impl<A: Adapter> Operators<A> {
     /// Broadcast to all sockets without any filtering (except the current socket).
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///     socket.on("test", |socket, data: Value, _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });
@@ -216,13 +223,13 @@ impl<A: Adapter> Operators<A> {
     ///
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///    socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
@@ -246,11 +253,11 @@ impl<A: Adapter> Operators<A> {
     /// Add a binary payload to the message.
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // This will send the binary payload received to all sockets in this namespace with the test message
     ///         socket.bin(bin).emit("test", data);
     ///     });
@@ -263,11 +270,11 @@ impl<A: Adapter> Operators<A> {
     /// Emit a message to all sockets selected with the previous operators.
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///     socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
     ///     });
@@ -290,12 +297,12 @@ impl<A: Adapter> Operators<A> {
     /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// #### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///    socket.on("test", |socket, data: Value, bin, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///       socket.to("room1")
     ///             .to("room3")
@@ -320,14 +327,14 @@ impl<A: Adapter> Operators<A> {
 
     /// Get all sockets selected with the previous operators.
     ///
-    /// It can be used to retrieve any extension data from the sockets or to make some sockets join other rooms.
+    /// It can be used to retrieve any extension data (with the `extensions` feature enabled) from the sockets or to make some sockets join other rooms.
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///   socket.on("test", |socket, _: (), _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///   socket.on("test", |socket: SocketRef| async move {
     ///     // Find an extension data in each sockets in the room1 and room3 rooms, except for the room2
     ///     let sockets = socket.within("room1").within("room3").except("room2").sockets().unwrap();
     ///     for socket in sockets {
@@ -335,7 +342,7 @@ impl<A: Adapter> Operators<A> {
     ///     }
     ///   });
     /// });
-    pub fn sockets(self) -> Result<Vec<Arc<Socket<A>>>, A::Error> {
+    pub fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 
@@ -343,10 +350,10 @@ impl<A: Adapter> Operators<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///   socket.on("test", |socket, _: (), _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///   socket.on("test", |socket: SocketRef| async move {
     ///     // Disconnect all sockets in the room1 and room3 rooms, except for the room2
     ///     socket.within("room1").within("room3").except("room2").disconnect().unwrap();
     ///   });
@@ -359,10 +366,10 @@ impl<A: Adapter> Operators<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    ///   socket.on("test", |socket, _: (), _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    ///   socket.on("test", |socket: SocketRef| async move {
     ///     // Add all sockets that are in the room1 and room3 to the room4 and room5
     ///     socket.within("room1").within("room3").join(["room4", "room5"]).unwrap();
     ///   });
@@ -375,10 +382,10 @@ impl<A: Adapter> Operators<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, data: ()| async move {
-    /// socket.on("test", |socket, _: (), _, _| async move {
+    /// io.ns("/", |socket: SocketRef| {
+    /// socket.on("test", |socket: SocketRef| async move {
     ///     // Remove all sockets that are in the room1 and room3 from the room4 and room5
     ///     socket.within("room1").within("room3").leave(["room4", "room5"]).unwrap();
     ///   });

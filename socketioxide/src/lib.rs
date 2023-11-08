@@ -11,7 +11,7 @@
 //! use axum::routing::get;
 //! use axum::Server;
 //! use serde::{Serialize, Deserialize};
-//! use socketioxide::SocketIo;
+//! use socketioxide::{SocketIo, extract::*};
 //! use serde_json::Value;
 //!
 //! #[derive(Debug, Serialize, Deserialize)]
@@ -27,19 +27,19 @@
 //!
 //!     let (layer, io) = SocketIo::new_layer();
 //!
-//!     io.ns("/", |socket, auth: Value| async move {
+//!     io.ns("/", |socket: SocketRef| {
 //!         println!("Socket connected on / namespace with id: {}", socket.id);
 //!
 //!         // Add a callback triggered when the socket receive an 'abc' event
 //!         // The json data will be deserialized to MyData
-//!         socket.on("abc", |socket, data: MyData, bin, _| async move {
+//!         socket.on("abc", |socket: SocketRef, Data::<MyData>(data), Bin(bin)| async move {
 //!             println!("Received abc event: {:?} {:?}", data, bin);
 //!             socket.bin(bin).emit("abc", data).ok();
 //!         });
 //!
 //!         // Add a callback triggered when the socket receive an 'acb' event
 //!         // Ackknowledge the message with the ack callback
-//!         socket.on("acb", |_, data: Value, bin, ack| async move {
+//!         socket.on("acb", |Data::<Value>(data), ack: AckSender, Bin(bin)| async move {
 //!             println!("Received acb event: {:?} {:?}", data, bin);
 //!             ack.bin(bin).send(data).ok();
 //!         });
@@ -50,7 +50,7 @@
 //!         });
 //!     });
 //!     
-//!     io.ns("/custom", |socket, auth: Value| async move {
+//!     io.ns("/custom", |socket: SocketRef, Data(auth): Data<MyData>| {
 //!         println!("Socket connected on /custom namespace with id: {}", socket.id);
 //!     });
 //!
@@ -83,9 +83,9 @@ pub use packet::*;
 
 pub use engineioxide::config::TransportType;
 pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
-pub use handler::{AckResponse, AckSender};
+pub use handler::{extract, FromConnectParts, FromMessage, FromMessageParts};
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
-pub use socket::{DisconnectReason, Socket};
+pub use socket::{AckResponse, DisconnectReason};
 
 mod client;
 mod errors;

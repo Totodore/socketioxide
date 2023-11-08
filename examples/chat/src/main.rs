@@ -3,8 +3,10 @@ use std::sync::atomic::AtomicUsize;
 use axum::Server;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{
+    extract::{Data, SocketRef},
+    SocketIo,
+};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
@@ -47,8 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", move |s, _: Value| async move {
-        s.on("new message", |s, msg: String, _, _| async move {
+    io.ns("/", |s: SocketRef| {
+        s.on("new message", |s: SocketRef, Data::<String>(msg)| {
             let username = s.extensions.get::<Username>().unwrap().clone();
             let msg = Res::Message {
                 username,
@@ -57,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             s.broadcast().emit("new message", msg).ok();
         });
 
-        s.on("add user", move |s, username: String, _, _| async move {
+        s.on("add user", |s: SocketRef, Data::<String>(username)| {
             if s.extensions.get::<Username>().is_some() {
                 return;
             }
@@ -72,14 +74,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             s.broadcast().emit("user joined", res).ok();
         });
 
-        s.on("typing", |s, _: [(); 0], _, _| async move {
+        s.on("typing", |s: SocketRef| {
             let username = s.extensions.get::<Username>().unwrap().clone();
             s.broadcast()
                 .emit("typing", Res::Username { username })
                 .ok();
         });
 
-        s.on("stop typing", |s, _: [(); 0], _, _| async move {
+        s.on("stop typing", |s: SocketRef| {
             let username = s.extensions.get::<Username>().unwrap().clone();
             s.broadcast()
                 .emit("stop typing", Res::Username { username })

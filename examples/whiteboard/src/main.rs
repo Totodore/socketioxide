@@ -1,7 +1,10 @@
 use axum::Server;
 
 use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{
+    extract::{Data, SocketRef},
+    SocketIo,
+};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
@@ -17,8 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", move |s, _: Value| async move {
-        s.on("drawing", |s, data: Value, _, _| async move {
+    io.ns("/", |s: SocketRef| {
+        s.on("drawing", |s: SocketRef, Data::<Value>(data)| {
             s.broadcast().emit("drawing", data).unwrap();
         });
     });
