@@ -16,7 +16,7 @@ readme = "../README.md"
 [dependencies]
 engineioxide = { path = "../engineioxide", version = "0.6.0", default-features = false }
 futures.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 serde.workspace = true
 serde_json.workspace = true
 tower.workspace = true
