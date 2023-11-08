@@ -109,7 +109,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<String, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<(Value, Vec<Vec<u8>>)>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     pub id: Sid,
 
@@ -525,8 +525,8 @@ impl<A: Adapter> Socket<A> {
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok(AckResponse {
-            data: serde_json::from_value(v.0)?,
-            binary: v.1,
+            data: serde_json::from_value(v.data)?,
+            binary: v.binary,
         })
     }
 
@@ -577,14 +577,22 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            tx.send((data, vec![])).ok();
+            let res = AckResponse {
+                data,
+                binary: vec![],
+            };
+            tx.send(res).ok();
         }
         Ok(())
     }
 
     fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            tx.send((packet.data, packet.bin)).ok();
+            let res = AckResponse {
+                data: packet.data,
+                binary: packet.bin,
+            };
+            tx.send(res).ok();
         }
         Ok(())
     }
