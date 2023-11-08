@@ -1,7 +1,7 @@
 [package]
 name = "axum-echo"
-version = "0.6.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 socketioxide = { path = "../../socketioxide" }
