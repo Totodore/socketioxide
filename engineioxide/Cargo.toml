@@ -54,8 +54,6 @@ hyper = { version = "0.14.25", features = [
 ] }
 
 [features]
-default = ["v4"]
-v4 = []
 v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
 tracing = ["dep:tracing"]

@@ -62,7 +62,6 @@ async fn poll_body(
     }
 }
 
-#[cfg(feature = "v4")]
 pub fn v4_decoder(
     body: impl http_body::Body<Error = impl std::fmt::Debug> + Unpin,
     max_payload: u64,
@@ -346,10 +345,8 @@ mod tests {
 
     const MAX_PAYLOAD: u64 = 100_000;
 
-    #[cfg(feature = "v4")]
     #[tokio::test]
     async fn payload_iterator_v4() {
-        assert!(cfg!(feature = "v4"));
         let data = Full::new(Bytes::from("4foo\x1e4€f\x1e4f"));
         let payload = v4_decoder(data, MAX_PAYLOAD);
         futures::pin_mut!(payload);
@@ -368,10 +365,8 @@ mod tests {
         assert_eq!(payload.next().await.is_none(), true);
     }
 
-    #[cfg(feature = "v4")]
     #[tokio::test]
     async fn payload_stream_v4() {
-        assert!(cfg!(feature = "v4"));
         const DATA: &[u8] = "4foo\x1e4€f\x1e4fo".as_bytes();
         for i in 1..DATA.len() {
             println!("payload stream v4 chunk size: {i}");
@@ -396,10 +391,8 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "v4")]
     #[tokio::test]
     async fn max_payload_v4() {
-        assert!(cfg!(feature = "v4"));
         const DATA: &[u8] = "4foo\x1e4€f\x1e4fo".as_bytes();
         const MAX_PAYLOAD: u64 = 3;
         for i in 1..DATA.len() {

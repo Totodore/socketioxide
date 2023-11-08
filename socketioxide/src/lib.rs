@@ -66,9 +66,6 @@
 //! }
 //! ```
 
-#[cfg(not(any(feature = "v4", feature = "v5")))]
-compile_error!("At least one protocol version must be enabled");
-
 pub mod adapter;
 
 #[cfg(feature = "extensions")]

@@ -217,10 +217,10 @@ where
             .replace(handle);
     }
 
-    /// Heartbeat is sent every `interval` milliseconds and the client or server (depending on the protocol) is expected to respond within `timeout` milliseconds.
+    /// Heartbeat is sent every `interval` milliseconds by the client and the server is expected to respond within `timeout` milliseconds.
     ///
     /// If the client or server does not respond within the timeout, the connection is closed.
-    #[cfg(all(feature = "v3", feature = "v4"))]
+    #[cfg(feature = "v3")]
     async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         match self.protocol {
             ProtocolVersion::V3 => self.heartbeat_job_v3(interval, timeout).await,
@@ -228,19 +228,9 @@ where
         }
     }
 
-    /// Heartbeat is sent every `interval` milliseconds by the client and the server is expected to respond within `timeout` milliseconds.
-    ///
-    /// If the client or server does not respond within the timeout, the connection is closed.
-    #[cfg(feature = "v3")]
-    #[cfg(not(feature = "v4"))]
-    async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
-        self.heartbeat_job_v3(interval, timeout).await
-    }
-
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
-    #[cfg(feature = "v4")]
     #[cfg(not(feature = "v3"))]
     async fn heartbeat_job(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         self.heartbeat_job_v4(interval, timeout).await
@@ -249,7 +239,6 @@ where
     /// Heartbeat is sent every `interval` milliseconds and the client is expected to respond within `timeout` milliseconds.
     ///
     /// If the client does not respond within the timeout, the connection is closed.
-    #[cfg(feature = "v4")]
     async fn heartbeat_job_v4(&self, interval: Duration, timeout: Duration) -> Result<(), Error> {
         let mut heartbeat_rx = self
             .heartbeat_rx
