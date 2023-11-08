@@ -7,7 +7,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     convert::Infallible,
-    sync::{Arc, RwLock, Weak},
+    sync::{RwLock, Weak},
     time::Duration,
 };
 
@@ -20,11 +20,11 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     errors::{AckError, AdapterError, BroadcastError},
-    handler::AckResponse,
+    extract::SocketRef,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::Socket,
+    AckResponse,
 };
 
 /// A room identifier
@@ -105,7 +105,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn socket_rooms(&self, sid: Sid) -> Result<Vec<Room>, Self::Error>;
 
     /// Return the sockets that match the [`BroadcastOptions`].
-    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<Arc<Socket<Self>>>, Self::Error>
+    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<SocketRef<Self>>, Self::Error>
     where
         Self: Sized;
 
@@ -225,7 +225,7 @@ impl Adapter for LocalAdapter {
         let count = sockets.len();
         let ack_futs = sockets.into_iter().map(move |socket| {
             let packet = packet.clone();
-            async move { socket.clone().send_with_ack(packet, duration).await }
+            async move { socket.send_with_ack(packet, duration).await }
         });
         Ok(stream::iter(ack_futs).buffer_unordered(count).boxed())
     }
@@ -250,10 +250,7 @@ impl Adapter for LocalAdapter {
             .collect())
     }
 
-    fn fetch_sockets(
-        &self,
-        opts: BroadcastOptions,
-    ) -> Result<Vec<Arc<Socket<LocalAdapter>>>, Infallible> {
+    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<SocketRef<Self>>, Infallible> {
         Ok(self.apply_opts(opts))
     }
 
@@ -289,7 +286,7 @@ impl Adapter for LocalAdapter {
 
 impl LocalAdapter {
     /// Apply the given `opts` and return the sockets that match.
-    fn apply_opts(&self, opts: BroadcastOptions) -> Vec<Arc<Socket<Self>>> {
+    fn apply_opts(&self, opts: BroadcastOptions) -> Vec<SocketRef<Self>> {
         let rooms = opts.rooms;
 
         let except = self.get_except_sids(&opts.except);
@@ -303,21 +300,22 @@ impl LocalAdapter {
                 .filter(|sid| {
                     !except.contains(*sid)
                         && (!opts.flags.contains(&BroadcastFlags::Broadcast)
-                            || opts.sid.map(|s| s != **sid).unwrap_or_default())
+                            || opts.sid.map(|s| s != **sid).unwrap_or(true))
                 })
                 .filter_map(|sid| ns.get_socket(*sid).ok())
+                .map(SocketRef::new)
                 .collect()
         } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
             let sockets = ns.get_sockets();
             sockets
                 .into_iter()
                 .filter(|socket| {
-                    !except.contains(&socket.id)
-                        && opts.sid.map(|s| s != socket.id).unwrap_or_default()
+                    !except.contains(&socket.id) && opts.sid.map(|s| s != socket.id).unwrap_or(true)
                 })
+                .map(SocketRef::new)
                 .collect()
         } else if let Some(sock) = opts.sid.and_then(|sid| ns.get_socket(sid).ok()) {
-            vec![sock]
+            vec![SocketRef::new(sock)]
         } else {
             vec![]
         }
@@ -338,6 +336,7 @@ impl LocalAdapter {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::sync::Arc;
 
     macro_rules! hash_set {
         {$($v: expr),* $(,)?} => {

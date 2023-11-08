@@ -4,17 +4,18 @@ use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
     service::NotFoundService,
 };
-use futures::{stream::BoxStream, Future};
+use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
 
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    handler::AckResponse,
+    extract::SocketRef,
+    handler::ConnectHandler,
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    AckError, BroadcastError, Socket,
+    AckError, AckResponse, BroadcastError,
 };
 
 /// Configuration for Socket.IO & Engine.IO
@@ -221,6 +222,7 @@ impl Default for SocketIoBuilder {
 /// The [`SocketIo`] instance can be cheaply cloned and moved around everywhere in your program
 ///
 /// It can be used as the main handle to access the whole socket.io context.
+#[derive(Debug)]
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
@@ -277,8 +279,7 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// #### Simple example with a closure:
     /// ```
-    /// # use socketioxide::SocketIo;
-    /// # use serde_json::Value;
+    /// # use socketioxide::{SocketIo, extract::{SocketRef, Data}};
     /// # use serde::{Serialize, Deserialize};
     /// #[derive(Debug, Deserialize)]
     /// struct MyAuthData {
@@ -291,13 +292,13 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, auth: MyAuthData| async move {
+    /// io.ns("/", |socket: SocketRef, Data(auth): Data<MyAuthData>| {
     ///     if auth.token.is_empty() {
     ///         println!("Invalid token, disconnecting");
     ///         socket.disconnect().ok();
     ///         return;
     ///     }
-    ///     socket.on("test", |socket, data: MyData, _, _| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
@@ -305,11 +306,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ```
     #[inline]
-    pub fn ns<C, F, V>(&self, path: impl Into<Cow<'static, str>>, callback: C)
+    pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
-        C: Fn(Arc<Socket<A>>, V) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-        V: DeserializeOwned + Send + Sync + 'static,
+        C: ConnectHandler<A, T>,
+        T: Send + Sync + 'static,
     {
         self.0.add_ns(path.into(), callback);
     }
@@ -334,9 +334,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("custom_ns", |socket, _: ()| async move {
+    /// io.ns("custom_ns", |socket: SocketRef| {
     ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.id);
     /// });
     ///
@@ -360,9 +360,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -374,7 +374,7 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     #[inline]
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        self.get_default_op().to(rooms)
+        self.get_default_op().broadcast().to(rooms)
     }
 
     /// Select all sockets in the given rooms on the root namespace.
@@ -387,9 +387,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -401,7 +401,7 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     #[inline]
     pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        self.get_default_op().within(rooms)
+        self.get_default_op().broadcast().within(rooms)
     }
 
     /// Filter out all sockets selected with the previous operators which are in the given rooms.
@@ -413,14 +413,14 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    ///     socket.on("register1", |socket, data: (), _, _| async move {
+    ///     socket.on("register1", |socket: SocketRef| {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket, data: (), _, _| async move {
+    ///     socket.on("register2", |socket: SocketRef| {
     ///         socket.join("room2");
     ///     });
     /// });
@@ -447,9 +447,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -473,12 +473,12 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
-    /// # use serde_json::Value;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
+    /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -498,7 +498,7 @@ impl<A: Adapter> SocketIo<A> {
     ///   });
     #[inline]
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        self.get_default_op().timeout(timeout)
+        self.get_default_op().broadcast().timeout(timeout)
     }
 
     /// Add a binary payload to the message.
@@ -510,10 +510,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -526,7 +526,7 @@ impl<A: Adapter> SocketIo<A> {
     ///   .emit("test", ());
     #[inline]
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        self.get_default_op().bin(binary)
+        self.get_default_op().broadcast().bin(binary)
     }
 
     /// Emit a message to all sockets selected with the previous operators.
@@ -538,10 +538,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -557,7 +557,7 @@ impl<A: Adapter> SocketIo<A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<(), serde_json::Error> {
-        self.get_default_op().emit(event, data)
+        self.get_default_op().broadcast().emit(event, data)
     }
 
     /// Emit a message to all sockets selected with the previous operators and return a stream of acknowledgements.
@@ -571,11 +571,11 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
-    /// # use serde_json::Value;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use futures::stream::StreamExt;
+    /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -596,7 +596,7 @@ impl<A: Adapter> SocketIo<A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
-        self.get_default_op().emit_with_ack(event, data)
+        self.get_default_op().broadcast().emit_with_ack(event, data)
     }
 
     /// Get all sockets selected with the previous operators.
@@ -610,10 +610,10 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -624,8 +624,8 @@ impl<A: Adapter> SocketIo<A> {
     ///   println!("found socket on / ns in room1 with id: {}", socket.id);
     /// }
     #[inline]
-    pub fn sockets(&self) -> Result<Vec<Arc<Socket<A>>>, A::Error> {
-        self.get_default_op().sockets()
+    pub fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
+        self.get_default_op().broadcast().sockets()
     }
 
     /// Disconnect all sockets selected with the previous operators.
@@ -637,9 +637,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -659,9 +659,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -681,9 +681,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ### Example
     /// ```
-    /// # use socketioxide::SocketIo;
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket, _: ()| async move {
+    /// io.ns("/", |socket: SocketRef| {
     ///     println!("Socket connected on / namespace with id: {}", socket.id);
     /// });
     ///
@@ -724,7 +724,7 @@ mod tests {
     #[tokio::test]
     async fn get_default_op() {
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("/", |_, _: ()| async move {});
+        io.ns("/", || {});
         let _ = io.get_default_op();
     }
 
@@ -738,7 +738,7 @@ mod tests {
     #[tokio::test]
     async fn get_op() {
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("test", |_, _: ()| async move {});
+        io.ns("test", || {});
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
     }

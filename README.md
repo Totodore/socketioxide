@@ -30,7 +30,7 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 * Polling & Websocket transports
 * Extensions to add custom data to sockets
 * Memory efficient http payload parsing with streams
-* Api that mimics the [socket.io](https://socket.io/docs/v4/server-api/) javascript api as much as possible
+* Flexible axum-like API to handle events. With extractors to extract data from your handlers
 * Well tested with the official [end to end test-suite](https://github.com/totodore/socketioxide/actions) 
 * Socket.io versions supported :
   * [🔌protocol v5](https://socket.io/docs/v4/) : based on engine.io v4 under the feature flag `v5` (default), (socket.io js from v3.0.0..latest)
@@ -48,105 +48,56 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 <details> <summary><code>Chat app 💬 (see full example <a href="./examples/src/chat">here</a>)</code></summary>
 
 ```rust
-use std::sync::Arc;
-
-use serde::Deserialize;
-use socketioxide::{adapter::LocalAdapter, Socket};
-use tracing::info;
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct Nickname(String);
-
-#[derive(Deserialize)]
-pub struct Auth {
-    pub nickname: Nickname,
-}
-
-pub async fn handler(socket: Arc<Socket<LocalAdapter>>, data: Option<Auth>) {
-    info!("Socket connected on / with id: {}", socket.id);
-    if let Some(data) = data {
-        info!("Nickname: {:?}", data.nickname);
-        socket.extensions.insert(data.nickname);
-        socket.emit("message", "Welcome to the chat!").ok();
-        socket.join("default").unwrap();
-    } else {
-        info!("No nickname provided, disconnecting...");
-        socket.disconnect().ok();
-        return;
-    }
-
-    socket.on(
-        "message",
-        |socket, (room, message): (String, String), _, _| async move {
-            let Nickname(ref nickname) = *socket.extensions.get().unwrap();
-            info!("transfering message from {nickname} to {room}: {message}");
-            info!("Sockets in room: {:?}", socket.local().sockets().unwrap());
-            if let Some(dest) = socket.to("default").sockets().unwrap().iter().find(|s| {
-                s.extensions
-                    .get::<Nickname>()
-                    .map(|n| n.0 == room)
-                    .unwrap_or_default()
-            }) {
-                info!("Sending message to {}", room);
-                dest.emit("message", format!("{}: {}", nickname, message))
-                    .ok();
-            }
-
-            socket
-                .to(room)
-                .emit("message", format!("{}: {}", nickname, message))
-                .ok();
-        },
-    );
-
-    socket.on("join", |socket, room: String, _, _| async move {
-        info!("Joining room {}", room);
-        socket.join(room).unwrap();
+io.ns("/", |s: SocketRef| {
+    s.on("new message", |s: SocketRef, Data::<String>(msg)| {
+        let username = s.extensions.get::<Username>().unwrap().clone();
+        let msg = Res::Message {
+            username,
+            message: msg,
+        };
+        s.broadcast().emit("new message", msg).ok();
     });
 
-    socket.on("leave", |socket, room: String, _, _| async move {
-        info!("Leaving room {}", room);
-        socket.leave(room).unwrap();
+    s.on("add user", |s: SocketRef, Data::<String>(username)| {
+        if s.extensions.get::<Username>().is_some() {
+            return;
+        }
+        let i = NUM_USERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        s.extensions.insert(Username(username.clone()));
+        s.emit("login", Res::Login { num_users: i }).ok();
+
+        let res = Res::UserEvent {
+            num_users: i,
+            username: Username(username),
+        };
+        s.broadcast().emit("user joined", res).ok();
     });
 
-    socket.on("list", |socket, room: Option<String>, _, _| async move {
-        if let Some(room) = room {
-            info!("Listing sockets in room {}", room);
-            let sockets = socket
-                .within(room)
-                .sockets()
-                .unwrap()
-                .iter()
-                .filter_map(|s| s.extensions.get::<Nickname>())
-                .fold("".to_string(), |a, b| a + &b.0 + ", ")
-                .trim_end_matches(", ")
-                .to_string();
-            socket.emit("message", sockets).ok();
-        } else {
-            let rooms = socket.rooms().unwrap();
-            info!("Listing rooms: {:?}", &rooms);
-            socket.emit("message", rooms).ok();
+    s.on("typing", |s: SocketRef| {
+        let username = s.extensions.get::<Username>().unwrap().clone();
+        s.broadcast()
+            .emit("typing", Res::Username { username })
+            .ok();
+    });
+
+    s.on("stop typing", |s: SocketRef| {
+        let username = s.extensions.get::<Username>().unwrap().clone();
+        s.broadcast()
+            .emit("stop typing", Res::Username { username })
+            .ok();
+    });
+
+    s.on_disconnect(move |s, _| async move {
+        if let Some(username) = s.extensions.get::<Username>() {
+            let i = NUM_USERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) - 1;
+            let res = Res::UserEvent {
+                num_users: i,
+                username: username.clone(),
+            };
+            s.broadcast().emit("user left", res).ok();
         }
     });
-
-    socket.on("nickname", |socket, nickname: Nickname, _, _| async move {
-        let previous = socket.extensions.insert(nickname.clone());
-        info!("Nickname changed from {:?} to {:?}", &previous, &nickname);
-        let msg = format!(
-            "{} changed his nickname to {}",
-            previous.map(|n| n.0).unwrap_or_default(),
-            nickname.0
-        );
-        socket.to("default").emit("message", msg).ok();
-    });
-
-    socket.on_disconnect(|socket, reason| async move {
-        info!("Socket disconnected: {} {}", socket.id, reason);
-        let Nickname(ref nickname) = *socket.extensions.get().unwrap();
-        let msg = format!("{} left the chat", nickname);
-        socket.to("default").emit("message", msg).ok();
-    });
-}
+});
 
 ```
 
@@ -157,38 +108,42 @@ pub async fn handler(socket: Arc<Socket<LocalAdapter>>, data: Option<Auth>) {
 use axum::routing::get;
 use axum::Server;
 use serde_json::Value;
-use socketioxide::SocketIo;
+use socketioxide::{
+    extract::{AckSender, Bin, Data, SocketRef},
+    SocketIo,
+};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+
+fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
+    info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
+    socket.emit("auth", data).ok();
+
+    socket.on(
+        "message",
+        |socket: SocketRef, Data::<Value>(data), Bin(bin)| {
+            info!("Received event: {:?} {:?}", data, bin);
+            socket.bin(bin).emit("message-back", data).ok();
+        },
+    );
+
+    socket.on(
+        "message-with-ack",
+        |Data::<Value>(data), ack: AckSender, Bin(bin)| {
+            info!("Received event: {:?} {:?}", data, bin);
+            ack.bin(bin).send(data).ok();
+        },
+    );
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
     let (layer, io) = SocketIo::new_layer();
-    io.ns("/", |socket, auth: Value| async move {
-        info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.sid);
-        socket.emit("auth", auth).ok();
 
-        socket.on("message", |socket, data: Value, bin, _| async move {
-            info!("Received event: {:?} {:?}", data, bin);
-            socket.bin(bin).emit("message-back", data).ok();
-        });
-
-        socket.on("message-with-ack", |_, data: Value, bin, ack| async move {
-            info!("Received event: {:?} {:?}", data, bin);
-            ack.bin(bin).send(data).ok();
-        });
-
-        socket.on_disconnect(|socket, reason| async move {
-            info!("Socket.IO disconnected: {} {}", socket.sid, reason);
-        });
-    });
-
-    io.ns("/custom", |socket, auth: Value| async move {
-        info!("Socket.IO connected on: {:?} {:?}", socket.ns(), socket.sid);
-        socket.emit("auth", auth).ok();
-    });
+    io.ns("/", on_connect);
+    io.ns("/custom", on_connect);
 
     let app = axum::Router::new()
         .route("/", get(|| async { "Hello, World!" }))
@@ -204,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 </details>
+<details><summary><code>Other examples are available in the <a href="./examples">example folder</a></code></summary></details>
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
