@@ -14,7 +14,7 @@ readme = "../README.md"
 
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.6.0", default-features = false }
+engineioxide = { path = "../engineioxide" }
 futures.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 serde.workspace = true
@@ -35,8 +35,6 @@ http-body-v1 = { workspace = true, optional = true }
 hyper-v1 = { workspace = true, optional = true }
 
 [features]
-default = ["v5"]
-v5 = ["engineioxide/v4"]
 v4 = ["engineioxide/v3"]
 test-utils = []
 tracing = ["dep:tracing", "engineioxide/tracing"]
@@ -46,7 +44,7 @@ hyper-v1 = ["engineioxide/hyper-v1", "dep:http-body-v1", "dep:hyper-v1"]
 [dev-dependencies]
 engineioxide = { path = "../engineioxide", version = "0.6.0", features = [
     "v3",
-    "v4",
+    "tracing",
     "test-utils",
 ] }
 axum = "0.6.18"

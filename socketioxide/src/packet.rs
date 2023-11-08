@@ -22,17 +22,12 @@ impl<'a> Packet<'a> {
         #[allow(unused_variables)] sid: Sid,
         #[allow(unused_variables)] protocol: ProtocolVersion,
     ) -> Self {
-        #[cfg(all(feature = "v5", not(feature = "v4")))]
+        #[cfg(not(feature = "v4"))]
         {
             Self::connect_v5(ns, sid)
         }
 
-        #[cfg(all(feature = "v4", not(feature = "v5")))]
-        {
-            Self::connect_v4(ns)
-        }
-
-        #[cfg(all(feature = "v5", feature = "v4"))]
+        #[cfg(feature = "v4")]
         {
             match protocol {
                 ProtocolVersion::V4 => Self::connect_v4(ns),
@@ -51,7 +46,6 @@ impl<'a> Packet<'a> {
     }
 
     /// Sends a connect packet with payload.
-    #[cfg(feature = "v5")]
     fn connect_v5(ns: &'a str, sid: Sid) -> Self {
         let val = serde_json::to_string(&ConnectPacket { sid }).unwrap();
         Self {
@@ -523,8 +517,6 @@ mod test {
 
     #[test]
     fn packet_encode_connect() {
-        assert!(cfg!(feature = "v5"));
-
         let sid = Sid::new();
         let payload = format!("0{}", json!({"sid": sid}));
         let packet: String = Packet::connect("/", sid, ProtocolVersion::V5)

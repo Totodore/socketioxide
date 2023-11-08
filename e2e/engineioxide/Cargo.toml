@@ -37,4 +37,4 @@ path = "engineioxide-hyper-v04.rs"
 
 [features]
 v3 = ["engineioxide/v3"]
-v4 = ["engineioxide/v4"]
+v4 = []

@@ -70,7 +70,6 @@ impl<A: Adapter> Client<A> {
             ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
 
             // cancel the connect timeout task for v5
-            #[cfg(feature = "v5")]
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                 tx.send(()).unwrap();
             }
@@ -116,7 +115,6 @@ impl<A: Adapter> Client<A> {
 
     /// Spawn a task that will close the socket if it is not connected to a namespace
     /// after the [`SocketIoConfig::connect_timeout`] duration
-    #[cfg(feature = "v5")]
     fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("spawning connect timeout task");
@@ -173,8 +171,7 @@ pub struct SocketData {
     /// Stored here until all the binary payloads are received
     pub partial_bin_packet: Mutex<Option<Packet<'static>>>,
 
-    /// Channel used to notify the socket that it has been connected to a namespace
-    #[cfg(feature = "v5")]
+    /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
@@ -198,7 +195,6 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             self.sock_connect(None, "/", &socket).unwrap();
         }
 
-        #[cfg(feature = "v5")]
         if protocol == ProtocolVersion::V5 {
             self.spawn_connect_timeout_task(socket);
         }

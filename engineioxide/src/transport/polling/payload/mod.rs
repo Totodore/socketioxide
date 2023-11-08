@@ -9,7 +9,6 @@ mod buf;
 mod decoder;
 mod encoder;
 
-#[cfg(feature = "v4")]
 const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 #[cfg(feature = "v3")]
 const STRING_PACKET_SEPARATOR_V3: u8 = b':';
@@ -25,7 +24,7 @@ pub fn decoder(
     #[allow(unused_variables)] protocol: ProtocolVersion,
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, Error>> {
-    #[cfg(all(feature = "v3", feature = "v4"))]
+    #[cfg(feature = "v3")]
     {
         use futures::future::Either;
         use http::header::CONTENT_TYPE;
@@ -44,19 +43,7 @@ pub fn decoder(
         }
     }
 
-    #[cfg(all(feature = "v3", not(feature = "v4")))]
-    {
-        let is_binary =
-            body.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
-        use futures::future::Either;
-        use http::header::CONTENT_TYPE;
-        if is_binary {
-            Either::Left(decoder::v3_binary_decoder(body, max_payload))
-        } else {
-            Either::Right(decoder::v3_string_decoder(body, max_payload))
-        }
-    }
-    #[cfg(all(feature = "v4", not(feature = "v3")))]
+    #[cfg(not(feature = "v3"))]
     {
         decoder::v4_decoder(body, max_payload)
     }
@@ -82,7 +69,7 @@ pub async fn encoder(
     #[cfg(feature = "v3")] supports_binary: bool,
     max_payload: u64,
 ) -> Result<Payload, Error> {
-    #[cfg(all(feature = "v3", feature = "v4"))]
+    #[cfg(feature = "v3")]
     {
         match protocol {
             ProtocolVersion::V4 => encoder::v4_encoder(rx, max_payload).await,
@@ -93,15 +80,7 @@ pub async fn encoder(
         }
     }
 
-    #[cfg(all(feature = "v3", not(feature = "v4")))]
-    {
-        if supports_binary {
-            encoder::v3_binary_encoder(rx, max_payload).await
-        } else {
-            encoder::v3_string_encoder(rx, max_payload).await
-        }
-    }
-    #[cfg(all(feature = "v4", not(feature = "v3")))]
+    #[cfg(not(feature = "v3"))]
     {
         encoder::v4_encoder(rx, max_payload).await
     }

@@ -135,7 +135,7 @@ pub enum ProtocolVersion {
 impl FromStr for ProtocolVersion {
     type Err = ParseError;
 
-    #[cfg(all(feature = "v3", feature = "v4"))]
+    #[cfg(feature = "v3")]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "3" => Ok(ProtocolVersion::V3),
@@ -144,18 +144,10 @@ impl FromStr for ProtocolVersion {
         }
     }
 
-    #[cfg(all(feature = "v4", not(feature = "v3")))]
+    #[cfg(not(feature = "v3"))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "4" => Ok(ProtocolVersion::V4),
-            _ => Err(ParseError::UnsupportedProtocolVersion),
-        }
-    }
-
-    #[cfg(all(feature = "v3", not(feature = "v4")))]
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "3" => Ok(ProtocolVersion::V3),
             _ => Err(ParseError::UnsupportedProtocolVersion),
         }
     }
@@ -274,7 +266,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "v4")]
     fn request_info_polling() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling");
         let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
@@ -285,7 +276,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "v4")]
     fn request_info_websocket() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=websocket");
         let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
@@ -309,7 +299,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "v4")]
     fn request_info_websocket_with_sid() {
         let req = build_request(
             "http://localhost:3000/socket.io/?EIO=4&transport=websocket&sid=AAAAAAAAAAAAAAHs",
@@ -340,7 +329,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "v4")]
     fn transport_unknown_err() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=grpc");
         let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
@@ -353,7 +341,6 @@ mod tests {
         assert!(matches!(err, ParseError::UnsupportedProtocolVersion));
     }
     #[test]
-    #[cfg(feature = "v4")]
     fn bad_handshake_method() {
         let req = Request::post("http://localhost:3000/socket.io/?EIO=4&transport=polling")
             .body(())
@@ -363,7 +350,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "v4")]
     fn unsupported_transport() {
         let req = build_request("http://localhost:3000/socket.io/?EIO=4&transport=polling");
         let err = RequestInfo::parse(

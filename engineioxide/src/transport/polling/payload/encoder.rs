@@ -68,7 +68,6 @@ async fn recv_packet(rx: &mut MutexGuard<'_, PeekableReceiver<Packet>>) -> Resul
 
 /// Encode multiple packets into a string payload according to the
 /// [engine.io v4 protocol](https://socket.io/fr/docs/v4/engine-io-protocol/#http-long-polling-1)
-#[cfg(feature = "v4")]
 pub async fn v4_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<Packet>>,
     max_payload: u64,
@@ -249,7 +248,6 @@ mod tests {
     use super::*;
     const MAX_PAYLOAD: u64 = 100_000;
 
-    #[cfg(feature = "v4")]
     #[tokio::test]
     async fn encode_v4_payload() {
         const PAYLOAD: &str = "4hello€\x1ebAQIDBA==\x1e4hello€";
@@ -263,7 +261,6 @@ mod tests {
         assert_eq!(data, PAYLOAD.as_bytes());
     }
 
-    #[cfg(feature = "v4")]
     #[tokio::test]
     async fn max_payload_v4() {
         const MAX_PAYLOAD: u64 = 10;
