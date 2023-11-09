@@ -14,18 +14,19 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-        - uses: actions/checkout@v3
-        - uses: actions-rs/toolchain@v1
+        - uses: actions/checkout@v4
+        - uses: dtolnay/rust-toolchain@master
           with:
             toolchain: stable
+            components: rustfmt
         - run: cargo fmt --all -- --check
   
   test:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
       - uses: actions/cache@v3
@@ -39,8 +40,131 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo test --tests --all-features
 
+  udeps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-udeps
+        uses: taiki-e/install-action@cargo-udeps
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-nightly
+      - name: Check unused dependencies on default features
+        run: cargo udeps
+
+      - name: Check unused dependencies on all features
+        run: cargo udeps --all-features
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get MSRV from package metadata
+        id: msrv
+        run: grep rust-version Cargo.toml | cut -d'"' -f2 | sed 's/^/version=/' >> $GITHUB_OUTPUT
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ steps.msrv.outputs.version }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+            toolchain: ${{ steps.msrv.outputs.version }}
+            components: rustfmt, clippy
+
+      - name: check crates
+        run: cargo check -p socketioxide -p engineioxide -p socketioxide-e2e -p engineioxide-e2e --all-features
+
+  feature_set:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: check --feature-powerset
+        run: cargo hack check --feature-powerset --no-dev-deps --skip test-utils -p socketioxide -p engineioxide
+      
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [feature_set]
+    if: (github.ref == 'refs/heads/main' || github.event_name == 'push')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/cache@v3
+      
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Generate coverage file
+        run: |
+          cargo install cargo-tarpaulin
+          cargo tarpaulin --all-features --out xml
+
+      - name: Upload to codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: cobertura.xml
+
+  doctest:
+    runs-on: ubuntu-latest
+    needs: [engine_io, socket_io, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo test --doc --all-features
+
   rust-clippy-analyze:
-    name: Run rust-clippy analyzing
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,15 +172,13 @@ jobs:
       actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: stable
           components: clippy
-          override: true
       - uses: actions/cache@v3
         with:
           path: |
@@ -91,11 +213,11 @@ jobs:
         engineio-version: [v3, v4]
         hyper-version: [hyper-v04, hyper-v1]
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           repository: totodore/engine.io-protocol
           path: engine.io-protocol
@@ -132,11 +254,11 @@ jobs:
       matrix:
         socketio-version: [v4, v5]
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           repository: totodore/socket.io-protocol
           ref: ${{ matrix.socketio-version }}
@@ -164,22 +286,3 @@ jobs:
       - name: Client output
         if: always()
         run:  cat client.txt
-
-  doctest:
-    runs-on: ubuntu-latest
-    needs: [engine_io, socket_io, test]
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo test --doc --all-features

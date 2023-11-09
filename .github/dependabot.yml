@@ -6,10 +6,6 @@
 version: 2
 updates:
   - package-ecosystem: "cargo" # See documentation for possible values
-    directory: "/socketioxide" # Location of package manifests
+    directory: "/" # Location of package manifests
     schedule:
-      interval: "weekly"
-  - package-ecosystem: "cargo" # See documentation for possible values
-    directory: "/engineioxide" # Location of package manifests
-    schedule:
-      interval: "weekly"
+      interval: "daily"

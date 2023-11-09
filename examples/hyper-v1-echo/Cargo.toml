@@ -1,7 +1,7 @@
 [package]
 name = "hyper-v1-echo"
-version = "0.6.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,11 +10,7 @@ socketioxide = { path = "../../socketioxide", features = [
     "hyper-v1",
     "tracing",
 ] }
-hyper = { version = "1.0.0-rc.4", optional = true, features = [
-    "server",
-    "http1",
-    "http2",
-] }
+hyper = { version = "1.0.0-rc.4", features = ["server", "http1", "http2"] }
 hyper-util = { git = "https://github.com/hyperium/hyper-util.git" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
