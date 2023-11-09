@@ -114,36 +114,6 @@ jobs:
 
       - name: check --feature-powerset
         run: cargo hack check --feature-powerset --no-dev-deps --skip test-utils -p socketioxide -p engineioxide
-      
-  coverage:
-    runs-on: ubuntu-latest
-    needs: [feature_set]
-    if: (github.ref == 'refs/heads/main' || github.event_name == 'push')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-      - uses: actions/cache@v3
-      
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Generate coverage file
-        run: |
-          cargo install cargo-tarpaulin
-          cargo tarpaulin --all-features --out xml
-
-      - name: Upload to codecov
-        uses: codecov/codecov-action@v3
-        with:
-          file: cobertura.xml
 
   doctest:
     runs-on: ubuntu-latest
