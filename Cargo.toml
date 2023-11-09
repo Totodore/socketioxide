@@ -6,7 +6,7 @@ resolver = "2"
 futures = "0.3.27"
 tokio = "1.26.0"
 serde = { version = "1.0.192", features = ["derive"] }
-serde_json = "1.0.94"
+serde_json = "1.0.108"
 tower = { version = "0.4.13", default-features = false }
 http = "0.2.9"
 http-body = "0.4.5"
