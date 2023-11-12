@@ -11,7 +11,7 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
 };
-use http::{HeaderValue, Request, Response, StatusCode};
+use http::{request::Parts, HeaderValue, Request, Response, StatusCode};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     task::JoinHandle,
@@ -31,7 +31,7 @@ use crate::{
     service::ProtocolVersion,
     service::TransportType,
     sid::Sid,
-    DisconnectReason, Socket, SocketReq,
+    DisconnectReason, Socket,
 };
 
 /// Create a response for websocket upgrade
@@ -55,22 +55,29 @@ fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, htt
 /// the http polling request is closed and the SID is kept for the websocket
 ///
 /// It can be used with hyper-v1 by setting the `hyper_v1` parameter to true
-pub fn new_req<R, B, H: EngineIoHandler>(
+pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Option<Sid>,
     req: Request<R>,
     #[cfg(feature = "hyper-v1")] hyper_v1: bool,
 ) -> Result<Response<ResponseBody<B>>, Error> {
-    let (parts, _) = req.into_parts();
+    let mut parts = Request::builder()
+        .method(req.method().clone())
+        .uri(req.uri().clone())
+        .version(req.version())
+        .body(())
+        .unwrap()
+        .into_parts()
+        .0;
+
+    parts.headers.extend(req.headers().clone());
     let ws_key = parts
         .headers
         .get("Sec-WebSocket-Key")
         .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
         .clone();
-    let req_data = SocketReq::from(&parts);
 
-    let req = Request::from_parts(parts, ());
     tokio::spawn(async move {
         #[cfg(feature = "hyper-v1")]
         let res = if hyper_v1 {
@@ -89,8 +96,8 @@ pub fn new_req<R, B, H: EngineIoHandler>(
             Either::Right(hyper::upgrade::on(req).await) as Either<Res, Res>
         };
         let res = match res {
-            Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
-            Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
+            Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
+            Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
             Either::Left(Err(_e)) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
@@ -128,7 +135,7 @@ async fn on_init<H: EngineIoHandler, S>(
     conn: S,
     protocol: ProtocolVersion,
     sid: Option<Sid>,
-    req_data: SocketReq,
+    req_data: Parts,
 ) -> Result<(), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,

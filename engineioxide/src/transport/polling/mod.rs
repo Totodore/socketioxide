@@ -15,7 +15,7 @@ use crate::{
     service::{ProtocolVersion, TransportType},
     sid::Sid,
     transport::polling::payload::Payload,
-    DisconnectReason, SocketReq,
+    DisconnectReason,
 };
 
 mod payload;
@@ -52,11 +52,10 @@ where
     H: EngineIoHandler,
     B: Send + 'static,
 {
-    let req = SocketReq::from(req.into_parts().0);
     let socket = engine.create_session(
         protocol,
         TransportType::Polling,
-        req,
+        req.into_parts().0,
         #[cfg(feature = "v3")]
         supports_binary,
     );
