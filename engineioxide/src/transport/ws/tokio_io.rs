@@ -1,8 +1,8 @@
 #![allow(dead_code)]
-///! This mod is a copy of https://github.com/hyperium/hyper-util/blob/master/src/rt/tokio_io.rs
-///! Because the hyper-util is not yet published to crates.io
-///!
-///! It is an adapter from hyper v1 IO traits to tokio's IO traits.
+//! This mod is a copy of https://github.com/hyperium/hyper-util/blob/master/src/rt/tokio_io.rs
+//! Because the hyper-util is not yet published to crates.io
+//!
+//! It is an adapter from hyper v1 IO traits to tokio's IO traits.
 use std::{
     pin::Pin,
     task::{Context, Poll},
