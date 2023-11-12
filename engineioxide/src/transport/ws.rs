@@ -75,7 +75,7 @@ pub fn new_req<R, B, H: EngineIoHandler>(
         .version(parts.version)
         .body(())
         .unwrap();
-    req.headers_mut().extend(parts.headers.clone().into_iter());
+    req.headers_mut().extend(parts.headers.clone());
 
     tokio::spawn(async move {
         #[cfg(feature = "hyper-v1")]
