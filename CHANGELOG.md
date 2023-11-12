@@ -1,5 +1,9 @@
 # 0.7.0
 ## socketioxide
+* Fix [#154](https://github.com/Totodore/socketioxide/issues/154), build was broken when using the `hyper-v1` feature flag because of `hyper-util` dependencie which is not published on crates.io.
+
+# 0.7.0
+## socketioxide
 * The `extensions` field on sockets has been moved to a separate optional feature flag named `extensions`
 * All the `tracing` internal calls have been moved to a separate optional feature flag named `tracing`
 * A compatibility layer is now available for hyper v1 under the feature flag `hyper-v1`. You can call `with_hyper_v1` on the `SocketIoLayer` or the `SocketIoService` to get a layer/service working with hyper v1. Therefore, it is now possible to use [`salvo`](http://salvo.rs) as an http server. The default is still hyper v0.
