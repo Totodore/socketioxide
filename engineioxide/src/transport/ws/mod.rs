@@ -34,6 +34,9 @@ use crate::{
     DisconnectReason, Socket,
 };
 
+#[cfg(feature = "hyper-v1")]
+mod tokio_io;
+
 /// Create a response for websocket upgrade
 fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
     let derived = derive_accept_key(ws_key.as_bytes());
@@ -82,11 +85,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         #[cfg(feature = "hyper-v1")]
         let res = if hyper_v1 {
             // Wraps the hyper-v1 upgrade so it implement `AsyncRead` and `AsyncWrite`
-            Either::Left(
-                hyper_v1::upgrade::on(req)
-                    .await
-                    .map(hyper_util::rt::TokioIo::new),
-            )
+            Either::Left(hyper_v1::upgrade::on(req).await.map(tokio_io::TokioIo::new))
         } else {
             Either::Right(hyper::upgrade::on(req).await)
         };
