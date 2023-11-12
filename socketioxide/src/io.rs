@@ -374,7 +374,7 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     #[inline]
     pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        self.get_default_op().broadcast().to(rooms)
+        self.get_default_op().to(rooms)
     }
 
     /// Select all sockets in the given rooms on the root namespace.
@@ -401,7 +401,7 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     #[inline]
     pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        self.get_default_op().broadcast().within(rooms)
+        self.get_default_op().within(rooms)
     }
 
     /// Filter out all sockets selected with the previous operators which are in the given rooms.
@@ -498,7 +498,7 @@ impl<A: Adapter> SocketIo<A> {
     ///   });
     #[inline]
     pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        self.get_default_op().broadcast().timeout(timeout)
+        self.get_default_op().timeout(timeout)
     }
 
     /// Add a binary payload to the message.
@@ -526,7 +526,7 @@ impl<A: Adapter> SocketIo<A> {
     ///   .emit("test", ());
     #[inline]
     pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        self.get_default_op().broadcast().bin(binary)
+        self.get_default_op().bin(binary)
     }
 
     /// Emit a message to all sockets selected with the previous operators.
@@ -557,7 +557,7 @@ impl<A: Adapter> SocketIo<A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<(), serde_json::Error> {
-        self.get_default_op().broadcast().emit(event, data)
+        self.get_default_op().emit(event, data)
     }
 
     /// Emit a message to all sockets selected with the previous operators and return a stream of acknowledgements.
@@ -596,7 +596,7 @@ impl<A: Adapter> SocketIo<A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
-        self.get_default_op().broadcast().emit_with_ack(event, data)
+        self.get_default_op().emit_with_ack(event, data)
     }
 
     /// Get all sockets selected with the previous operators.
@@ -625,7 +625,7 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     #[inline]
     pub fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        self.get_default_op().broadcast().sockets()
+        self.get_default_op().sockets()
     }
 
     /// Disconnect all sockets selected with the previous operators.
@@ -697,7 +697,9 @@ impl<A: Adapter> SocketIo<A> {
     /// Returns a new operator on the given namespace
     #[inline(always)]
     fn get_op(&self, path: &str) -> Option<Operators<A>> {
-        self.0.get_ns(path).map(|ns| Operators::new(ns, None))
+        self.0
+            .get_ns(path)
+            .map(|ns| Operators::new(ns, None).broadcast())
     }
 
     /// Returns a new operator on the default namespace "/" (root namespace)
@@ -721,25 +723,39 @@ impl<A: Adapter> Clone for SocketIo<A> {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn get_default_op() {
+    #[test]
+    fn get_default_op() {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
         let _ = io.get_default_op();
     }
 
-    #[tokio::test]
+    #[test]
     #[should_panic(expected = "default namespace not found")]
-    async fn get_default_op_panic() {
+    fn get_default_op_panic() {
         let (_, io) = SocketIo::builder().build_svc();
         let _ = io.get_default_op();
     }
 
-    #[tokio::test]
-    async fn get_op() {
+    #[test]
+    fn get_op() {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("test", || {});
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
+    }
+
+    #[test]
+    fn every_op_should_be_broadcast() {
+        let (_, io) = SocketIo::builder().build_svc();
+        io.ns("/", || {});
+        assert!(io.get_default_op().is_broadcast());
+        assert!(io.to("room1").is_broadcast());
+        assert!(io.within("room1").is_broadcast());
+        assert!(io.except("room1").is_broadcast());
+        assert!(io.local().is_broadcast());
+        assert!(io.timeout(Duration::from_secs(5)).is_broadcast());
+        assert!(io.bin(vec![vec![1, 2, 3, 4]]).is_broadcast());
+        assert!(io.of("/").unwrap().is_broadcast());
     }
 }
