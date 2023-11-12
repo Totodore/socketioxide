@@ -14,7 +14,7 @@ readme = "../README.md"
 
 
 [dependencies]
-engineioxide = { path = "../engineioxide" }
+engineioxide = { path = "../engineioxide", version = "0.7.0" }
 futures.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 serde.workspace = true
