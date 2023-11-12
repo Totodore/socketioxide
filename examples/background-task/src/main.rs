@@ -5,8 +5,6 @@ use socketioxide::{
     extract::{Data, SocketRef},
     SocketIo,
 };
-use tower::ServiceBuilder;
-use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
 
@@ -17,7 +15,7 @@ async fn background_task(io: SocketIo) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         info!("Background task");
-        let cnt = io.sockets().unwrap().len();
+        let cnt = io.of("/").unwrap().sockets().unwrap().len();
         let msg = format!("{}s, {} socket connected", i, cnt);
         io.emit("tic tac !", msg).unwrap();
 
@@ -42,13 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(background_task(io));
 
-    let app = axum::Router::new()
-        .nest_service("/", ServeDir::new("dist"))
-        .layer(
-            ServiceBuilder::new()
-                .layer(CorsLayer::permissive()) // Enable CORS policy
-                .layer(layer),
-        );
+    let app = axum::Router::new().layer(layer);
 
     let server = Server::bind(&"0.0.0.0:3000".parse().unwrap()).serve(app.into_make_service());
 
