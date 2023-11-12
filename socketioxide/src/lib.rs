@@ -70,6 +70,7 @@ pub mod adapter;
 
 #[cfg(feature = "extensions")]
 pub mod extensions;
+pub mod handler;
 #[cfg(feature = "hyper-v1")]
 pub mod hyper_v1;
 pub mod layer;
@@ -80,13 +81,12 @@ pub use packet::*;
 
 pub use engineioxide::config::TransportType;
 pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
-pub use handler::{extract, FromConnectParts, FromMessage, FromMessageParts};
+pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 pub use socket::{AckResponse, DisconnectReason};
 
 mod client;
 mod errors;
-mod handler;
 mod io;
 mod ns;
 mod operators;
