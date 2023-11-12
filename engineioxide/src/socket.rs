@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use http::{request::Parts, Request};
+use http::request::Parts;
 use tokio::{
     sync::{
         mpsc::{self},
@@ -385,7 +385,7 @@ where
             close_fn,
 
             data: D::default(),
-            req_parts: Request::<()>::default().into_parts().0,
+            req_parts: http::Request::<()>::default().into_parts().0,
 
             #[cfg(feature = "v3")]
             supports_binary: true,

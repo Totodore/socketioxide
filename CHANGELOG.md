@@ -2,15 +2,24 @@
 ## socketioxide
 * The `extensions` field on sockets has been moved to a separate optional feature flag named `extensions`
 * All the `tracing` internal calls have been moved to a separate optional feature flag named `tracing`
-* A compatibility layer is now available for hyper v1 under the feature flag `hyper-v1`. You can call `with_hyper_v1` on the `SocketIoLayer` or the `SocketIoService` to get a layer/service working with hyper v1. The default is still hyper v0.
-* New example with hyper v1 standalone
-* New example with [salvo](https://salvo.rs) (based on hyper v1)
-* Socket.io packet encoding/decoding has been optimized, it is now between ~15% and ~50% faster than before
+* A compatibility layer is now available for hyper v1 under the feature flag `hyper-v1`. You can call `with_hyper_v1` on the `SocketIoLayer` or the `SocketIoService` to get a layer/service working with hyper v1. Therefore, it is now possible to use [`salvo`](http://salvo.rs) as an http server. The default is still hyper v0.
+* Socket.io packet encoding/decoding has been optimized, it is now between [~15% and ~50%](https://github.com/Totodore/socketioxide/pull/124#issuecomment-1784298574) faster than before.
+* The v5 feature flag is removed, it is now enabled by default. It is made to avoid destructive feature flags, and to be sure that `--no-default-features` will always work without enabling anything else.
+* All the handlers now have dynamic parameters. It is now possible to use any type that implements `FromMessageParts` or `FromMessage` as a parameter for a message handler and `FromConnectPart` for a connect handler. This is useful to extract data from the event, like the socket, the data, an acknowledgment, etc.
+* All the handlers are now optionally async.
+* The request data to initialize the socket.io connection is available with `Socket::req_parts()`.
+* MSRV is now 1.67.0
+* Bump tokio from 1.33.0 to 1.34.0
+* Bump serde from 1.0.190 to 1.0.192
+* Bump serde_json from 1.0.107 to 1.0.108
 
 ## engineioxide
 * All the `tracing` internal calls have been moved to a separate optional feature flag named `tracing`
 * A compatibility layer is now available for hyper v1 under the feature flag `hyper-v1`. You can call `with_hyper_v1` on the `EngineIoLayer` or the `EngineIoService` to get a layer/service working with hyper v1. The default is still hyper v0.
 * Sid generation is now done manually without external crates
+* The v4 feature flag is removed, it is now enabled by default. It is made to avoid destructive feature flags, and to be sure that `--no-default-features` will always work without enabling anything else.
+* Fix an upgrade synchronization bug when using the websocket transport which was leading the client to wait for a ping packet (30s by default) before upgrading to websocket.
+* The `on_connect` handler was called twice when upgrading to websocket. It is now called only once.
 
 # 0.6.0
 ## socketioxide
