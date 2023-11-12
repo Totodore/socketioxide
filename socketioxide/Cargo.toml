@@ -42,7 +42,7 @@ extensions = ["dep:dashmap"]
 hyper-v1 = ["engineioxide/hyper-v1", "dep:http-body-v1", "dep:hyper-v1"]
 
 [dev-dependencies]
-engineioxide = { path = "../engineioxide", version = "0.6.0", features = [
+engineioxide = { path = "../engineioxide", features = [
     "v3",
     "tracing",
     "test-utils",
