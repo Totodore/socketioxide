@@ -1,4 +1,4 @@
-# 0.7.0
+# 0.7.1
 ## socketioxide
 * Fix [#154](https://github.com/Totodore/socketioxide/issues/154), build was broken when using the `hyper-v1` feature flag because of `hyper-util` dependencie which is not published on crates.io.
 
