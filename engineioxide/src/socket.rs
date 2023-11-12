@@ -126,7 +126,7 @@ where
         protocol: ProtocolVersion,
         transport: TransportType,
         config: &EngineIoConfig,
-        req_data: Parts,
+        req_parts: Parts,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Self {
@@ -147,7 +147,7 @@ where
             close_fn,
 
             data: D::default(),
-            req_parts: req_data.into(),
+            req_parts,
 
             #[cfg(feature = "v3")]
             supports_binary,
