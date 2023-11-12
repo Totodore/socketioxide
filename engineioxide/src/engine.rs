@@ -3,11 +3,13 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use http::request::Parts;
+
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
     service::TransportType,
-    socket::{DisconnectReason, Socket, SocketReq},
+    socket::{DisconnectReason, Socket},
 };
 use crate::{service::ProtocolVersion, sid::Sid};
 
@@ -42,7 +44,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         self: &Arc<Self>,
         protocol: ProtocolVersion,
         transport: TransportType,
-        req: SocketReq,
+        req: Parts,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Arc<Socket<H::Data>> {
         let engine = self.clone();
@@ -94,6 +96,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
+    use http::Request;
 
     use super::*;
 
@@ -130,10 +133,7 @@ mod tests {
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,
-            SocketReq {
-                headers: http::HeaderMap::new(),
-                uri: http::Uri::default(),
-            },
+            Request::<()>::default().into_parts().0,
             #[cfg(feature = "v3")]
             true,
         );
@@ -149,10 +149,7 @@ mod tests {
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,
-            SocketReq {
-                headers: http::HeaderMap::new(),
-                uri: http::Uri::default(),
-            },
+            Request::<()>::default().into_parts().0,
             #[cfg(feature = "v3")]
             true,
         );
@@ -168,10 +165,7 @@ mod tests {
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,
-            SocketReq {
-                headers: http::HeaderMap::new(),
-                uri: http::Uri::default(),
-            },
+            Request::<()>::default().into_parts().0,
             #[cfg(feature = "v3")]
             true,
         );

@@ -1,8 +1,7 @@
 pub use async_trait::async_trait;
 
 pub use service::{ProtocolVersion, TransportType};
-/// A Packet type to use when sending data to the client
-pub use socket::{DisconnectReason, Socket, SocketReq};
+pub use socket::{DisconnectReason, Socket};
 
 pub mod config;
 pub mod errors;

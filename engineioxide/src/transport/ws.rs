@@ -11,7 +11,7 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
 };
-use http::{HeaderValue, Request, Response, StatusCode};
+use http::{request::Parts, HeaderValue, Request, Response, StatusCode};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     task::JoinHandle,
@@ -31,7 +31,7 @@ use crate::{
     service::ProtocolVersion,
     service::TransportType,
     sid::Sid,
-    DisconnectReason, Socket, SocketReq,
+    DisconnectReason, Socket,
 };
 
 /// Create a response for websocket upgrade
@@ -68,9 +68,15 @@ pub fn new_req<R, B, H: EngineIoHandler>(
         .get("Sec-WebSocket-Key")
         .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
         .clone();
-    let req_data = SocketReq::from(&parts);
 
-    let req = Request::from_parts(parts, ());
+    let mut req = Request::builder()
+        .method(parts.method.clone())
+        .uri(parts.uri.clone())
+        .version(parts.version)
+        .body(())
+        .unwrap();
+    req.headers_mut().extend(parts.headers.clone().into_iter());
+
     tokio::spawn(async move {
         #[cfg(feature = "hyper-v1")]
         let res = if hyper_v1 {
@@ -89,8 +95,8 @@ pub fn new_req<R, B, H: EngineIoHandler>(
             Either::Right(hyper::upgrade::on(req).await) as Either<Res, Res>
         };
         let res = match res {
-            Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
-            Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, req_data).await,
+            Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
+            Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
             Either::Left(Err(_e)) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
@@ -128,7 +134,7 @@ async fn on_init<H: EngineIoHandler, S>(
     conn: S,
     protocol: ProtocolVersion,
     sid: Option<Sid>,
-    req_data: SocketReq,
+    req_data: Parts,
 ) -> Result<(), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,

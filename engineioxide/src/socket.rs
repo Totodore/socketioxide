@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use http::{request::Parts, Uri};
+use http::{request::Parts, Request};
 use tokio::{
     sync::{
         mpsc::{self},
@@ -22,35 +22,6 @@ use crate::{
     service::ProtocolVersion,
 };
 use crate::{service::TransportType, sid::Sid};
-
-/// Http Request data used to create a socket
-#[derive(Debug)]
-pub struct SocketReq {
-    /// Request URI
-    pub uri: Uri,
-
-    /// Request headers
-    pub headers: http::HeaderMap,
-}
-
-/// Convert a `Parts` struct to a `SocketReq` by cloning the fields.
-impl From<&Parts> for SocketReq {
-    fn from(parts: &Parts) -> Self {
-        Self {
-            uri: parts.uri.clone(),
-            headers: parts.headers.clone(),
-        }
-    }
-}
-/// Convert a `Parts` struct to a `SocketReq` by moving the fields.
-impl From<Parts> for SocketReq {
-    fn from(parts: Parts) -> Self {
-        Self {
-            uri: parts.uri,
-            headers: parts.headers,
-        }
-    }
-}
 
 /// A [`DisconnectReason`] represents the reason why a [`Socket`] was closed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,7 +111,7 @@ where
     pub data: D,
 
     /// Http Request data used to create a socket
-    pub req_data: Arc<SocketReq>,
+    pub req_parts: Parts,
 
     /// If the client supports binary packets (via polling XHR2)
     #[cfg(feature = "v3")]
@@ -155,7 +126,7 @@ where
         protocol: ProtocolVersion,
         transport: TransportType,
         config: &EngineIoConfig,
-        req_data: SocketReq,
+        req_data: Parts,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Self {
@@ -176,7 +147,7 @@ where
             close_fn,
 
             data: D::default(),
-            req_data: req_data.into(),
+            req_parts: req_data.into(),
 
             #[cfg(feature = "v3")]
             supports_binary,
@@ -372,7 +343,7 @@ impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
             .field("heartbeat_rx", &self.heartbeat_rx)
             .field("heartbeat_tx", &self.heartbeat_tx)
             .field("heartbeat_handle", &self.heartbeat_handle)
-            .field("req_data", &self.req_data)
+            .field("req_data", &self.req_parts)
             .finish()
     }
 }
@@ -414,11 +385,7 @@ where
             close_fn,
 
             data: D::default(),
-            req_data: SocketReq {
-                headers: http::HeaderMap::new(),
-                uri: Uri::default(),
-            }
-            .into(),
+            req_parts: Request::<()>::default().into_parts().0,
 
             #[cfg(feature = "v3")]
             supports_binary: true,
