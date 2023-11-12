@@ -411,3 +411,11 @@ impl<A: Adapter> Operators<A> {
         Ok(packet)
     }
 }
+
+#[cfg(feature = "test-utils")]
+impl<A: Adapter> Operators<A> {
+    #[allow(dead_code)]
+    pub(crate) fn is_broadcast(&self) -> bool {
+        self.opts.flags.contains(&BroadcastFlags::Broadcast)
+    }
+}

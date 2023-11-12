@@ -723,25 +723,39 @@ impl<A: Adapter> Clone for SocketIo<A> {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn get_default_op() {
+    #[test]
+    fn get_default_op() {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
         let _ = io.get_default_op();
     }
 
-    #[tokio::test]
+    #[test]
     #[should_panic(expected = "default namespace not found")]
-    async fn get_default_op_panic() {
+    fn get_default_op_panic() {
         let (_, io) = SocketIo::builder().build_svc();
         let _ = io.get_default_op();
     }
 
-    #[tokio::test]
-    async fn get_op() {
+    #[test]
+    fn get_op() {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("test", || {});
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
+    }
+
+    #[test]
+    fn every_op_should_be_broadcast() {
+        let (_, io) = SocketIo::builder().build_svc();
+        io.ns("/", || {});
+        assert!(io.get_default_op().is_broadcast());
+        assert!(io.to("room1").is_broadcast());
+        assert!(io.within("room1").is_broadcast());
+        assert!(io.except("room1").is_broadcast());
+        assert!(io.local().is_broadcast());
+        assert!(io.timeout(Duration::from_secs(5)).is_broadcast());
+        assert!(io.bin(vec![vec![1, 2, 3, 4]]).is_broadcast());
+        assert!(io.of("/").unwrap().is_broadcast());
     }
 }
