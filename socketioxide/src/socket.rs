@@ -557,6 +557,11 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Get the request info made by the client to connect
+    ///
+    /// Note that the `extensions` field will be empty and will not
+    /// contain extensions set in the previous http layers for requests initialized with ws transport.
+    ///
+    /// It is because [`http::Extensions`] is not cloneable and is needed for ws upgrade.
     pub fn req_parts(&self) -> &http::request::Parts {
         &self.esocket.req_parts
     }

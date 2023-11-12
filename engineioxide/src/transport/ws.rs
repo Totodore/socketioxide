@@ -55,27 +55,28 @@ fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, htt
 /// the http polling request is closed and the SID is kept for the websocket
 ///
 /// It can be used with hyper-v1 by setting the `hyper_v1` parameter to true
-pub fn new_req<R, B, H: EngineIoHandler>(
+pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Option<Sid>,
     req: Request<R>,
     #[cfg(feature = "hyper-v1")] hyper_v1: bool,
 ) -> Result<Response<ResponseBody<B>>, Error> {
-    let (parts, _) = req.into_parts();
+    let mut parts = Request::builder()
+        .method(req.method().clone())
+        .uri(req.uri().clone())
+        .version(req.version())
+        .body(())
+        .unwrap()
+        .into_parts()
+        .0;
+
+    parts.headers.extend(req.headers().clone());
     let ws_key = parts
         .headers
         .get("Sec-WebSocket-Key")
         .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
         .clone();
-
-    let mut req = Request::builder()
-        .method(parts.method.clone())
-        .uri(parts.uri.clone())
-        .version(parts.version)
-        .body(())
-        .unwrap();
-    req.headers_mut().extend(parts.headers.clone());
 
     tokio::spawn(async move {
         #[cfg(feature = "hyper-v1")]
