@@ -1910,6 +1910,7 @@ dependencies = [
  "http-body 1.0.0-rc.2",
  "hyper 0.14.27",
  "hyper 1.0.0-rc.4",
+ "itoa",
  "serde",
  "serde_json",
  "thiserror",
