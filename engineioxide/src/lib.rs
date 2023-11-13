@@ -1,6 +1,9 @@
 pub use service::{ProtocolVersion, TransportType};
 pub use socket::{DisconnectReason, Socket};
 
+#[cfg(feature = "test-utils")]
+pub use packet::*;
+
 pub mod config;
 pub mod errors;
 pub mod handler;

@@ -583,6 +583,7 @@ version = "0.7.1"
 dependencies = [
  "base64",
  "bytes",
+ "criterion",
  "futures",
  "http",
  "http-body 0.4.5",

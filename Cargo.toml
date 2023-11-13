@@ -13,7 +13,6 @@ http-body = "0.4.5"
 thiserror = "1.0.40"
 tracing = "0.1.37"
 itoa = "1.0.9"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 
 # Hyper v0.1
 http-body-v1 = { package = "http-body", version = "1.0.0-rc.2" }
@@ -21,6 +20,18 @@ hyper-v1 = { package = "hyper", version = "1.0.0-rc.4", features = [
     "server",
     "http1",
     "http2",
+] }
+
+# Dev deps
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
+hyper = { version = "0.14.25", features = [
+    "http1",
+    "http2",
+    "server",
+    "stream",
+    "runtime",
+    "client",
 ] }
 
 [workspace.package]

@@ -41,18 +41,22 @@ http-body-v1 = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
-hyper = { version = "0.14.25", features = [
-    "http1",
-    "http2",
-    "server",
-    "stream",
-    "runtime",
-    "client",
-] }
+tracing-subscriber.workspace = true
+hyper.workspace = true
+criterion.workspace = true
 
 [features]
 v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
 tracing = ["dep:tracing"]
 hyper-v1 = ["dep:hyper-v1", "dep:http-body-v1"]
+
+[[bench]]
+name = "packet_encode"
+path = "benches/packet_encode.rs"
+harness = false
+
+[[bench]]
+name = "packet_decode"
+path = "benches/packet_decode.rs"
+harness = false

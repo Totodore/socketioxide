@@ -6,7 +6,7 @@ use crate::sid::Sid;
 use crate::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Packet {
     /// Open packet used to initiate a connection
     Open(OpenPacket),
@@ -178,7 +178,7 @@ impl TryFrom<String> for Packet {
 }
 
 /// An OpenPacket is used to initiate a connection
-#[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
     sid: Sid,

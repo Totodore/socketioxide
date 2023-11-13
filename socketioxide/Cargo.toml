@@ -43,6 +43,7 @@ extensions = ["dep:dashmap"]
 hyper-v1 = ["engineioxide/hyper-v1", "dep:http-body-v1", "dep:hyper-v1"]
 
 [dev-dependencies]
+tokio-tungstenite = "0.20.0"
 engineioxide = { path = "../engineioxide", features = [
     "v3",
     "tracing",
@@ -55,16 +56,8 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
 ] }
 tracing-subscriber.workspace = true
-tokio-tungstenite = "0.20.0"
-hyper = { version = "0.14.25", features = [
-    "http1",
-    "http2",
-    "server",
-    "stream",
-    "runtime",
-    "client",
-] }
-criterion = { version = "0.5.1", features = ["html_reports"] }
+hyper.workspace = true
+criterion.workspace = true
 
 [[bench]]
 name = "packet_encode"
