@@ -1,3 +1,28 @@
+//! ## A tower [`Service`] for socket.io so it can be used with frameworks supporting tower services.
+//! 
+//! #### Example with a `Warp` inner service : 
+//! ```rust
+//! let filter = warp::any().map(|| "Hello From Warp!");
+//! let warp_svc = warp::service(filter);
+//! 
+//! let (service, io) = SocketIo::new_inner_svc(warp_svc);
+//! 
+//! info!("Starting server");
+//! 
+//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
+//!     .serve(service.into_make_service());
+//! ```
+//! 
+//! #### Example with a `hyper` standalone service : 
+//! ```rust
+//! let (service, io) = SocketIo::new_svc();
+//! 
+//! info!("Starting server");
+//! 
+//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
+//!     .serve(service.into_make_service());
+//! ```
+
 use engineioxide::service::{EngineIoService, MakeEngineIoService};
 use http::{Request, Response};
 use http_body::Body;
@@ -13,10 +38,7 @@ use crate::{
     SocketIoConfig,
 };
 
-/// The service for Socket.IO
-///
-/// It is a wrapper around the Engine.IO service.
-/// Its main purpose is to be able to use it as standalone Socket.IO service
+/// A [`Service`] that wraps [`EngineIoService`] and redirect every request to it
 pub struct SocketIoService<S: Clone, A: Adapter = LocalAdapter> {
     engine_svc: EngineIoService<Arc<Client<A>>, S>,
 }
@@ -49,7 +71,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     }
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub fn with_config_inner(inner: S, config: Arc<SocketIoConfig>) -> (Self, Arc<Client<A>>) {
+    pub(crate) fn with_config_inner(inner: S, config: Arc<SocketIoConfig>) -> (Self, Arc<Client<A>>) {
         let engine_config = config.engine_config.clone();
         let client = Arc::new(Client::new(config));
         let svc = EngineIoService::with_config_inner(inner, client.clone(), engine_config);
@@ -58,7 +80,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
 
     /// Create a new [`EngineIoService`] with a custom inner service and an existing client
     /// It is mainly used with a [`SocketIoLayer`](crate::layer::SocketIoLayer) that owns the client
-    pub fn with_client(inner: S, client: Arc<Client<A>>) -> Self {
+    pub(crate) fn with_client(inner: S, client: Arc<Client<A>>) -> Self {
         let engine_config = client.config.engine_config.clone();
         let svc = EngineIoService::with_config_inner(inner, client, engine_config);
         Self { engine_svc: svc }

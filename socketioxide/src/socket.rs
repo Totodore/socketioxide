@@ -1,3 +1,4 @@
+//! The [`Socket`] struct act as the main interface with the client connection
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -52,7 +53,7 @@ pub enum DisconnectReason {
     /// The connection was closed (example: the user has lost connection, or the network was changed from WiFi to 4G)
     TransportError,
 
-    /// The client did not send a PONG packet in the [ping timeout](crate::SocketIoConfigBuilder) delay
+    /// The client did not send a PONG packet in the `ping timeout` delay
     HeartbeatTimeout,
 
     /// The client has manually disconnected the socket using [`socket.disconnect()`](https://socket.io/fr/docs/v4/client-api/#socketdisconnect)

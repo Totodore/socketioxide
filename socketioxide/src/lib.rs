@@ -4,6 +4,10 @@
 //! * [axum](https://docs.rs/axum/latest/axum/)
 //! * [warp](https://docs.rs/warp/latest/warp/)
 //! * [hyper](https://docs.rs/hyper/latest/hyper/)
+//! * [salvo](https://docs.rs/salvo/latest/salvo/)
+//! 
+//! ## Table of contents
+//! 
 //!
 //! ## Usage with axum
 //!
@@ -70,17 +74,19 @@ pub mod adapter;
 
 #[cfg(feature = "extensions")]
 pub mod extensions;
-pub mod handler;
 #[cfg(feature = "hyper-v1")]
 pub mod hyper_v1;
+
+pub mod handler;
 pub mod layer;
 pub mod service;
+pub mod socket;
 
 #[cfg(feature = "test-utils")]
 pub use packet::*;
 
 pub use engineioxide::TransportType;
-pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
+pub use errors::{AckError, BroadcastError, SendError};
 pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 pub use socket::{AckResponse, DisconnectReason};
@@ -91,7 +97,6 @@ mod io;
 mod ns;
 mod operators;
 mod packet;
-mod socket;
 
 /// Socket.IO protocol version
 #[derive(Debug, Copy, Clone, PartialEq)]

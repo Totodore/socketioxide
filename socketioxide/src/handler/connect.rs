@@ -1,6 +1,7 @@
-//! [`ConnectHandler`] trait and implementations, used to handle the connect event
-//! It has a flexible axum-like API, you can put any arguments as long as it implements the [`FromConnectParts`] trait
-//! Handlers can be async or not
+//! [`ConnectHandler`] trait and implementations, used to handle the connect event.
+//! 
+//! It has a flexible axum-like API, you can put any arguments as long as it implements the [`FromConnectParts`] trait.
+//! Handlers can be async or not.
 //!
 //! ## Example
 //! ```rust
@@ -8,14 +9,17 @@
 //! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
-//! io.ns("/", move |s: SocketRef, TryData(auth): TryData<String>| {
+//! // Here the handler is async and extract the current socket and the auth payload
+//! io.ns("/", move |s: SocketRef, TryData(auth): TryData<String>| async move {
 //!     println!("Socket connected on / namespace with id and auth data: {} {:?}", s.id, auth);
 //! });
-//! // Here the auth data is not serialized, if there is any it is dropped
+//! // Here the handler is async and only extract the current socket. 
+//! // The auth payload won't be deserialized and will be dropped
 //! io.ns("/async_nsp", move |s: SocketRef| async move {
 //!     println!("Socket connected on /async_nsp namespace with id: {}", s.id);
 //! });
-//! // Here the auth data is not serialized, if there is a serialization error, the handler is not called
+//! // Here the handler is sync and auth data is not serialized, 
+//! // if there is a serialization error, the handler is not called
 //! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
 //!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
 //! });
@@ -56,15 +60,16 @@ where
     }
 }
 
-/// A trait used to extract the arguments from the connect event
-/// The `Result` is used to return an error if the extraction fails, in this case the handler is not called
+/// A trait used to extract the arguments from the connect event.
+/// The `Result` associated type is used to return an error if the extraction fails, 
+/// in this case the [`ConnectHandler`] is not called
 pub trait FromConnectParts<A: Adapter>: Sized {
     type Error: std::error::Error + 'static;
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
 }
 
-/// Define a handler for the connect event
-/// It is implemented for closures with up to 16 arguments that implement the [`FromConnectParts`] trait
+/// Define a handler for the connect event.
+/// It is implemented for closures with up to 16 arguments that implement the [`FromConnectParts`] trait.
 /// The closure can be async or not
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);

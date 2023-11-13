@@ -1,15 +1,15 @@
-//! Extractors for handlers:
-//! * [`ConnectHandler`](super::ConnectHandler)
-//! * [`MessageHandler`](super::MessageHandler)
+//! Extractors for [`ConnectHandler`](super::ConnectHandler) and [`MessageHandler`](super::MessageHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
-//! * [`Data`](Data): extracts and deserialize to json any data, if a deserialize error occurs the handler won't be called
+//! * [`Data`]: extracts and deserialize to json any data, if a deserialize error occurs the handler won't be called
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
-//! * [`TryData`](TryData): extracts and deserialize to json any data but with a `Result` type in case of error
+//! * [`TryData`]: extracts and deserialize to json any data but with a `Result` type in case of error
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
-//! * [`SocketRef`](SocketRef): extracts a reference to the [`Socket`]
+//! * [`SocketRef`]: extracts a reference to the [`Socket`]
+//! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument 
+//! * [`AckSender`]: Can be used to send an ack response to the current message event
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -20,7 +20,7 @@ use crate::{
     adapter::{Adapter, LocalAdapter},
     packet::Packet,
     socket::Socket,
-    AckSenderError, SendError,
+    SendError,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -147,8 +147,8 @@ impl<A: Adapter> SocketRef<A> {
     }
 }
 
-/// An Extractor that returns the binary data of the message
-/// if there is no binary data, it will return an empty vector
+/// An Extractor that returns the binary data of the message.
+/// If there is no binary data, it will contain an empty vec
 pub struct Bin(pub Vec<Vec<u8>>);
 impl<A: Adapter> FromMessage<A> for Bin {
     type Error = Infallible;
@@ -198,30 +198,16 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Send the ack response to the client.
-    pub fn send(self, data: impl Serialize) -> Result<(), AckSenderError<A>> {
+    pub fn send(self, data: impl Serialize) -> Result<(), SendError> {
         if let Some(ack_id) = self.ack_id {
             let ns = self.socket.ns();
-            let data = match serde_json::to_value(&data) {
-                Err(err) => {
-                    return Err(AckSenderError::SendError {
-                        send_error: err.into(),
-                        socket: self.socket,
-                    })
-                }
-                Ok(data) => data,
-            };
-
+            let data = serde_json::to_value(&data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket
-                .send(packet)
-                .map_err(|err| AckSenderError::SendError {
-                    send_error: err,
-                    socket: self.socket,
-                })
+            self.socket.send(packet)
         } else {
             Ok(())
         }

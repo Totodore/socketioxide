@@ -16,7 +16,7 @@ engineioxide = { version = "0.3.0", features = ["v3"] }
 
 ## Feature flags : 
 * `v3`: Enable the engine.io v3 protocol
-* `tracing`: Enable tracing logs with the [`tracing`] crate
+* `tracing`: Enable tracing logs with the `tracing` crate
 * `hyper-v1`: Hyper v1 compatibility layer. For the moment most of the http crates use hyper v0
 
 ## Basic example with axum :
