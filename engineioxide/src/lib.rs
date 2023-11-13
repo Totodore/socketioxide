@@ -1,5 +1,3 @@
-pub use async_trait::async_trait;
-
 pub use service::{ProtocolVersion, TransportType};
 pub use socket::{DisconnectReason, Socket};
 

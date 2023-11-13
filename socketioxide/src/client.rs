@@ -175,7 +175,6 @@ pub struct SocketData {
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
-#[engineioxide::async_trait]
 impl<A: Adapter> EngineIoHandler for Client<A> {
     type Data = SocketData;
 

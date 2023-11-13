@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-
 use crate::socket::{DisconnectReason, Socket};
 
 /// An handler for engine.io events for each sockets.
-#[async_trait]
 pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     /// Data associated with the socket.
     type Data: Default + Send + Sync + 'static;
