@@ -326,40 +326,42 @@ impl<'a> TryInto<String> for Packet<'a> {
             push_nsp(&mut res);
         }
 
+        let mut itoa_buf = itoa::Buffer::new();
+
         match self.inner {
             PacketData::Connect(Some(data)) => res.push_str(&data),
             PacketData::Disconnect | PacketData::Connect(None) => (),
             PacketData::Event(_, _, ack) => {
                 if let Some(ack) = ack {
-                    res.push_str(&ack.to_string());
+                    res.push_str(itoa_buf.format(ack));
                 }
 
                 res.push_str(&data.unwrap())
             }
             PacketData::EventAck(_, ack) => {
-                res.push_str(&ack.to_string());
+                res.push_str(itoa_buf.format(ack));
                 res.push_str(&data.unwrap())
             }
             PacketData::ConnectError => res.push_str("{\"message\":\"Invalid namespace\"}"),
             PacketData::BinaryEvent(_, bin, ack) => {
-                res.push_str(&bin.payload_count.to_string());
+                res.push_str(itoa_buf.format(bin.payload_count));
                 res.push('-');
 
                 push_nsp(&mut res);
 
                 if let Some(ack) = ack {
-                    res.push_str(&ack.to_string());
+                    res.push_str(itoa_buf.format(ack));
                 }
 
                 res.push_str(&data.unwrap())
             }
             PacketData::BinaryAck(packet, ack) => {
-                res.push_str(&packet.payload_count.to_string());
+                res.push_str(itoa_buf.format(packet.payload_count));
                 res.push('-');
 
                 push_nsp(&mut res);
 
-                res.push_str(&ack.to_string());
+                res.push_str(itoa_buf.format(ack));
                 res.push_str(&data.unwrap())
             }
         };
