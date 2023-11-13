@@ -89,7 +89,6 @@ pub use engineioxide::TransportType;
 pub use errors::{AckError, BroadcastError, SendError};
 pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
-pub use socket::{AckResponse, DisconnectReason};
 
 mod client;
 mod errors;
