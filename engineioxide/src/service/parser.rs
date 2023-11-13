@@ -125,7 +125,7 @@ impl<B> From<ParseError> for Response<ResponseBody<B>> {
     }
 }
 
-/// The engine.io protocol
+/// The engine.io protocol version
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
     V3 = 3,
@@ -153,7 +153,7 @@ impl FromStr for ProtocolVersion {
     }
 }
 
-/// The type of the [`transport`](crate::transport) used by the client.
+/// The type of `transport` used by the client.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TransportType {
     Polling = 0x01,

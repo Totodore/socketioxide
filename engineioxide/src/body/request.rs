@@ -1,7 +1,7 @@
 //! Custom Request Body compat struct implementation to map [`http_body_v1::Body`] to a [`http_body::Body`]
 //! Only enabled with the feature flag `hyper-v1`
 //!
-//! Eavily inspired from : https://github.com/davidpdrsn/tower-hyper-http-body-compat
+//! Eavily inspired from : [davidpdrsn/tower-hyper-http-body-compat](https://github.com/davidpdrsn/tower-hyper-http-body-compat)
 
 use std::{
     pin::Pin,

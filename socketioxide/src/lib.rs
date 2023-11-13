@@ -79,7 +79,7 @@ pub mod service;
 #[cfg(feature = "test-utils")]
 pub use packet::*;
 
-pub use engineioxide::config::TransportType;
+pub use engineioxide::TransportType;
 pub use errors::{AckError, AckSenderError, BroadcastError, Error as SocketError, SendError};
 pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};

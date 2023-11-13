@@ -27,10 +27,6 @@ pub enum Error {
     #[error("cannot find socketio socket")]
     SocketGone(Sid),
 
-    /// An engineio error
-    #[error("engineio error: {0}")]
-    EngineIoError(#[from] engineioxide::errors::Error),
-
     #[error("adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }

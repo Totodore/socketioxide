@@ -1,8 +1,48 @@
+//! ## An [`EngineIoHandler`] to get event calls for any engine.io socket
+//! #### Example : 
+//! ```rust
+//! # use engineioxide::service::EngineIoService;
+//! # use engineioxide::handler::EngineIoHandler;
+//! # use engineioxide::{Socket, DisconnectReason};
+//! # use std::sync::lock::Mutex;
+//! // Global state
+//! #[derive(Debug, Clone)]
+//! struct MyHandler {
+//!     user_cnt: AtomicUsize;
+//! }
+//! 
+//! // Socket state
+//! #[derive(Debug, Clone)]
+//! struct SocketState {
+//!     id: Mutex<String>;
+//! }
+//!
+//! impl EngineIoHandler for MyHandler {
+//!     type Data = SocketState;
+//! 
+//!     fn on_connect(&self, socket: Arc<Socket<SocketState>>) { 
+//!         let cnt = self.user_cnt.fetch_add(1) + 1;
+//!         socket.emit(cnt.to_string()).ok();
+//!     }
+//!     fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) { 
+//!         let cnt = self.user_cnt.fetch_sub(1) - 1;
+//!         socket.emit(cnt.to_string()).ok();
+//!     }
+//!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
+//!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
+//!     }
+//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+//! }
+//! 
+//! // Create an engine io service with the given handler
+//! let svc = EngineIoService::new(MyHandler);
+//! ```
 use std::sync::Arc;
 
 use crate::socket::{DisconnectReason, Socket};
 
-/// An handler for engine.io events for each sockets.
+/// The [`EngineIoHandler`] trait can be implemented on any struct to handle socket events
+/// A `Data` associated type can be specified to attach a custom state to the sockets
 pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     /// Data associated with the socket.
     type Data: Default + Send + Sync + 'static;
@@ -10,7 +50,7 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     /// Called when a new socket is connected.
     fn on_connect(&self, socket: Arc<Socket<Self::Data>>);
 
-    /// Called when a socket is disconnected.
+    /// Called when a socket is disconnected with a [`DisconnectReason`]
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason);
 
     /// Called when a message is received from the client.

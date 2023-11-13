@@ -1,7 +1,8 @@
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use engineioxide::{
-    config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
+    TransportType,
+    config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
 };
 use futures::stream::BoxStream;

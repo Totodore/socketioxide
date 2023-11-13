@@ -1,3 +1,55 @@
+//! ## A tower [`Service`] for engine.io so it can be used with frameworks supporting tower services
+//! 
+//! #### Example with a `Warp` inner service : 
+//! ```rust
+//! # use engineioxide::layer::EngineIoLayer;
+//! # use engineioxide::service::EngineIoService;
+//! # use engineioxide::{Socket, DisconnectReason};
+//! #[derive(Debug, Clone)]
+//! struct MyHandler;
+//!
+//! impl EngineIoHandler for MyHandler {
+//!     type Data = ();
+//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
+//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
+//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
+//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
+//! }
+//! let filter = warp::any().map(|| "Hello From Warp!");
+//! let warp_svc = warp::service(filter);
+//! 
+//! // Create a new engineio service by wrapping the warp service
+//! let service = EngineIoService::with_inner(warp_svc, MyHandler);
+//! 
+//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
+//!     .serve(service.into_make_service())
+//!     .await?;
+//! ```
+//! 
+//! #### Example with a `hyper` standalone service : 
+//! ```rust
+//! # use engineioxide::layer::EngineIoLayer;
+//! # use engineioxide::service::EngineIoService;
+//! # use engineioxide::{Socket, DisconnectReason};
+//! #[derive(Debug, Clone)]
+//! struct MyHandler;
+//!
+//! impl EngineIoHandler for MyHandler {
+//!     type Data = ();
+//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
+//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
+//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
+//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
+//! }
+//! 
+//! // Create a new engine.io service that will return a 404 not found response for other requests
+//! let service = EngineIoService::new(MyHandler);
+//! 
+//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
+//!     .serve(service.into_make_service())
+//!     .await?;
+//! ```
+
 use std::{
     convert::Infallible,
     sync::Arc,
@@ -28,7 +80,7 @@ use self::{futures::ResponseFuture, parser::dispatch_req};
 
 /// A [`Service`] that handles engine.io requests as a middleware.
 /// If the request is not an engine.io request, it forwards it to the inner service.
-/// If it is an engine.io request it will forward it to the appropriate [`transport`](crate::transport).
+/// If it is an engine.io request it will forward it to the appropriate `transport`.
 ///
 /// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
 pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
@@ -88,7 +140,7 @@ impl<H: EngineIoHandler, S> std::fmt::Debug for EngineIoService<H, S> {
     }
 }
 
-/// The service implementation for [`EngineIoService`].
+/// Tower [`Service`] implementation for [`EngineIoService`].
 impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,
@@ -149,7 +201,7 @@ impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
 }
 
 /// A [`Service`] that always returns a 404 response and that is compatible with [`EngineIoService`]
-/// *and* a [`hyper_v1::EngineIoHyperService`].
+/// *and* [`hyper_v1::EngineIoHyperService`].
 #[derive(Debug, Clone)]
 pub struct NotFoundService;
 
