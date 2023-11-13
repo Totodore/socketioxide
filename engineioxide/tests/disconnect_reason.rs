@@ -26,7 +26,6 @@ struct MyHandler {
     disconnect_tx: mpsc::Sender<DisconnectReason>,
 }
 
-#[engineioxide::async_trait]
 impl EngineIoHandler for MyHandler {
     type Data = ();
 

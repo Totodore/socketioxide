@@ -95,7 +95,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
     use http::Request;
 
     use super::*;
@@ -103,7 +102,6 @@ mod tests {
     #[derive(Debug, Clone)]
     struct MockHandler;
 
-    #[async_trait]
     impl EngineIoHandler for MockHandler {
         type Data = ();
 

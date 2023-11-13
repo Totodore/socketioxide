@@ -17,7 +17,6 @@ use tracing_subscriber::FmtSubscriber;
 #[derive(Debug, Clone)]
 struct MyHandler;
 
-#[engineioxide::async_trait]
 impl EngineIoHandler for MyHandler {
     type Data = ();
 
