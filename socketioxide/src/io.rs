@@ -1,9 +1,9 @@
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use engineioxide::{
-    TransportType,
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
+    TransportType,
 };
 use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
@@ -16,7 +16,8 @@ use crate::{
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    AckError, AckResponse, BroadcastError,
+    socket::AckResponse,
+    AckError, BroadcastError,
 };
 
 /// Configuration for Socket.IO & Engine.IO

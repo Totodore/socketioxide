@@ -24,7 +24,7 @@ use crate::{
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    AckResponse,
+    socket::AckResponse,
 };
 
 /// A room identifier
