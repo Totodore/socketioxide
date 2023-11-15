@@ -1,5 +1,5 @@
 //! [`ConnectHandler`] trait and implementations, used to handle the connect event.
-//! 
+//!
 //! It has a flexible axum-like API, you can put any arguments as long as it implements the [`FromConnectParts`] trait.
 //! Handlers can be async or not.
 //!
@@ -13,12 +13,12 @@
 //! io.ns("/", move |s: SocketRef, TryData(auth): TryData<String>| async move {
 //!     println!("Socket connected on / namespace with id and auth data: {} {:?}", s.id, auth);
 //! });
-//! // Here the handler is async and only extract the current socket. 
+//! // Here the handler is async and only extract the current socket.
 //! // The auth payload won't be deserialized and will be dropped
 //! io.ns("/async_nsp", move |s: SocketRef| async move {
 //!     println!("Socket connected on /async_nsp namespace with id: {}", s.id);
 //! });
-//! // Here the handler is sync and auth data is not serialized, 
+//! // Here the handler is sync and auth data is not serialized,
 //! // if there is a serialization error, the handler is not called
 //! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
 //!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
@@ -61,10 +61,14 @@ where
 }
 
 /// A trait used to extract the arguments from the connect event.
-/// The `Result` associated type is used to return an error if the extraction fails, 
+/// The `Result` associated type is used to return an error if the extraction fails,
 /// in this case the [`ConnectHandler`] is not called
 pub trait FromConnectParts<A: Adapter>: Sized {
+    /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
+
+    /// Extract the arguments from the connect event.
+    /// If it fails, the handler is not called
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
 }
 
@@ -72,8 +76,10 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// It is implemented for closures with up to 16 arguments that implement the [`FromConnectParts`] trait.
 /// The closure can be async or not
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
+    /// Call the handler with the given arguments
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 
+    #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
         std::marker::PhantomData
     }

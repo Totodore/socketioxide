@@ -49,7 +49,10 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
     )
 )]
 pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
+    /// Call the handler with the given arguments
     fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>);
+
+    #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
         std::marker::PhantomData
     }
@@ -100,7 +103,11 @@ mod private {
     )
 )]
 pub trait FromMessageParts<A: Adapter>: Sized {
+    /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
+
+    /// Extract the arguments from the message event.
+    /// If it fails, the handler is not called
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
@@ -118,7 +125,11 @@ pub trait FromMessageParts<A: Adapter>: Sized {
     )
 )]
 pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
+    /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
+
+    /// Extract the arguments from the message event.
+    /// If it fails, the handler is not called
     fn from_message(
         s: Arc<Socket<A>>,
         v: Value,

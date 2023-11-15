@@ -8,7 +8,7 @@
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
 //! * [`SocketRef`]: extracts a reference to the [`Socket`]
-//! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument 
+//! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
 
 use std::convert::Infallible;

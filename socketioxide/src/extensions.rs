@@ -27,6 +27,7 @@ pub struct Ref<'a, T>(
 );
 
 impl<'a, T> Ref<'a, T> {
+    /// Get a reference to the value.
     pub fn value(&self) -> &T {
         self.0.value()
     }
@@ -46,9 +47,11 @@ pub struct RefMut<'a, T>(
 );
 
 impl<'a, T> RefMut<'a, T> {
+    /// Get a reference to the value.
     pub fn value(&self) -> &T {
         self.0.value()
     }
+    /// Get a mutable reference to the value.
     pub fn value_mut(&mut self) -> &mut T {
         self.0.value_mut()
     }
@@ -169,7 +172,7 @@ impl Extensions {
     ///
     /// assert_eq!(*ext.get::<i32>().unwrap(), 5i32);
     /// ```
-    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Ref<T>> {
+    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Ref<'_, T>> {
         self.map
             .get(&TypeId::of::<T>())
             .and_then(|entry| entry.try_map(|r| r.downcast_ref::<T>()).ok())
@@ -188,7 +191,7 @@ impl Extensions {
     ///
     /// assert_eq!(*ext.get::<String>().unwrap(), "Hello World");
     /// ```
-    pub fn get_mut<T: Send + Sync + 'static>(&self) -> Option<RefMut<T>> {
+    pub fn get_mut<T: Send + Sync + 'static>(&self) -> Option<RefMut<'_, T>> {
         self.map
             .get_mut(&TypeId::of::<T>())
             .and_then(|entry| entry.try_map(|r| r.downcast_mut::<T>()).ok())

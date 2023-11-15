@@ -5,8 +5,8 @@ pub mod connect;
 pub mod extract;
 pub mod message;
 
-pub use connect::{FromConnectParts, ConnectHandler};
 pub(crate) use connect::BoxedConnectHandler;
+pub use connect::{ConnectHandler, FromConnectParts};
 pub(crate) use message::BoxedMessageHandler;
 pub use message::{FromMessage, FromMessageParts, MessageHandler};
 /// A struct used to erase the type of a [`ConnectHandler`] or [`MessageHandler`] so it can be stored in a map

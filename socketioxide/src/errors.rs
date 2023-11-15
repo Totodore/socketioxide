@@ -1,7 +1,5 @@
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
-use std::{
-    fmt::{Debug, Display},
-};
+use std::fmt::{Debug, Display};
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
 
 /// Error type for socketio
@@ -28,7 +26,7 @@ pub enum Error {
 
 /// Convert an [`Error`] to an [`EIoDisconnectReason`] if possible
 ///
-/// If the error cannot be converted to a [`EIoDisconnectReason`] it means that the error was not fatal 
+/// If the error cannot be converted to a [`EIoDisconnectReason`] it means that the error was not fatal
 /// and the engine `Socket` can be kept alive
 impl From<&Error> for Option<EIoDisconnectReason> {
     fn from(value: &Error) -> Self {
@@ -74,6 +72,7 @@ pub enum BroadcastError {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
+    /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }
@@ -100,9 +99,12 @@ pub enum SendError {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
+    /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
     AdapterError(#[from] AdapterError),
 
+    /// The socket channel is full.
+    /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) method.
     #[error("internal channel full error")]
     InternalChannelFull,
 }

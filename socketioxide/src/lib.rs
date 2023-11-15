@@ -1,3 +1,37 @@
+#![warn(
+    clippy::future_not_send,
+    clippy::all,
+    clippy::todo,
+    clippy::empty_enum,
+    clippy::enum_glob_use,
+    clippy::mem_forget,
+    clippy::unused_self,
+    clippy::filter_map_next,
+    clippy::needless_continue,
+    clippy::needless_borrow,
+    clippy::match_wildcard_for_single_variants,
+    clippy::if_let_mutex,
+    clippy::mismatched_target_os,
+    clippy::await_holding_lock,
+    clippy::match_on_vec_items,
+    clippy::imprecise_flops,
+    clippy::suboptimal_flops,
+    clippy::lossy_float_literal,
+    clippy::rest_pat_in_fully_bound_structs,
+    clippy::fn_params_excessive_bools,
+    clippy::exit,
+    clippy::inefficient_to_string,
+    clippy::linkedlist,
+    clippy::macro_use_imports,
+    clippy::option_option,
+    clippy::verbose_file_reads,
+    clippy::unnested_or_patterns,
+    clippy::str_to_string,
+    rust_2018_idioms,
+    future_incompatible,
+    nonstandard_style,
+    missing_docs
+)]
 //! Socket.IO server implementation as a [tower layer](https://docs.rs/tower/latest/tower/) in Rust.
 //!
 //! It integrates with any framework that based on tower/hyper, such as:
@@ -5,9 +39,9 @@
 //! * [warp](https://docs.rs/warp/latest/warp/)
 //! * [hyper](https://docs.rs/hyper/latest/hyper/)
 //! * [salvo](https://docs.rs/salvo/latest/salvo/)
-//! 
+//!
 //! ## Table of contents
-//! 
+//!
 //!
 //! ## Usage with axum
 //!
@@ -100,7 +134,9 @@ mod packet;
 /// Socket.IO protocol version
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
+    /// The socket.io protocol version 4, only available with the feature flag `v4`
     V4 = 4,
+    /// The socket.io protocol version 5, enabled by default
     V5 = 5,
 }
 

@@ -146,6 +146,7 @@ impl SocketIoBuilder {
         self
     }
 
+    /// Sets a custom [`SocketIoConfig`] created previously for this [`SocketIoBuilder`]
     #[inline]
     pub fn with_config(mut self, config: SocketIoConfig) -> Self {
         self.config = config;
@@ -324,7 +325,7 @@ impl<A: Adapter> SocketIo<A> {
 
     /// Gracefully closes all the connections and drops every sockets
     ///
-    /// Any `on_disconnect` handler will called with [`DisconnectReason::ClosingServer`](crate::DisconnectReason::ClosingServer)
+    /// Any `on_disconnect` handler will called with [`DisconnectReason::ClosingServer`](crate::socket::DisconnectReason::ClosingServer)
     #[inline]
     pub async fn close(&self) {
         self.0.close().await;

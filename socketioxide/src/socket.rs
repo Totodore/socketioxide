@@ -34,6 +34,7 @@ use crate::{
     errors::{AdapterError, SendError},
 };
 
+/// Boxed callback for the disconnect handler
 pub type DisconnectCallback<A> = Box<
     dyn FnOnce(Arc<Socket<A>>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 >;
@@ -99,7 +100,11 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 /// A response to an ack request
 #[derive(Debug)]
 pub struct AckResponse<T> {
+    /// The data returned by the client
     pub data: T,
+    /// Optional binary payloads
+    ///
+    /// If there is no binary payload, the `Vec` will be empty
     pub binary: Vec<Vec<u8>>,
 }
 
@@ -112,8 +117,14 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
+    /// The socket id
     pub id: Sid,
 
+    /// A type map of protocol extensions.
+    /// It can be used to share data through the lifetime of the socket.
+    /// Because it uses a [`DashMap`](dashmap::DashMap) internally, it is thread safe but be careful about deadlocks!
+    ///
+    /// **Note**: This is note the same data than the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
     #[cfg(feature = "extensions")]
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData>>,
@@ -205,7 +216,7 @@ impl<A: Adapter> Socket<A> {
 
     /// ## Register a disconnect handler.
     /// The callback will be called when the socket is disconnected from the server or the client or when the underlying connection crashes.
-    /// A [`DisconnectReason`](crate::DisconnectReason) is passed to the callback to indicate the reason for the disconnection.
+    /// A [`DisconnectReason`] is passed to the callback to indicate the reason for the disconnection.
     /// ### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -494,7 +505,7 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError> {
+    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SendError> {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 Some(std::mem::take(&mut bin.bin))
@@ -544,7 +555,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     // Receive data from client:
-    pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
+    pub(crate) fn recv(self: Arc<Self>, packet: PacketData<'_>) -> Result<(), Error> {
         match packet {
             PacketData::Event(e, data, ack) => self.recv_event(&e, data, ack),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),

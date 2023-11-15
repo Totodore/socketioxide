@@ -67,6 +67,7 @@ where
 }
 
 impl<A: Adapter, S: Clone> SocketIoService<S, A> {
+    /// Create a MakeService which can be used as a hyper service
     #[inline(always)]
     pub fn into_make_service(self) -> MakeEngineIoService<Arc<Client<A>>, S> {
         self.engine_svc.into_make_service()

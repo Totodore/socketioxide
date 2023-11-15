@@ -54,7 +54,7 @@ pub struct BroadcastOptions {
     pub sid: Option<Sid>,
 }
 impl BroadcastOptions {
-    pub fn new(sid: Option<Sid>) -> Self {
+    pub(crate) fn new(sid: Option<Sid>) -> Self {
         Self {
             flags: HashSet::new(),
             rooms: HashSet::new(),
@@ -65,7 +65,11 @@ impl BroadcastOptions {
 }
 
 //TODO: Make an AsyncAdapter trait
+/// An adapter is responsible for managing the state of the server.
+/// This adapter can be implemented to share the state between multiple servers.
+/// The default adapter is the [`LocalAdapter`], which stores the state in memory.
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
+    /// An error that can occur when using the adapter.
     type Error: std::error::Error + Into<AdapterError> + Send + 'static;
 
     /// Create a new adapter and give the namespace ref to retrieve sockets.
@@ -89,7 +93,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid) -> Result<(), Self::Error>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
@@ -190,7 +194,7 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+    fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let sockets = self.apply_opts(opts);
 
         #[cfg(feature = "tracing")]

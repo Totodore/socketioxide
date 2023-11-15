@@ -103,7 +103,7 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Propagate a packet to a its target namespace
-    fn sock_propagate_packet(&self, packet: Packet, sid: Sid) -> Result<(), Error> {
+    fn sock_propagate_packet(&self, packet: Packet<'_>, sid: Sid) -> Result<(), Error> {
         if let Some(ns) = self.get_ns(&packet.ns) {
             ns.recv(sid, packet.inner)
         } else {
