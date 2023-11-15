@@ -1,10 +1,12 @@
 //! ## Configuration for the engine.io engine & transports
-//! #### Example : 
+//! #### Example :
 //! ```rust
 //! # use engineioxide::config::EngineIoConfig;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
-//! 
+//! # use std::time::Duration;
+//! # use engineioxide::{Socket, DisconnectReason};
+//! # use std::sync::Arc;
 //! #[derive(Debug, Clone)]
 //! struct MyHandler;
 //!
@@ -15,14 +17,14 @@
 //!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
 //!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
 //! }
-//! 
+//!
 //! let config = EngineIoConfig::builder()
 //!     .ping_interval(Duration::from_millis(300))  // Set the ping_interval to 300ms
 //!     .ping_timeout(Duration::from_millis(200))   // Set the ping timeout to 200ms
 //!     .max_payload(1e6 as u64)                    // Set the max payload to a given size
 //!     .max_buffer_size(1024)                      // Set a custom buffer size
 //!     .build();
-//! 
+//!
 //! // Create an engine io service with a custom config
 //! let svc = EngineIoService::with_config(MyHandler, config);
 //! ```
@@ -76,6 +78,7 @@ impl Default for EngineIoConfig {
 }
 
 impl EngineIoConfig {
+    /// Create a new builder with a default config
     pub fn builder() -> EngineIoConfigBuilder {
         EngineIoConfigBuilder::new()
     }
@@ -93,6 +96,7 @@ pub struct EngineIoConfigBuilder {
 }
 
 impl EngineIoConfigBuilder {
+    /// Create a new builder with a default config
     pub fn new() -> Self {
         Self {
             config: EngineIoConfig::default(),

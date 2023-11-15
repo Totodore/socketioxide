@@ -1,11 +1,15 @@
 //! ## A tower [`Service`] for engine.io so it can be used with frameworks supporting tower services
-//! 
-//! #### Example with a `Warp` inner service : 
+//!
+//! #### Example with a `Warp` inner service :
 //! ```rust
 //! # use engineioxide::layer::EngineIoLayer;
+//! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::{Socket, DisconnectReason};
-//! #[derive(Debug, Clone)]
+//! # use std::sync::Arc;
+//! # use warp::Filter;
+//!
+//! #[derive(Debug)]
 //! struct MyHandler;
 //!
 //! impl EngineIoHandler for MyHandler {
@@ -17,21 +21,20 @@
 //! }
 //! let filter = warp::any().map(|| "Hello From Warp!");
 //! let warp_svc = warp::service(filter);
-//! 
+//!
 //! // Create a new engineio service by wrapping the warp service
-//! let service = EngineIoService::with_inner(warp_svc, MyHandler);
-//! 
-//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!     .serve(service.into_make_service())
-//!     .await?;
+//! let service = EngineIoService::with_inner(warp_svc, MyHandler)
+//!     .into_make_service(); // Create a MakeService from the EngineIoService to give it to hyper
 //! ```
-//! 
-//! #### Example with a `hyper` standalone service : 
+//!
+//! #### Example with a `hyper` standalone service :
 //! ```rust
 //! # use engineioxide::layer::EngineIoLayer;
+//! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::{Socket, DisconnectReason};
-//! #[derive(Debug, Clone)]
+//! # use std::sync::Arc;
+//! #[derive(Debug)]
 //! struct MyHandler;
 //!
 //! impl EngineIoHandler for MyHandler {
@@ -41,13 +44,10 @@
 //!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
 //!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
 //! }
-//! 
+//!
 //! // Create a new engine.io service that will return a 404 not found response for other requests
-//! let service = EngineIoService::new(MyHandler);
-//! 
-//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!     .serve(service.into_make_service())
-//!     .await?;
+//! let service = EngineIoService::new(MyHandler)
+//!     .into_make_service(); // Create a MakeService from the EngineIoService to give it to hyper
 //! ```
 
 use std::{
@@ -101,6 +101,9 @@ impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
 }
 
 impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
+    /// Create a new [`hyper_v1::EngineIoHyperService`] with this [`EngineIoService`] as the inner service.
+    ///
+    /// It can be used as a compatibility layer for hyper v1.
     #[cfg(feature = "hyper-v1")]
     #[inline(always)]
     pub fn with_hyper_v1(self) -> hyper_v1::EngineIoHyperService<H, S> {
@@ -154,7 +157,7 @@ where
     type Error = S::Error;
     type Future = ResponseFuture<S::Future, ResBody>;
 
-    fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 

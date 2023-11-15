@@ -1,10 +1,12 @@
 //! ## A tower [`Layer`] for engine.io so it can be used as a middleware with frameworks supporting layers
-//! 
-//! #### Example with axum : 
+//!
+//! #### Example with axum :
 //! ```rust
 //! # use engineioxide::layer::EngineIoLayer;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::{Socket, DisconnectReason};
+//! # use std::sync::Arc;
+//! # use axum::routing::get;
 //! #[derive(Debug, Clone)]
 //! struct MyHandler;
 //!
@@ -17,20 +19,19 @@
 //! }
 //! // Create a new engineio layer
 //! let layer = EngineIoLayer::new(MyHandler);
-//! 
-//! let app = axum::Router::new()
+//!
+//! let app = axum::Router::<()>::new()
 //!     .route("/", get(|| async { "Hello, World!" }))
 //!     .layer(layer);
-//! 
-//! axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!     .serve(app.into_make_service())
+//! // Spawn the axum server
 //! ```
-//! 
-//! #### Example with salvo (with the `hyper-v1` feature flag) : 
+//!
+//! #### Example with salvo (with the `hyper-v1` feature flag) :
 //! ```rust
 //! # use engineioxide::layer::EngineIoLayer;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::{Socket, DisconnectReason};
+//! # use std::sync::Arc;
 //! #[derive(Debug, Clone)]
 //! struct MyHandler;
 //!
@@ -43,12 +44,10 @@
 //! }
 //! // Create a new engineio layer
 //! let layer = EngineIoLayer::new(MyHandler)
-//!     .with_hyper_v1()   // Enable the hyper-v1 compatibility layer for salvo
-//!     .compat()          // Enable the salvo compatibility layer
-//! 
-//! let router = Router::with_path("/engine.io").hoop(layer).goal(hello);
-//! let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
-//! Server::new(acceptor).serve(router);
+//!     .with_hyper_v1();     // Enable the hyper-v1 compatibility layer for salvo
+//!     // .compat();         // Enable the salvo compatibility layer
+
+//! // Spawn the salvo server
 //! ```
 
 use tower::Layer;
@@ -72,7 +71,7 @@ impl<H: EngineIoHandler> EngineIoLayer<H> {
         }
     }
 
-    /// Create a new [`EngineIoLayer`] with a given [`Handler`](crate::handler::EngineIoHandler) 
+    /// Create a new [`EngineIoLayer`] with a given [`Handler`](crate::handler::EngineIoHandler)
     /// and a custom [`EngineIoConfig`]
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
         Self { config, handler }
@@ -95,7 +94,7 @@ impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
 }
 
 /// Wrapper [`Layer`] for [`EngineIoLayer`] so it works with `hyper-v1`
-/// 
+///
 /// It is only available through the feature flag `hyper-v1`
 #[cfg(feature = "hyper-v1")]
 #[derive(Debug, Clone)]

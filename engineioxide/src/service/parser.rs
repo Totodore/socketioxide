@@ -128,7 +128,9 @@ impl<B> From<ParseError> for Response<ResponseBody<B>> {
 /// The engine.io protocol version
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
+    /// The protocol version 3
     V3 = 3,
+    /// The protocol version 4
     V4 = 4,
 }
 
@@ -156,7 +158,9 @@ impl FromStr for ProtocolVersion {
 /// The type of `transport` used by the client.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TransportType {
+    /// Polling transport
     Polling = 0x01,
+    /// Websocket transport
     Websocket = 0x02,
 }
 

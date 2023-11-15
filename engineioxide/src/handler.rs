@@ -1,41 +1,42 @@
 //! ## An [`EngineIoHandler`] to get event calls for any engine.io socket
-//! #### Example : 
+//! #### Example :
 //! ```rust
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::{Socket, DisconnectReason};
-//! # use std::sync::lock::Mutex;
+//! # use std::sync::{Arc, Mutex};
+//! # use std::sync::atomic::{AtomicUsize, Ordering};
 //! // Global state
-//! #[derive(Debug, Clone)]
+//! #[derive(Debug, Default)]
 //! struct MyHandler {
-//!     user_cnt: AtomicUsize;
+//!     user_cnt: AtomicUsize,
 //! }
-//! 
+//!
 //! // Socket state
-//! #[derive(Debug, Clone)]
+//! #[derive(Debug, Default)]
 //! struct SocketState {
-//!     id: Mutex<String>;
+//!     id: Mutex<String>,
 //! }
 //!
 //! impl EngineIoHandler for MyHandler {
 //!     type Data = SocketState;
-//! 
-//!     fn on_connect(&self, socket: Arc<Socket<SocketState>>) { 
-//!         let cnt = self.user_cnt.fetch_add(1) + 1;
+//!
+//!     fn on_connect(&self, socket: Arc<Socket<SocketState>>) {
+//!         let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
 //!         socket.emit(cnt.to_string()).ok();
 //!     }
-//!     fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) { 
-//!         let cnt = self.user_cnt.fetch_sub(1) - 1;
+//!     fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) {
+//!         let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
 //!         socket.emit(cnt.to_string()).ok();
 //!     }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
+//!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) {
 //!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
 //!     }
 //!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
 //! }
-//! 
+//!
 //! // Create an engine io service with the given handler
-//! let svc = EngineIoService::new(MyHandler);
+//! let svc = EngineIoService::new(MyHandler::default());
 //! ```
 use std::sync::Arc;
 

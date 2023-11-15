@@ -24,27 +24,30 @@ engineioxide = { version = "0.3.0", features = ["v3"] }
 use engineioxide::layer::EngineIoLayer;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{Socket, DisconnectReason};
-// Global state
-#[derive(Debug, Clone)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use axum::routing::get;
+// Global state, with axum it must be clonable
+#[derive(Debug, Default, Clone)]
 struct MyHandler {
-    user_cnt: AtomicUsize;
+    user_cnt: Arc<AtomicUsize>,
 }
 
 // Socket state
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
 struct SocketState {
-    id: Mutex<String>;
+    id: Mutex<String>,
 }
 
 impl EngineIoHandler for MyHandler {
     type Data = SocketState;
 
     fn on_connect(&self, socket: Arc<Socket<SocketState>>) { 
-        let cnt = self.user_cnt.fetch_add(1) + 1;
+        let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
         socket.emit(cnt.to_string()).ok();
     }
     fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) { 
-        let cnt = self.user_cnt.fetch_sub(1) - 1;
+        let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
         socket.emit(cnt.to_string()).ok();
     }
     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
@@ -54,14 +57,14 @@ impl EngineIoHandler for MyHandler {
 }
 
 // Create a new engineio layer
-let layer = EngineIoLayer::new(MyHandler);
+let layer = EngineIoLayer::new(MyHandler::default());
 
-let app = axum::Router::new()
+let app = axum::Router::<()>::new()
     .route("/", get(|| async { "Hello, World!" }))
     .layer(layer);
 
-axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-    .serve(app.into_make_service())
+// Spawn the axum server
+
 ```
 
 #### Basic example with salvo (with the `hyper-v1` feature flag) : 
@@ -69,27 +72,30 @@ axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
 use engineioxide::layer::EngineIoLayer;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{Socket, DisconnectReason};
-// Global state
-#[derive(Debug, Clone)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
+// Global state,  with salvo it must be clonable
+#[derive(Debug, Default, Clone)]
 struct MyHandler {
-    user_cnt: AtomicUsize;
+    user_cnt: Arc<AtomicUsize>,
 }
 
 // Socket state
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
 struct SocketState {
-    id: Mutex<String>;
+    id: Mutex<String>,
 }
 
 impl EngineIoHandler for MyHandler {
     type Data = SocketState;
 
     fn on_connect(&self, socket: Arc<Socket<SocketState>>) { 
-        let cnt = self.user_cnt.fetch_add(1) + 1;
+        let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
         socket.emit(cnt.to_string()).ok();
     }
     fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) { 
-        let cnt = self.user_cnt.fetch_sub(1) - 1;
+        let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
         socket.emit(cnt.to_string()).ok();
     }
     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
@@ -99,11 +105,9 @@ impl EngineIoHandler for MyHandler {
 }
 
 // Create a new engineio layer
-let layer = EngineIoLayer::new(MyHandler)
-    .with_hyper_v1()   // Enable the hyper-v1 compatibility layer for salvo
-    .compat()          // Enable the salvo compatibility layer
+let layer = EngineIoLayer::new(MyHandler::default())
+    .with_hyper_v1();     // Enable the hyper-v1 compatibility layer for salvo
+    // .compat();         // Enable the salvo compatibility layer
 
-let router = Router::with_path("/engine.io").hoop(layer).goal(hello);
-let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
-Server::new(acceptor).serve(router);
+// Create a new salvo server with the given layer...
 ```
