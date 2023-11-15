@@ -43,6 +43,7 @@ use std::sync::Arc;
 use crate::socket::{DisconnectReason, Socket};
 
 /// The [`EngineIoHandler`] trait can be implemented on any struct to handle socket events
+///
 /// A `Data` associated type can be specified to attach a custom state to the sockets
 pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     /// Data associated with the socket.
