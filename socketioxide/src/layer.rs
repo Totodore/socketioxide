@@ -1,37 +1,36 @@
 //! ## A tower [`Layer`] for socket.io so it can be used as a middleware with frameworks supporting layers.
-//! 
-//! #### Example with axum : 
+//!
+//! #### Example with axum :
 //! ```rust
 //! # use socketioxide::SocketIo;
+//! # use axum::routing::get;
 //! // Create a socket.io layer
 //! let (layer, io) = SocketIo::new_layer();
-//! 
-//! let app = axum::Router::new()
+//!
+//! // Add io namespaces and events...
+//!
+//! let app = axum::Router::<()>::new()
 //!     .route("/", get(|| async { "Hello, World!" }))
 //!     .layer(layer);
-//! 
-//! info!("Starting server");
-//! 
-//! axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!     .serve(app.into_make_service())
+//!
+//! // Spawn axum server
+//!
 //! ```
-//! 
-//! #### Example with salvo (with the `hyper-v1` feature flag) : 
+//!
+//! #### Example with salvo (with the `hyper-v1` feature flag) :
 //! ```rust
 //! # use salvo::prelude::*;
 //! # use socketioxide::SocketIo;
 //! // Create a socket.io layer
 //! let (layer, io) = SocketIo::new_layer();
-//! 
-//! io.ns("/", on_connect);
-//! io.ns("/custom", on_connect);
-//! 
+//!
+//! // Add io namespaces and events...
+//!
 //! let layer = layer
-//!     .with_hyper_v1() // Enable the hyper_v1 compatibility layer
-//!     .compat(); // Enable the salvo compatibility layer
-//! let router = Router::with_path("/socket.io").hoop(layer).goal(hello);
-//! let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
-//! Server::new(acceptor).serve(router).await;
+//!     .with_hyper_v1();   // Enable the hyper_v1 compatibility layer
+//!     // .compat();       // Enable the salvo compatibility layer
+//!
+//! // Spawn salvo server
 //! ```
 
 use std::sync::Arc;

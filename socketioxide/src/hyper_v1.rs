@@ -1,43 +1,20 @@
 //! ## A Hyper v1 [`Service`](HyperSvc) for socket.io so it can be used with frameworks working with hyper v1
-//! 
-//! This module is only enabled through the feature flag `hyper-v1` 
-//! 
-//! #### Example with a `hyper` v1 standalone service : 
+//!
+//! This module is only enabled through the feature flag `hyper-v1`
+//!
+//! #### Example with a `hyper` v1 standalone service :
 //! ```rust
-//! 
+//! # use socketioxide::SocketIo;
+//!
 //! // Create a new engine.io service that will return a 404 not found response for other requests
 //! let (svc, io) = SocketIo::new_svc();
-//! 
-//! io.ns("/", on_connect);
-//! io.ns("/custom", on_connect);
-//! 
-//! let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-//! let listener = TcpListener::bind(addr).await?;
-//! 
+//!
+//! // Add io namespaces and events...
+//!
 //! // Convert the `SocketIoService` so it works with hyper 1.0
 //! let svc = svc.with_hyper_v1();
-//! 
-//! // We start a loop to continuously accept incoming connections
-//! loop {
-//!     let (stream, _) = listener.accept().await?;
-//! 
-//!     // Use an adapter to access something implementing `tokio::io` traits as if they implement
-//!     // `hyper::rt` IO traits.
-//!     let io = TokioIo::new(stream);
-//!     let svc = svc.clone();
-//! 
-//!     // Spawn a tokio task to serve multiple connections concurrently
-//!     tokio::task::spawn(async move {
-//!         // Finally, we bind the incoming connection to our `hello` service
-//!         if let Err(err) = http1::Builder::new()
-//!             .serve_connection(io, svc)
-//!             .with_upgrades()
-//!             .await
-//!         {
-//!             println!("Error serving connection: {:?}", err);
-//!         }
-//!     });
-//! }
+//!
+//! // Create a hyper 1.0 server (see example)
 //! ```
 use std::{
     sync::Arc,

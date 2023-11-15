@@ -1,26 +1,28 @@
 //! ## A tower [`Service`] for socket.io so it can be used with frameworks supporting tower services.
-//! 
-//! #### Example with a `Warp` inner service : 
+//!
+//! #### Example with a `Warp` inner service :
 //! ```rust
+//! # use socketioxide::SocketIo;
+//! # use warp::Filter;
 //! let filter = warp::any().map(|| "Hello From Warp!");
 //! let warp_svc = warp::service(filter);
-//! 
-//! let (service, io) = SocketIo::new_inner_svc(warp_svc);
-//! 
-//! info!("Starting server");
-//! 
-//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!     .serve(service.into_make_service());
+//!
+//! let (svc, io) = SocketIo::new_inner_svc(warp_svc);
+//! let svc = svc.into_make_service();  // Create a Make Service for hyper
+//! // Add io namespaces and events...
+//!
+//! // Spawn hyper server
 //! ```
-//! 
-//! #### Example with a `hyper` standalone service : 
+//!
+//! #### Example with a `hyper` standalone service :
 //! ```rust
-//! let (service, io) = SocketIo::new_svc();
-//! 
-//! info!("Starting server");
-//! 
-//! hyper::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!     .serve(service.into_make_service());
+//! # use socketioxide::SocketIo;
+//! let (svc, io) = SocketIo::new_svc();
+//!
+//! // Add io namespaces and events...
+//! let svc = svc.into_make_service(); // Create a Make Service for hyper
+//!
+//! // Spawn hyper server
 //! ```
 
 use engineioxide::service::{EngineIoService, MakeEngineIoService};
@@ -71,7 +73,10 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     }
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub(crate) fn with_config_inner(inner: S, config: Arc<SocketIoConfig>) -> (Self, Arc<Client<A>>) {
+    pub(crate) fn with_config_inner(
+        inner: S,
+        config: Arc<SocketIoConfig>,
+    ) -> (Self, Arc<Client<A>>) {
         let engine_config = config.engine_config.clone();
         let client = Arc::new(Client::new(config));
         let svc = EngineIoService::with_config_inner(inner, client.clone(), engine_config);

@@ -49,6 +49,8 @@ engineioxide = { path = "../engineioxide", features = [
     "test-utils",
 ] }
 axum.workspace = true
+salvo.workspace = true
+warp.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",
