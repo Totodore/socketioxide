@@ -7,7 +7,7 @@ edition.workspace = true
 
 [dependencies]
 socketioxide = { path = "../../socketioxide" }
-hyper = { version = "0.14.27" }
+hyper.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true

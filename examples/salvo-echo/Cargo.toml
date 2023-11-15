@@ -11,7 +11,7 @@ socketioxide = { path = "../../socketioxide", features = [
     "hyper-v1",
     "tracing",
 ] }
-salvo = { version = "0.58.2", features = ["tower-compat"] }
+salvo.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
