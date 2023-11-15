@@ -68,6 +68,12 @@ hyper = { workspace = true, features = [
 ] }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+features = ["v4", "extensions", "hyper-v1"]
+# Special configuration for docs.rs build
+rustdoc-args = ["--cfg", "docsrs"]
+
 [[bench]]
 name = "packet_encode"
 path = "benches/packet_encode.rs"

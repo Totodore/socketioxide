@@ -78,6 +78,7 @@ impl<H: EngineIoHandler> EngineIoLayer<H> {
     }
 
     /// Create a `hyper-v1` compatible [`Layer`]
+    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
     #[cfg(feature = "hyper-v1")]
     #[inline(always)]
     pub fn with_hyper_v1(self) -> EngineIoHyperLayer<H> {
@@ -96,10 +97,12 @@ impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
 /// Wrapper [`Layer`] for [`EngineIoLayer`] so it works with `hyper-v1`
 ///
 /// It is only available through the feature flag `hyper-v1`
+#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 #[derive(Debug, Clone)]
 pub struct EngineIoHyperLayer<H: EngineIoHandler>(EngineIoLayer<H>);
 
+#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoHyperLayer<H> {
     type Service = crate::service::hyper_v1::EngineIoHyperService<H, S>;

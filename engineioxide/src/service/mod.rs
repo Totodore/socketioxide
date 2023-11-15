@@ -69,6 +69,7 @@ use crate::{
     handler::EngineIoHandler,
 };
 
+#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 pub mod hyper_v1;
 
@@ -104,6 +105,7 @@ impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
     /// Create a new [`hyper_v1::EngineIoHyperService`] with this [`EngineIoService`] as the inner service.
     ///
     /// It can be used as a compatibility layer for hyper v1.
+    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
     #[cfg(feature = "hyper-v1")]
     #[inline(always)]
     pub fn with_hyper_v1(self) -> hyper_v1::EngineIoHyperService<H, S> {

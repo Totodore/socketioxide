@@ -69,6 +69,7 @@ impl<A: Adapter> SocketIoLayer<A> {
     /// Convert this [`Layer`] into a [`SocketIoHyperLayer`] to use with hyper v1 and its dependent frameworks.
     ///
     /// This is only available when the `hyper-v1` feature is enabled.
+    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
     #[cfg(feature = "hyper-v1")]
     #[inline(always)]
     pub fn with_hyper_v1(self) -> SocketIoHyperLayer<A> {
@@ -85,15 +86,18 @@ impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
 }
 
 /// A [`Layer`] for [`SocketIoService`] that works with hyper v1 and its dependent frameworks.
+#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 pub struct SocketIoHyperLayer<A: Adapter>(SocketIoLayer<A>);
 
+#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 impl<A: Adapter> Clone for SocketIoHyperLayer<A> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
+#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 impl<S: Clone, A: Adapter> Layer<S> for SocketIoHyperLayer<A> {
     type Service = crate::hyper_v1::SocketIoHyperService<S, A>;

@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(
     clippy::future_not_send,
     clippy::all,
@@ -106,8 +107,10 @@
 
 pub mod adapter;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 #[cfg(feature = "extensions")]
 pub mod extensions;
+#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 pub mod hyper_v1;
 

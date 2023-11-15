@@ -11,6 +11,12 @@ keywords.workspace = true
 categories.workspace = true
 license.workspace = true
 
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+features = ["v3", "hyper-v1"]
+# Special configuration for docs.rs build
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 futures.workspace = true
 http.workspace = true

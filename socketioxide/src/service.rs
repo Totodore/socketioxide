@@ -97,6 +97,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     ///
     /// This is only available when the `hyper-v1` feature is enabled.
     #[inline(always)]
+    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
     #[cfg(feature = "hyper-v1")]
     pub fn with_hyper_v1(self) -> crate::hyper_v1::SocketIoHyperService<S, A> {
         crate::hyper_v1::SocketIoHyperService::new(self.engine_svc.with_hyper_v1())

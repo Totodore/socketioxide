@@ -125,6 +125,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     /// Because it uses a [`DashMap`](dashmap::DashMap) internally, it is thread safe but be careful about deadlocks!
     ///
     /// **Note**: This is note the same data than the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
+    #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
     #[cfg(feature = "extensions")]
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData>>,

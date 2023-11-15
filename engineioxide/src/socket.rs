@@ -114,7 +114,7 @@ impl From<&Error> for Option<DisconnectReason> {
 }
 
 /// A [`Socket`] represents a client connection to the server.
-/// It is agnostic to the [`TransportType`](crate::service::TransportType).
+/// It is agnostic to the [`TransportType`].
 ///
 /// It handles :
 /// * the packet communication between with the `Engine`
