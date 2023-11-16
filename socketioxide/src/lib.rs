@@ -116,6 +116,7 @@ pub mod hyper_v1;
 
 pub mod handler;
 pub mod layer;
+pub mod operators;
 pub mod service;
 pub mod socket;
 
@@ -131,7 +132,6 @@ mod client;
 mod errors;
 mod io;
 mod ns;
-mod operators;
 mod packet;
 
 /// Socket.IO protocol version

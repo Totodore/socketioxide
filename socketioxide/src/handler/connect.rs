@@ -1,9 +1,25 @@
 //! [`ConnectHandler`] trait and implementations, used to handle the connect event.
-//!
 //! It has a flexible axum-like API, you can put any arguments as long as it implements the [`FromConnectParts`] trait.
-//! Handlers can be async or not.
 //!
-//! ## Example
+//! You can also implement the [`FromConnectParts`] trait for your own types.
+//! See the [`extract`](super::extract) module doc for more details on available extractors.
+//!
+//! Handlers can be _optionally_ async.
+//!
+//! ## Example with sync closures
+//! ```rust
+//! # use socketioxide::SocketIo;
+//! # use serde_json::Error;
+//! # use socketioxide::extract::*;
+//! let (svc, io) = SocketIo::new_svc();
+//! // Here the handler is sync,
+//! // if there is a serialization error, the handler is not called
+//! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
+//!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
+//! });
+//! ```
+//!
+//! ## Example with async closures
 //! ```rust
 //! # use socketioxide::SocketIo;
 //! # use serde_json::Error;
@@ -18,13 +34,24 @@
 //! io.ns("/async_nsp", move |s: SocketRef| async move {
 //!     println!("Socket connected on /async_nsp namespace with id: {}", s.id);
 //! });
-//! // Here the handler is sync and auth data is not serialized,
-//! // if there is a serialization error, the handler is not called
-//! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
-//!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
-//! });
 //! ```
 //!
+//! ## Example with async non anonymous functions
+//! ```rust
+//! # use socketioxide::SocketIo;
+//! # use serde_json::Error;
+//! # use socketioxide::extract::*;
+//! async fn handler(s: SocketRef, TryData(auth): TryData<String>) {
+//!     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+//!     println!("Socket connected on {} namespace with id and auth data: {} {:?}", s.ns(), s.id, auth);
+//! }
+//!
+//! let (svc, io) = SocketIo::new_svc();
+//!
+//! // You can reuse the same handler for multiple namespaces
+//! io.ns("/", handler);
+//! io.ns("/admin", handler);
+//! ```
 use std::sync::Arc;
 
 use futures::Future;
@@ -63,6 +90,9 @@ where
 /// A trait used to extract the arguments from the connect event.
 /// The `Result` associated type is used to return an error if the extraction fails,
 /// in this case the [`ConnectHandler`] is not called
+///
+/// * See the [`connect`](super::connect) module doc for more details on connect handler.
+/// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait FromConnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
@@ -74,7 +104,9 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 
 /// Define a handler for the connect event.
 /// It is implemented for closures with up to 16 arguments that implement the [`FromConnectParts`] trait.
-/// The closure can be async or not
+///
+/// * See the [`connect`](super::connect) module doc for more details on connect handler.
+/// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);

@@ -50,11 +50,9 @@ impl Default for SocketIoConfig {
     }
 }
 
-/// A builder to create a [`SocketIo`] instance
-///
-/// It contains everything to configure the socket.io server
-///
-/// It can be used to build either a Tower [`Layer`](https://docs.rs/tower/latest/tower/trait.Layer.html) or a [`Service`](https://docs.rs/tower/latest/tower/trait.Service.html)
+/// A builder to create a [`SocketIo`] instance.
+/// It contains everything to configure the socket.io server with a [`SocketIoConfig`].
+/// It can be used to build either a Tower [`Layer`](tower::layer::Layer) or a [`Service`](tower::Service).
 pub struct SocketIoBuilder {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
@@ -234,25 +232,21 @@ impl SocketIo<LocalAdapter> {
         SocketIoBuilder::new()
     }
 
-    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
-    ///
-    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
-    ///
-    /// It can be used as a hyper service
+    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
+    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request.
+    /// It can be used as a [`Service`](tower::Service) (see hyper example)
     pub fn new_svc() -> (SocketIoService<NotFoundService>, SocketIo) {
         Self::builder().build_svc()
     }
 
-    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
-    ///
-    /// It can be used as a hyper service
+    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
+    /// It can be used as a [`Service`](tower::Service) with an inner service (see warp example)
     pub fn new_inner_svc<S: Clone>(svc: S) -> (SocketIoService<S>, SocketIo) {
         Self::builder().build_with_inner_svc(svc)
     }
 
-    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config
-    ///
-    /// The layer can be used as a tower layer
+    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config.
+    /// It can be used as a tower [`Layer`](tower::layer::Layer) (see axum example)
     pub fn new_layer() -> (SocketIoLayer, SocketIo) {
         Self::builder().build_layer()
     }
@@ -270,16 +264,57 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
-    /// ### Register a connect handler for the given namespace.
+    /// ### Register a [`ConnectHandler`] for the given namespace.
     ///
-    /// The data parameter can be typed with anything that implement [serde::Deserialize](https://docs.rs/serde/latest/serde/).
-    /// It corresponds to the auth data sent by the client when connecting to the namespace.
+    /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    /// #### Simple example with a sync closure:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
     ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     // Register a handler for the "test" event and extract the data as a `MyData` struct
+    ///     // With the Data extractor, the handler is called only if the data can be deserialized as a `MyData` struct
+    ///     // If you want to manage errors yourself you can use the TryData extractor
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
+    ///         println!("Received a test message {:?}", data);
+    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
     ///
-    /// ### V4 protocol (legacy) note:
-    /// If the v4 protocol is enabled, the auth data parameter **must** be nullable (e.g `Option`, `()` or `Default`), in particular for the root namespace.
-    /// If it is not the case your handler may be never called because of a deserialisation error.
+    /// ```
     ///
+    /// #### Example with a closure and an acknowledgement + binary data:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
+    ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
+    ///     // It should be the last extractor because it consumes the request
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
+    ///         println!("Received a test message {:?}", data);
+    ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
+    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
+    /// ```
     /// #### Simple example with a closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::{SocketRef, Data}};
@@ -382,8 +417,9 @@ impl<A: Adapter> SocketIo<A> {
 
     /// Select all sockets in the given rooms on the root namespace.
     ///
-    /// Alias for `io.of("/").unwrap().within(rooms)`
-    /// Alias for `io.to(rooms)`
+    /// Alias for :
+    /// * `io.of("/").unwrap().within(rooms)`
+    /// * `io.to(rooms)`
     ///
     /// ## Panics
     /// If the **default namespace "/" is not found** this fn will panic!
@@ -559,7 +595,7 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<(), serde_json::Error> {
+    ) -> Result<(), BroadcastError> {
         self.get_default_op().emit(event, data)
     }
 

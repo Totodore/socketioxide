@@ -1,4 +1,5 @@
-//! The [`Socket`] struct act as the main interface with the client connection
+//! A [`Socket`] represents a client connected to a namespace.
+//! The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -34,12 +35,11 @@ use crate::{
     errors::{AdapterError, SendError},
 };
 
-/// Boxed callback for the disconnect handler
-pub type DisconnectCallback<A> = Box<
+type DisconnectCallback<A> = Box<
     dyn FnOnce(Arc<Socket<A>>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 >;
 
-/// All the possible reasons for a [`Socket`] to be disconnected.
+/// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DisconnectReason {
     /// The client gracefully closed the connection
@@ -97,7 +97,8 @@ impl From<EIoDisconnectReason> for DisconnectReason {
         }
     }
 }
-/// A response to an ack request
+/// An acknowledgement sent by the client.
+/// It contains the data sent by the client and the binary payloads if there are any.
 #[derive(Debug)]
 pub struct AckResponse<T> {
     /// The data returned by the client
@@ -110,6 +111,7 @@ pub struct AckResponse<T> {
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
+/// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket<A: Adapter = LocalAdapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
@@ -152,18 +154,12 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    /// ### Register a message handler for the given event.
+    /// ### Register a [`MessageHandler`] for the given event.
     ///
-    /// The data parameter can be typed with anything that implement [serde::Deserialize](https://docs.rs/serde/latest/serde/)
+    /// * See the [`message`](crate::handler::message) module doc for more details on message handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
     ///
-    /// ### Acknowledgements
-    /// The ack can be sent only once and take a `Serializable` value as parameter.
-    ///
-    /// For more info about ack see [socket.io documentation](https://socket.io/fr/docs/v4/emitting-events/#acknowledgements)
-    ///
-    /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
-    ///
-    /// #### Simple example with a closure:
+    /// #### Simple example with a sync closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde::{Serialize, Deserialize};
@@ -175,7 +171,10 @@ impl<A: Adapter> Socket<A> {
     ///
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
+    ///     // Register a handler for the "test" event and extract the data as a `MyData` struct
+    ///     // With the Data extractor, the handler is called only if the data can be deserialized as a `MyData` struct
+    ///     // If you want to manage errors yourself you can use the TryData extractor
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
@@ -183,12 +182,11 @@ impl<A: Adapter> Socket<A> {
     ///
     /// ```
     ///
-    /// #### Example with a closure and an ackknowledgement + binary data:
+    /// #### Example with a closure and an acknowledgement + binary data:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use serde::{Serialize, Deserialize};
-    ///
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
     ///     name: String,
@@ -197,8 +195,12 @@ impl<A: Adapter> Socket<A> {
     ///
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
+    ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
+    ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
+    ///     // It should be the last extractor because it consumes the request
     ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
     ///         println!("Received a test message {:?}", data);
+    ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
@@ -216,6 +218,10 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// ## Register a disconnect handler.
+    ///
+    /// Contrary to [`ConnectHandler`](crate::handler::ConnectHandler) and [`MessageHandler`].
+    /// Arguments are not dynamic and the handler should always be async.
+    ///
     /// The callback will be called when the socket is disconnected from the server or the client or when the underlying connection crashes.
     /// A [`DisconnectReason`] is passed to the callback to indicate the reason for the disconnection.
     /// ### Example
@@ -243,7 +249,11 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Emit a message to the client
-    /// ##### Example
+    /// ## Errors
+    /// * If the data cannot be serialized to JSON, a [`SendError::Serialize`] is returned.
+    /// * If the packet buffer is full, a [`SendError::InternalChannelFull`] is returned.
+    /// See [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) option for more infos on internal buffer config
+    /// ## Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -252,27 +262,31 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message to the client
-    ///         socket.emit("test", data);
+    ///         socket.emit("test", data).ok();
     ///     });
     /// });
-    pub fn emit(
-        &self,
-        event: impl Into<String>,
-        data: impl Serialize,
-    ) -> Result<(), serde_json::Error> {
+    /// ```
+    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), SendError> {
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        if let Err(_e) = self.send(Packet::event(ns, event.into(), data)) {
+        if let Err(e) = self.send(Packet::event(ns, event.into(), data)) {
             #[cfg(feature = "tracing")]
-            tracing::debug!("sending error during emit message: {_e:?}");
+            tracing::debug!("sending error during emit message: {e:?}");
+            return Err(e);
         }
         Ok(())
     }
 
     /// Emit a message to the client and wait for acknowledgement.
     ///
-    /// The acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
-    /// ##### Example
+    /// The acknowledgement has a timeout specified in the config (5s by default)
+    /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the `timeout()` operator.
+    ///
+    /// ## Errors
+    /// * If the data cannot be serialized to JSON, a [`AckError::Serialize`] is returned.
+    /// * If the packet could not be sent, a [`AckError::SendChannel`] is returned.
+    /// * In case of timeout an [`AckError::Timeout`] is returned.
+    /// ##### Example without custom timeout
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -280,13 +294,31 @@ impl<A: Adapter> Socket<A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
-    ///         // Emit a test message and wait for an acknowledgement
+    ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
     ///         match socket.emit_with_ack::<Value>("test", data).await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
     ///    });
     /// });
+    /// ```
+    /// ##### Example with custom timeout operator
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use std::sync::Arc;
+    /// # use std::time::Duration;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
+    ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
+    ///         match socket.timeout(Duration::from_millis(500)).emit_with_ack::<Value>("test", data).await {
+    ///             Ok(ack) => println!("Ack received {:?}", ack),
+    ///             Err(err) => println!("Ack error {:?}", err),
+    ///         }
+    ///    });
+    /// });
+    /// ```
     pub async fn emit_with_ack<V>(
         &self,
         event: impl Into<String>,
@@ -305,21 +337,38 @@ impl<A: Adapter> Socket<A> {
     // Room actions
 
     /// Join the given rooms.
+    ///
+    /// If the room does not exist, it will be created.
+    ///
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.ns.adapter.add_all(self.id, rooms)
     }
 
     /// Leave the given rooms.
+    ///
+    /// If the room does not exist, it will do nothing
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.ns.adapter.del(self.id, rooms)
     }
 
     /// Leave all rooms where the socket is connected.
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn leave_all(&self) -> Result<(), A::Error> {
         self.ns.adapter.del_all(self.id)
     }
 
     /// Get all rooms where the socket is connected.
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
         self.ns.adapter.socket_rooms(self.id)
     }
@@ -399,7 +448,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Broadcast to all clients only connected on this node (when using multiple nodes).
-    /// When using the default in-memory adapter, this operator is a no-op.
+    /// When using the default in-memory [`LocalAdapter`], this operator is a no-op.
     /// ##### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};

@@ -164,7 +164,7 @@ impl<A: Adapter> FromMessage<A> for Bin {
 
 /// An Extractor to send an ack response corresponding to the current event
 ///
-/// If the client did not request an ack, it will not send anything.
+/// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 #[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
     binary: Vec<Vec<u8>>,

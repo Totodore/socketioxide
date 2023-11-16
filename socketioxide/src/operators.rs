@@ -1,3 +1,5 @@
+//! [`Operators`] are used to select sockets to send a packet to, or to configure the packet that will be emitted.
+//! It uses the builder pattern to chain operators.
 use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
@@ -18,9 +20,12 @@ use crate::{
 
 /// A trait for types that can be used as a room parameter.
 ///
-/// String, Vec<String>, Vec<&str> and &'static str are implemented by default.
+/// [`String`], [`Vec<String>`], [`Vec<&str>`], [`&'static str`](str) and const arrays are implemented by default.
 pub trait RoomParam: 'static {
+    /// The type of the iterator returned by `into_room_iter`.
     type IntoIter: Iterator<Item = Room>;
+
+    /// Convert `self` into an iterator of rooms.
     fn into_room_iter(self) -> Self::IntoIter;
 }
 
@@ -283,11 +288,12 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<(), serde_json::Error> {
+    ) -> Result<(), BroadcastError> {
         let packet = self.get_packet(event, data)?;
-        if let Err(_e) = self.ns.adapter.broadcast(packet, self.opts) {
+        if let Err(e) = self.ns.adapter.broadcast(packet, self.opts) {
             #[cfg(feature = "tracing")]
-            tracing::debug!("broadcast error: {_e:?}");
+            tracing::debug!("broadcast error: {e:?}");
+            return Err(e);
         }
         Ok(())
     }

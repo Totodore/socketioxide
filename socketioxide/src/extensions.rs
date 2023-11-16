@@ -1,10 +1,10 @@
-//! Extensions used to store extra data in each socket instance.
+//! [`Extensions`] used to store extra data in each socket instance.
 //!
-//! It is heavily inspired by the `Extensions` type from the `http` crate.
+//! It is heavily inspired by the [`http::Extensions`] type from the `http` crate.
 //!
-//! The main difference is that it uses a `DashMap` instead of a `HashMap` to allow concurrent access.
+//! The main difference is that it uses a [`DashMap`] instead of a [`HashMap`](std::collections::HashMap) to allow concurrent access.
 //!
-//! This is necessary because `Extensions` are shared between all the threads that handle the same socket.
+//! This is necessary because [`Extensions`] are shared between all the threads that handle the same socket.
 
 use dashmap::DashMap;
 use std::fmt;

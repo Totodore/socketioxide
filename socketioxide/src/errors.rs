@@ -46,15 +46,15 @@ impl From<&Error> for Option<EIoDisconnectReason> {
 pub enum AckError {
     /// The ack response cannot be parsed
     #[error("cannot deserializing json packet from ack response: {0:?}")]
-    SerdeError(#[from] serde_json::Error),
+    Serialize(#[from] serde_json::Error),
 
     /// The ack response cannot be received correctly
     #[error("ack receive error")]
-    AckReceiveError(#[from] oneshot::error::RecvError),
+    AckReceive(#[from] oneshot::error::RecvError),
 
     /// The ack response timed out
     #[error("ack timeout error")]
-    AckTimeoutError(#[from] tokio::time::error::Elapsed),
+    Timeout(#[from] tokio::time::error::Elapsed),
 
     /// The emit payload cannot be sent
     #[error("send channel error: {0:?}")]
