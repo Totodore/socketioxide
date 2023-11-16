@@ -9,7 +9,7 @@ serde = { version = "1.0.192", features = ["derive"] }
 serde_json = "1.0.108"
 tower = { version = "0.4.13", default-features = false }
 http = "0.2.11"
-http-body = "0.4.5"
+http-body = "1.0.0-rc"
 thiserror = "1.0.40"
 tracing = "0.1.37"
 itoa = "1.0.9"
