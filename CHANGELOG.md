@@ -1,3 +1,7 @@
+# 0.7.2
+## socketioxide
+* The `on_disconnect` callback now takes a `SocketRef` rather than an `Arc<Socket>` to match other handlers. It also avoids that the user clone the socket and create a memory leak.
+
 # 0.7.1
 ## socketioxide
 * Fix [#154](https://github.com/Totodore/socketioxide/issues/154), build was broken when using the `hyper-v1` feature flag because of `hyper-util` dependencie which is not published on crates.io.
