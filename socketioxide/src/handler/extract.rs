@@ -1,4 +1,4 @@
-//! Extractors for [`ConnectHandler`](super::ConnectHandler) and [`MessageHandler`](super::MessageHandler).
+//! ### Extractors for [`ConnectHandler`](super::ConnectHandler) and [`MessageHandler`](super::MessageHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
 //! * [`Data`]: extracts and deserialize to json any data, if a deserialize error occurs the handler won't be called
@@ -10,7 +10,73 @@
 //! * [`SocketRef`]: extracts a reference to the [`Socket`]
 //! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
-
+//!
+//! ### You can also implement your own Extractor with the [`FromConnectParts`]and [`FromMessageParts`] traits
+//! When implementing these traits, if you clone the [`Arc<Socket>`] make sure that it is dropped at least when the socket is disconnected.
+//! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning the socket for common usage.
+//!
+//! #### Example that extract a user id from the query params
+//! ```rust
+//! use socketioxide::handler::{FromConnectParts, FromMessageParts};
+//! use socketioxide::adapter::Adapter;
+//! use socketioxide::socket::Socket;
+//! use std::sync::Arc;
+//! use std::convert::Infallible;
+//! use socketioxide::SocketIo;
+//!
+//! struct UserId(String);
+//!
+//! #[derive(Debug)]
+//! struct UserIdNotFound;
+//! impl std::fmt::Display for UserIdNotFound {
+//!     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//!         write!(f, "User id not found")
+//!     }
+//! }
+//! impl std::error::Error for UserIdNotFound {}
+//!
+//! impl<A: Adapter> FromConnectParts<A> for UserId {
+//!     type Error = Infallible;
+//!     fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
+//!         // In a real app it would be better to parse the query params with a crate like `url`
+//!         let uri = &s.req_parts().uri;
+//!         let uid = uri
+//!             .query()
+//!             .and_then(|s| s.split('&').find(|s| s.starts_with("id=")).map(|s| &s[3..]))
+//!             .unwrap_or_default();
+//!         // Currently, it is not possible to have lifetime on the extracted data
+//!         Ok(UserId(uid.to_string()))
+//!     }
+//! }
+//!
+//! // Here, if the user id is not found, the handler won't be called
+//! // and a tracing `error` log will be printed (if the `tracing` feature is enabled)
+//! impl<A: Adapter> FromMessageParts<A> for UserId {
+//!     type Error = UserIdNotFound;
+//!
+//!     fn from_message_parts(
+//!         s: &Arc<Socket<A>>,
+//!         _: &mut serde_json::Value,
+//!         _: &mut Vec<Vec<u8>>,
+//!         _: &Option<i64>,
+//!     ) -> Result<Self, UserIdNotFound> {
+//!         // In a real app it would be better to parse the query params with a crate like `url`
+//!         let uri = &s.req_parts().uri;
+//!         let uid = uri
+//!             .query()
+//!             .and_then(|s| s.split('&').find(|s| s.starts_with("id=")).map(|s| &s[3..]))
+//!             .ok_or(UserIdNotFound)?;
+//!         // Currently, it is not possible to have lifetime on the extracted data
+//!         Ok(UserId(uid.to_string()))
+//!     }
+//! }
+//!
+//! fn handler(user_id: UserId) {
+//!     println!("User id: {}", user_id.0);
+//! }
+//! let (svc, io) = SocketIo::new_svc();
+//! io.ns("/", handler);
+//! // Use the service with your favorite http server
 use std::convert::Infallible;
 use std::sync::Arc;
 
