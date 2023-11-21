@@ -302,23 +302,6 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     /// ```
-    /// ##### Example with custom timeout operator
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// # use std::sync::Arc;
-    /// # use std::time::Duration;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
-    ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.timeout(Duration::from_millis(500)).emit_with_ack::<Value>("test", data).await {
-    ///             Ok(ack) => println!("Ack received {:?}", ack),
-    ///             Err(err) => println!("Ack error {:?}", err),
-    ///         }
-    ///    });
-    /// });
-    /// ```
     pub async fn emit_with_ack<V>(
         &self,
         event: impl Into<String>,
