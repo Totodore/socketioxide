@@ -1,68 +1,113 @@
-## Engineioxide does the heavy lifting for [Socketioxide](https://docs.rs/socketioxide/latest/socketioxide/), a SocketIO server implementation in Rust which integrates with the [tower](https://docs.rs/tower/latest/tower/) stack.
+### Engineioxide does the heavy lifting for [socketioxide](https://docs.rs/socketioxide/latest/socketioxide/), a socket.io server implementation in Rust which integrates with the [tower](https://docs.rs/tower/latest/tower/) stack.
 
-### It can also be used as a standalone server for [EngineIO clients](https://github.com/socketio/engine.io-client).
-
-### Engine.IO example echo implementation with Axum :
-```rust
-
-#[derive(Clone)]
-struct MyHandler;
-
-impl EngineIoHandler for MyHandler {
-    type Data = ();
-    
-    fn on_connect(&self, socket: &Socket<Self>) {
-        println!("socket connect {}", socket.sid);
-    }
-    fn on_disconnect(&self, socket: &Socket<Self>) {
-        println!("socket disconnect {}", socket.sid);
-    }
-
-    fn on_message(&self, msg: String, socket: &Socket<Self>) {
-        println!("Ping pong message {:?}", msg);
-        socket.emit(msg).ok();
-    }
-
-    fn on_binary(&self, data: Vec<u8>, socket: &Socket<Self>) {
-        println!("Ping pong binary message {:?}", data);
-        socket.emit_binary(data).ok();
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder().finish();
-    tracing::subscriber::set_global_default(subscriber)?;
-
-    info!("Starting server");
-    let app = axum::Router::new()
-        .route("/", get(|| async { "Hello, World!" }))
-        .layer(EngineIoLayer::new(MyHandler));
-
-    Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await?;
-
-    Ok(())
-}
-```
+You can still use engineioxide as a standalone crate to talk with an engine.io client.
 
 ### Supported Protocols
-You can enable support for other EngineIO protocol implementations through feature flags. 
-The latest supported protocol version is enabled by default. 
+You can enable support for other engine.io protocol implementations through feature flags. 
+The latest protocol version (v4) is enabled by default. 
 
-To add support for another protocol version, adjust your dependency configuration accordingly:
+To add support for the `v3` protocol version, adjust your dependency configuration accordingly:
 
 ```toml
 [dependencies]
-# Enables the `v3` protocol (`v4` is also implicitly enabled, as it's the default).
+# Enables the `v3` protocol (`v4` is always enabled, as it's the default).
 engineioxide = { version = "0.3.0", features = ["v3"] }
 ```
 
-To enable *a single protocol version only*, disable default features:
+## Feature flags : 
+* `v3`: Enable the engine.io v3 protocol
+* `tracing`: Enable tracing logs with the `tracing` crate
+* `hyper-v1`: Hyper v1 compatibility layer. For the moment most of the http crates use hyper v0
 
-```toml
-[dependencies]
-# Enables the `v3` protocol only.
-engineioxide = { version = "0.3.0", features = ["v3"], default-features = false }
+## Basic example with axum :
+```rust
+use engineioxide::layer::EngineIoLayer;
+use engineioxide::handler::EngineIoHandler;
+use engineioxide::{Socket, DisconnectReason};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use axum::routing::get;
+// Global state, with axum it must be clonable
+#[derive(Debug, Default, Clone)]
+struct MyHandler {
+    user_cnt: Arc<AtomicUsize>,
+}
+
+// Socket state
+#[derive(Debug, Default)]
+struct SocketState {
+    id: Mutex<String>,
+}
+
+impl EngineIoHandler for MyHandler {
+    type Data = SocketState;
+
+    fn on_connect(&self, socket: Arc<Socket<SocketState>>) { 
+        let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
+        socket.emit(cnt.to_string()).ok();
+    }
+    fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) { 
+        let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
+        socket.emit(cnt.to_string()).ok();
+    }
+    fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
+        *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
+    }
+    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+}
+
+// Create a new engineio layer
+let layer = EngineIoLayer::new(MyHandler::default());
+
+let app = axum::Router::<()>::new()
+    .route("/", get(|| async { "Hello, World!" }))
+    .layer(layer);
+
+// Spawn the axum server
+
+```
+
+#### Basic example with salvo (with the `hyper-v1` feature flag) : 
+```rust
+use engineioxide::layer::EngineIoLayer;
+use engineioxide::handler::EngineIoHandler;
+use engineioxide::{Socket, DisconnectReason};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
+// Global state,  with salvo it must be clonable
+#[derive(Debug, Default, Clone)]
+struct MyHandler {
+    user_cnt: Arc<AtomicUsize>,
+}
+
+// Socket state
+#[derive(Debug, Default)]
+struct SocketState {
+    id: Mutex<String>,
+}
+
+impl EngineIoHandler for MyHandler {
+    type Data = SocketState;
+
+    fn on_connect(&self, socket: Arc<Socket<SocketState>>) { 
+        let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
+        socket.emit(cnt.to_string()).ok();
+    }
+    fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) { 
+        let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
+        socket.emit(cnt.to_string()).ok();
+    }
+    fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
+        *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
+    }
+    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+}
+
+// Create a new engineio layer
+let layer = EngineIoLayer::new(MyHandler::default())
+    .with_hyper_v1();     // Enable the hyper-v1 compatibility layer for salvo
+    // .compat();         // Enable the salvo compatibility layer
+
+// Create a new salvo server with the given layer...
 ```

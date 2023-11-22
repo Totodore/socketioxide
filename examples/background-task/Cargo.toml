@@ -7,7 +7,7 @@ edition.workspace = true
 
 [dependencies]
 socketioxide = { path = "../../socketioxide" }
-axum = { version = "0.6.20" }
+axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower.workspace = true
 tracing-subscriber.workspace = true

@@ -1,8 +1,9 @@
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use engineioxide::{
-    config::{EngineIoConfig, EngineIoConfigBuilder, TransportType},
+    config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
+    TransportType,
 };
 use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
@@ -15,7 +16,8 @@ use crate::{
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    AckError, AckResponse, BroadcastError,
+    socket::AckResponse,
+    AckError, BroadcastError,
 };
 
 /// Configuration for Socket.IO & Engine.IO
@@ -48,18 +50,16 @@ impl Default for SocketIoConfig {
     }
 }
 
-/// A builder to create a [`SocketIo`] instance
-///
-/// It contains everything to configure the socket.io server
-///
-/// It can be used to build either a Tower [`Layer`](https://docs.rs/tower/latest/tower/trait.Layer.html) or a [`Service`](https://docs.rs/tower/latest/tower/trait.Service.html)
+/// A builder to create a [`SocketIo`] instance.
+/// It contains everything to configure the socket.io server with a [`SocketIoConfig`].
+/// It can be used to build either a Tower [`Layer`](tower::layer::Layer) or a [`Service`](tower::Service).
 pub struct SocketIoBuilder {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
 }
 
 impl SocketIoBuilder {
-    /// Create a new [`SocketIoBuilder`] with default config
+    /// Creates a new [`SocketIoBuilder`] with default config
     pub fn new() -> Self {
         Self {
             config: SocketIoConfig::default(),
@@ -144,13 +144,14 @@ impl SocketIoBuilder {
         self
     }
 
+    /// Sets a custom [`SocketIoConfig`] created previously for this [`SocketIoBuilder`]
     #[inline]
     pub fn with_config(mut self, config: SocketIoConfig) -> Self {
         self.config = config;
         self
     }
 
-    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance
+    /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance
     ///
     /// The layer can be used as a tower layer
     #[inline(always)]
@@ -158,7 +159,7 @@ impl SocketIoBuilder {
         self.build_layer_with_adapter::<LocalAdapter>()
     }
 
-    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance with a custom [`Adapter`]
+    /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance with a custom [`Adapter`]
     ///
     /// The layer can be used as a tower layer
     pub fn build_layer_with_adapter<A: Adapter>(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
@@ -168,7 +169,7 @@ impl SocketIoBuilder {
         (layer, SocketIo(client))
     }
 
-    /// Build a [`SocketIoService`] and a [`SocketIo`] instance
+    /// Builds a [`SocketIoService`] and a [`SocketIo`] instance
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
@@ -177,7 +178,7 @@ impl SocketIoBuilder {
         self.build_svc_with_adapter::<LocalAdapter>()
     }
 
-    /// Build a [`SocketIoService`] and a [`SocketIo`] instance with a custom [`Adapter`]
+    /// Builds a [`SocketIoService`] and a [`SocketIo`] instance with a custom [`Adapter`]
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
@@ -191,7 +192,7 @@ impl SocketIoBuilder {
         (svc, SocketIo(client))
     }
 
-    /// Build a [`SocketIoService`] and a [`SocketIo`] instance with an inner service
+    /// Builds a [`SocketIoService`] and a [`SocketIo`] instance with an inner service
     ///
     /// It can be used as a hyper service
     #[inline(always)]
@@ -199,7 +200,7 @@ impl SocketIoBuilder {
         self.build_with_inner_svc_with_adapter::<S, LocalAdapter>(svc)
     }
 
-    /// Build a [`SocketIoService`] and a [`SocketIo`] instance with an inner service and a custom [`Adapter`]
+    /// Builds a [`SocketIoService`] and a [`SocketIo`] instance with an inner service and a custom [`Adapter`]
     ///
     /// It can be used as a hyper service
     pub fn build_with_inner_svc_with_adapter<S: Clone, A: Adapter>(
@@ -219,44 +220,39 @@ impl Default for SocketIoBuilder {
     }
 }
 
-/// The [`SocketIo`] instance can be cheaply cloned and moved around everywhere in your program
-///
+/// The [`SocketIo`] instance can be cheaply cloned and moved around everywhere in your program.
 /// It can be used as the main handle to access the whole socket.io context.
 #[derive(Debug)]
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
-    /// Create a new [`SocketIoBuilder`] with a default config
+    /// Creates a new [`SocketIoBuilder`] with a default config
     pub fn builder() -> SocketIoBuilder {
         SocketIoBuilder::new()
     }
 
-    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
-    ///
-    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
-    ///
-    /// It can be used as a hyper service
+    /// Creates a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
+    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request.
+    /// It can be used as a [`Service`](tower::Service) (see hyper example)
     pub fn new_svc() -> (SocketIoService<NotFoundService>, SocketIo) {
         Self::builder().build_svc()
     }
 
-    /// Create a new [`SocketIoService`] and a [`SocketIo`] instance with a default config
-    ///
-    /// It can be used as a hyper service
+    /// Creates a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
+    /// It can be used as a [`Service`](tower::Service) with an inner service (see warp example)
     pub fn new_inner_svc<S: Clone>(svc: S) -> (SocketIoService<S>, SocketIo) {
         Self::builder().build_with_inner_svc(svc)
     }
 
-    /// Build a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config
-    ///
-    /// The layer can be used as a tower layer
+    /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config.
+    /// It can be used as a tower [`Layer`](tower::layer::Layer) (see axum example)
     pub fn new_layer() -> (SocketIoLayer, SocketIo) {
         Self::builder().build_layer()
     }
 }
 
 impl<A: Adapter> SocketIo<A> {
-    /// Create a new [`SocketIoBuilder`] with a default config and a specified [`Adapter`]
+    /// Creates a new [`SocketIoBuilder`] with a default config and a specified [`Adapter`]
     pub fn builder_with_adapter() -> SocketIoBuilder {
         SocketIoBuilder::new()
     }
@@ -267,16 +263,57 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
-    /// ### Register a connect handler for the given namespace.
+    /// ### Registers a [`ConnectHandler`] for the given namespace.
     ///
-    /// The data parameter can be typed with anything that implement [serde::Deserialize](https://docs.rs/serde/latest/serde/).
-    /// It corresponds to the auth data sent by the client when connecting to the namespace.
+    /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    /// #### Simple example with a sync closure:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
     ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     // Register a handler for the "test" event and extract the data as a `MyData` struct
+    ///     // With the Data extractor, the handler is called only if the data can be deserialized as a `MyData` struct
+    ///     // If you want to manage errors yourself you can use the TryData extractor
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
+    ///         println!("Received a test message {:?}", data);
+    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
     ///
-    /// ### V4 protocol (legacy) note:
-    /// If the v4 protocol is enabled, the auth data parameter **must** be nullable (e.g `Option`, `()` or `Default`), in particular for the root namespace.
-    /// If it is not the case your handler may be never called because of a deserialisation error.
+    /// ```
     ///
+    /// #### Example with a closure and an acknowledgement + binary data:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
+    ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
+    ///     // It should be the last extractor because it consumes the request
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
+    ///         println!("Received a test message {:?}", data);
+    ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
+    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
+    /// ```
     /// #### Simple example with a closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::{SocketRef, Data}};
@@ -314,7 +351,7 @@ impl<A: Adapter> SocketIo<A> {
         self.0.add_ns(path.into(), callback);
     }
 
-    /// Delete the namespace with the given path
+    /// Deletes the namespace with the given path
     #[inline]
     pub fn delete_ns<'a>(&self, path: impl Into<&'a str>) {
         self.0.delete_ns(path.into());
@@ -322,7 +359,7 @@ impl<A: Adapter> SocketIo<A> {
 
     /// Gracefully closes all the connections and drops every sockets
     ///
-    /// Any `on_disconnect` handler will called with [`DisconnectReason::ClosingServer`](crate::DisconnectReason::ClosingServer)
+    /// Any `on_disconnect` handler will called with [`DisconnectReason::ClosingServer`](crate::socket::DisconnectReason::ClosingServer)
     #[inline]
     pub async fn close(&self) {
         self.0.close().await;
@@ -330,7 +367,7 @@ impl<A: Adapter> SocketIo<A> {
 
     // Chaining operators fns
 
-    /// Select a specific namespace to perform operations on
+    /// Selects a specific namespace to perform operations on
     ///
     /// ## Example
     /// ```
@@ -351,7 +388,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_op(path.into())
     }
 
-    /// Select all sockets in the given rooms on the root namespace.
+    /// Selects all sockets in the given rooms on the root namespace.
     ///
     /// Alias for `io.of("/").unwrap().to(rooms)`
     ///
@@ -377,10 +414,11 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().to(rooms)
     }
 
-    /// Select all sockets in the given rooms on the root namespace.
+    /// Selects all sockets in the given rooms on the root namespace.
     ///
-    /// Alias for `io.of("/").unwrap().within(rooms)`
-    /// Alias for `io.to(rooms)`
+    /// Alias for :
+    /// * `io.of("/").unwrap().within(rooms)`
+    /// * `io.to(rooms)`
     ///
     /// ## Panics
     /// If the **default namespace "/" is not found** this fn will panic!
@@ -404,7 +442,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().within(rooms)
     }
 
-    /// Filter out all sockets selected with the previous operators which are in the given rooms.
+    /// Filters out all sockets selected with the previous operators which are in the given rooms.
     ///
     /// Alias for `io.of("/").unwrap().except(rooms)`
     ///
@@ -437,7 +475,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().except(rooms)
     }
 
-    /// Broadcast to all sockets only connected on this node (when using multiple nodes).
+    /// Broadcasts to all sockets only connected on this node (when using multiple nodes).
     /// When using the default in-memory adapter, this operator is a no-op.
     ///
     /// Alias for `io.of("/").unwrap().local()`
@@ -464,7 +502,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().local()
     }
 
-    /// Set a custom timeout when sending a message with an acknowledgement.
+    /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
     /// Alias for `io.of("/").unwrap().timeout(duration)`
     ///
@@ -501,7 +539,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().timeout(timeout)
     }
 
-    /// Add a binary payload to the message.
+    /// Adds a binary payload to the message.
     ///
     /// Alias for `io.of("/").unwrap().bin(binary_payload)`
     ///
@@ -529,7 +567,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().bin(binary)
     }
 
-    /// Emit a message to all sockets selected with the previous operators.
+    /// Emits a message to all sockets selected with the previous operators.
     ///
     /// Alias for `io.of("/").unwrap().emit(event, data)`
     ///
@@ -556,11 +594,11 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<(), serde_json::Error> {
+    ) -> Result<(), BroadcastError> {
         self.get_default_op().emit(event, data)
     }
 
-    /// Emit a message to all sockets selected with the previous operators and return a stream of acknowledgements.
+    /// Emits a message to all sockets selected with the previous operators and return a stream of acknowledgements.
     ///
     /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     ///
@@ -599,7 +637,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
-    /// Get all sockets selected with the previous operators.
+    /// Gets all sockets selected with the previous operators.
     ///
     /// It can be used to retrieve any extension data from the sockets or to make some sockets join other rooms.
     ///
@@ -628,7 +666,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().sockets()
     }
 
-    /// Disconnect all sockets selected with the previous operators.
+    /// Disconnects all sockets selected with the previous operators.
     ///
     /// Alias for `io.of("/").unwrap().disconnect()`
     ///
@@ -650,7 +688,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().disconnect()
     }
 
-    /// Make all sockets selected with the previous operators join the given room(s).
+    /// Makes all sockets selected with the previous operators join the given room(s).
     ///
     /// Alias for `io.of("/").unwrap().join(rooms)`
     ///
@@ -672,7 +710,7 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().join(rooms)
     }
 
-    /// Make all sockets selected with the previous operators leave the given room(s).
+    /// Makes all sockets selected with the previous operators leave the given room(s).
     ///
     /// Alias for `io.of("/").unwrap().join(rooms)`
     ///

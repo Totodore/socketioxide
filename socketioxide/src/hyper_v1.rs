@@ -1,3 +1,21 @@
+//! ## A Hyper v1 [`Service`](HyperSvc) for socket.io so it can be used with frameworks working with hyper v1
+//!
+//! This module is only enabled through the feature flag `hyper-v1`
+//!
+//! #### Example with a `hyper` v1 standalone service :
+//! ```rust
+//! # use socketioxide::SocketIo;
+//!
+//! // Create a new engine.io service that will return a 404 not found response for other requests
+//! let (svc, io) = SocketIo::new_svc();
+//!
+//! // Add io namespaces and events...
+//!
+//! // Convert the `SocketIoService` so it works with hyper 1.0
+//! let svc = svc.with_hyper_v1();
+//!
+//! // Create a hyper 1.0 server (see example)
+//! ```
 use std::{
     sync::Arc,
     task::{Context, Poll},

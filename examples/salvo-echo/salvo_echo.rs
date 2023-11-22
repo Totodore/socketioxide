@@ -5,7 +5,7 @@ use socketioxide::{
     SocketIo,
 };
 
-use tracing::{info, Level};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
 fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
@@ -36,10 +36,7 @@ async fn hello() -> &'static str {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .with_max_level(Level::TRACE)
-        .finish();
+    let subscriber = FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber)?;
 
     let (layer, io) = SocketIo::new_layer();

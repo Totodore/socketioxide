@@ -581,6 +581,7 @@ dependencies = [
 name = "engineioxide"
 version = "0.7.1"
 dependencies = [
+ "axum",
  "base64",
  "bytes",
  "futures",
@@ -592,6 +593,7 @@ dependencies = [
  "memchr",
  "pin-project",
  "rand",
+ "salvo",
  "serde",
  "serde_json",
  "thiserror",
@@ -601,6 +603,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
+ "warp",
 ]
 
 [[package]]
@@ -1911,6 +1914,7 @@ dependencies = [
  "hyper 0.14.27",
  "hyper 1.0.0-rc.4",
  "itoa",
+ "salvo",
  "serde",
  "serde_json",
  "thiserror",
@@ -1919,6 +1923,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "warp",
 ]
 
 [[package]]
