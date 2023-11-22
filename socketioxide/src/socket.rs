@@ -33,10 +33,11 @@ use crate::{
 use crate::{
     client::SocketData,
     errors::{AdapterError, SendError},
+    extract::SocketRef,
 };
 
-type DisconnectCallback<A> = Box<
-    dyn FnOnce(Arc<Socket<A>>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+pub type DisconnectCallback<A> = Box<
+    dyn FnOnce(SocketRef<A>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 >;
 
 /// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
@@ -241,7 +242,7 @@ impl<A: Adapter> Socket<A> {
     /// });
     pub fn on_disconnect<C, F>(&self, callback: C)
     where
-        C: Fn(Arc<Socket<A>>, DisconnectReason) -> F + Send + Sync + 'static,
+        C: Fn(SocketRef<A>, DisconnectReason) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
         let handler = Box::new(move |s, r| Box::pin(callback(s, r)) as _);
@@ -580,7 +581,7 @@ impl<A: Adapter> Socket<A> {
     /// It maybe also close when the underlying transport is closed or failed.
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
         if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
-            tokio::spawn(handler(self.clone(), reason));
+            tokio::spawn(handler(SocketRef::new(self.clone()), reason));
         }
 
         self.ns.remove_socket(self.id)?;
