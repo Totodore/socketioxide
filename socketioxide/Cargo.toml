@@ -70,7 +70,7 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-features = ["v4", "extensions", "hyper-v1"]
+features = ["v4", "extensions", "hyper-v1", "tracing"]
 # Special configuration for docs.rs build
 rustdoc-args = ["--cfg", "docsrs"]
 

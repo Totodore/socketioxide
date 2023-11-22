@@ -33,17 +33,20 @@
     nonstandard_style,
     missing_docs
 )]
-//! Socketioxide is a socket.io server implementation that works as a [`tower`] layer/service so it integrates nicely with the rest of the ecosystem.
+//! Socketioxide is a socket.io server implementation that works as a [`tower`] layer/service.
+//! It integrates nicely with the rest of the [`tower`]/[`tokio`]/[`hyper`](https://docs.rs/hyper/latest/hyper/) ecosystem.
 //!
 //! ## Table of contents
 //! * [Features](#features)
 //! * [Compatibility](#compatibility)
 //! * [Usage](#usage)
+//! * [Initialisation](#initialisation)
 //! * [Handlers](#handlers)
 //! * [Extractors](#extractors)
 //! * [Events](#events)
 //! * [Emiting data](#emiting-data)
 //! * [Acknowledgements](#acknowledgements)
+//! * [Adapters](#adapters)
 //! * [Feature flags](#feature-flags)
 //!
 //! ## Features
@@ -100,6 +103,44 @@
 //!     Ok(())
 //! }
 //! ```
+//! ## Initialisation
+//! The [`SocketIo`] struct is the main entry point of the library. It is used to create a [`Layer`](tower::layer) or a [`Service`](tower::Service).
+//! Later it can be used as the equivalent of the `io` object in the JS API.
+//!
+//! When creating your [`SocketIo`] instance, you can use the builder pattern to configure it with the [`SocketIoBuilder`] struct.
+//! * See the [`SocketIoBuilder`] doc for more details on the available configuration options.
+//! * See the [`layer`] module doc for more details on layers.
+//! * See the [`service`] module doc for more details on services.
+//! * See the [`hyper_v1`] module doc for more details on hyper v1 compatibility.
+//!
+//! #### Tower layer example with custom configuration:
+//! ```
+//! use socketioxide::SocketIo;
+//! let (layer, io) = SocketIo::builder()
+//!     .max_payload(10_000_000) // Max HTTP payload size of 10M
+//!     .max_buffer_size(10_000) // Max number of packets in the buffer
+//!     .build_layer();
+//! ```
+//!
+//! #### Tower _standalone_ service example with default configuration:
+//! ```
+//! use socketioxide::SocketIo;
+//! let (svc, io) = SocketIo::new_svc();
+//! ```
+//!
+//! #### Tower service example with hyper v1 (requires the `hyper-v1` feature) and default configuration:
+//! ```
+//! use socketioxide::SocketIo;
+//! let (svc, io) = SocketIo::new_svc();
+//! let svc = svc.with_hyper_v1();
+//! ```
+//! #### Tower layer example with hyper v1 (requires the `hyper-v1` feature) and default configuration:
+//! ```
+//! use socketioxide::SocketIo;
+//! let (layer, io) = SocketIo::new_layer();
+//! let layer = layer.with_hyper_v1();
+//! ```
+//!
 //! ## Handlers
 //! Handlers are functions or clonable closures that are given to the `io.ns` and the `socket.on` methods. They can be async or sync and can take from 0 to 16 arguments that implements the [`FromConnectParts`](handler::FromConnectParts) trait for the [`ConnectHandler`](handler::ConnectHandler) and the [`FromMessageParts`](handler::FromMessageParts) for the [`MessageHandler`](handler::MessageHandler). They are greatly inspired by the axum handlers.
 //!
@@ -163,9 +204,22 @@
 //! #### Server acknowledgements
 //! They are implemented with the [`AckSender`](extract::AckSender) extractor.
 //! You can send an ack response with an optional binary payload with the [`AckSender::send`](extract::AckSender) method.
+//! If the client doesn't send an ack response, the [`AckSender::send`](extract::AckSender) method will do nothing.
 //!
 //! #### Client acknowledgements
+//! You can use the [`Socket::emit_with_ack`](socket::Socket) method to emit a message with an ack callback.
+//! It will return a [`Future`](futures::Future) that will resolve when the acknowledgement is received.
 //!
+//! ## Adapters
+//! This library is designed to work with clustering. It uses the [`Adapter`](adapter::Adapter) trait to abstract the underlying storage.
+//! By default it uses the [`LocalAdapter`](adapter::LocalAdapter) which is a simple in-memory adapter.
+//! Currently there is no other adapters available but more will be added in the future.
+//!
+//! ## [Feature flags](#feature-flags)
+//! * `hyper-v1`: enable support for hyper v1
+//! * `v4`: enable support for the socket.io protocol v4
+//! * `tracing`: enable logging with [`tracing`] calls
+//! * `extensions`: enable [`extensions`] module
 //!
 pub mod adapter;
 
