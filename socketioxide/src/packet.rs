@@ -310,7 +310,7 @@ impl<'a> TryInto<String> for Packet<'a> {
                 // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
                     Value::Array(ref mut v) if !v.is_empty() => {
-                        v.insert(0, Value::String(e.to_string()));
+                        v.insert(0, Value::String((*e).to_string()));
                         serde_json::to_string(&v)
                     }
                     Value::Array(_) => serde_json::to_string::<(_, [(); 0])>(&(e, [])),
@@ -478,9 +478,7 @@ impl<'a> TryFrom<String> for Packet<'a> {
         let ack: Option<i64> = loop {
             match chars.get(i) {
                 Some(c) if c.is_ascii_digit() => i += 1,
-                Some(b'[') | Some(b'{') if i > start_index => {
-                    break value[start_index..i].parse().ok()
-                }
+                Some(b'[' | b'{') if i > start_index => break value[start_index..i].parse().ok(),
                 _ => break None,
             }
         };

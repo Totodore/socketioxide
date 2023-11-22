@@ -82,7 +82,8 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        if req.uri().path().starts_with(&self.0.engine.config.req_path) {
+        let path = self.0.engine.config.req_path.as_ref();
+        if req.uri().path().starts_with(path) {
             let req = req.map(IncomingBody::new);
             dispatch_req(
                 req,
@@ -108,7 +109,8 @@ where
     type Future = ResponseFuture<S::Future, ResBody>;
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
-        if req.uri().path().starts_with(&self.0.engine.config.req_path) {
+        let path = self.0.engine.config.req_path.as_ref();
+        if req.uri().path().starts_with(path) {
             let req = req.map(IncomingBody::new);
             dispatch_req(
                 req,
