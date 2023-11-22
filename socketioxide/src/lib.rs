@@ -146,8 +146,9 @@
 //!
 //! If they are async, a new task will be spawned for each incoming connection/message so it doesn't block the event management task.
 //!
-//! Check the [`handler::connect`] module doc for more details on the connect handler
-//! Check the [`handler::message`] module doc for more details on the message handler.
+//! * Check the [`handler::connect`] module doc for more details on the connect handler
+//! * Check the [`handler::message`] module doc for more details on the message handler.
+//! * Check the [`handler::extract`] module doc for more details on the extractors.
 //!
 //! ## Extractors
 //! Handlers params are called extractors and are used to extract data from the incoming connection/message. They are inspired by the axum extractors.
