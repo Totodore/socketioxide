@@ -1,5 +1,5 @@
 pub use service::{ProtocolVersion, TransportType};
-pub use socket::{DisconnectReason, Socket};
+pub use socket::{DisconnectReason, Permit, Socket};
 
 pub mod config;
 pub mod errors;

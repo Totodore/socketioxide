@@ -57,6 +57,20 @@ impl From<&Error> for Option<DisconnectReason> {
         }
     }
 }
+
+/// A [`Permit`] represents a slot in the internal channel of a [`Socket`]
+/// It is used to send packets to the client
+///
+/// Thanks to the permit you can encode your data **only** when you are sure that the channel is open
+pub struct Permit<'a>(mpsc::Permit<'a, Packet>);
+impl Permit<'_> {
+    pub fn emit(self, msg: String) {
+        self.0.send(Packet::Message(msg))
+    }
+    pub fn emit_binary(self, data: Vec<u8>) {
+        self.0.send(Packet::Binary(data))
+    }
+}
 /// A [`Socket`] represents a connection to the server.
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 /// It handles :
@@ -295,6 +309,16 @@ where
             TrySendError::Full(p) => TrySendError::Full(p.into_message()),
             TrySendError::Closed(p) => TrySendError::Closed(p.into_message()),
         })
+    }
+
+    /// Returns the capacity of the internal channel
+    /// It can be used to check if the socket is currently overloaded
+    pub fn capacity(&self) -> usize {
+        self.internal_tx.capacity()
+    }
+    /// Reserve a slot in the internal channel
+    pub fn reserve(&self) -> Result<Permit<'_>, TrySendError<()>> {
+        Ok(Permit(self.internal_tx.try_reserve()?))
     }
 
     /// Immediately closes the socket and the underlying connection.
