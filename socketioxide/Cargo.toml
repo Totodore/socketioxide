@@ -43,12 +43,12 @@ extensions = ["dep:dashmap"]
 hyper-v1 = ["engineioxide/hyper-v1", "dep:http-body-v1", "dep:hyper-v1"]
 
 [dev-dependencies]
-tokio-tungstenite = "0.20.0"
 engineioxide = { path = "../engineioxide", features = [
     "v3",
     "tracing",
     "test-utils",
 ] }
+tokio-tungstenite.workspace = true
 axum.workspace = true
 salvo.workspace = true
 warp.workspace = true
