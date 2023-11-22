@@ -89,7 +89,7 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 }
 
 /// Define a handler for the connect event.
-/// It is implemented for closures with up to 16 arguments that implement the [`FromMessageParts`] trait or the [`FromMessage`] trait for the last argument.
+/// It is implemented for closures with up to 16 arguments. They must implement the [`FromMessageParts`] trait or the [`FromMessage`] trait for the last one.
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
@@ -145,8 +145,8 @@ mod private {
     pub enum Async {}
 }
 
-/// A trait used to extract the arguments from the message event.
-/// The `Result` associated type is used to return an error if the extraction fails, in this case the handler is not called
+/// A trait used to extract arguments from the message event.
+/// The `Result` associated type is used to return an error if the extraction fails, in this case the handler is not called.
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
@@ -161,7 +161,7 @@ pub trait FromMessageParts<A: Adapter>: Sized {
     type Error: std::error::Error + 'static;
 
     /// Extract the arguments from the message event.
-    /// If it fails, the handler is not called
+    /// If it fails, the handler is not called.
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
@@ -170,7 +170,7 @@ pub trait FromMessageParts<A: Adapter>: Sized {
     ) -> Result<Self, Self::Error>;
 }
 
-/// A trait used to extract and consume the arguments from the message event.
+/// A trait used to extract and **consume** arguments from the message event.
 /// The `Result` associated type is used to return an error if the extraction fails, in this case the handler is not called.
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.

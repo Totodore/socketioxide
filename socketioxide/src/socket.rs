@@ -1,5 +1,5 @@
 //! A [`Socket`] represents a client connected to a namespace.
-//! The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
+//! The socket struct itself should not be used directly, but through a [`SocketRef`].
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -112,7 +112,7 @@ pub struct AckResponse<T> {
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
-/// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
+/// The socket struct itself should not be used directly, but through a [`SocketRef`].
 pub struct Socket<A: Adapter = LocalAdapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
@@ -155,7 +155,7 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    /// ### Register a [`MessageHandler`] for the given event.
+    /// ### Registers a [`MessageHandler`] for the given event.
     ///
     /// * See the [`message`](crate::handler::message) module doc for more details on message handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
@@ -218,7 +218,7 @@ impl<A: Adapter> Socket<A> {
             .insert(event.into(), MakeErasedHandler::new_message_boxed(handler));
     }
 
-    /// ## Register a disconnect handler.
+    /// ## Registers a disconnect handler.
     ///
     /// Contrary to [`ConnectHandler`](crate::handler::ConnectHandler) and [`MessageHandler`].
     /// Arguments are not dynamic and the handler should always be async.
@@ -249,7 +249,7 @@ impl<A: Adapter> Socket<A> {
         *self.disconnect_handler.lock().unwrap() = Some(handler);
     }
 
-    /// Emit a message to the client
+    /// Emits a message to the client
     /// ## Errors
     /// * If the data cannot be serialized to JSON, a [`SendError::Serialize`] is returned.
     /// * If the packet buffer is full, a [`SendError::InternalChannelFull`] is returned.
@@ -278,7 +278,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    /// Emit a message to the client and wait for acknowledgement.
+    /// Emits a message to the client and wait for acknowledgement.
     ///
     /// The acknowledgement has a timeout specified in the config (5s by default)
     /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the `timeout()` operator.
@@ -320,7 +320,7 @@ impl<A: Adapter> Socket<A> {
 
     // Room actions
 
-    /// Join the given rooms.
+    /// Joins the given rooms.
     ///
     /// If the room does not exist, it will be created.
     ///
@@ -331,7 +331,7 @@ impl<A: Adapter> Socket<A> {
         self.ns.adapter.add_all(self.id, rooms)
     }
 
-    /// Leave the given rooms.
+    /// Leaves the given rooms.
     ///
     /// If the room does not exist, it will do nothing
     /// ## Errors
@@ -341,7 +341,7 @@ impl<A: Adapter> Socket<A> {
         self.ns.adapter.del(self.id, rooms)
     }
 
-    /// Leave all rooms where the socket is connected.
+    /// Leaves all rooms where the socket is connected.
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
@@ -349,7 +349,7 @@ impl<A: Adapter> Socket<A> {
         self.ns.adapter.del_all(self.id)
     }
 
-    /// Get all rooms where the socket is connected.
+    /// Gets all rooms where the socket is connected.
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
@@ -359,7 +359,7 @@ impl<A: Adapter> Socket<A> {
 
     // Socket operators
 
-    /// Select all clients in the given rooms except the current socket.
+    /// Selects all clients in the given rooms except the current socket.
     ///
     /// If you want to include the current socket, use the `within()` operator.
     /// ##### Example
@@ -383,7 +383,7 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), Some(self.id)).to(rooms)
     }
 
-    /// Select all clients in the given rooms.
+    /// Selects all clients in the given rooms.
     ///
     /// It does include the current socket contrary to the `to()` operator.
     /// #### Example
@@ -407,7 +407,7 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), Some(self.id)).within(rooms)
     }
 
-    /// Filter out all clients selected with the previous operators which are in the given rooms.
+    /// Filters out all clients selected with the previous operators which are in the given rooms.
     /// ##### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -431,7 +431,7 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), Some(self.id)).except(rooms)
     }
 
-    /// Broadcast to all clients only connected on this node (when using multiple nodes).
+    /// Broadcasts to all clients only connected on this node (when using multiple nodes).
     /// When using the default in-memory [`LocalAdapter`], this operator is a no-op.
     /// ##### Example
     /// ```
@@ -449,7 +449,7 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), Some(self.id)).local()
     }
 
-    /// Set a custom timeout when sending a message with an acknowledgement.
+    /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
     /// ##### Example
     /// ```
@@ -480,7 +480,7 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), Some(self.id)).timeout(timeout)
     }
 
-    /// Add a binary payload to the message.
+    /// Adds a binary payload to the message.
     /// ##### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -497,7 +497,7 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), Some(self.id)).bin(binary)
     }
 
-    /// Broadcast to all clients without any filtering (except the current socket).
+    /// Broadcasts to all clients without any filtering (except the current socket).
     /// ##### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -514,7 +514,7 @@ impl<A: Adapter> Socket<A> {
         Operators::new(self.ns.clone(), Some(self.id)).broadcast()
     }
 
-    /// Disconnect the socket from the current namespace,
+    /// Disconnects the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
@@ -523,7 +523,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    /// Close the engine.io connection if it is not already closed.
+    /// Closes the engine.io connection if it is not already closed.
     /// Return a future that resolves when the underlying transport is closed.
     pub(crate) async fn close_underlying_transport(&self) {
         if !self.esocket.is_closed() {
@@ -534,7 +534,7 @@ impl<A: Adapter> Socket<A> {
         self.esocket.closed().await;
     }
 
-    /// Get the current namespace path.
+    /// Gets the current namespace path.
     pub fn ns(&self) -> &str {
         &self.ns.path
     }
@@ -588,7 +588,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    // Receive data from client:
+    // Receives data from client:
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData<'_>) -> Result<(), Error> {
         match packet {
             PacketData::Event(e, data, ack) => self.recv_event(&e, data, ack),
@@ -602,7 +602,7 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    /// Get the request info made by the client to connect
+    /// Gets the request info made by the client to connect
     ///
     /// Note that the `extensions` field will be empty and will not
     /// contain extensions set in the previous http layers for requests initialized with ws transport.

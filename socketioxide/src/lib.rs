@@ -56,7 +56,7 @@
 //! * Polling & Websocket transports
 //!
 //! ## Compatibility
-//! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) you can use it with any http server framework that works with tower/hyper:
+//! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) you can use it with any http server frameworks that works with tower/hyper:
 //! * [Axum](https://docs.rs/axum/latest/axum/)
 //! * [Warp](https://docs.rs/warp/latest/warp/)
 //! * [Hyper](https://docs.rs/hyper/latest/hyper/)
@@ -64,7 +64,7 @@
 //!
 //! Note that for v1 of `hyper` and salvo, you need to enable the `hyper-v1` feature and call `with_hyper_v1` on your layer/service.
 //!
-//! Check the [examples](http://github.com/totodore/socketioxide/tree/main/examples) for more details on framework integration.
+//! Check the [examples](http://github.com/totodore/socketioxide/tree/main/examples) for more details on frameworks integration.
 //!
 //! ## Usage
 //! The API tries to mimic the equivalent JS API as much as possible. The main difference is that the default namespace `/` is not created automatically, you need to create it manually.
@@ -83,9 +83,9 @@
 //!
 //!     // Register a handler for the default namespace
 //!     io.ns("/", |s: SocketRef| {
-//!         // For each "message" event received, send a "message-back" event with the same data
-//!         socket.on("message", |socket: SocketRef| {
-//!             socket.emit("message-back", data).ok();
+//!         // For each "message" event received, send a "message-back" event with the "Hello World!" event
+//!         s.on("message", |s: SocketRef| {
+//!             s.emit("message-back", "Hello World!").ok();
 //!         });
 //!     });
 //!
@@ -126,20 +126,47 @@
 //! ### Extractor order
 //! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
 //!
-//! For the [`MessageHandler`](handler::MessageHandler) some extractors require to _consume_ the event and therefore only implement the [`FromMessage`](handler::FromMessage) trait, like the [`Bin`](extract::Bin) extractor, therefore they should be the last argument.
+//! For the [`MessageHandler`](handler::MessageHandler), some extractors require to _consume_ the event and therefore only implement the [`FromMessage`](handler::FromMessage) trait, like the [`Bin`](extract::Bin) extractor, therefore they should be the last argument.
 //!
-//! Note that any extractor that implements the [`FromMessageParts`](handler::FromMessageParts) also implements by default the [`FromMessage`](handler::FromMessage) trait.
+//! Note that any extractors that implement the [`FromMessageParts`](handler::FromMessageParts) also implement by default the [`FromMessage`](handler::FromMessage) trait.
 //!
 //! ## Events
 //! There are three types of events:
 //! * The connect event is emitted when a new connection is established. It can be handled with the [`ConnectHandler`](handler::ConnectHandler) and the `io.ns` method.
 //! * The message event is emitted when a new message is received. It can be handled with the [`MessageHandler`](handler::MessageHandler) and the `socket.on` method.
-//! * The disconnect event is emitted when a socket is closed. Contrary to the two previous events, the callback is not flexible, it *has* to be async and have the following signature `async fn(SocketRef, DisconnectReason)`. It can be handled with the `socket.on_disconnect` method.
+//! * The disconnect event is emitted when a socket is closed. Contrary to the two previous events, the callback is not flexible, it *must* be async and have the following signature `async fn(SocketRef, DisconnectReason)`. It can be handled with the `socket.on_disconnect` method.
 //!
 //! Only one handler can exist for an event so registering a new handler for an event will replace the previous one.
 //!
-//! ## Emiting data
-//! Data can be emitted to a socket with the [`Socket::emit`](socket::Socket::emit) method. It takes a name and a data argument. The data argument can be any type that implements the [`serde::Serialize`](serde::Serialize) trait.
+//! ## [Emiting data](#emiting-data)
+//! Data can be emitted to a socket with the [`Socket::emit`](socket::Socket) method. It takes an event name and a data argument.
+//! The data argument can be any type that implements the [`serde::Serialize`] trait.
+//!
+//! #### Emit errors
+//! If the data can't be serialized to json, an [`serde_json::Error`] will be returned.
+//! If the socket is disconnected or the internal channel is full, a tracing log will be emitted if the `tracing` feature is enabled and the message will be dropped.
+//! This solution is not ideal and will be improved in the future (see [socketioxide/172](https://github.com/Totodore/socketioxide/issues/172)).
+//!
+//! #### Emitting with operators
+//! To configure the emit, you can chain [`Operators`](operators::Operators) methods to the emit call. With that you can easily configure the following options:
+//! * rooms: emit, join, leave to specific rooms
+//! * namespace: emit to a specific namespace (only from the [`SocketIo`] handle)
+//! * timeout: set a custom timeout when waiting for an ack
+//! * binary: emit a binary payload with the message
+//! * local: broadcast only to the current node (in case of a cluster)
+//!
+//! Check the [`operators::Operators`] doc for more details on the operators.
+//!
+//! ## Acknowledgements
+//! You can ensure that a message has been received by the client/server with acknowledgements.
+//!
+//! #### Server acknowledgements
+//! They are implemented with the [`AckSender`](extract::AckSender) extractor.
+//! You can send an ack response with an optional binary payload with the [`AckSender::send`](extract::AckSender) method.
+//!
+//! #### Client acknowledgements
+//!
+//!
 pub mod adapter;
 
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]

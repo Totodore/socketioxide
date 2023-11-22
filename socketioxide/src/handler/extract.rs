@@ -1,10 +1,10 @@
 //! ### Extractors for [`ConnectHandler`](super::ConnectHandler) and [`MessageHandler`](super::MessageHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
-//! * [`Data`]: extracts and deserialize to json any data, if a deserialize error occurs the handler won't be called
+//! * [`Data`]: extracts and deserialize to json any data, if a deserialization error occurs the handler won't be called:
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
-//! * [`TryData`]: extracts and deserialize to json any data but with a `Result` type in case of error
+//! * [`TryData`]: extracts and deserialize to json any data but with a `Result` type in case of error:
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
 //! * [`SocketRef`]: extracts a reference to the [`Socket`]
@@ -15,7 +15,7 @@
 //! When implementing these traits, if you clone the [`Arc<Socket>`] make sure that it is dropped at least when the socket is disconnected.
 //! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning the socket for common usage.
 //!
-//! #### Example that extract a user id from the query params
+//! #### Example that extracts a user id from the query params
 //! ```rust
 //! use socketioxide::handler::{FromConnectParts, FromMessageParts};
 //! use socketioxide::adapter::Adapter;
@@ -101,10 +101,9 @@ fn upwrap_array(v: &mut Value) {
     }
 }
 
-/// An Extractor that returns the serialized auth data without checking errors
-///
-/// If a deserialize error occurs, the [`ConnectHandler`](super::ConnectHandler) won't be called
-/// and an error log will be print if the `tracing` feature is enabled
+/// An Extractor that returns the serialized auth data without checking errors.
+/// If a deserialization error occurs, the [`ConnectHandler`](super::ConnectHandler) won't be called
+/// and an error log will be print if the `tracing` feature is enabled.
 pub struct Data<T: DeserializeOwned>(pub T);
 impl<T, A> FromConnectParts<A> for Data<T>
 where
@@ -136,7 +135,7 @@ where
     }
 }
 
-/// An Extractor that returns the serialized auth data
+/// An Extractor that returns the deserialized data related to the event.
 pub struct TryData<T: DeserializeOwned>(pub Result<T, serde_json::Error>);
 
 impl<T, A> FromConnectParts<A> for TryData<T>
@@ -169,7 +168,7 @@ where
         Ok(TryData(serde_json::from_value(v.clone())))
     }
 }
-/// An Extractor that returns a reference to a [`Socket`]
+/// An Extractor that returns a reference to a [`Socket`].
 pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
@@ -214,7 +213,7 @@ impl<A: Adapter> SocketRef<A> {
 }
 
 /// An Extractor that returns the binary data of the message.
-/// If there is no binary data, it will contain an empty vec
+/// If there is no binary data, it will contain an empty vec.
 pub struct Bin(pub Vec<Vec<u8>>);
 impl<A: Adapter> FromMessage<A> for Bin {
     type Error = Infallible;
@@ -228,8 +227,7 @@ impl<A: Adapter> FromMessage<A> for Bin {
     }
 }
 
-/// An Extractor to send an ack response corresponding to the current event
-///
+/// An Extractor to send an ack response corresponding to the current event.
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 #[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {

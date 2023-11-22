@@ -77,49 +77,49 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     where
         Self: Sized;
 
-    /// Initialize the adapter.
+    /// Initializes the adapter.
     fn init(&self) -> Result<(), Self::Error>;
-    /// Close the adapter.
+    /// Closes the adapter.
     fn close(&self) -> Result<(), Self::Error>;
 
-    /// Return the number of servers.
+    /// Returns the number of servers.
     fn server_count(&self) -> Result<u16, Self::Error>;
 
-    /// Add the socket to all the rooms.
+    /// Adds the socket to all the rooms.
     fn add_all(&self, sid: Sid, rooms: impl RoomParam) -> Result<(), Self::Error>;
-    /// Remove the socket from the rooms.
+    /// Removes the socket from the rooms.
     fn del(&self, sid: Sid, rooms: impl RoomParam) -> Result<(), Self::Error>;
-    /// Remove the socket from all the rooms.
+    /// Removes the socket from all the rooms.
     fn del_all(&self, sid: Sid) -> Result<(), Self::Error>;
 
-    /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
+    /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`].
     fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
-    /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
+    /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
     ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError>;
 
-    /// Return the sockets ids that match the [`BroadcastOptions`].
+    /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
 
-    /// Return the rooms of the socket.
+    /// Returns the rooms of the socket.
     fn socket_rooms(&self, sid: Sid) -> Result<Vec<Room>, Self::Error>;
 
-    /// Return the sockets that match the [`BroadcastOptions`].
+    /// Returns the sockets that match the [`BroadcastOptions`].
     fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<SocketRef<Self>>, Self::Error>
     where
         Self: Sized;
 
-    /// Add the sockets that match the [`BroadcastOptions`] to the rooms.
+    /// Adds the sockets that match the [`BroadcastOptions`] to the rooms.
     fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam)
         -> Result<(), Self::Error>;
-    /// Remove the sockets that match the [`BroadcastOptions`] from the rooms.
+    /// Removes the sockets that match the [`BroadcastOptions`] from the rooms.
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam)
         -> Result<(), Self::Error>;
-    /// Disconnect the sockets that match the [`BroadcastOptions`].
+    /// Disconnects the sockets that match the [`BroadcastOptions`].
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     //TODO: implement
@@ -128,7 +128,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     // fn restore_session(&self, sid: i64) -> Session;
 }
 
-/// The default adapter. store the state in memory.
+/// The default adapter. Store the state in memory.
 #[derive(Debug)]
 pub struct LocalAdapter {
     rooms: RwLock<HashMap<Room, HashSet<Sid>>>,
@@ -289,7 +289,7 @@ impl Adapter for LocalAdapter {
 }
 
 impl LocalAdapter {
-    /// Apply the given `opts` and return the sockets that match.
+    /// Applies the given `opts` and return the sockets that match.
     fn apply_opts(&self, opts: BroadcastOptions) -> Vec<SocketRef<Self>> {
         let rooms = opts.rooms;
 

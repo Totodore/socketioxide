@@ -67,13 +67,13 @@ where
 }
 
 impl<A: Adapter, S: Clone> SocketIoService<S, A> {
-    /// Create a MakeService which can be used as a hyper service
+    /// Creates a MakeService which can be used as a hyper service
     #[inline(always)]
     pub fn into_make_service(self) -> MakeEngineIoService<Arc<Client<A>>, S> {
         self.engine_svc.into_make_service()
     }
 
-    /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
+    /// Creates a new [`EngineIoService`] with a custom inner service and a custom config.
     pub(crate) fn with_config_inner(
         inner: S,
         config: Arc<SocketIoConfig>,
@@ -84,7 +84,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
         (Self { engine_svc: svc }, client)
     }
 
-    /// Create a new [`EngineIoService`] with a custom inner service and an existing client
+    /// Creates a new [`EngineIoService`] with a custom inner service and an existing client
     /// It is mainly used with a [`SocketIoLayer`](crate::layer::SocketIoLayer) that owns the client
     pub(crate) fn with_client(inner: S, client: Arc<Client<A>>) -> Self {
         let engine_config = client.config.engine_config.clone();
@@ -92,7 +92,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
         Self { engine_svc: svc }
     }
 
-    /// Convert this [`Service`] into a [`SocketIoHyperService`](crate::hyper_v1::SocketIoHyperService)
+    /// Converts this [`Service`] into a [`SocketIoHyperService`](crate::hyper_v1::SocketIoHyperService)
     /// to use with hyper v1 and its dependent frameworks.
     ///
     /// This is only available when the `hyper-v1` feature is enabled.

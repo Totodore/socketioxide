@@ -89,7 +89,7 @@ where
 
 /// A trait used to extract the arguments from the connect event.
 /// The `Result` associated type is used to return an error if the extraction fails,
-/// in this case the [`ConnectHandler`] is not called
+/// in this case the [`ConnectHandler`] is not called.
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
@@ -103,12 +103,12 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 }
 
 /// Define a handler for the connect event.
-/// It is implemented for closures with up to 16 arguments that implement the [`FromConnectParts`] trait.
+/// It is implemented for closures with up to 16 arguments. They must implement the [`FromConnectParts`] trait.
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
-    /// Call the handler with the given arguments
+    /// Call the handler with the given arguments.
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 
     #[doc(hidden)]

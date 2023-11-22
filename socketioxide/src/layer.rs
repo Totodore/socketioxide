@@ -66,7 +66,7 @@ impl<A: Adapter> SocketIoLayer<A> {
         (layer, client)
     }
 
-    /// Convert this [`Layer`] into a [`SocketIoHyperLayer`] to use with hyper v1 and its dependent frameworks.
+    /// Converts this [`Layer`] into a [`SocketIoHyperLayer`] to use with hyper v1 and its dependent frameworks.
     ///
     /// This is only available when the `hyper-v1` feature is enabled.
     #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
