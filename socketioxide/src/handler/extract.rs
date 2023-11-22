@@ -17,12 +17,12 @@
 //!
 //! #### Example that extracts a user id from the query params
 //! ```rust
-//! use socketioxide::handler::{FromConnectParts, FromMessageParts};
-//! use socketioxide::adapter::Adapter;
-//! use socketioxide::socket::Socket;
-//! use std::sync::Arc;
-//! use std::convert::Infallible;
-//! use socketioxide::SocketIo;
+//! # use socketioxide::handler::{FromConnectParts, FromMessageParts};
+//! # use socketioxide::adapter::Adapter;
+//! # use socketioxide::socket::Socket;
+//! # use std::sync::Arc;
+//! # use std::convert::Infallible;
+//! # use socketioxide::SocketIo;
 //!
 //! struct UserId(String);
 //!
