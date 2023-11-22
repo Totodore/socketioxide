@@ -1,5 +1,38 @@
-//! Implement Services for hyper 1.0
-//! Only enabled with feature flag `hyper-v1`
+//! ## A Hyper v1 service for engine.io so it can be used with frameworks working with hyper v1
+//!
+//! This module is only enabled through the feature flag `hyper-v1`
+//!
+//! #### Example with a `hyper` v1 standalone service :
+//! ```no_run
+//! # use engineioxide::layer::EngineIoLayer;
+//! # use engineioxide::service::EngineIoService;
+//! # use engineioxide::{Socket, DisconnectReason};
+//! # use engineioxide::handler::EngineIoHandler;
+//! # use std::net::SocketAddr;
+//! # use std::sync::Arc;
+//! # use tokio::net::TcpListener;
+//! #[derive(Debug, Clone)]
+//! struct MyHandler;
+//!
+//! impl EngineIoHandler for MyHandler {
+//!     type Data = ();
+//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
+//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
+//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
+//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
+//! }
+//!
+//! // Create a new engine.io service that will return a 404 not found response for other requests
+//! let service = EngineIoService::new(MyHandler)
+//!     .with_hyper_v1();    // It is required to enable the `hyper-v1` feature flag to use this
+//!
+//! let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+//! let listener = TcpListener::bind(addr);
+//!
+//! // We start a loop to continuously accept incoming connections and spawn a hyper v1 service for each of them
+//! // See the hyper v1 example for details
+//! ```
+
 use crate::{
     body::{
         request::IncomingBody,
@@ -19,7 +52,7 @@ use std::{
 
 use super::{futures::ResponseFuture, parser::dispatch_req, EngineIoService, NotFoundService};
 
-/// A wrapper of [`EngineIoService`] that handles engine.io requests as a middleware from hyper-v1.
+/// A wrapper of [`EngineIoService`] that handles engine.io requests as a middleware for `hyper-v1`.
 pub struct EngineIoHyperService<H: EngineIoHandler, S = NotFoundService>(EngineIoService<H, S>);
 impl<H, S> EngineIoHyperService<H, S>
 where
@@ -30,7 +63,7 @@ where
     }
 }
 
-/// Tower Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] Body for hyper 1.0
+/// Tower Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] response for `hyper-v1`
 impl<ReqBody, ResBody, S, H> tower::Service<Request<ReqBody>> for EngineIoHyperService<H, S>
 where
     ResBody: http_body_v1::Body + Send + 'static,
@@ -44,7 +77,7 @@ where
     type Error = S::Error;
     type Future = ResponseFuture<S::Future, ResBody>;
 
-    fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.0.inner.poll_ready(cx)
     }
 
@@ -63,7 +96,7 @@ where
     }
 }
 
-/// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] Body
+/// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] response
 impl<ResBody, S, H> hyper_v1::service::Service<Request<Incoming>> for EngineIoHyperService<H, S>
 where
     ResBody: http_body_v1::Body + Send + 'static,

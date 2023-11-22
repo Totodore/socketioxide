@@ -6,10 +6,10 @@ edition.workspace = true
 
 [dependencies]
 socketioxide = { path = "../../socketioxide", features = ["extensions"] }
-axum = "0.6.20"
+axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower-http = { version = "0.4.4", features = ["cors", "fs"] }
-uuid = { version = "1.5.0", features = ["v4", "serde"] }
+uuid = { version = "1.6.1", features = ["v4", "serde"] }
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true

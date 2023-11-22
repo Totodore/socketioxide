@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use socketioxide::{extract::SocketRef, DisconnectReason, SocketIo};
+use socketioxide::{extract::SocketRef, socket::DisconnectReason, SocketIo};
 use tokio::sync::mpsc;
 
 mod fixture;

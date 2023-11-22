@@ -49,7 +49,9 @@ engineioxide = { path = "../engineioxide", features = [
     "tracing",
     "test-utils",
 ] }
-axum = "0.6.18"
+axum.workspace = true
+salvo.workspace = true
+warp.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",
@@ -58,6 +60,12 @@ tokio = { workspace = true, features = [
 tracing-subscriber.workspace = true
 hyper.workspace = true
 criterion.workspace = true
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+features = ["v4", "extensions", "hyper-v1", "tracing"]
+# Special configuration for docs.rs build
+rustdoc-args = ["--cfg", "docsrs"]
 
 [[bench]]
 name = "packet_encode"

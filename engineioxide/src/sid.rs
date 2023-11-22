@@ -1,3 +1,6 @@
+//! [`Socket`](crate::Socket) id type and generator
+//!
+//! It it stored as a 128 bit id and it represent a base64 16 char string
 use std::{
     fmt::{Debug, Display, Formatter},
     str::FromStr,
@@ -11,6 +14,7 @@ use rand::Rng;
 pub struct Sid([u8; 16]);
 
 impl Sid {
+    /// A zeroed session id
     pub const ZERO: Self = Self([0u8; 16]);
     /// Generate a new random session id (base64 10 chars)
     pub fn new() -> Self {
@@ -23,10 +27,14 @@ impl Sid {
     }
 }
 
+/// Error type for [`Sid::from_str`]
 #[derive(Debug, thiserror::Error)]
 pub enum SidDecodeError {
+    /// Invalid base64 string
     #[error("Invalid url base64 string")]
     InvalidBase64String,
+
+    /// Invalid length
     #[error("Invalid sid length")]
     InvalidLength,
 }
@@ -86,7 +94,7 @@ struct SidVisitor;
 impl<'de> serde::de::Visitor<'de> for SidVisitor {
     type Value = Sid;
 
-    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("a valid sid")
     }
 

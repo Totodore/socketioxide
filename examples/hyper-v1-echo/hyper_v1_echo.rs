@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
-use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
+use hyper_v1::server::conn::http1;
 use serde_json::Value;
 use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},

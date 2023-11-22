@@ -1,3 +1,5 @@
+//! [`Operators`] are used to select sockets to send a packet to, or to configure the packet that will be emitted.
+//! It uses the builder pattern to chain operators.
 use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
@@ -18,9 +20,12 @@ use crate::{
 
 /// A trait for types that can be used as a room parameter.
 ///
-/// String, Vec<String>, Vec<&str> and &'static str are implemented by default.
+/// [`String`], [`Vec<String>`], [`Vec<&str>`], [`&'static str`](str) and const arrays are implemented by default.
 pub trait RoomParam: 'static {
+    /// The type of the iterator returned by `into_room_iter`.
     type IntoIter: Iterator<Item = Room>;
+
+    /// Convert `self` into an iterator of rooms.
     fn into_room_iter(self) -> Self::IntoIter;
 }
 
@@ -108,7 +113,7 @@ impl<A: Adapter> Operators<A> {
         }
     }
 
-    /// Select all sockets in the given rooms except the current socket.
+    /// Selects all sockets in the given rooms except the current socket.
     /// If it is called from the `Namespace` level there will be no difference with the `within()` operator
     ///
     /// If you want to include the current socket, use the `within()` operator.
@@ -134,7 +139,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Select all sockets in the given rooms.
+    /// Selects all sockets in the given rooms.
     ///
     /// It does include the current socket contrary to the `to()` operator.
     /// If it is called from the `Namespace` level there will be no difference with the `to()` operator
@@ -159,7 +164,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Filter out all sockets selected with the previous operators which are in the given rooms.
+    /// Filters out all sockets selected with the previous operators which are in the given rooms.
     /// #### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -184,7 +189,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Broadcast to all sockets only connected on this node (when using multiple nodes).
+    /// Broadcasts to all sockets only connected on this node (when using multiple nodes).
     /// When using the default in-memory adapter, this operator is a no-op.
     /// #### Example
     /// ```
@@ -202,7 +207,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Broadcast to all sockets without any filtering (except the current socket).
+    /// Broadcasts to all sockets without any filtering (except the current socket).
     /// #### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -219,7 +224,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Set a custom timeout when sending a message with an acknowledgement.
+    /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
     /// #### Example
     /// ```
@@ -250,7 +255,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Add a binary payload to the message.
+    /// Adds a binary payload to the message.
     /// #### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -267,7 +272,7 @@ impl<A: Adapter> Operators<A> {
         self
     }
 
-    /// Emit a message to all sockets selected with the previous operators.
+    /// Emits a message to all sockets selected with the previous operators.
     /// #### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -283,16 +288,17 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<(), serde_json::Error> {
+    ) -> Result<(), BroadcastError> {
         let packet = self.get_packet(event, data)?;
-        if let Err(_e) = self.ns.adapter.broadcast(packet, self.opts) {
+        if let Err(e) = self.ns.adapter.broadcast(packet, self.opts) {
             #[cfg(feature = "tracing")]
-            tracing::debug!("broadcast error: {_e:?}");
+            tracing::debug!("broadcast error: {e:?}");
+            return Err(e);
         }
         Ok(())
     }
 
-    /// Emit a message to all sockets selected with the previous operators and return a stream of acknowledgements.
+    /// Emits a message to all sockets selected with the previous operators and return a stream of acknowledgements.
     ///
     /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
     /// #### Example
@@ -325,7 +331,7 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.broadcast_with_ack(packet, self.opts)
     }
 
-    /// Get all sockets selected with the previous operators.
+    /// Gets all sockets selected with the previous operators.
     ///
     /// It can be used to retrieve any extension data (with the `extensions` feature enabled) from the sockets or to make some sockets join other rooms.
     ///
@@ -346,7 +352,7 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 
-    /// Disconnect all sockets selected with the previous operators.
+    /// Disconnects all sockets selected with the previous operators.
     ///
     /// ### Example
     /// ```
@@ -362,7 +368,7 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.disconnect_socket(self.opts)
     }
 
-    /// Make all sockets selected with the previous operators join the given room(s).
+    /// Makes all sockets selected with the previous operators join the given room(s).
     ///
     /// ### Example
     /// ```
@@ -378,7 +384,7 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.add_sockets(self.opts, rooms)
     }
 
-    /// Make all sockets selected with the previous operators leave the given room(s).
+    /// Makes all sockets selected with the previous operators leave the given room(s).
     ///
     /// ### Example
     /// ```
@@ -394,7 +400,7 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.del_sockets(self.opts, rooms)
     }
 
-    /// Create a packet with the given event and data.
+    /// Creates a packet with the given event and data.
     fn get_packet(
         &mut self,
         event: impl Into<Cow<'static, str>>,

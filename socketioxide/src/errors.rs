@@ -1,12 +1,5 @@
-use crate::{
-    adapter::{Adapter, LocalAdapter},
-    socket::Socket,
-};
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
-use std::{
-    fmt::{Debug, Display},
-    sync::Arc,
-};
+use std::fmt::{Debug, Display};
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
 
 /// Error type for socketio
@@ -27,23 +20,19 @@ pub enum Error {
     #[error("cannot find socketio socket")]
     SocketGone(Sid),
 
-    /// An engineio error
-    #[error("engineio error: {0}")]
-    EngineIoError(#[from] engineioxide::errors::Error),
-
     #[error("adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }
 
 /// Convert an [`Error`] to an [`EIoDisconnectReason`] if possible
 ///
-/// If the error cannot be converted to a [`DisconnectReason`] it means that the error was not fatal and the engine `Socket` can be kept alive
+/// If the error cannot be converted to a [`EIoDisconnectReason`] it means that the error was not fatal
+/// and the engine `Socket` can be kept alive
 impl From<&Error> for Option<EIoDisconnectReason> {
     fn from(value: &Error) -> Self {
         use EIoDisconnectReason::*;
         match value {
             Error::SocketGone(_) => Some(TransportClose),
-            Error::EngineIoError(ref e) => e.into(),
             Error::SerializeError(_) | Error::InvalidPacketType | Error::InvalidEventName => {
                 Some(PacketParsingError)
             }
@@ -56,21 +45,18 @@ impl From<&Error> for Option<EIoDisconnectReason> {
 #[derive(thiserror::Error, Debug)]
 pub enum AckError {
     /// The ack response cannot be parsed
-    #[error("error serializing/deserializing json packet: {0:?}")]
-    SerdeError(#[from] serde_json::Error),
+    #[error("cannot deserializing json packet from ack response: {0:?}")]
+    Serialize(#[from] serde_json::Error),
 
     /// The ack response cannot be received correctly
     #[error("ack receive error")]
-    AckReceiveError(#[from] oneshot::error::RecvError),
+    AckReceive(#[from] oneshot::error::RecvError),
 
     /// The ack response timed out
     #[error("ack timeout error")]
-    AckTimeoutError(#[from] tokio::time::error::Elapsed),
+    Timeout(#[from] tokio::time::error::Elapsed),
 
-    /// Internal error
-    #[error("internal error: {0}")]
-    InternalError(#[from] Error),
-
+    /// The emit payload cannot be sent
     #[error("send channel error: {0:?}")]
     SendChannel(#[from] SendError),
 }
@@ -86,6 +72,7 @@ pub enum BroadcastError {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
+    /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }
@@ -112,9 +99,12 @@ pub enum SendError {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
+    /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
     AdapterError(#[from] AdapterError),
 
+    /// The socket channel is full.
+    /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) method.
     #[error("internal channel full error")]
     InternalChannelFull,
 }
@@ -126,17 +116,6 @@ impl<T> From<TrySendError<T>> for SendError {
             TrySendError::Closed(_) => panic!("internal channel closed"),
         }
     }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum AckSenderError<A: Adapter = LocalAdapter> {
-    #[error("Failed to send ack message")]
-    SendError {
-        /// The specific error that occurred while sending the message.
-        send_error: SendError,
-        /// The socket associated with the error.
-        socket: Arc<Socket<A>>,
-    },
 }
 
 /// Error type for the [`Adapter`] trait.
