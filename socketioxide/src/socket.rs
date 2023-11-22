@@ -36,7 +36,7 @@ use crate::{
     extract::SocketRef,
 };
 
-pub type DisconnectCallback<A> = Box<
+type DisconnectCallback<A> = Box<
     dyn FnOnce(SocketRef<A>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 >;
 
