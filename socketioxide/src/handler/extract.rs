@@ -20,7 +20,7 @@ use crate::{
     adapter::{Adapter, LocalAdapter},
     packet::Packet,
     socket::Socket,
-    AckSenderError, SendError,
+    SendError,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -142,7 +142,7 @@ impl<A: Adapter> SocketRef<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     #[inline(always)]
-    pub fn disconnect(self) -> Result<(), SendError> {
+    pub fn disconnect(self) -> Result<(), SendError<()>> {
         self.0.disconnect()
     }
 }
@@ -198,30 +198,24 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Send the ack response to the client.
-    pub fn send(self, data: impl Serialize) -> Result<(), AckSenderError<A>> {
+    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
         if let Some(ack_id) = self.ack_id {
+            let permit = self.socket.reserve().map_err(|e| e.with_data(data))?;
+            let binary_permits = self
+                .socket
+                .reserve_additional(self.binary.len())
+                .map_err(|e| e.with_data(data))?;
+
             let ns = self.socket.ns();
-            let data = match serde_json::to_value(&data) {
-                Err(err) => {
-                    return Err(AckSenderError::SendError {
-                        send_error: err.into(),
-                        socket: self.socket,
-                    })
-                }
-                Ok(data) => data,
-            };
+            let data = serde_json::to_value(&data)?;
 
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket
-                .send(packet)
-                .map_err(|err| AckSenderError::SendError {
-                    send_error: err,
-                    socket: self.socket,
-                })
+            self.socket.send_with_permit(packet, permit, binary_permits);
+            Ok(())
         } else {
             Ok(())
         }

@@ -10,18 +10,18 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
+use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason, Permit};
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc::error::TrySendError, oneshot};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
 
 use crate::{
     adapter::{Adapter, LocalAdapter, Room},
-    errors::{AckError, Error},
+    errors::{AckError, Error, SocketError},
     handler::{BoxedMessageHandler, MakeErasedHandler, MessageHandler},
     ns::Namespace,
     operators::{Operators, RoomParam},
@@ -243,17 +243,19 @@ impl<A: Adapter> Socket<A> {
     ///         socket.emit("test", data);
     ///     });
     /// });
-    pub fn emit(
+    pub fn emit<T: Serialize>(
         &self,
         event: impl Into<String>,
-        data: impl Serialize,
-    ) -> Result<(), serde_json::Error> {
+        data: T,
+    ) -> Result<(), SendError<T>> {
+        let permit = self.esocket.reserve().map_err(|e| match e {
+            TrySendError::Closed(_) => SocketError::SocketClosed(data),
+            TrySendError::Full(_) => SocketError::InternalChannelFull(data),
+        })?;
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        if let Err(_e) = self.send(Packet::event(ns, event.into(), data)) {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("sending error during emit message: {_e:?}");
-        }
+        let packet = Packet::event(ns, event.into(), data);
+        self.send_with_permit(packet, permit, vec![]);
         Ok(())
     }
 
@@ -275,19 +277,25 @@ impl<A: Adapter> Socket<A> {
     ///         }
     ///    });
     /// });
-    pub async fn emit_with_ack<V>(
+    pub async fn emit_with_ack<V, T>(
         &self,
         event: impl Into<String>,
-        data: impl Serialize,
-    ) -> Result<AckResponse<V>, AckError>
+        data: T,
+    ) -> Result<AckResponse<V>, AckError<T>>
     where
         V: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize,
     {
+        let permit = match self.esocket.reserve() {
+            Ok(p) => p,
+            Err(TrySendError::Closed(_)) => return Err(SocketError::SocketClosed(data).into()),
+            Err(TrySendError::Full(_)) => return Err(SocketError::InternalChannelFull(data).into()),
+        };
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
 
-        self.send_with_ack(packet, None).await
+        self.send_with_ack_permit(packet, None, permit).await
     }
 
     // Room actions
@@ -472,7 +480,7 @@ impl<A: Adapter> Socket<A> {
     /// Disconnect the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
-    pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
+    pub fn disconnect(self: Arc<Self>) -> Result<(), SendError<()>> {
         self.send(Packet::disconnect(&self.ns.path))?;
         self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())
@@ -494,7 +502,12 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SendError> {
+    pub(crate) fn send_with_permit(
+        &self,
+        mut packet: Packet,
+        permit: Permit<'_>,
+        mut binary_permit: Vec<Permit<'_>>,
+    ) {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 Some(std::mem::take(&mut bin.bin))
@@ -502,27 +515,66 @@ impl<A: Adapter> Socket<A> {
             _ => None,
         };
 
-        let msg = packet.try_into()?;
+        let msg = packet.try_into().expect("serialization error");
+        permit.emit(msg);
+        debug_assert_eq!(
+            binary_permit.len(),
+            bin_payloads.as_ref().map(|b| b.len()).unwrap_or(0)
+        );
+        if let Some(bin_payloads) = bin_payloads {
+            for bin in bin_payloads {
+                binary_permit.pop().unwrap().emit_binary(bin);
+            }
+        }
+    }
+
+    pub(crate) fn send(&self, mut packet: Packet) -> Result<(), SocketError<()>> {
+        let bin_payloads = match packet.inner {
+            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
+                Some(std::mem::take(&mut bin.bin))
+            }
+            _ => None,
+        };
+
+        let msg = packet.try_into().expect("serialization error");
         self.esocket.emit(msg)?;
         if let Some(bin_payloads) = bin_payloads {
             for bin in bin_payloads {
                 self.esocket.emit_binary(bin)?;
             }
         }
-
         Ok(())
+    }
+
+    pub(crate) async fn send_with_ack_permit<'a, V: DeserializeOwned, T>(
+        &self,
+        mut packet: Packet<'a>,
+        timeout: Option<Duration>,
+        permit: Permit<'_>,
+    ) -> Result<AckResponse<V>, AckError<T>> {
+        let (tx, rx) = oneshot::channel();
+        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        self.ack_message.lock().unwrap().insert(ack, tx);
+        packet.inner.set_ack_id(ack);
+        self.send_with_permit(packet, permit, vec![]);
+        let timeout = timeout.unwrap_or(self.config.ack_timeout);
+        let v = tokio::time::timeout(timeout, rx).await??;
+        Ok(AckResponse {
+            data: serde_json::from_value(v.data)?,
+            binary: v.binary,
+        })
     }
 
     pub(crate) async fn send_with_ack<'a, V: DeserializeOwned>(
         &self,
         mut packet: Packet<'a>,
         timeout: Option<Duration>,
-    ) -> Result<AckResponse<V>, AckError> {
+    ) -> Result<AckResponse<V>, AckError<()>> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.lock().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
-        self.send(packet)?;
+        self.send(packet);
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok(AckResponse {
@@ -555,6 +607,19 @@ impl<A: Adapter> Socket<A> {
                 .map_err(Error::from),
             _ => unreachable!(),
         }
+    }
+
+    pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError<()>> {
+        self.esocket.reserve().map_err(|e| e.into())
+    }
+    pub(crate) fn reserve_additional(
+        &self,
+        additional: usize,
+    ) -> Result<Vec<Permit<'_>>, SocketError<()>> {
+        (0..additional)
+            .into_iter()
+            .map(|_| self.reserve())
+            .collect()
     }
 
     /// Get the request info made by the client to connect

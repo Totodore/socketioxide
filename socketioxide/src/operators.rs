@@ -8,7 +8,8 @@ use serde::de::DeserializeOwned;
 use crate::adapter::LocalAdapter;
 use crate::errors::BroadcastError;
 use crate::extract::SocketRef;
-use crate::socket::AckResponse;
+use crate::socket::{AckResponse, Socket};
+use crate::SendError;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     errors::AckError,
@@ -279,16 +280,17 @@ impl<A: Adapter> Operators<A> {
     ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn emit(
+    pub fn emit<T: serde::Serialize>(
         mut self,
         event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<(), serde_json::Error> {
-        let packet = self.get_packet(event, data)?;
-        if let Err(_e) = self.ns.adapter.broadcast(packet, self.opts) {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("broadcast error: {_e:?}");
+        data: T,
+    ) -> Result<(), BroadcastError<T>> {
+        if let Some(Some(s)) = self.opts.is_alone().then(|| self.get_sender()) {
+            s.emit(event, data)?;
+            return Ok(());
         }
+        let packet = self.get_packet(event, data)?;
+        self.ns.adapter.broadcast(packet, self.opts)?;
         Ok(())
     }
 
@@ -316,11 +318,19 @@ impl<A: Adapter> Operators<A> {
     ///             }).await;
     ///    });
     /// });
-    pub fn emit_with_ack<V: DeserializeOwned + Send>(
+    pub fn emit_with_ack<V: DeserializeOwned + Send, T: serde::Serialize + Send>(
         mut self,
         event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
+        data: T,
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<T>>>, BroadcastError<T>> {
+        if let Some(Some(s)) = self.opts.is_alone().then(|| self.get_sender()) {
+            s.emit(event.into(), data).map_err(|e| match e {
+                SendError::Serialize(e) => BroadcastError::Serialize(e),
+                SendError::Adapter(e) => BroadcastError::Adapter(e),
+                SendError::Socket(e) => BroadcastError::SocketError(vec![e]),
+            })
+            return Ok(());
+        }
         let packet = self.get_packet(event, data)?;
         self.ns.adapter.broadcast_with_ack(packet, self.opts)
     }
@@ -358,7 +368,7 @@ impl<A: Adapter> Operators<A> {
     ///     socket.within("room1").within("room3").except("room2").disconnect().unwrap();
     ///   });
     /// });
-    pub fn disconnect(self) -> Result<(), BroadcastError> {
+    pub fn disconnect(self) -> Result<(), BroadcastError<()>> {
         self.ns.adapter.disconnect_socket(self.opts)
     }
 
@@ -409,6 +419,13 @@ impl<A: Adapter> Operators<A> {
             Packet::bin_event(ns, event.into(), data, binary)
         };
         Ok(packet)
+    }
+
+    fn get_sender(&self) -> Option<Arc<Socket<A>>> {
+        self.opts
+            .sid
+            .as_ref()
+            .and_then(|sid| self.ns.get_socket(sid))
     }
 }
 

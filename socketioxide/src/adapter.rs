@@ -62,6 +62,9 @@ impl BroadcastOptions {
             sid,
         }
     }
+    pub fn is_alone(&self) -> bool {
+        self.rooms.is_empty() && self.sid.is_some()
+    }
 }
 
 //TODO: Make an AsyncAdapter trait
@@ -89,14 +92,14 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid) -> Result<(), Self::Error>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError<()>>;
 
     /// Broadcast the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError>;
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<()>>;
 
     /// Return the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
@@ -116,7 +119,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam)
         -> Result<(), Self::Error>;
     /// Disconnect the sockets that match the [`BroadcastOptions`].
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError<()>>;
 
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
@@ -190,7 +193,7 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError<()>> {
         let sockets = self.apply_opts(opts);
 
         #[cfg(feature = "tracing")]
@@ -210,7 +213,7 @@ impl Adapter for LocalAdapter {
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<()>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,
@@ -270,7 +273,7 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError<()>> {
         let errors: Vec<_> = self
             .apply_opts(opts)
             .into_iter()
@@ -507,8 +510,7 @@ mod test {
         let mut opts = BroadcastOptions::new(Some(socket0));
         opts.rooms = hash_set!["room5".into()];
         match adapter.disconnect_socket(opts) {
-            // todo it returns Ok, in previous commits it also returns Ok
-            Err(BroadcastError::SendError(_)) | Ok(_) => {}
+            Err(BroadcastError::SocketError(_)) | Ok(_) => {}
             e => panic!(
                 "should return an EngineGone error as it is a stub namespace: {:?}",
                 e

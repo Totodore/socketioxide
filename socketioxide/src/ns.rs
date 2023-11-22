@@ -49,7 +49,10 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.write().unwrap().insert(sid, socket.clone());
 
         let protocol = esocket.protocol.into();
-        if let Err(_e) = socket.send(Packet::connect(&self.path, socket.id, protocol)) {
+        let packet = Packet::connect(&self.path, socket.id, protocol)
+            .try_into()
+            .unwrap();
+        if let Err(_e) = esocket.emit(packet) {
             #[cfg(feature = "tracing")]
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);

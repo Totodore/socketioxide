@@ -54,33 +54,34 @@ impl From<&Error> for Option<EIoDisconnectReason> {
 
 /// Error type for ack responses
 #[derive(thiserror::Error, Debug)]
-pub enum AckError {
+pub enum AckError<T> {
     /// The ack response cannot be parsed
     #[error("error serializing/deserializing json packet: {0:?}")]
-    SerdeError(#[from] serde_json::Error),
+    Serialize(#[from] serde_json::Error),
 
     /// The ack response cannot be received correctly
     #[error("ack receive error")]
-    AckReceiveError(#[from] oneshot::error::RecvError),
+    AckReceive(#[from] oneshot::error::RecvError),
 
     /// The ack response timed out
     #[error("ack timeout error")]
-    AckTimeoutError(#[from] tokio::time::error::Elapsed),
+    AckTimeout(#[from] tokio::time::error::Elapsed),
 
     /// Internal error
     #[error("internal error: {0}")]
     InternalError(#[from] Error),
 
-    #[error("send channel error: {0:?}")]
-    SendChannel(#[from] SendError),
+    /// An error occurred while sending packets.
+    #[error("Socket error: {0}")]
+    Socket(#[from] SocketError<T>),
 }
 
 /// Error type for broadcast operations.
 #[derive(Debug, thiserror::Error)]
-pub enum BroadcastError {
+pub enum BroadcastError<T> {
     /// An error occurred while sending packets.
-    #[error("Sending error: {0:?}")]
-    SendError(Vec<SendError>),
+    #[error("Socket error: {0}")]
+    SocketError(#[from] Vec<SocketError<T>>),
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
@@ -90,7 +91,7 @@ pub enum BroadcastError {
     Adapter(#[from] AdapterError),
 }
 
-impl From<Vec<SendError>> for BroadcastError {
+impl<T> From<Vec<SendError<T>>> for BroadcastError<T> {
     /// Converts a vector of `SendError` into a `BroadcastError`.
     ///
     /// # Arguments
@@ -100,40 +101,72 @@ impl From<Vec<SendError>> for BroadcastError {
     /// # Returns
     ///
     /// A `BroadcastError` containing the sending errors.
-    fn from(value: Vec<SendError>) -> Self {
-        Self::SendError(value)
+    fn from(value: Vec<SendError<T>>) -> Self {
+        for error in value {
+            match error {
+                SendError::Serialize(e) => return Self::Serialize(e),
+                SendError::Adapter(e) => return Self::Adapter(e),
+                _ => {}
+            }
+        }
+        Self::SocketError(
+            value
+                .into_iter()
+                .map(|e| match e {
+                    SendError::Socket(e) => e,
+                    _ => unreachable!(),
+                })
+                .collect(),
+        )
     }
 }
 
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
-pub enum SendError {
+pub enum SendError<T> {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
     #[error("Adapter error: {0}")]
-    AdapterError(#[from] AdapterError),
+    Adapter(#[from] AdapterError),
 
-    #[error("internal channel full error")]
-    InternalChannelFull,
+    #[error("Socket error: {0}")]
+    Socket(#[from] SocketError<T>),
 }
 
-impl<T> From<TrySendError<T>> for SendError {
-    fn from(value: TrySendError<T>) -> Self {
-        match value {
-            TrySendError::Full(_) => Self::InternalChannelFull,
-            TrySendError::Closed(_) => panic!("internal channel closed"),
+#[derive(thiserror::Error, Debug)]
+pub enum SocketError<T> {
+    #[error("internal channel full error")]
+    InternalChannelFull(T),
+
+    #[error("socket closed")]
+    SocketClosed(T),
+}
+
+impl SocketError<()> {
+    pub fn with_data<T>(self, data: T) -> SocketError<T> {
+        match self {
+            Self::InternalChannelFull(_) => SocketError::InternalChannelFull(data),
+            Self::SocketClosed(_) => SocketError::SocketClosed(data),
         }
     }
 }
 
+impl<T> From<TrySendError<T>> for SocketError<()> {
+    fn from(value: TrySendError<T>) -> Self {
+        match value {
+            TrySendError::Full(data) => Self::InternalChannelFull(()),
+            TrySendError::Closed(data) => Self::SocketClosed(()),
+        }
+    }
+}
 #[derive(thiserror::Error, Debug)]
-pub enum AckSenderError<A: Adapter = LocalAdapter> {
+pub enum AckSenderError<T, A: Adapter = LocalAdapter> {
     #[error("Failed to send ack message")]
-    SendError {
+    Socket {
         /// The specific error that occurred while sending the message.
-        send_error: SendError,
+        send_error: SocketError<T>,
         /// The socket associated with the error.
         socket: Arc<Socket<A>>,
     },

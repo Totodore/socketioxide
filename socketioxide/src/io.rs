@@ -591,11 +591,11 @@ impl<A: Adapter> SocketIo<A> {
     ///      }
     ///   });
     #[inline]
-    pub fn emit_with_ack<V: DeserializeOwned + Send>(
+    pub fn emit_with_ack<V: DeserializeOwned + Send, T: serde::Serialize + Send>(
         &self,
         event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
+        data: T,
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<T>>>, BroadcastError<T>> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
@@ -646,7 +646,7 @@ impl<A: Adapter> SocketIo<A> {
     /// // Later in your code you can disconnect all sockets in the root namespace
     /// io.disconnect();
     #[inline]
-    pub fn disconnect(&self) -> Result<(), BroadcastError> {
+    pub fn disconnect(&self) -> Result<(), BroadcastError<()>> {
         self.get_default_op().disconnect()
     }
 
