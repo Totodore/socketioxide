@@ -1,6 +1,8 @@
 # 0.7.2
 ## socketioxide
 * The `on_disconnect` callback now takes a `SocketRef` rather than an `Arc<Socket>` to match other handlers. It also avoids that the user clone the socket and create a memory leak.
+* Documentation improvements (see https://docs.rs/socketioxide).
+* Bump library dependencies (see [release notes](https://github.com/totodore/socketioxide/releases/tag/v0.7.2)).
 
 # 0.7.1
 ## socketioxide
