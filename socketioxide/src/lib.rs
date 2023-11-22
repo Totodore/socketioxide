@@ -1,10 +1,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(
-    clippy::future_not_send,
     clippy::all,
     clippy::todo,
     clippy::empty_enum,
-    clippy::enum_glob_use,
     clippy::mem_forget,
     clippy::unused_self,
     clippy::filter_map_next,
@@ -27,7 +25,6 @@
     clippy::option_option,
     clippy::verbose_file_reads,
     clippy::unnested_or_patterns,
-    clippy::str_to_string,
     rust_2018_idioms,
     future_incompatible,
     nonstandard_style,

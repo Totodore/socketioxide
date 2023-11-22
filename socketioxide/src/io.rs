@@ -41,7 +41,7 @@ impl Default for SocketIoConfig {
     fn default() -> Self {
         Self {
             engine_config: EngineIoConfig {
-                req_path: "/socket.io".to_string(),
+                req_path: "/socket.io".into(),
                 ..Default::default()
             },
             ack_timeout: Duration::from_secs(5),
@@ -71,7 +71,7 @@ impl SocketIoBuilder {
     ///
     /// Defaults to "/socket.io".
     #[inline]
-    pub fn req_path(mut self, req_path: String) -> Self {
+    pub fn req_path(mut self, req_path: impl Into<Cow<'static, str>>) -> Self {
         self.engine_config_builder = self.engine_config_builder.req_path(req_path);
         self
     }
