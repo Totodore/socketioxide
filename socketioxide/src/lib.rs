@@ -183,6 +183,12 @@
 //! Data can be emitted to a socket with the [`Socket::emit`](socket::Socket) method. It takes an event name and a data argument.
 //! The data argument can be any type that implements the [`serde::Serialize`] trait.
 //!
+//! You can emit from the [`SocketIo`] handle or the [`SocketRef`](extract::SocketRef).
+//! The difference is that you can move the [`io`](SocketIo) handle everywhere because it is a cheaply cloneable struct.
+//! The [`SocketRef`](extract::SocketRef) is a reference to the socket and cannot be cloned.
+//!
+//! Moreover the [`io`](SocketIo) handle can emit to any namespace while the [`SocketRef`](extract::SocketRef) can only emit to the namespace of the socket.
+//!
 //! #### Emit errors
 //! If the data can't be serialized to json, an [`serde_json::Error`] will be returned.
 //! If the socket is disconnected or the internal channel is full, a tracing log will be emitted if the `tracing` feature is enabled and the message will be dropped.
