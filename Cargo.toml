@@ -36,7 +36,7 @@ hyper = { version = "0.14.25", features = [
 ] }
 axum = "0.6.20"
 warp = "0.3.6"
-salvo = { version = "0.58.2", features = ["tower-compat"] }
+salvo = { version = "0.58.5", features = ["tower-compat"] }
 
 [workspace.package]
 version = "0.7.2"
