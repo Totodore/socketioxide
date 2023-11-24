@@ -18,7 +18,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 hyper = "0.14.25"
 axum = "0.6.20"
 warp = "0.3.6"
-salvo = { version = "0.58.2", features = ["tower-compat"] }
+salvo = { version = "0.58.5", features = ["tower-compat"] }
 
 # Hyper v0.1
 http-body-v1 = { package = "http-body", version = "1.0.0-rc.2" }
