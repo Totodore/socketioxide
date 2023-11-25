@@ -106,7 +106,9 @@ impl From<&Error> for Option<DisconnectReason> {
             WsTransport(tungstenite::Error::ConnectionClosed) => None,
             WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
             BadPacket(_) | Serialize(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge
-            | InvalidPacketLength => Some(DisconnectReason::PacketParsingError),
+            | InvalidPacketLength | InvalidPacketType(_) => {
+                Some(DisconnectReason::PacketParsingError)
+            }
             HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
             _ => None,
         }

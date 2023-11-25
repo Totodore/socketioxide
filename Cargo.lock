@@ -584,6 +584,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "criterion",
  "futures",
  "http",
  "http-body 0.4.5",

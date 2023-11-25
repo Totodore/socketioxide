@@ -35,6 +35,9 @@
 pub use service::{ProtocolVersion, TransportType};
 pub use socket::{DisconnectReason, Socket};
 
+#[cfg(feature = "test-utils")]
+pub use packet::*;
+
 pub mod config;
 pub mod handler;
 pub mod layer;
