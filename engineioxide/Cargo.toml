@@ -48,8 +48,10 @@ http-body-v1 = { workspace = true, optional = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
 tracing-subscriber.workspace = true
-hyper.workspace = true
 criterion.workspace = true
+warp.workspace = true
+axum.workspace = true
+salvo.workspace = true
 
 [features]
 v3 = ["memchr", "unicode-segmentation"]
