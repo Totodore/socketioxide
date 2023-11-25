@@ -146,8 +146,8 @@ impl TryFrom<&str> for Packet {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let packet_type = value
             .as_bytes()
-            .get(0)
-            .ok_or_else(|| serde_json::Error::custom("Packet type not found in packet string"))?;
+            .first()
+            .ok_or(Error::InvalidPacketType(None))?;
         let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
         let res = match packet_type {
             b'1' => Packet::Close,
