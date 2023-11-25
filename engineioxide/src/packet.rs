@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose, Engine};
-use serde::{de::Error, Deserialize, Serialize};
+use serde::{de::Error, Serialize};
 
 use crate::config::EngineIoConfig;
 use crate::sid::Sid;
@@ -178,7 +178,7 @@ impl TryFrom<String> for Packet {
 }
 
 /// An OpenPacket is used to initiate a connection
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Serialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
     sid: Sid,
@@ -227,25 +227,8 @@ mod tests {
     }
 
     #[test]
-    fn test_open_packet_deserialize() {
-        let sid = Sid::new();
-        let packet_str = format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}");
-        let packet = Packet::try_from(packet_str.to_string()).unwrap();
-        assert_eq!(
-            packet,
-            Packet::Open(OpenPacket {
-                sid,
-                upgrades: vec!["websocket".to_string()],
-                ping_interval: 25000,
-                ping_timeout: 20000,
-                max_payload: 1e5 as u64,
-            })
-        );
-    }
-
-    #[test]
     fn test_message_packet() {
-        let packet = Packet::Message("hello".to_string());
+        let packet = Packet::Message("hello".into());
         let packet_str: String = packet.try_into().unwrap();
         assert_eq!(packet_str, "4hello");
     }
@@ -254,7 +237,7 @@ mod tests {
     fn test_message_packet_deserialize() {
         let packet_str = "4hello".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
-        assert_eq!(packet, Packet::Message("hello".to_string()));
+        assert_eq!(packet, Packet::Message("hello".into()));
     }
 
     #[test]
@@ -319,7 +302,7 @@ mod tests {
         let packet = Packet::PongUpgrade;
         assert_eq!(packet.get_size_hint(false), 6);
 
-        let packet = Packet::Message("hello".to_string());
+        let packet = Packet::Message("hello".into());
         assert_eq!(packet.get_size_hint(false), 6);
 
         let packet = Packet::Upgrade;

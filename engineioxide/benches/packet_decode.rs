@@ -1,17 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use engineioxide::{config::EngineIoConfig, sid::Sid, OpenPacket, Packet, TransportType};
+use engineioxide::Packet;
 
 fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("Decode packet open", |b| {
-        let packet: String = Packet::Open(OpenPacket::new(
-            black_box(TransportType::Polling),
-            black_box(Sid::new()),
-            &EngineIoConfig::default(),
-        ))
-        .try_into()
-        .unwrap();
-        b.iter(|| Packet::try_from(packet.as_str()).unwrap())
-    });
     c.bench_function("Decode packet ping/pong", |b| {
         let packet: String = Packet::Ping.try_into().unwrap();
         b.iter(|| Packet::try_from(packet.as_str()).unwrap())
