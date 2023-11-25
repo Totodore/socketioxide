@@ -45,6 +45,8 @@ pub enum Error {
 
     #[error("Invalid packet length")]
     InvalidPacketLength,
+    #[error("Invalid packet type")]
+    InvalidPacketType(Option<char>),
 }
 
 /// Convert an error into an http response
@@ -64,10 +66,12 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .status(code)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-            Error::BadPacket(_) => Response::builder()
-                .status(400)
-                .body(ResponseBody::empty_response())
-                .unwrap(),
+            Error::BadPacket(_) | Error::InvalidPacketLength | Error::InvalidPacketType(_) => {
+                Response::builder()
+                    .status(400)
+                    .body(ResponseBody::empty_response())
+                    .unwrap()
+            }
             Error::PayloadTooLarge => Response::builder()
                 .status(413)
                 .body(ResponseBody::empty_response())

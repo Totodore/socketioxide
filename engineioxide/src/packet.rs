@@ -1,7 +1,8 @@
 use base64::{engine::general_purpose, Engine};
-use serde::{de::Error, Serialize};
+use serde::Serialize;
 
 use crate::config::EngineIoConfig;
+use crate::errors::Error;
 use crate::sid::Sid;
 use crate::TransportType;
 
@@ -108,7 +109,7 @@ impl Packet {
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
 impl TryInto<String> for Packet {
-    type Error = crate::errors::Error;
+    type Error = Error;
     fn try_into(self) -> Result<String, Self::Error> {
         let len = self.get_size_hint(true);
         let mut buffer = String::with_capacity(len);
@@ -142,7 +143,7 @@ impl TryInto<String> for Packet {
 }
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
 impl TryFrom<&str> for Packet {
-    type Error = crate::errors::Error;
+    type Error = Error;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let packet_type = value
             .as_bytes()
@@ -162,16 +163,14 @@ impl TryFrom<&str> for Packet {
                 Packet::BinaryV3(general_purpose::STANDARD.decode(value[2..].as_bytes())?)
             }
             b'b' => Packet::Binary(general_purpose::STANDARD.decode(value[1..].as_bytes())?),
-            c => Err(serde_json::Error::custom(
-                "Invalid packet type ".to_string() + &c.to_string(),
-            ))?,
+            c => Err(Error::InvalidPacketType(Some(*c as char)))?,
         };
         Ok(res)
     }
 }
 
 impl TryFrom<String> for Packet {
-    type Error = crate::errors::Error;
+    type Error = Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Packet::try_from(value.as_str())
     }
