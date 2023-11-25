@@ -90,14 +90,14 @@ impl Packet {
             Packet::Noop => 1,
             Packet::Binary(data) => {
                 if b64 {
-                    1 + ((data.len() as f64) / 3.).ceil() as usize * 4
+                    1 + base64::encoded_len(data.len(), true).unwrap_or(usize::MAX - 1)
                 } else {
                     1 + data.len()
                 }
             }
             Packet::BinaryV3(data) => {
                 if b64 {
-                    2 + ((data.len() as f64) / 3.).ceil() as usize * 4
+                    2 + base64::encoded_len(data.len(), true).unwrap_or(usize::MAX - 2)
                 } else {
                     1 + data.len()
                 }
