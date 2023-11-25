@@ -144,36 +144,24 @@ impl TryInto<String> for Packet {
 impl TryFrom<&str> for Packet {
     type Error = crate::errors::Error;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let mut chars = value.chars();
-        let packet_type = chars
-            .next()
+        let packet_type = value
+            .as_bytes()
+            .get(0)
             .ok_or_else(|| serde_json::Error::custom("Packet type not found in packet string"))?;
-        let packet_data = chars.as_str();
-        let is_upgrade = packet_data.starts_with("probe");
+        let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
         let res = match packet_type {
-            '0' => Packet::Open(serde_json::from_str(packet_data)?),
-            '1' => Packet::Close,
-            '2' => {
-                if is_upgrade {
-                    Packet::PingUpgrade
-                } else {
-                    Packet::Ping
-                }
+            b'1' => Packet::Close,
+            b'2' if is_upgrade => Packet::PingUpgrade,
+            b'2' => Packet::Ping,
+            b'3' if is_upgrade => Packet::PongUpgrade,
+            b'3' => Packet::Pong,
+            b'4' => Packet::Message(value[1..].to_string()),
+            b'5' => Packet::Upgrade,
+            b'6' => Packet::Noop,
+            b'b' if value.as_bytes().get(1) == Some(&b'4') => {
+                Packet::BinaryV3(general_purpose::STANDARD.decode(value[2..].as_bytes())?)
             }
-            '3' => {
-                if is_upgrade {
-                    Packet::PongUpgrade
-                } else {
-                    Packet::Pong
-                }
-            }
-            '4' => Packet::Message(packet_data.to_string()),
-            '5' => Packet::Upgrade,
-            '6' => Packet::Noop,
-            'b' if value.starts_with("b4") => {
-                Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?)
-            }
-            'b' => Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?),
+            b'b' => Packet::Binary(general_purpose::STANDARD.decode(value[1..].as_bytes())?),
             c => Err(serde_json::Error::custom(
                 "Invalid packet type ".to_string() + &c.to_string(),
             ))?,
