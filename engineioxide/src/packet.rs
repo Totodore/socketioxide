@@ -110,22 +110,34 @@ impl Packet {
 impl TryInto<String> for Packet {
     type Error = crate::errors::Error;
     fn try_into(self) -> Result<String, Self::Error> {
-        let res = match self {
+        let len = self.get_size_hint(true);
+        let mut buffer = String::with_capacity(len);
+        match self {
             Packet::Open(open) => {
-                "0".to_string() + &serde_json::to_string(&open).map_err(Self::Error::from)?
+                buffer.push('0');
+                buffer.push_str(&serde_json::to_string(&open)?);
             }
-            Packet::Close => "1".to_string(),
-            Packet::Ping => "2".to_string(),
-            Packet::Pong => "3".to_string(),
-            Packet::PingUpgrade => "2probe".to_string(),
-            Packet::PongUpgrade => "3probe".to_string(),
-            Packet::Message(msg) => "4".to_string() + &msg,
-            Packet::Upgrade => "5".to_string(),
-            Packet::Noop => "6".to_string(),
-            Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(data),
-            Packet::BinaryV3(data) => "b4".to_string() + &general_purpose::STANDARD.encode(data),
+            Packet::Close => buffer.push('1'),
+            Packet::Ping => buffer.push('2'),
+            Packet::Pong => buffer.push('3'),
+            Packet::PingUpgrade => buffer.push_str("2probe"),
+            Packet::PongUpgrade => buffer.push_str("3probe"),
+            Packet::Message(msg) => {
+                buffer.push('4');
+                buffer.push_str(&msg);
+            }
+            Packet::Upgrade => buffer.push('5'),
+            Packet::Noop => buffer.push('6'),
+            Packet::Binary(data) => {
+                buffer.push('b');
+                general_purpose::STANDARD.encode_string(data, &mut buffer);
+            }
+            Packet::BinaryV3(data) => {
+                buffer.push_str("b4");
+                general_purpose::STANDARD.encode_string(data, &mut buffer);
+            }
         };
-        Ok(res)
+        Ok(buffer)
     }
 }
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
