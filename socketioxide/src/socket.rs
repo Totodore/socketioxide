@@ -116,7 +116,7 @@ pub struct AckResponse<T> {
 pub struct Socket<A: Adapter = LocalAdapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
-    message_handlers: RwLock<HashMap<String, BoxedMessageHandler<A>>>,
+    message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
@@ -207,7 +207,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn on<H, T>(&self, event: impl Into<String>, handler: H)
+    pub fn on<H, T>(&self, event: impl Into<Cow<'static, str>>, handler: H)
     where
         H: MessageHandler<A, T>,
         T: Send + Sync + 'static,
@@ -267,7 +267,11 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn emit(&self, event: impl Into<String>, data: impl Serialize) -> Result<(), SendError> {
+    pub fn emit(
+        &self,
+        event: impl Into<Cow<'static, str>>,
+        data: impl Serialize,
+    ) -> Result<(), SendError> {
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
         if let Err(e) = self.send(Packet::event(ns, event.into(), data)) {
@@ -305,7 +309,7 @@ impl<A: Adapter> Socket<A> {
     /// ```
     pub async fn emit_with_ack<V>(
         &self,
-        event: impl Into<String>,
+        event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
     ) -> Result<AckResponse<V>, AckError>
     where
