@@ -590,11 +590,11 @@ impl<A: Adapter> SocketIo<A> {
     ///   .except("room2")
     ///   .emit("Hello World!", ());
     #[inline]
-    pub fn emit(
+    pub fn emit<T: serde::Serialize>(
         &self,
         event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<(), BroadcastError> {
+        data: T,
+    ) -> Result<(), BroadcastError<T>> {
         self.get_default_op().emit(event, data)
     }
 

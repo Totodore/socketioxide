@@ -96,14 +96,18 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid) -> Result<(), Self::Error>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn broadcast(
+        &self,
+        packet: Packet<'_>,
+        opts: BroadcastOptions,
+    ) -> Result<(), BroadcastError<()>>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
-    fn broadcast_with_ack<V: DeserializeOwned>(
+    fn broadcast_with_ack<T, V: DeserializeOwned>(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<()>>;
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<T>>;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
@@ -217,11 +221,11 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast_with_ack<V: DeserializeOwned>(
+    fn broadcast_with_ack<T, V: DeserializeOwned>(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<()>> {
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<T>>>, BroadcastError<T>> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,

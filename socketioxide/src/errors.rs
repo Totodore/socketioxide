@@ -1,6 +1,14 @@
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
+
+use crate::{
+    adapter::{Adapter, LocalAdapter},
+    socket::Socket,
+};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
