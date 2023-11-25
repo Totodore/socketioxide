@@ -11,6 +11,12 @@ keywords.workspace = true
 categories.workspace = true
 license.workspace = true
 
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+features = ["v3", "hyper-v1"]
+# Special configuration for docs.rs build
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 futures.workspace = true
 http.workspace = true
@@ -20,12 +26,12 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 tower.workspace = true
+hyper.workspace = true
+tokio-tungstenite.workspace = true
 
 base64 = "0.21.0"
 bytes = "1.4.0"
-hyper = "0.14.25"
 pin-project = "1.0.12"
-tokio-tungstenite = "0.20.1"
 rand = "0.8.5"
 
 # Tracing
@@ -41,18 +47,24 @@ http-body-v1 = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-hyper = { version = "0.14.25", features = [
-    "http1",
-    "http2",
-    "server",
-    "stream",
-    "runtime",
-    "client",
-] }
+tracing-subscriber.workspace = true
+criterion.workspace = true
+warp.workspace = true
+axum.workspace = true
+salvo.workspace = true
 
 [features]
 v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
 tracing = ["dep:tracing"]
 hyper-v1 = ["dep:hyper-v1", "dep:http-body-v1"]
+
+[[bench]]
+name = "packet_encode"
+path = "benches/packet_encode.rs"
+harness = false
+
+[[bench]]
+name = "packet_decode"
+path = "benches/packet_decode.rs"
+harness = false

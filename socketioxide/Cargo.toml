@@ -14,7 +14,7 @@ readme = "../README.md"
 
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.7.1" }
+engineioxide = { path = "../engineioxide", version = "0.7.2" }
 futures.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 serde.workspace = true
@@ -48,23 +48,24 @@ engineioxide = { path = "../engineioxide", features = [
     "tracing",
     "test-utils",
 ] }
-axum = "0.6.18"
+tokio-tungstenite.workspace = true
+axum.workspace = true
+salvo.workspace = true
+warp.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",
     "rt-multi-thread",
 ] }
 tracing-subscriber.workspace = true
-tokio-tungstenite = "0.20.0"
-hyper = { version = "0.14.25", features = [
-    "http1",
-    "http2",
-    "server",
-    "stream",
-    "runtime",
-    "client",
-] }
-criterion = { version = "0.5.1", features = ["html_reports"] }
+hyper.workspace = true
+criterion.workspace = true
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+features = ["v4", "extensions", "hyper-v1", "tracing"]
+# Special configuration for docs.rs build
+rustdoc-args = ["--cfg", "docsrs"]
 
 [[bench]]
 name = "packet_encode"

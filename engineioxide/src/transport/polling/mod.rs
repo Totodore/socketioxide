@@ -159,7 +159,7 @@ where
                 engine.close_session(sid, DisconnectReason::TransportClose);
                 break;
             }
-            Ok(Packet::Pong) | Ok(Packet::Ping) => socket
+            Ok(Packet::Pong | Packet::Ping) => socket
                 .heartbeat_tx
                 .try_send(())
                 .map_err(|_| Error::HeartbeatTimeout),
@@ -167,7 +167,7 @@ where
                 engine.handler.on_message(msg, socket.clone());
                 Ok(())
             }
-            Ok(Packet::Binary(bin)) | Ok(Packet::BinaryV3(bin)) => {
+            Ok(Packet::Binary(bin) | Packet::BinaryV3(bin)) => {
                 engine.handler.on_binary(bin, socket.clone());
                 Ok(())
             }

@@ -1,19 +1,12 @@
-use crate::{
-    adapter::{Adapter, LocalAdapter},
-    socket::Socket,
-};
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
-use std::{
-    fmt::{Debug, Display},
-    sync::Arc,
-};
+use std::fmt::{Debug, Display};
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("error serializing json packet: {0:?}")]
-    SerializeError(#[from] serde_json::Error),
+    Serialize(#[from] serde_json::Error),
 
     #[error("invalid packet type")]
     InvalidPacketType,
@@ -27,24 +20,20 @@ pub enum Error {
     #[error("cannot find socketio socket")]
     SocketGone(Sid),
 
-    /// An engineio error
-    #[error("engineio error: {0}")]
-    EngineIoError(#[from] engineioxide::errors::Error),
-
     #[error("adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }
 
 /// Convert an [`Error`] to an [`EIoDisconnectReason`] if possible
 ///
-/// If the error cannot be converted to a [`DisconnectReason`] it means that the error was not fatal and the engine `Socket` can be kept alive
+/// If the error cannot be converted to a [`EIoDisconnectReason`] it means that the error was not fatal
+/// and the engine `Socket` can be kept alive
 impl From<&Error> for Option<EIoDisconnectReason> {
     fn from(value: &Error) -> Self {
         use EIoDisconnectReason::*;
         match value {
             Error::SocketGone(_) => Some(TransportClose),
-            Error::EngineIoError(ref e) => e.into(),
-            Error::SerializeError(_) | Error::InvalidPacketType | Error::InvalidEventName => {
+            Error::Serialize(_) | Error::InvalidPacketType | Error::InvalidEventName => {
                 Some(PacketParsingError)
             }
             Error::Adapter(_) | Error::InvalidNamespace => None,
@@ -56,7 +45,7 @@ impl From<&Error> for Option<EIoDisconnectReason> {
 #[derive(thiserror::Error, Debug)]
 pub enum AckError<T> {
     /// The ack response cannot be parsed
-    #[error("error serializing/deserializing json packet: {0:?}")]
+    #[error("cannot deserializing json packet from ack response: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
     /// The ack response cannot be received correctly
@@ -65,11 +54,7 @@ pub enum AckError<T> {
 
     /// The ack response timed out
     #[error("ack timeout error")]
-    AckTimeout(#[from] tokio::time::error::Elapsed),
-
-    /// Internal error
-    #[error("internal error: {0}")]
-    InternalError(#[from] Error),
+    Timeout(#[from] tokio::time::error::Elapsed),
 
     /// An error occurred while sending packets.
     #[error("Socket error: {0}")]
@@ -87,6 +72,7 @@ pub enum BroadcastError<T> {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
+    /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }
@@ -128,6 +114,7 @@ pub enum SendError<T> {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
+    /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
     Adapter(#[from] AdapterError),
 

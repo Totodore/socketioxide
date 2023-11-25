@@ -84,7 +84,7 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "angular-todomvc"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "serde",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "axum-echo"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "serde_json",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "background-task"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "serde",
@@ -218,7 +218,7 @@ checksum = "35636a1494ede3b646cc98f74f8e62c773a38a659ebc777a2cf26b9b74171df9"
 
 [[package]]
 name = "basic-crud-application"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "serde",
@@ -482,9 +482,9 @@ dependencies = [
 
 [[package]]
 name = "cruet"
-version = "0.13.3"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "113a9e83d8f614be76de8df1f25bf9d0ea6e85ea573710a3d3f3abe1438ae49c"
+checksum = "6132609543972496bc97b1e01f1ce6586768870aeb4cabeb3385f4e05b5caead"
 dependencies = [
  "once_cell",
  "regex",
@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "engineio-echo"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "hyper 0.14.27",
  "serde_json",
@@ -579,10 +579,12 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
+ "axum",
  "base64",
  "bytes",
+ "criterion",
  "futures",
  "http",
  "http-body 0.4.5",
@@ -592,6 +594,7 @@ dependencies = [
  "memchr",
  "pin-project",
  "rand",
+ "salvo",
  "serde",
  "serde_json",
  "thiserror",
@@ -601,11 +604,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
+ "warp",
 ]
 
 [[package]]
 name = "engineioxide-e2e"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "engineioxide",
  "hyper 0.14.27",
@@ -996,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "hyper-echo"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "hyper 0.14.27",
  "serde_json",
@@ -1027,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "hyper-v1-echo"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "hyper 1.0.0-rc.4",
  "hyper-util",
@@ -1441,7 +1445,7 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
 name = "private-messaging"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "serde",
@@ -1627,16 +1631,16 @@ checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
 
 [[package]]
 name = "salvo"
-version = "0.58.3"
+version = "0.58.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "510e7dbb3e5bf53bd7144a17a71d2be3db5f4bfdf698fa3dc76e0e0f0a9810a5"
+checksum = "f1f08024cb5b48e623f79425a4f3f155e95f400912ac74e79d2ee6ec5661e95b"
 dependencies = [
  "salvo_core",
 ]
 
 [[package]]
 name = "salvo-echo"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "salvo",
  "serde_json",
@@ -1667,9 +1671,9 @@ dependencies = [
 
 [[package]]
 name = "salvo_core"
-version = "0.58.3"
+version = "0.58.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95c1ffacceac361b0e502f5bd78060ef6ca4c4c2a76cecc3c91b6100495b121b"
+checksum = "acc27d0544e1f38d0cad387bb33ded2928528b1914d6971795a7998db1d01e14"
 dependencies = [
  "async-trait",
  "base64",
@@ -1717,9 +1721,9 @@ dependencies = [
 
 [[package]]
 name = "salvo_macros"
-version = "0.58.3"
+version = "0.58.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21d6ffc291795b0dae3c5a9f279ae538274dbbdf53602f7dcf7a1314d7b0e2d9"
+checksum = "699a67a66bc22bb0476ecb7b1119dc8316d58cb8a6ba0cf3d3c23072e0debafd"
 dependencies = [
  "cruet",
  "proc-macro-crate",
@@ -1883,7 +1887,7 @@ dependencies = [
 
 [[package]]
 name = "socketio-chat"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "serde",
@@ -1898,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "criterion",
@@ -1911,6 +1915,7 @@ dependencies = [
  "hyper 0.14.27",
  "hyper 1.0.0-rc.4",
  "itoa",
+ "salvo",
  "serde",
  "serde_json",
  "thiserror",
@@ -1919,11 +1924,12 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "warp",
 ]
 
 [[package]]
 name = "socketioxide-e2e"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "hyper 0.14.27",
  "serde_json",
@@ -2496,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "whiteboard"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "axum",
  "serde",

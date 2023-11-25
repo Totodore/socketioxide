@@ -80,6 +80,8 @@ pub fn on_connection(s: SocketRef, TryData(auth): TryData<Auth>) {
 enum ConnectError {
     InvalidUsername,
     EncodeError(serde_json::Error),
+    SocketError(socketioxide::SendError),
+    BroadcastError(socketioxide::BroadcastError),
 }
 
 /// Handles the connection of a new user
@@ -105,7 +107,7 @@ fn session_connect(
 
     s.join(session.user_id.to_string()).ok();
     s.emit("session", session.clone())
-        .map_err(ConnectError::EncodeError)?;
+        .map_err(ConnectError::SocketError)?;
 
     let users = get_sessions()
         .read()
@@ -126,12 +128,12 @@ fn session_connect(
         .collect::<Vec<_>>();
 
     s.emit("users", [users])
-        .map_err(ConnectError::EncodeError)?;
+        .map_err(ConnectError::SocketError)?;
 
     let res = UserConnectedRes::new(&session, vec![]);
 
     s.broadcast()
         .emit("user connected", res)
-        .map_err(ConnectError::EncodeError)?;
+        .map_err(ConnectError::BroadcastError)?;
     Ok(())
 }

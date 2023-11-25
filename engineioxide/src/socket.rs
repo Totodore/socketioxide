@@ -1,3 +1,58 @@
+//! ## A [`Socket`] represents a client connection to the server
+//!
+//! It can be used to :
+//! * Emit binary or string data
+//! * Get a reference to the request made to connect to the socket.io server
+//! * Close the connection
+//!
+//! #### Example :
+//! ```rust
+//! # use engineioxide::service::EngineIoService;
+//! # use engineioxide::handler::EngineIoHandler;
+//! # use engineioxide::{Socket, DisconnectReason};
+//! # use std::sync::{Mutex, Arc};
+//! # use std::sync::atomic::{AtomicUsize, Ordering};
+//! // Global state
+//! #[derive(Debug, Default)]
+//! struct MyHandler {
+//!     user_cnt: AtomicUsize,
+//! }
+//!
+//! // Socket state
+//! #[derive(Debug, Default)]
+//! struct SocketState {
+//!     id: Mutex<String>,
+//! }
+//!
+//! impl EngineIoHandler for MyHandler {
+//!     type Data = SocketState;
+//!
+//!     fn on_connect(&self, socket: Arc<Socket<SocketState>>) {
+//!         // Get the request made to initialize the connection
+//!         // and check that the authorization header is correct
+//!         let connected = socket.req_parts.headers.get("Authorization")
+//!             .map(|a| a == "mysuperpassword!").unwrap_or_default();
+//!         // Close the socket if the authentication is invalid
+//!         if !connected {
+//!             socket.close(DisconnectReason::TransportError);
+//!             return;
+//!         }
+//!
+//!         let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
+//!         // Emit string data to the client
+//!         socket.emit(cnt.to_string()).ok();
+//!     }
+//!     fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) {
+//!         let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
+//!     }
+//!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) {
+//!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
+//!     }
+//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+//! }
+//!
+//! let svc = EngineIoService::new(MyHandler::default());
+//! ```
 use std::{
     sync::{
         atomic::{AtomicU8, Ordering},
@@ -51,7 +106,9 @@ impl From<&Error> for Option<DisconnectReason> {
             WsTransport(tungstenite::Error::ConnectionClosed) => None,
             WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
             BadPacket(_) | Serialize(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge
-            | InvalidPacketLength => Some(DisconnectReason::PacketParsingError),
+            | InvalidPacketLength | InvalidPacketType(_) => {
+                Some(DisconnectReason::PacketParsingError)
+            }
             HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
             _ => None,
         }
@@ -104,7 +161,8 @@ where
     /// It will be closed when a [`Close`](Packet::Close) packet is received:
     /// * From the [encoder](crate::service::encoder) if the transport is polling
     /// * From the fn [`on_ws_req_init`](crate::engine::EngineIo) if the transport is websocket
-    /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback. Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
+    /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback.
+    /// Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
     pub(crate) internal_rx: Mutex<PeekableReceiver<Packet>>,
 
     /// Channel to send [Packet] to the internal connection
@@ -129,7 +187,7 @@ where
 
     /// If the client supports binary packets (via polling XHR2)
     #[cfg(feature = "v3")]
-    pub supports_binary: bool,
+    pub(crate) supports_binary: bool,
 }
 
 impl<D> Socket<D>
@@ -328,10 +386,13 @@ where
         self.send(Packet::Close).ok();
     }
 
+    /// Returns true if the socket is closed
+    /// It means that no more packets can be sent to the client
     pub fn is_closed(&self) -> bool {
         self.internal_tx.is_closed()
     }
 
+    /// Wait for the socket to be fully closed
     pub async fn closed(&self) {
         self.internal_tx.closed().await
     }
@@ -388,6 +449,7 @@ impl<D> Socket<D>
 where
     D: Default + Send + Sync + 'static,
 {
+    /// Create a dummy socket for testing purpose
     pub fn new_dummy(
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,

@@ -33,28 +33,6 @@ impl<A: Adapter> Client<A> {
         }
     }
 
-    /// Apply an incoming binary payload to a partial binary packet waiting to be filled with all the payloads
-    ///
-    /// Returns true if the packet is complete and should be processed
-    fn apply_payload_on_packet(&self, data: Vec<u8>, socket: &EIoSocket<SocketData>) -> bool {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] applying payload on packet", socket.id);
-        if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
-            match packet.inner {
-                PacketData::BinaryEvent(_, ref mut bin, _)
-                | PacketData::BinaryAck(ref mut bin, _) => {
-                    bin.add_payload(data);
-                    bin.is_complete()
-                }
-                _ => unreachable!("partial_bin_packet should only be set for binary packets"),
-            }
-        } else {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("[sid={}] socket received unexpected bin data", socket.id);
-            false
-        }
-    }
-
     /// Called when a socket connects to a new namespace
     fn sock_connect(
         &self,
@@ -92,18 +70,8 @@ impl<A: Adapter> Client<A> {
         }
     }
 
-    /// Cache-in the socket data until all the binary payloads are received
-    fn sock_recv_bin_packet(&self, socket: &EIoSocket<SocketData>, packet: Packet<'static>) {
-        socket
-            .data
-            .partial_bin_packet
-            .lock()
-            .unwrap()
-            .replace(packet);
-    }
-
     /// Propagate a packet to a its target namespace
-    fn sock_propagate_packet(&self, packet: Packet, sid: Sid) -> Result<(), Error> {
+    fn sock_propagate_packet(&self, packet: Packet<'_>, sid: Sid) -> Result<(), Error> {
         if let Some(ns) = self.get_ns(&packet.ns) {
             ns.recv(sid, packet.inner)
         } else {
@@ -130,7 +98,7 @@ impl<A: Adapter> Client<A> {
         );
     }
 
-    /// Add a new namespace handler
+    /// Adds a new namespace handler
     pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
         C: ConnectHandler<A, T>,
@@ -142,7 +110,7 @@ impl<A: Adapter> Client<A> {
         self.ns.write().unwrap().insert(path, ns);
     }
 
-    /// Delete a namespace handler
+    /// Deletes a namespace handler
     pub fn delete_ns(&self, path: &str) {
         #[cfg(feature = "tracing")]
         tracing::debug!("deleting namespace {}", path);
@@ -153,7 +121,7 @@ impl<A: Adapter> Client<A> {
         self.ns.read().unwrap().get(path).cloned()
     }
 
-    /// Close all engine.io connections and all clients
+    /// Closes all engine.io connections and all clients
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub(crate) async fn close(&self) {
         #[cfg(feature = "tracing")]
@@ -243,7 +211,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                 .sock_connect(auth, &packet.ns, &socket)
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
-                self.sock_recv_bin_packet(&socket, packet);
+                // Cache-in the socket data until all the binary payloads are received
+                socket
+                    .data
+                    .partial_bin_packet
+                    .lock()
+                    .unwrap()
+                    .replace(packet);
                 Ok(())
             }
             _ => self.sock_propagate_packet(packet, socket.id),
@@ -265,7 +239,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     ///
     /// If the packet is complete, it is propagated to the namespace
     fn on_binary(&self, data: Vec<u8>, socket: Arc<EIoSocket<SocketData>>) {
-        if self.apply_payload_on_packet(data, &socket) {
+        if apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
                     #[cfg(feature = "tracing")]
@@ -280,5 +254,27 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                 }
             }
         }
+    }
+}
+
+/// Utility that applies an incoming binary payload to a partial binary packet
+/// waiting to be filled with all the payloads
+///
+/// Returns true if the packet is complete and should be processed
+fn apply_payload_on_packet(data: Vec<u8>, socket: &EIoSocket<SocketData>) -> bool {
+    #[cfg(feature = "tracing")]
+    tracing::debug!("[sid={}] applying payload on packet", socket.id);
+    if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
+        match packet.inner {
+            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
+                bin.add_payload(data);
+                bin.is_complete()
+            }
+            _ => unreachable!("partial_bin_packet should only be set for binary packets"),
+        }
+    } else {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("[sid={}] socket received unexpected bin data", socket.id);
+        false
     }
 }

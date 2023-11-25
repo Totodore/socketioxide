@@ -1,12 +1,44 @@
-use std::time::Duration;
+//! ## Configuration for the engine.io engine & transports
+//! #### Example :
+//! ```rust
+//! # use engineioxide::config::EngineIoConfig;
+//! # use engineioxide::service::EngineIoService;
+//! # use engineioxide::handler::EngineIoHandler;
+//! # use std::time::Duration;
+//! # use engineioxide::{Socket, DisconnectReason};
+//! # use std::sync::Arc;
+//! #[derive(Debug, Clone)]
+//! struct MyHandler;
+//!
+//! impl EngineIoHandler for MyHandler {
+//!     type Data = ();
+//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
+//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
+//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
+//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
+//! }
+//!
+//! let config = EngineIoConfig::builder()
+//!     .ping_interval(Duration::from_millis(300))  // Set the ping_interval to 300ms
+//!     .ping_timeout(Duration::from_millis(200))   // Set the ping timeout to 200ms
+//!     .max_payload(1e6 as u64)                    // Set the max payload to a given size
+//!     .max_buffer_size(1024)                      // Set a custom buffer size
+//!     .build();
+//!
+//! // Create an engine io service with a custom config
+//! let svc = EngineIoService::with_config(MyHandler, config);
+//! ```
 
-pub use crate::service::TransportType;
+use std::{borrow::Cow, time::Duration};
 
+use crate::service::TransportType;
+
+/// Configuration for the engine.io engine & transports
 #[derive(Debug, Clone)]
 pub struct EngineIoConfig {
     /// The path to listen for engine.io requests on.
     /// Defaults to "/engine.io".
-    pub req_path: String,
+    pub req_path: Cow<'static, str>,
 
     /// The interval at which the server will send a ping packet to the client.
     /// Defaults to 25 seconds.
@@ -35,7 +67,7 @@ pub struct EngineIoConfig {
 impl Default for EngineIoConfig {
     fn default() -> Self {
         Self {
-            req_path: "/engine.io".to_string(),
+            req_path: "/engine.io".into(),
             ping_interval: Duration::from_millis(25000),
             ping_timeout: Duration::from_millis(20000),
             max_buffer_size: 128,
@@ -46,6 +78,7 @@ impl Default for EngineIoConfig {
 }
 
 impl EngineIoConfig {
+    /// Create a new builder with a default config
     pub fn builder() -> EngineIoConfigBuilder {
         EngineIoConfigBuilder::new()
     }
@@ -56,11 +89,14 @@ impl EngineIoConfig {
         self.transports & transport as u8 == transport as u8
     }
 }
+
+/// Builder for [`EngineIoConfig`]
 pub struct EngineIoConfigBuilder {
     config: EngineIoConfig,
 }
 
 impl EngineIoConfigBuilder {
+    /// Create a new builder with a default config
     pub fn new() -> Self {
         Self {
             config: EngineIoConfig::default(),
@@ -69,8 +105,8 @@ impl EngineIoConfigBuilder {
 
     /// The path to listen for engine.io requests on.
     /// Defaults to "/engine.io".
-    pub fn req_path(mut self, req_path: String) -> Self {
-        self.config.req_path = req_path;
+    pub fn req_path(mut self, req_path: impl Into<Cow<'static, str>>) -> Self {
+        self.config.req_path = req_path.into();
         self
     }
 

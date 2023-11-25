@@ -63,7 +63,7 @@ impl<A: Adapter> Namespace<A> {
         Ok(())
     }
 
-    /// Remove a socket from a namespace and propagate the event to the adapter
+    /// Removes a socket from a namespace and propagate the event to the adapter
     pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
         self.sockets.write().unwrap().remove(&sid);
         self.adapter
@@ -75,7 +75,7 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.read().unwrap().values().any(|s| s.id == sid)
     }
 
-    pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
+    pub fn recv(&self, sid: Sid, packet: PacketData<'_>) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError => Err(Error::InvalidPacketType),
@@ -94,10 +94,10 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.read().unwrap().values().cloned().collect()
     }
 
-    /// Close the entire namespace :
-    /// * Close the adapter
-    /// * Close all the sockets and their underlying connections
-    /// * Remove all the sockets from the namespace
+    /// Closes the entire namespace :
+    /// * Closes the adapter
+    /// * Closes all the sockets and their underlying connections
+    /// * Removes all the sockets from the namespace
     pub async fn close(&self) {
         self.adapter.close().ok();
         #[cfg(feature = "tracing")]

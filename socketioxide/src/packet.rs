@@ -11,7 +11,9 @@ use engineioxide::sid::Sid;
 /// Each packet has a type and a namespace
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Packet<'a> {
+    /// The packet data
     pub inner: PacketData<'a>,
+    /// The namespace the packet belongs to
     pub ns: Cow<'a, str>,
 }
 
@@ -54,6 +56,7 @@ impl<'a> Packet<'a> {
         }
     }
 
+    /// Create a disconnect packet for the given namespace
     pub fn disconnect(ns: &'a str) -> Self {
         Self {
             inner: PacketData::Disconnect,
@@ -63,6 +66,7 @@ impl<'a> Packet<'a> {
 }
 
 impl<'a> Packet<'a> {
+    /// Create a connect error packet for the given namespace
     pub fn invalid_namespace(ns: &'a str) -> Self {
         Self {
             inner: PacketData::ConnectError,
@@ -70,6 +74,7 @@ impl<'a> Packet<'a> {
         }
     }
 
+    /// Create an event packet for the given namespace
     pub fn event(ns: impl Into<Cow<'a, str>>, e: impl Into<Cow<'a, str>>, data: Value) -> Self {
         Self {
             inner: PacketData::Event(e.into(), data, None),
@@ -77,6 +82,7 @@ impl<'a> Packet<'a> {
         }
     }
 
+    /// Create a binary event packet for the given namespace
     pub fn bin_event(
         ns: impl Into<Cow<'a, str>>,
         e: impl Into<Cow<'a, str>>,
@@ -92,12 +98,15 @@ impl<'a> Packet<'a> {
         }
     }
 
+    /// Create an ack packet for the given namespace
     pub fn ack(ns: &'a str, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::EventAck(data, ack),
             ns: Cow::Borrowed(ns),
         }
     }
+
+    /// Create a binary ack packet for the given namespace
     pub fn bin_ack(ns: &'a str, data: Value, bin: Vec<Vec<u8>>, ack: i64) -> Self {
         debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
@@ -167,19 +176,30 @@ impl<'a> Packet<'a> {
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacketData<'a> {
+    /// Connect packet with optional payload (only used with v5 for response)
     Connect(Option<String>),
+    /// Disconnect packet, used to disconnect from a namespace
     Disconnect,
+    /// Event packet with optional ack id, to request an ack from the other side
     Event(Cow<'a, str>, Value, Option<i64>),
+    /// Event ack packet, to acknowledge an event
     EventAck(Value, i64),
+    /// Connect error packet, sent when the namespace is invalid
     ConnectError,
+    /// Binary event packet with optional ack id, to request an ack from the other side
     BinaryEvent(Cow<'a, str>, BinaryPacket, Option<i64>),
+    /// Binary ack packet, to acknowledge an event with binary data
     BinaryAck(BinaryPacket, i64),
 }
 
+/// Binary packet used when sending binary data
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinaryPacket {
+    /// Data related to the packet
     pub data: Value,
+    /// Binary payload
     pub bin: Vec<Vec<u8>>,
+    /// The number of expected payloads (used when receiving data)
     payload_count: usize,
 }
 
@@ -265,9 +285,13 @@ impl BinaryPacket {
             payload_count,
         }
     }
+
+    /// Add a payload to the binary packet, when all payloads are added,
+    /// the packet is complete and can be further processed
     pub fn add_payload(&mut self, payload: Vec<u8>) {
         self.bin.push(payload);
     }
+    /// Check if the binary packet is complete, it means that all payloads have been received
     pub fn is_complete(&self) -> bool {
         self.payload_count == self.bin.len()
     }
@@ -286,7 +310,7 @@ impl<'a> TryInto<String> for Packet<'a> {
                 // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
                     Value::Array(ref mut v) if !v.is_empty() => {
-                        v.insert(0, Value::String(e.to_string()));
+                        v.insert(0, Value::String((*e).to_string()));
                         serde_json::to_string(&v)
                     }
                     Value::Array(_) => serde_json::to_string::<(_, [(); 0])>(&(e, [])),
@@ -454,9 +478,7 @@ impl<'a> TryFrom<String> for Packet<'a> {
         let ack: Option<i64> = loop {
             match chars.get(i) {
                 Some(c) if c.is_ascii_digit() => i += 1,
-                Some(b'[') | Some(b'{') if i > start_index => {
-                    break value[start_index..i].parse().ok()
-                }
+                Some(b'[' | b'{') if i > start_index => break value[start_index..i].parse().ok(),
                 _ => break None,
             }
         };
