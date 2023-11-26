@@ -254,7 +254,10 @@ mod io;
 mod ns;
 mod packet;
 
-/// Socket.IO protocol version
+/// Socket.IO protocol version.
+/// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor
+///
+/// **Note**: The socket.io protocol version does not correspond to the engine.io protocol version.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProtocolVersion {
     /// The socket.io protocol version 4, only available with the feature flag `v4`
