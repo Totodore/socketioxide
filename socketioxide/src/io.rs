@@ -236,11 +236,6 @@ impl SocketIo<LocalAdapter> {
 }
 
 impl<A: Adapter> SocketIo<A> {
-    /// Creates a new [`SocketIoBuilder`] with a default config and a specified [`Adapter`]
-    pub fn builder_with_adapter() -> SocketIoBuilder {
-        SocketIoBuilder::new()
-    }
-
     /// Returns a reference to the [`SocketIoConfig`] used by this [`SocketIo`] instance
     #[inline]
     pub fn config(&self) -> &SocketIoConfig {
