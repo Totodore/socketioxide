@@ -1,4 +1,4 @@
-//! ## A tower [`Layer`] for socket.io so it can be used as a middleware with frameworks supporting layers.
+//! ## A tower [`Layer`](tower::Layer) for socket.io so it can be used as a middleware with frameworks supporting layers.
 //!
 //! #### Example with axum :
 //! ```rust
