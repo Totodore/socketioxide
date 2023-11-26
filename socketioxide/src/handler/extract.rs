@@ -284,3 +284,39 @@ impl<A: Adapter> AckSender<A> {
         }
     }
 }
+
+impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
+    type Error = Infallible;
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+        Ok(s.protocol())
+    }
+}
+impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
+    type Error = Infallible;
+    fn from_message_parts(
+        s: &Arc<Socket<A>>,
+        _: &mut serde_json::Value,
+        _: &mut Vec<Vec<u8>>,
+        _: &Option<i64>,
+    ) -> Result<Self, Infallible> {
+        Ok(s.protocol())
+    }
+}
+
+impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
+    type Error = Infallible;
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+        Ok(s.transport_type())
+    }
+}
+impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
+    type Error = Infallible;
+    fn from_message_parts(
+        s: &Arc<Socket<A>>,
+        _: &mut serde_json::Value,
+        _: &mut Vec<Vec<u8>>,
+        _: &Option<i64>,
+    ) -> Result<Self, Infallible> {
+        Ok(s.transport_type())
+    }
+}

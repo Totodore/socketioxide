@@ -678,6 +678,35 @@ impl<A: Adapter> Socket<A> {
         &self.esocket.req_parts
     }
 
+    /// Gets the [`TransportType`](crate::TransportType) used by the client to connect with this [`Socket`]
+    ///
+    /// It can also be accessed as an extractor:
+    /// ```
+    /// # use socketioxide::{SocketIo, TransportType, extract::*};
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef, transport: TransportType| {
+    ///     assert_eq!(socket.transport_type(), transport);
+    /// });
+    pub fn transport_type(&self) -> crate::TransportType {
+        self.esocket.transport_type()
+    }
+
+    /// Gets the socket.io [`ProtocolVersion`](crate::ProtocolVersion) used by the client to connect with this [`Socket`]
+    ///
+    /// It can also be accessed as an extractor:
+    /// ## Example
+    /// ```
+    /// # use socketioxide::{SocketIo, ProtocolVersion, extract::*};
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef, v: ProtocolVersion| {
+    ///     assert_eq!(socket.protocol(), v);
+    /// });
+    pub fn protocol(&self) -> crate::ProtocolVersion {
+        self.esocket.protocol.into()
+    }
+
     fn recv_event(self: Arc<Self>, e: &str, data: Value, ack: Option<i64>) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), data, vec![], ack);

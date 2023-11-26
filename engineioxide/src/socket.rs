@@ -355,6 +355,11 @@ where
             .store(TransportType::Websocket as u8, Ordering::Relaxed);
     }
 
+    /// Returns the current [`TransportType`] of the [`Socket`]
+    pub fn transport_type(&self) -> TransportType {
+        TransportType::from(self.transport.load(Ordering::Relaxed))
+    }
+
     /// Emits a message to the client.
     ///
     /// If the transport is in websocket mode, the message is directly sent as a text frame.

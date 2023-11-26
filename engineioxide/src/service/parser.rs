@@ -164,6 +164,16 @@ pub enum TransportType {
     Websocket = 0x02,
 }
 
+impl From<u8> for TransportType {
+    fn from(t: u8) -> Self {
+        match t {
+            0x01 => TransportType::Polling,
+            0x02 => TransportType::Websocket,
+            _ => panic!("unknown transport type"),
+        }
+    }
+}
+
 impl FromStr for TransportType {
     type Err = ParseError;
 
