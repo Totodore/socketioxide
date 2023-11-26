@@ -53,17 +53,19 @@ impl Default for SocketIoConfig {
 /// A builder to create a [`SocketIo`] instance.
 /// It contains everything to configure the socket.io server with a [`SocketIoConfig`].
 /// It can be used to build either a Tower [`Layer`](tower::layer::Layer) or a [`Service`](tower::Service).
-pub struct SocketIoBuilder {
+pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
+    adapter: std::marker::PhantomData<A>,
 }
 
-impl SocketIoBuilder {
+impl<A: Adapter> SocketIoBuilder<A> {
     /// Creates a new [`SocketIoBuilder`] with default config
     pub fn new() -> Self {
         Self {
             config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
+            adapter: std::marker::PhantomData,
         }
     }
 
@@ -151,18 +153,20 @@ impl SocketIoBuilder {
         self
     }
 
+    /// Sets a custom [`Adapter`] for this [`SocketIoBuilder`]
+    pub fn with_adapter<B: Adapter>(self) -> SocketIoBuilder<B> {
+        SocketIoBuilder {
+            config: self.config,
+            engine_config_builder: self.engine_config_builder,
+            adapter: std::marker::PhantomData,
+        }
+    }
+
     /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance
     ///
     /// The layer can be used as a tower layer
     #[inline(always)]
-    pub fn build_layer(self) -> (SocketIoLayer, SocketIo) {
-        self.build_layer_with_adapter::<LocalAdapter>()
-    }
-
-    /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance with a custom [`Adapter`]
-    ///
-    /// The layer can be used as a tower layer
-    pub fn build_layer_with_adapter<A: Adapter>(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
+    pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
@@ -174,17 +178,7 @@ impl SocketIoBuilder {
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
     #[inline(always)]
-    pub fn build_svc(self) -> (SocketIoService<NotFoundService>, SocketIo) {
-        self.build_svc_with_adapter::<LocalAdapter>()
-    }
-
-    /// Builds a [`SocketIoService`] and a [`SocketIo`] instance with a custom [`Adapter`]
-    ///
-    /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
-    /// It can be used as a hyper service
-    pub fn build_svc_with_adapter<A: Adapter>(
-        mut self,
-    ) -> (SocketIoService<NotFoundService, A>, SocketIo<A>) {
+    pub fn build_svc(mut self) -> (SocketIoService<NotFoundService>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) =
@@ -196,17 +190,7 @@ impl SocketIoBuilder {
     ///
     /// It can be used as a hyper service
     #[inline(always)]
-    pub fn build_with_inner_svc<S: Clone>(self, svc: S) -> (SocketIoService<S>, SocketIo) {
-        self.build_with_inner_svc_with_adapter::<S, LocalAdapter>(svc)
-    }
-
-    /// Builds a [`SocketIoService`] and a [`SocketIo`] instance with an inner service and a custom [`Adapter`]
-    ///
-    /// It can be used as a hyper service
-    pub fn build_with_inner_svc_with_adapter<S: Clone, A: Adapter>(
-        mut self,
-        svc: S,
-    ) -> (SocketIoService<S, A>, SocketIo<A>) {
+    pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<S>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
