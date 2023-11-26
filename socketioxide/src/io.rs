@@ -165,7 +165,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance
     ///
     /// The layer can be used as a tower layer
-    #[inline(always)]
     pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
 
@@ -177,7 +176,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
-    #[inline(always)]
     pub fn build_svc(mut self) -> (SocketIoService<NotFoundService>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
@@ -189,7 +187,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Builds a [`SocketIoService`] and a [`SocketIo`] instance with an inner service
     ///
     /// It can be used as a hyper service
-    #[inline(always)]
     pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<S>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
@@ -211,6 +208,7 @@ pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
     /// Creates a new [`SocketIoBuilder`] with a default config
+    #[inline(always)]
     pub fn builder() -> SocketIoBuilder {
         SocketIoBuilder::new()
     }
@@ -218,18 +216,21 @@ impl SocketIo<LocalAdapter> {
     /// Creates a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request.
     /// It can be used as a [`Service`](tower::Service) (see hyper example)
+    #[inline(always)]
     pub fn new_svc() -> (SocketIoService<NotFoundService>, SocketIo) {
         Self::builder().build_svc()
     }
 
     /// Creates a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
     /// It can be used as a [`Service`](tower::Service) with an inner service (see warp example)
+    #[inline(always)]
     pub fn new_inner_svc<S: Clone>(svc: S) -> (SocketIoService<S>, SocketIo) {
         Self::builder().build_with_inner_svc(svc)
     }
 
     /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config.
     /// It can be used as a tower [`Layer`](tower::layer::Layer) (see axum example)
+    #[inline(always)]
     pub fn new_layer() -> (SocketIoLayer, SocketIo) {
         Self::builder().build_layer()
     }
