@@ -65,6 +65,7 @@ impl Payload {
 
 pub async fn encoder(
     rx: MutexGuard<'_, PeekableReceiver<Packet>>,
+    sem: &tokio::sync::Semaphore,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
     max_payload: u64,
@@ -72,11 +73,11 @@ pub async fn encoder(
     #[cfg(feature = "v3")]
     {
         match protocol {
-            ProtocolVersion::V4 => encoder::v4_encoder(rx, max_payload).await,
+            ProtocolVersion::V4 => encoder::v4_encoder(rx, sem, max_payload).await,
             ProtocolVersion::V3 if supports_binary => {
-                encoder::v3_binary_encoder(rx, max_payload).await
+                encoder::v3_binary_encoder(rx, sem, max_payload).await
             }
-            ProtocolVersion::V3 => encoder::v3_string_encoder(rx, max_payload).await,
+            ProtocolVersion::V3 => encoder::v3_string_encoder(rx, sem, max_payload).await,
         }
     }
 

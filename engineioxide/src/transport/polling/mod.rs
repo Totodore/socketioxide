@@ -114,10 +114,11 @@ where
     tracing::debug!("[sid={sid}] polling request");
 
     let max_payload = engine.config.max_payload;
+    let sem = &socket.semaphore;
 
     #[cfg(feature = "v3")]
     let Payload { data, has_binary } =
-        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await?;
+        payload::encoder(rx, &sem, protocol, socket.supports_binary, max_payload).await?;
     #[cfg(not(feature = "v3"))]
     let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await?;
 

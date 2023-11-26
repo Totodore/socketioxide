@@ -235,6 +235,7 @@ where
     // Pipe between websocket and internal socket channel
     tokio::spawn(async move {
         let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+        let sem = &socket.semaphore;
 
         // map a packet to a websocket message
         // It is declared as a macro rather than a closure to avoid ownership issues
@@ -266,10 +267,12 @@ where
         }
 
         while let Some(item) = internal_rx.recv().await {
+            sem.add_permits(1);
             map_fn!(item);
 
             // For every available packet we continue to send until the channel is drained
             while let Ok(item) = internal_rx.try_recv() {
+                sem.add_permits(1);
                 map_fn!(item);
             }
 

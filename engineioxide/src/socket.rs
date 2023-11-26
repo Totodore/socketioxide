@@ -66,7 +66,7 @@ use tokio::{
     sync::{
         mpsc::{self},
         mpsc::{error::TrySendError, Receiver},
-        Mutex,
+        Mutex, Semaphore, TryAcquireError,
     },
     task::JoinHandle,
 };
@@ -115,19 +115,67 @@ impl From<&Error> for Option<DisconnectReason> {
     }
 }
 
-/// A [`Permit`] represents a slot in the internal channel of a [`Socket`]
+/// A [`Permit`] represents n slots in the internal channel of a [`Socket`]
 /// It is used to send packets to the client
 ///
 /// Thanks to the permit you can encode your data **only** when you are sure that the channel is open
-pub struct Permit<'a>(mpsc::Permit<'a, Packet>);
-impl Permit<'_> {
-    pub fn emit(self, msg: String) {
-        self.0.send(Packet::Message(msg))
+#[derive(Debug)]
+pub struct Permit<'a> {
+    /// The semaphore permit is only hold for lifetime/RAII purposes
+    sem: &'a Semaphore,
+    /// The channel to send packets to the client
+    chan: &'a mpsc::Sender<Packet>,
+    /// The number of slots in the channel that we can still use
+    n: u32,
+}
+impl<'a> Permit<'a> {
+    pub(crate) fn new(
+        chan: &'a mpsc::Sender<Packet>,
+        sem: &'a Semaphore,
+        n: u32,
+    ) -> Result<Self, TryAcquireError> {
+        let p = sem.try_acquire_many(n)?;
+        // Forget permit count so that when it is dropped it doesn't add n permits
+        // We take care ourselves to add the remaining permits when the permit is dropped
+        p.forget();
+        Ok(Self { sem, chan, n })
     }
-    pub fn emit_binary(self, data: Vec<u8>) {
-        self.0.send(Packet::Binary(data))
+
+    /// Emit a message to the client
+    /// At this point we are sure that the channel is open and that we have enough slots to send the packet
+    pub fn emit(&mut self, msg: String) {
+        if !self.chan.is_closed() && self.n > 0 {
+            self.chan
+                .try_send(Packet::Message(msg))
+                .expect("unreachable");
+            self.n -= 1;
+        }
+    }
+
+    /// Emit a binary message to the client
+    /// At this point we are sure that the channel is open and that we have enough slots to send the packet
+    pub fn emit_binary(&mut self, data: Vec<u8>) {
+        if !self.chan.is_closed() && self.n > 0 {
+            self.chan
+                .try_send(Packet::Binary(data))
+                .expect("unreachable");
+            self.n -= 1;
+        }
+    }
+
+    /// Returns the number of slots in the channel that we can still use
+    pub fn remaining(&self) -> u32 {
+        self.n
     }
 }
+
+impl Drop for Permit<'_> {
+    /// Add the remaining permits to the semaphore
+    fn drop(&mut self) {
+        self.sem.add_permits(self.n as usize);
+    }
+}
+
 /// A [`Socket`] represents a connection to the server.
 /// It is agnostic to the [`TransportType`](crate::service::TransportType).
 /// It handles :
@@ -164,6 +212,7 @@ where
     /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback.
     /// Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
     pub(crate) internal_rx: Mutex<PeekableReceiver<Packet>>,
+    pub(crate) semaphore: Semaphore,
 
     /// Channel to send [Packet] to the internal connection
     internal_tx: mpsc::Sender<Packet>,
@@ -202,6 +251,7 @@ where
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Self {
+        let semaphore = Semaphore::new(config.max_buffer_size);
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
@@ -212,6 +262,7 @@ where
 
             internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
             internal_tx,
+            semaphore,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,
@@ -379,9 +430,9 @@ where
     pub fn capacity(&self) -> usize {
         self.internal_tx.capacity()
     }
-    /// Reserve a slot in the internal channel
-    pub fn reserve(&self) -> Result<Permit<'_>, TrySendError<()>> {
-        Ok(Permit(self.internal_tx.try_reserve()?))
+    /// Reserve n slots in the internal channel
+    pub fn reserve<'a>(&'a self, n: u32) -> Result<Permit<'a>, TryAcquireError> {
+        Ok(Permit::new(&self.internal_tx, &self.semaphore, n)?)
     }
 
     /// Immediately closes the socket and the underlying connection.
@@ -461,6 +512,7 @@ where
     ) -> Socket<D> {
         let (internal_tx, internal_rx) = mpsc::channel(200);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
+        let semaphore = Semaphore::new(200);
 
         Self {
             id: sid,
@@ -469,6 +521,7 @@ where
 
             internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
             internal_tx,
+            semaphore,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,
@@ -481,5 +534,55 @@ where
             #[cfg(feature = "v3")]
             supports_binary: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use futures::FutureExt;
+
+    pub use super::*;
+
+    #[tokio::test]
+    async fn new_permit() {
+        let (tx, mut rx) = mpsc::channel(2);
+        let sem = Semaphore::new(2);
+        let mut permit = Permit::new(&tx, &sem, 2).unwrap();
+        assert_eq!(permit.remaining(), 2);
+        assert_eq!(sem.available_permits(), 0);
+        Permit::new(&tx, &sem, 1).unwrap_err();
+        permit.emit("test".to_string());
+        permit.emit("test".to_string());
+        assert_eq!(
+            rx.recv().now_or_never(),
+            Some(Some(Packet::Message("test".to_string())))
+        );
+        assert_eq!(
+            rx.recv().now_or_never(),
+            Some(Some(Packet::Message("test".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn permit_drop() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let sem = Semaphore::new(1);
+        let permit = Permit::new(&tx, &sem, 1).unwrap();
+        drop(permit);
+        let mut permit = Permit::new(&tx, &sem, 1).unwrap();
+        permit.emit("test".to_string());
+        assert_eq!(
+            rx.recv().now_or_never(),
+            Some(Some(Packet::Message("test".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn permit_chan_close() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let sem = Semaphore::new(1);
+        let mut permit = Permit::new(&tx, &sem, 1).unwrap();
+        rx.close();
+        permit.emit("test".to_string());
     }
 }

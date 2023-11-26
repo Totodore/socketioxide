@@ -25,6 +25,7 @@ use crate::{
 /// * `b64` - If binary packets should be encoded in base64
 fn try_recv_packet(
     rx: &mut MutexGuard<'_, PeekableReceiver<Packet>>,
+    sem: &tokio::sync::Semaphore,
     payload_len: usize,
     max_payload: u64,
     b64: bool,
@@ -38,6 +39,9 @@ fn try_recv_packet(
     }
 
     let packet = rx.try_recv().ok();
+    if packet.is_some() {
+        sem.add_permits(1);
+    }
 
     if let Some(Packet::Close) = packet {
         #[cfg(feature = "tracing")]
@@ -53,8 +57,13 @@ fn try_recv_packet(
 
 /// Same as [`try_recv_packet`]
 /// but wait for a new packet if there is no packet in the buffer
-async fn recv_packet(rx: &mut MutexGuard<'_, PeekableReceiver<Packet>>) -> Result<Packet, Error> {
+async fn recv_packet(
+    rx: &mut MutexGuard<'_, PeekableReceiver<Packet>>,
+    sem: &tokio::sync::Semaphore,
+) -> Result<Packet, Error> {
     let packet = rx.recv().await.ok_or(Error::Aborted)?;
+    sem.add_permits(1);
+
     if packet == Packet::Close {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received close packet, closing channel");
@@ -70,6 +79,7 @@ async fn recv_packet(rx: &mut MutexGuard<'_, PeekableReceiver<Packet>>) -> Resul
 /// [engine.io v4 protocol](https://socket.io/fr/docs/v4/engine-io-protocol/#http-long-polling-1)
 pub async fn v4_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<Packet>>,
+    sem: &tokio::sync::Semaphore,
     max_payload: u64,
 ) -> Result<Payload, Error> {
     use crate::transport::polling::payload::PACKET_SEPARATOR_V4;
@@ -80,9 +90,13 @@ pub async fn v4_encoder(
 
     // Send all packets in the buffer
     const PUNCTUATION_LEN: usize = 1;
-    while let Some(packet) =
-        try_recv_packet(&mut rx, data.len() + PUNCTUATION_LEN, max_payload, true)
-    {
+    while let Some(packet) = try_recv_packet(
+        &mut rx,
+        sem,
+        data.len() + PUNCTUATION_LEN,
+        max_payload,
+        true,
+    ) {
         let packet: String = packet.try_into()?;
 
         if !data.is_empty() {
@@ -93,7 +107,7 @@ pub async fn v4_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packet = recv_packet(&mut rx).await?;
+        let packet = recv_packet(&mut rx, sem).await?;
         let packet: String = packet.try_into()?;
         data.push_str(&packet);
     }
@@ -154,6 +168,7 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut Vec<u8>) -> Result<()
 #[cfg(feature = "v3")]
 pub async fn v3_binary_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<Packet>>,
+    sem: &tokio::sync::Semaphore,
     max_payload: u64,
 ) -> Result<Payload, Error> {
     let mut data: Vec<u8> = Vec::new();
@@ -169,7 +184,7 @@ pub async fn v3_binary_encoder(
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
 
-    while let Some(packet) = try_recv_packet(&mut rx, estimated_size, max_payload, false) {
+    while let Some(packet) = try_recv_packet(&mut rx, sem, estimated_size, max_payload, false) {
         if packet.is_binary() {
             has_binary = true;
         }
@@ -192,7 +207,7 @@ pub async fn v3_binary_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packet = recv_packet(&mut rx).await?;
+        let packet = recv_packet(&mut rx, sem).await?;
 
         match packet {
             Packet::BinaryV3(_) | Packet::Binary(_) => {
@@ -215,6 +230,7 @@ pub async fn v3_binary_encoder(
 #[cfg(feature = "v3")]
 pub async fn v3_string_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<Packet>>,
+    sem: &tokio::sync::Semaphore,
     max_payload: u64,
 ) -> Result<Payload, Error> {
     let mut data: Vec<u8> = Vec::new();
@@ -227,13 +243,13 @@ pub async fn v3_string_encoder(
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
     // Current size of the payload
     let current_size = data.len() + PUNCTUATION_LEN + max_packet_size_len;
-    while let Some(packet) = try_recv_packet(&mut rx, current_size, max_payload, true) {
+    while let Some(packet) = try_recv_packet(&mut rx, sem, current_size, max_payload, true) {
         v3_string_packet_encoder(packet, &mut data)?;
     }
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packet = recv_packet(&mut rx).await?;
+        let packet = recv_packet(&mut rx, sem).await?;
         v3_string_packet_encoder(packet, &mut data)?;
     }
 
@@ -252,39 +268,47 @@ mod tests {
     async fn encode_v4_payload() {
         const PAYLOAD: &str = "4hello€\x1ebAQIDBA==\x1e4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
+        let sem = tokio::sync::Semaphore::new(10);
         let rx = Mutex::new(PeekableReceiver::new(rx));
         let rx = rx.lock().await;
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::Binary(vec![1, 2, 3, 4])).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
-        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        let p = sem.try_acquire_many(3).unwrap();
+        p.forget();
+        let Payload { data, .. } = v4_encoder(rx, &sem, MAX_PAYLOAD).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
+        assert_eq!(sem.available_permits(), 10);
     }
 
     #[tokio::test]
     async fn max_payload_v4() {
         const MAX_PAYLOAD: u64 = 10;
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
+        let sem = tokio::sync::Semaphore::new(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::Binary(vec![1, 2, 3, 4])).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
+        let p = sem.try_acquire_many(4).unwrap();
+        p.forget();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, &sem, MAX_PAYLOAD).await.unwrap();
             assert_eq!(data, "4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, &sem, MAX_PAYLOAD + 10).await.unwrap();
             assert_eq!(data, "bAQIDBA==\x1e4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, &sem, MAX_PAYLOAD + 10).await.unwrap();
             assert_eq!(data, "4hello€".as_bytes());
         }
+        assert_eq!(sem.available_permits(), 10);
     }
 
     #[cfg(feature = "v3")]
@@ -292,17 +316,21 @@ mod tests {
     async fn encode_v3b64_payload() {
         const PAYLOAD: &str = "7:4hello€10:b4AQIDBA==7:4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
+        let sem = tokio::sync::Semaphore::new(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
         let rx = mutex.lock().await;
 
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
+        let p = sem.try_acquire_many(3).unwrap();
+        p.forget();
         let Payload {
             data, has_binary, ..
-        } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        } = v3_string_encoder(rx, &sem, MAX_PAYLOAD).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
         assert!(!has_binary);
+        assert_eq!(sem.available_permits(), 10);
     }
 
     #[cfg(feature = "v3")]
@@ -311,21 +339,25 @@ mod tests {
         const MAX_PAYLOAD: u64 = 10;
 
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
+        let sem = tokio::sync::Semaphore::new(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
+        let p = sem.try_acquire_many(4).unwrap();
+        p.forget();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, &sem, MAX_PAYLOAD).await.unwrap();
             assert_eq!(data, "7:4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, &sem, MAX_PAYLOAD + 10).await.unwrap();
             assert_eq!(data, "10:b4AQIDBA==7:4hello€7:4hello€".as_bytes());
         }
+        assert_eq!(sem.available_permits(), 10);
     }
 
     #[cfg(feature = "v3")]
@@ -335,16 +367,20 @@ mod tests {
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
         ];
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
+        let sem = tokio::sync::Semaphore::new(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
         let rx = mutex.lock().await;
 
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
+        let p = sem.try_acquire_many(2).unwrap();
+        p.forget();
         let Payload {
             data, has_binary, ..
-        } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        } = v3_binary_encoder(rx, &sem, MAX_PAYLOAD).await.unwrap();
         assert_eq!(data, PAYLOAD);
         assert!(has_binary);
+        assert_eq!(sem.available_permits(), 10);
     }
 
     #[cfg(feature = "v3")]
@@ -357,20 +393,24 @@ mod tests {
             3, 4,
         ];
         let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(10);
+        let sem = tokio::sync::Semaphore::new(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
         tx.try_send(Packet::Message("hellooo€".into())).unwrap();
         tx.try_send(Packet::BinaryV3(vec![1, 2, 3, 4])).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
         tx.try_send(Packet::Message("hello€".into())).unwrap();
+        let p = sem.try_acquire_many(4).unwrap();
+        p.forget();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, &sem, MAX_PAYLOAD).await.unwrap();
             assert_eq!(data, PAYLOAD);
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, &sem, MAX_PAYLOAD).await.unwrap();
             assert_eq!(data, "7:4hello€7:4hello€".as_bytes());
         }
+        assert_eq!(sem.available_permits(), 10);
     }
 }
