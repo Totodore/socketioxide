@@ -103,11 +103,14 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     ) -> Result<(), BroadcastError<()>>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
-    fn broadcast_with_ack<T, V: DeserializeOwned>(
+    fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<T>>;
+    ) -> Result<
+        BoxStream<'static, Result<AckResponse<V>, AckError<()>>>,
+        BroadcastError<Packet<'static>>,
+    >;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
@@ -221,11 +224,14 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast_with_ack<T, V: DeserializeOwned>(
+    fn broadcast_with_ack<V: DeserializeOwned>(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<T>>>, BroadcastError<T>> {
+    ) -> Result<
+        BoxStream<'static, Result<AckResponse<V>, AckError<()>>>,
+        BroadcastError<Packet<'static>>,
+    > {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,

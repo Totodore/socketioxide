@@ -290,10 +290,6 @@ impl<A: Adapter> Operators<A> {
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<(), BroadcastError<T>> {
-        if let Some(Some(s)) = self.opts.is_alone().then(|| self.get_sender()) {
-            s.emit(event, data)?;
-            return Ok(());
-        }
         let packet = self.get_packet(event, data)?;
         self.ns.adapter.broadcast(packet, self.opts)?;
         Ok(())
@@ -323,21 +319,22 @@ impl<A: Adapter> Operators<A> {
     ///             }).await;
     ///    });
     /// });
-    pub fn emit_with_ack<V: DeserializeOwned + Send, T: serde::Serialize + Send>(
+    pub fn emit_with_ack<V, T>(
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<T>>>, BroadcastError<T>> {
-        if let Some(Some(s)) = self.opts.is_alone().then(|| self.get_sender()) {
-            s.emit(event.into(), data).map_err(|e| match e {
-                SendError::Serialize(e) => BroadcastError::Serialize(e),
-                SendError::Adapter(e) => BroadcastError::Adapter(e),
-                SendError::Socket(e) => BroadcastError::SocketError(vec![e]),
-            });
-            return Ok(());
-        }
+    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<T>>
+    where
+        V: DeserializeOwned + Send,
+        T: serde::Serialize + serde::de::DeserializeOwned + Send,
+    {
         let packet = self.get_packet(event, data)?;
-        self.ns.adapter.broadcast_with_ack(packet, self.opts)
+        self.ns.adapter.broadcast_with_ack(packet, self.opts).map_err(|e| {
+            match e {
+                BroadcastError::SocketError(v) => BroadcastError::SocketError(v.),
+                e => e,
+            }
+        })
     }
 
     /// Gets all sockets selected with the previous operators.
@@ -430,7 +427,7 @@ impl<A: Adapter> Operators<A> {
         self.opts
             .sid
             .as_ref()
-            .and_then(|sid| self.ns.get_socket(sid))
+            .and_then(|sid| self.ns.get_socket(*sid).ok())
     }
 }
 

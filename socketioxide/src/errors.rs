@@ -66,7 +66,7 @@ pub enum AckError<T> {
 
     /// An error occurred while sending packets.
     #[error("Socket error: {0}")]
-    Socket(#[from] SocketError<T>),
+    SocketError(#[from] SocketError<T>),
 }
 
 /// Error type for broadcast operations.
@@ -74,7 +74,7 @@ pub enum AckError<T> {
 pub enum BroadcastError<T> {
     /// An error occurred while sending packets.
     #[error("Socket error: {0}")]
-    SocketError(#[from] Vec<SocketError<T>>),
+    SocketError(#[from] SocketError<T>),
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
