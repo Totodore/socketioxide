@@ -212,6 +212,13 @@ where
     /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback.
     /// Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
     pub(crate) internal_rx: Mutex<PeekableReceiver<Packet>>,
+
+    /// The semaphore is used to control the `channel` capcity so that we can be sure that we can send a packet to the client
+    /// when using the `reserve`/[`Permit`] api
+    ///
+    /// To keep the [`Semaphore`] and the [`channel`](Socket::internal_rx) in sync.
+    /// It is mandatory to call `add_permits` on the [`Semaphore`] each time a packet
+    /// is consumed from the [`channel`](Socket::internal_rx)
     pub(crate) semaphore: Semaphore,
 
     /// Channel to send [Packet] to the internal connection
