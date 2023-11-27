@@ -264,12 +264,8 @@ impl<A: Adapter> AckSender<A> {
     /// Send the ack response to the client.
     pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
         if let Some(ack_id) = self.ack_id {
-            let permit = self.socket.reserve().map_err(|e| e.with_data(data))?;
-            let binary_permits = self
-                .socket
-                .reserve_additional(self.binary.len())
-                .map_err(|e| e.with_data(data))?;
-
+            let cnt = 1 + self.binary.len() as u32;
+            let permit = self.socket.reserve(cnt).map_err(|e| e.with_data(data))?;
             let ns = self.socket.ns();
             let data = serde_json::to_value(&data)?;
             let packet = if self.binary.is_empty() {
@@ -277,7 +273,7 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.send_with_permit(packet, permit, binary_permits);
+            self.socket.send_with_permit(packet, permit);
             Ok(())
         } else {
             Ok(())

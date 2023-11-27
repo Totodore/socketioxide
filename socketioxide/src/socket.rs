@@ -16,7 +16,7 @@ use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason, Pe
 use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::{mpsc::error::TrySendError, oneshot};
+use tokio::sync::{oneshot, TryAcquireError};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
@@ -271,14 +271,11 @@ impl<A: Adapter> Socket<A> {
         event: impl Into<String>,
         data: T,
     ) -> Result<(), SendError<T>> {
-        let permit = self.esocket.reserve().map_err(|e| match e {
-            TrySendError::Closed(_) => SocketError::SocketClosed(data),
-            TrySendError::Full(_) => SocketError::InternalChannelFull(data),
-        })?;
+        let permit = self.reserve(1).map_err(|e| e.with_data(data))?;
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(ns, event.into(), data);
-        self.send_with_permit(packet, permit, vec![]);
+        self.send_with_permit(packet, permit);
         Ok(())
     }
 
@@ -315,10 +312,9 @@ impl<A: Adapter> Socket<A> {
         V: DeserializeOwned + Send + Sync + 'static,
         T: Serialize,
     {
-        let permit = match self.esocket.reserve() {
+        let permit = match self.reserve(1) {
             Ok(p) => p,
-            Err(TrySendError::Closed(_)) => return Err(SocketError::SocketClosed(data).into()),
-            Err(TrySendError::Full(_)) => return Err(SocketError::InternalChannelFull(data).into()),
+            Err(e) => return Err(e.with_data(data).into()),
         };
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
@@ -548,12 +544,7 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send_with_permit(
-        &self,
-        mut packet: Packet<'_>,
-        permit: Permit<'_>,
-        mut binary_permit: Vec<Permit<'_>>,
-    ) {
+    pub(crate) fn send_with_permit(&self, mut packet: Packet<'_>, mut permit: Permit<'_>) {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 Some(std::mem::take(&mut bin.bin))
@@ -563,13 +554,9 @@ impl<A: Adapter> Socket<A> {
 
         let msg = packet.try_into().expect("serialization error");
         permit.emit(msg);
-        debug_assert_eq!(
-            binary_permit.len(),
-            bin_payloads.as_ref().map(|b| b.len()).unwrap_or(0)
-        );
         if let Some(bin_payloads) = bin_payloads {
             for bin in bin_payloads {
-                binary_permit.pop().unwrap().emit_binary(bin);
+                permit.emit_binary(bin);
             }
         }
     }
@@ -602,7 +589,7 @@ impl<A: Adapter> Socket<A> {
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.lock().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
-        self.send_with_permit(packet, permit, vec![]);
+        self.send_with_permit(packet, permit);
         let timeout = timeout.unwrap_or(self.config.ack_timeout);
         let v = tokio::time::timeout(timeout, rx).await??;
         Ok(AckResponse {
@@ -655,17 +642,11 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError<()>> {
-        self.esocket.reserve().map_err(|e| e.into())
-    }
-    pub(crate) fn reserve_additional(
-        &self,
-        additional: usize,
-    ) -> Result<Vec<Permit<'_>>, SocketError<()>> {
-        (0..additional)
-            .into_iter()
-            .map(|_| self.reserve())
-            .collect()
+    pub(crate) fn reserve(&self, n: u32) -> Result<Permit<'_>, SocketError<()>> {
+        self.esocket.reserve(n).map_err(|e| match e {
+            TryAcquireError::Closed => SocketError::SocketClosed(()),
+            TryAcquireError::NoPermits => SocketError::InternalChannelFull(()),
+        })
     }
 
     /// Get the request info made by the client to connect
