@@ -60,10 +60,18 @@ use crate::{adapter::Adapter, socket::Socket};
 
 use super::MakeErasedHandler;
 
+#[cfg(feature = "state")]
+use crate::state::StateMap;
+
 /// A Type Erased [`ConnectHandler`] so it can be stored in a HashMap
 pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(
+        &self,
+        s: Arc<Socket<A>>,
+        auth: Option<String>,
+        #[cfg(feature = "state")] state: &StateMap,
+    );
 }
 
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
@@ -82,8 +90,18 @@ where
     T: Send + Sync + 'static,
 {
     #[inline(always)]
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
-        self.handler.call(s, auth);
+    fn call(
+        &self,
+        s: Arc<Socket<A>>,
+        auth: Option<String>,
+        #[cfg(feature = "state")] state: &StateMap,
+    ) {
+        self.handler.call(
+            s,
+            auth,
+            #[cfg(feature = "state")]
+            state,
+        );
     }
 }
 
@@ -99,7 +117,11 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
-    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        auth: &Option<String>,
+        state: &StateMap,
+    ) -> Result<Self, Self::Error>;
 }
 
 /// Define a handler for the connect event.
@@ -109,7 +131,12 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(
+        &self,
+        s: Arc<Socket<A>>,
+        auth: Option<String>,
+        #[cfg(feature = "state")] state: &StateMap,
+    );
 
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -136,15 +163,16 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>,
+                #[cfg(feature = "state")] state: &StateMap) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth) {
-                        Ok(v) => v,
-                        Err(_e) => {
-                            #[cfg(feature = "tracing")]
-                            tracing::error!("Error while extracting data: {}", _e);
-                            return;
-                        },
+                    let $ty = match $ty::from_connect_parts(&s, &auth, #[cfg(feature = "state")] state) {
+                            Ok(v) => v,
+                            Err(_e) => {
+                                #[cfg(feature = "tracing")]
+                                tracing::error!("Error while extracting data: {}", _e);
+                                return;
+                            },
                     };
                 )*
 
@@ -167,9 +195,9 @@ macro_rules! impl_handler {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, #[cfg(feature = "state")] state: &StateMap) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth, #[cfg(feature = "state")] state) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]

@@ -239,6 +239,8 @@ pub mod layer;
 pub mod operators;
 pub mod service;
 pub mod socket;
+#[cfg(feature = "state")]
+mod state;
 
 #[cfg(feature = "test-utils")]
 pub use packet::*;

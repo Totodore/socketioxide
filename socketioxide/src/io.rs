@@ -17,6 +17,7 @@ use crate::{
     operators::{Operators, RoomParam},
     service::SocketIoService,
     socket::AckResponse,
+    state::{StateBuilder, StateMap},
     AckError, BroadcastError,
 };
 
@@ -57,6 +58,8 @@ pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
     adapter: std::marker::PhantomData<A>,
+    #[cfg(feature = "state")]
+    state_builder: StateBuilder,
 }
 
 impl<A: Adapter> SocketIoBuilder<A> {
@@ -66,6 +69,8 @@ impl<A: Adapter> SocketIoBuilder<A> {
             config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
             adapter: std::marker::PhantomData,
+            #[cfg(feature = "state")]
+            state_builder: StateMap::builder(),
         }
     }
 
@@ -156,10 +161,21 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Sets a custom [`Adapter`] for this [`SocketIoBuilder`]
     pub fn with_adapter<B: Adapter>(self) -> SocketIoBuilder<B> {
         SocketIoBuilder {
+            adapter: std::marker::PhantomData,
             config: self.config,
             engine_config_builder: self.engine_config_builder,
-            adapter: std::marker::PhantomData,
+            #[cfg(feature = "state")]
+            state_builder: self.state_builder,
         }
+    }
+
+    /// Add a given state to the managed states
+    /// The state will be available in every handler
+    #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
+    #[cfg(feature = "state")]
+    pub fn with_state<S: Send + Sync + 'static>(mut self, state: S) -> Self {
+        self.state_builder.insert(state);
+        self
     }
 
     /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance
@@ -168,7 +184,14 @@ impl<A: Adapter> SocketIoBuilder<A> {
     pub fn build_layer(mut self) -> (SocketIoLayer<A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
 
+        #[cfg(feature = "state")]
+        let state = self.state_builder.build();
+
+        #[cfg(not(feature = "state"))]
         let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
+        #[cfg(feature = "state")]
+        let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config), state);
+
         (layer, SocketIo(client))
     }
 
@@ -179,8 +202,17 @@ impl<A: Adapter> SocketIoBuilder<A> {
     pub fn build_svc(mut self) -> (SocketIoService<NotFoundService>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
+        #[cfg(feature = "state")]
+        let state = self.state_builder.build();
+
+        #[cfg(not(feature = "state"))]
         let (svc, client) =
             SocketIoService::with_config_inner(NotFoundService, Arc::new(self.config));
+
+        #[cfg(feature = "state")]
+        let (svc, client) =
+            SocketIoService::with_config_inner(NotFoundService, Arc::new(self.config), state);
+
         (svc, SocketIo(client))
     }
 
@@ -190,7 +222,15 @@ impl<A: Adapter> SocketIoBuilder<A> {
     pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<S>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
+        #[cfg(feature = "state")]
+        let state = self.state_builder.build();
+
+        #[cfg(not(feature = "state"))]
         let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
+
+        #[cfg(feature = "state")]
+        let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config), state);
+
         (svc, SocketIo(client))
     }
 }

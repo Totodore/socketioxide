@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+#[cfg(feature = "state")]
+use crate::state::StateMap;
 use crate::{
     adapter::Adapter,
     errors::Error,
@@ -43,6 +45,7 @@ impl<A: Adapter> Namespace<A> {
         esocket: Arc<engineioxide::Socket<SocketData>>,
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
+        #[cfg(feature = "state")] state: &StateMap,
     ) -> Result<(), serde_json::Error> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
 
@@ -56,7 +59,7 @@ impl<A: Adapter> Namespace<A> {
             return Ok(());
         }
 
-        self.handler.call(socket, auth);
+        self.handler.call(socket, auth, state);
         Ok(())
     }
 
@@ -72,11 +75,20 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.read().unwrap().values().any(|s| s.id == sid)
     }
 
-    pub fn recv(&self, sid: Sid, packet: PacketData<'_>) -> Result<(), Error> {
+    pub fn recv(
+        &self,
+        sid: Sid,
+        packet: PacketData<'_>,
+        #[cfg(feature = "state")] state: &StateMap,
+    ) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError => Err(Error::InvalidPacketType),
-            packet => self.get_socket(sid)?.recv(packet),
+            packet => self.get_socket(sid)?.recv(
+                packet,
+                #[cfg(feature = "state")]
+                state,
+            ),
         }
     }
     pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {

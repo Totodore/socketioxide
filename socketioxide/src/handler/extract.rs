@@ -91,6 +91,9 @@ use crate::{
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
+#[cfg(feature = "state")]
+use crate::state::StateMap;
+
 /// Utility function to unwrap an array with a single element
 fn upwrap_array(v: &mut Value) {
     match v {
@@ -111,7 +114,11 @@ where
     A: Adapter,
 {
     type Error = serde_json::Error;
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error> {
+    fn from_connect_parts(
+        _: &Arc<Socket<A>>,
+        auth: &Option<String>,
+        #[cfg(feature = "state")] _: &StateMap,
+    ) -> Result<Self, Self::Error> {
         auth.as_ref()
             .map(|a| serde_json::from_str::<T>(a))
             .unwrap_or(serde_json::from_str::<T>("{}"))
@@ -129,6 +136,7 @@ where
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
+        #[cfg(feature = "state")] _: &StateMap,
     ) -> Result<Self, Self::Error> {
         upwrap_array(v);
         serde_json::from_value(v.clone()).map(Data)
@@ -144,7 +152,11 @@ where
     A: Adapter,
 {
     type Error = Infallible;
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        _: &Arc<Socket<A>>,
+        auth: &Option<String>,
+        #[cfg(feature = "state")] _: &StateMap,
+    ) -> Result<Self, Infallible> {
         let v: Result<T, serde_json::Error> = auth
             .as_ref()
             .map(|a| serde_json::from_str(a))
@@ -163,6 +175,7 @@ where
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
+        #[cfg(feature = "state")] _: &StateMap,
     ) -> Result<Self, Infallible> {
         upwrap_array(v);
         Ok(TryData(serde_json::from_value(v.clone())))
@@ -173,7 +186,11 @@ pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        #[cfg(feature = "state")] _: &StateMap,
+    ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
@@ -184,6 +201,7 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
+        #[cfg(feature = "state")] _: &StateMap,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
@@ -222,6 +240,7 @@ impl<A: Adapter> FromMessage<A> for Bin {
         _: serde_json::Value,
         bin: Vec<Vec<u8>>,
         _: Option<i64>,
+        #[cfg(feature = "state")] _: &StateMap,
     ) -> Result<Self, Infallible> {
         Ok(Bin(bin))
     }
@@ -242,6 +261,7 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
+        #[cfg(feature = "state")] _: &StateMap,
     ) -> Result<Self, Infallible> {
         Ok(Self::new(s.clone(), *ack_id))
     }
@@ -280,7 +300,11 @@ impl<A: Adapter> AckSender<A> {
 
 impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        #[cfg(feature = "state")] _: &StateMap,
+    ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
 }
@@ -291,6 +315,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
+        #[cfg(feature = "state")] _: &StateMap,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
@@ -298,7 +323,11 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
 
 impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        #[cfg(feature = "state")] _: &StateMap,
+    ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
@@ -309,7 +338,20 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
+        #[cfg(feature = "state")] _: &StateMap,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
+    }
+}
+
+pub struct State<T: Send + Sync + 'static>(pub T);
+impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<&T> {
+    type Error = Infallible;
+    fn from_connect_parts(
+        _: &Arc<Socket<A>>,
+        _: &Option<String>,
+        state: &StateMap,
+    ) -> Result<Self, Infallible> {
+        Ok(State(&state.get::<T>().unwrap()))
     }
 }
