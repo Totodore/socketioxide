@@ -45,7 +45,7 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
 ## Examples :
-<details> <summary><code>Chat app 💬 (see full example <a href="./examples/src/chat">here</a>)</code></summary>
+<details> <summary><code>Chat app 💬 (see full example <a href="./examples/chat">here</a>)</code></summary>
 
 ```rust
 io.ns("/", |s: SocketRef| {
