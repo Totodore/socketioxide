@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 </details>
-<details><summary><code>Other examples are available in the <a href="./examples">example folder</a></code></summary></details>
+<summary><code>Other examples are available in the <a href="./examples">example folder</a></code></summary>
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
