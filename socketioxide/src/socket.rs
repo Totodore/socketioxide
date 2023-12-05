@@ -227,7 +227,7 @@ impl<A: Adapter> Socket<A> {
     /// A [`DisconnectReason`] is passed to the callback to indicate the reason for the disconnection.
     /// ### Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use socketioxide::{SocketIo, socket::DisconnectReason, extract::*};
     /// # use serde_json::Value;
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
