@@ -27,11 +27,11 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 tower.workspace = true
 hyper.workspace = true
+tokio-tungstenite.workspace = true
 
 base64 = "0.21.0"
 bytes = "1.4.0"
 pin-project = "1.0.12"
-tokio-tungstenite = "0.20.1"
 rand = "0.8.5"
 
 # Tracing
@@ -48,14 +48,7 @@ http-body-v1 = { workspace = true, optional = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
 tracing-subscriber.workspace = true
-hyper = { workspace = true, features = [
-    "http1",
-    "http2",
-    "server",
-    "stream",
-    "runtime",
-    "client",
-] }
+criterion.workspace = true
 warp.workspace = true
 axum.workspace = true
 salvo.workspace = true
@@ -65,3 +58,13 @@ v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
 tracing = ["dep:tracing"]
 hyper-v1 = ["dep:hyper-v1", "dep:http-body-v1"]
+
+[[bench]]
+name = "packet_encode"
+path = "benches/packet_encode.rs"
+harness = false
+
+[[bench]]
+name = "packet_decode"
+path = "benches/packet_decode.rs"
+harness = false

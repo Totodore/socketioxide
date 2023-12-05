@@ -1,12 +1,15 @@
 //! Functions and types used to handle incoming connections and messages.
-//! There is two main types of handlers: [`ConnectHandler`] and [`MessageHandler`].
-//! Both handlers can be async or not.
+//! There is three main types of handlers: [`ConnectHandler`], [`MessageHandler`] and [`DisconnectHandler`].
+//! All handlers can be async or not.
 pub mod connect;
+pub mod disconnect;
 pub mod extract;
 pub mod message;
 
 pub(crate) use connect::BoxedConnectHandler;
 pub use connect::{ConnectHandler, FromConnectParts};
+pub(crate) use disconnect::BoxedDisconnectHandler;
+pub use disconnect::{DisconnectHandler, FromDisconnectParts};
 pub(crate) use message::BoxedMessageHandler;
 pub use message::{FromMessage, FromMessageParts, MessageHandler};
 /// A struct used to erase the type of a [`ConnectHandler`] or [`MessageHandler`] so it can be stored in a map

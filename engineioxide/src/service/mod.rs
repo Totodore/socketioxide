@@ -164,7 +164,8 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        if req.uri().path().starts_with(&self.engine.config.req_path) {
+        let path = self.engine.config.req_path.as_ref();
+        if req.uri().path().starts_with(path) {
             dispatch_req(
                 req,
                 self.engine.clone(),

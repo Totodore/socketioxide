@@ -1,12 +1,13 @@
 use base64::{engine::general_purpose, Engine};
-use serde::{de::Error, Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::config::EngineIoConfig;
+use crate::errors::Error;
 use crate::sid::Sid;
 use crate::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Packet {
     /// Open packet used to initiate a connection
     Open(OpenPacket),
@@ -90,14 +91,14 @@ impl Packet {
             Packet::Noop => 1,
             Packet::Binary(data) => {
                 if b64 {
-                    1 + ((data.len() as f64) / 3.).ceil() as usize * 4
+                    1 + base64::encoded_len(data.len(), true).unwrap_or(usize::MAX - 1)
                 } else {
                     1 + data.len()
                 }
             }
             Packet::BinaryV3(data) => {
                 if b64 {
-                    2 + ((data.len() as f64) / 3.).ceil() as usize * 4
+                    2 + base64::encoded_len(data.len(), true).unwrap_or(usize::MAX - 2)
                 } else {
                     1 + data.len()
                 }
@@ -108,77 +109,75 @@ impl Packet {
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
 impl TryInto<String> for Packet {
-    type Error = crate::errors::Error;
+    type Error = Error;
     fn try_into(self) -> Result<String, Self::Error> {
-        let res = match self {
+        let len = self.get_size_hint(true);
+        let mut buffer = String::with_capacity(len);
+        match self {
             Packet::Open(open) => {
-                "0".to_string() + &serde_json::to_string(&open).map_err(Self::Error::from)?
+                buffer.push('0');
+                buffer.push_str(&serde_json::to_string(&open)?);
             }
-            Packet::Close => "1".to_string(),
-            Packet::Ping => "2".to_string(),
-            Packet::Pong => "3".to_string(),
-            Packet::PingUpgrade => "2probe".to_string(),
-            Packet::PongUpgrade => "3probe".to_string(),
-            Packet::Message(msg) => "4".to_string() + &msg,
-            Packet::Upgrade => "5".to_string(),
-            Packet::Noop => "6".to_string(),
-            Packet::Binary(data) => "b".to_string() + &general_purpose::STANDARD.encode(data),
-            Packet::BinaryV3(data) => "b4".to_string() + &general_purpose::STANDARD.encode(data),
+            Packet::Close => buffer.push('1'),
+            Packet::Ping => buffer.push('2'),
+            Packet::Pong => buffer.push('3'),
+            Packet::PingUpgrade => buffer.push_str("2probe"),
+            Packet::PongUpgrade => buffer.push_str("3probe"),
+            Packet::Message(msg) => {
+                buffer.push('4');
+                buffer.push_str(&msg);
+            }
+            Packet::Upgrade => buffer.push('5'),
+            Packet::Noop => buffer.push('6'),
+            Packet::Binary(data) => {
+                buffer.push('b');
+                general_purpose::STANDARD.encode_string(data, &mut buffer);
+            }
+            Packet::BinaryV3(data) => {
+                buffer.push_str("b4");
+                general_purpose::STANDARD.encode_string(data, &mut buffer);
+            }
         };
-        Ok(res)
+        Ok(buffer)
     }
 }
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
 impl TryFrom<&str> for Packet {
-    type Error = crate::errors::Error;
+    type Error = Error;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let mut chars = value.chars();
-        let packet_type = chars
-            .next()
-            .ok_or_else(|| serde_json::Error::custom("Packet type not found in packet string"))?;
-        let packet_data = chars.as_str();
-        let is_upgrade = packet_data.starts_with("probe");
+        let packet_type = value
+            .as_bytes()
+            .first()
+            .ok_or(Error::InvalidPacketType(None))?;
+        let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
         let res = match packet_type {
-            '0' => Packet::Open(serde_json::from_str(packet_data)?),
-            '1' => Packet::Close,
-            '2' => {
-                if is_upgrade {
-                    Packet::PingUpgrade
-                } else {
-                    Packet::Ping
-                }
+            b'1' => Packet::Close,
+            b'2' if is_upgrade => Packet::PingUpgrade,
+            b'2' => Packet::Ping,
+            b'3' if is_upgrade => Packet::PongUpgrade,
+            b'3' => Packet::Pong,
+            b'4' => Packet::Message(value[1..].to_string()),
+            b'5' => Packet::Upgrade,
+            b'6' => Packet::Noop,
+            b'b' if value.as_bytes().get(1) == Some(&b'4') => {
+                Packet::BinaryV3(general_purpose::STANDARD.decode(value[2..].as_bytes())?)
             }
-            '3' => {
-                if is_upgrade {
-                    Packet::PongUpgrade
-                } else {
-                    Packet::Pong
-                }
-            }
-            '4' => Packet::Message(packet_data.to_string()),
-            '5' => Packet::Upgrade,
-            '6' => Packet::Noop,
-            'b' if value.starts_with("b4") => {
-                Packet::BinaryV3(general_purpose::STANDARD.decode(packet_data[1..].as_bytes())?)
-            }
-            'b' => Packet::Binary(general_purpose::STANDARD.decode(packet_data.as_bytes())?),
-            c => Err(serde_json::Error::custom(
-                "Invalid packet type ".to_string() + &c.to_string(),
-            ))?,
+            b'b' => Packet::Binary(general_purpose::STANDARD.decode(value[1..].as_bytes())?),
+            c => Err(Error::InvalidPacketType(Some(*c as char)))?,
         };
         Ok(res)
     }
 }
 
 impl TryFrom<String> for Packet {
-    type Error = crate::errors::Error;
+    type Error = Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Packet::try_from(value.as_str())
     }
 }
 
 /// An OpenPacket is used to initiate a connection
-#[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Serialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
     sid: Sid,
@@ -227,25 +226,8 @@ mod tests {
     }
 
     #[test]
-    fn test_open_packet_deserialize() {
-        let sid = Sid::new();
-        let packet_str = format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}");
-        let packet = Packet::try_from(packet_str.to_string()).unwrap();
-        assert_eq!(
-            packet,
-            Packet::Open(OpenPacket {
-                sid,
-                upgrades: vec!["websocket".to_string()],
-                ping_interval: 25000,
-                ping_timeout: 20000,
-                max_payload: 1e5 as u64,
-            })
-        );
-    }
-
-    #[test]
     fn test_message_packet() {
-        let packet = Packet::Message("hello".to_string());
+        let packet = Packet::Message("hello".into());
         let packet_str: String = packet.try_into().unwrap();
         assert_eq!(packet_str, "4hello");
     }
@@ -254,7 +236,7 @@ mod tests {
     fn test_message_packet_deserialize() {
         let packet_str = "4hello".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
-        assert_eq!(packet, Packet::Message("hello".to_string()));
+        assert_eq!(packet, Packet::Message("hello".into()));
     }
 
     #[test]
@@ -319,7 +301,7 @@ mod tests {
         let packet = Packet::PongUpgrade;
         assert_eq!(packet.get_size_hint(false), 6);
 
-        let packet = Packet::Message("hello".to_string());
+        let packet = Packet::Message("hello".into());
         assert_eq!(packet.get_size_hint(false), 6);
 
         let packet = Packet::Upgrade;

@@ -29,7 +29,7 @@
 //! let svc = EngineIoService::with_config(MyHandler, config);
 //! ```
 
-use std::time::Duration;
+use std::{borrow::Cow, time::Duration};
 
 use crate::service::TransportType;
 
@@ -38,7 +38,7 @@ use crate::service::TransportType;
 pub struct EngineIoConfig {
     /// The path to listen for engine.io requests on.
     /// Defaults to "/engine.io".
-    pub req_path: String,
+    pub req_path: Cow<'static, str>,
 
     /// The interval at which the server will send a ping packet to the client.
     /// Defaults to 25 seconds.
@@ -67,7 +67,7 @@ pub struct EngineIoConfig {
 impl Default for EngineIoConfig {
     fn default() -> Self {
         Self {
-            req_path: "/engine.io".to_string(),
+            req_path: "/engine.io".into(),
             ping_interval: Duration::from_millis(25000),
             ping_timeout: Duration::from_millis(20000),
             max_buffer_size: 128,
@@ -105,8 +105,8 @@ impl EngineIoConfigBuilder {
 
     /// The path to listen for engine.io requests on.
     /// Defaults to "/engine.io".
-    pub fn req_path(mut self, req_path: String) -> Self {
-        self.config.req_path = req_path;
+    pub fn req_path(mut self, req_path: impl Into<Cow<'static, str>>) -> Self {
+        self.config.req_path = req_path.into();
         self
     }
 

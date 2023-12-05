@@ -6,7 +6,7 @@ use tokio::sync::{mpsc::error::TrySendError, oneshot};
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("error serializing json packet: {0:?}")]
-    SerializeError(#[from] serde_json::Error),
+    Serialize(#[from] serde_json::Error),
 
     #[error("invalid packet type")]
     InvalidPacketType,
@@ -33,7 +33,7 @@ impl From<&Error> for Option<EIoDisconnectReason> {
         use EIoDisconnectReason::*;
         match value {
             Error::SocketGone(_) => Some(TransportClose),
-            Error::SerializeError(_) | Error::InvalidPacketType | Error::InvalidEventName => {
+            Error::Serialize(_) | Error::InvalidPacketType | Error::InvalidEventName => {
                 Some(PacketParsingError)
             }
             Error::Adapter(_) | Error::InvalidNamespace => None,

@@ -26,10 +26,9 @@ fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectR
     io.ns("/", move |socket: SocketRef| {
         println!("Socket connected on / namespace with id: {}", socket.id);
         let tx = tx.clone();
-        socket.on_disconnect(move |socket, reason| {
-            println!("Socket.IO disconnected: {} {}", socket.id, reason);
+        socket.on_disconnect(move |s: SocketRef, reason: DisconnectReason| {
+            println!("Socket.IO disconnected: {} {}", s.id, reason);
             tx.try_send(reason).unwrap();
-            async move {}
         });
     });
     rx
@@ -214,10 +213,9 @@ pub async fn server_ns_disconnect() {
             s.disconnect().unwrap();
         });
 
-        socket.on_disconnect(move |socket, reason| {
+        socket.on_disconnect(move |socket: SocketRef, reason: DisconnectReason| {
             println!("Socket.IO disconnected: {} {}", socket.id, reason);
             tx.try_send(reason).unwrap();
-            async move {}
         });
     });
 

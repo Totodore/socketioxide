@@ -48,6 +48,7 @@ engineioxide = { path = "../engineioxide", features = [
     "tracing",
     "test-utils",
 ] }
+tokio-tungstenite.workspace = true
 axum.workspace = true
 salvo.workspace = true
 warp.workspace = true
@@ -57,16 +58,8 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
 ] }
 tracing-subscriber.workspace = true
-tokio-tungstenite = "0.20.0"
-hyper = { workspace = true, features = [
-    "http1",
-    "http2",
-    "server",
-    "stream",
-    "runtime",
-    "client",
-] }
-criterion = { version = "0.5.1", features = ["html_reports"] }
+hyper.workspace = true
+criterion.workspace = true
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
