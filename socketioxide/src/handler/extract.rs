@@ -388,19 +388,20 @@ impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
 /// # use socketioxide::{SocketIo, extract::{SocketRef, State}};
 /// # use serde::{Serialize, Deserialize};
 /// # use std::sync::atomic::AtomicUsize;
+/// # use std::sync::atomic::Ordering;
 /// #[derive(Default)]
 /// struct MyAppData {
 ///     user_cnt: AtomicUsize,
 /// }
 /// impl MyAppData {
 ///     fn add_user(&self) {
-///         self.user_cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+///         self.user_cnt.fetch_add(1, Ordering::SeqCst);
 ///     }
 ///     fn user_cnt(&self) -> usize {
-///         self.user_cnt.load(std::sync::atomic::Ordering::SeqCst)
+///         self.user_cnt.load(Ordering::SeqCst)
 ///     }
 ///     fn rm_user(&self) {
-///         self.user_cnt.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+///         self.user_cnt.fetch_sub(1, Ordering::SeqCst);
 ///     }
 /// }
 /// let (_, io) = SocketIo::builder().with_state(MyAppData::default()).build_svc();
@@ -419,7 +420,7 @@ impl<T: Send + Sync + 'static> std::ops::Deref for State<T> {
     fn deref(&self) -> &Self::Target {
         // SAFETY: The state type is checked when the extractor is created
         // TODO: use `downcast_ref_unchecked` when it is stable
-        unsafe { &*(self.state.as_ref() as *const dyn std::any::Any as *const T) }
+        unsafe { &*(&self.state as *const dyn std::any::Any as *const T) }
     }
 }
 impl<T: Send + Sync + 'static> std::fmt::Debug for State<T> {
@@ -443,7 +444,8 @@ impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<T> {
         _: &Option<String>,
         state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, StateNotFound> {
-        // SAFETY: This check is mandatory because later when the extractor is used, the state type is dereferenced without any checks
+        // SAFETY: This check is mandatory because later when the extractor is used,
+        // the state type is dereferenced without any checks
         if !state.is::<T>() {
             return Err(StateNotFound);
         }
