@@ -388,6 +388,14 @@ impl<T: Send + Sync + 'static> std::ops::Deref for State<T> {
         unsafe { &*(self.state.as_ref() as *const dyn std::any::Any as *const T) }
     }
 }
+impl<T: Send + Sync + 'static> std::fmt::Debug for State<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("State")
+            .field("state", &self.state)
+            .field("_marker", &self._marker)
+            .finish()
+    }
+}
 
 /// It was impossible to find the given state and therefore the handler won't be called.
 #[derive(Debug, thiserror::Error)]
@@ -401,6 +409,7 @@ impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<T> {
         _: &Option<String>,
         state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, StateNotFound> {
+        // SAFETY: This check is mandatory because later when the extractor is used, the state type is dereferenced without any checks
         if !state.is::<T>() {
             return Err(StateNotFound);
         }
@@ -426,5 +435,37 @@ impl<A: Adapter, T: Send + Sync + 'static> FromMessageParts<A> for State<T> {
             state: state.clone(),
             _marker: std::marker::PhantomData,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use engineioxide::sid::Sid;
+
+    use crate::ns::Namespace;
+
+    use super::*;
+
+    fn new_socket() -> Arc<Socket<LocalAdapter>> {
+        let sid = Sid::new();
+        Arc::new(Socket::new_dummy(
+            sid,
+            Namespace::<LocalAdapter>::new_dummy([sid]),
+        ))
+    }
+
+    #[test]
+    fn extract_state_not_found() {
+        struct A;
+        struct B;
+        let b = Arc::new(B) as Arc<dyn std::any::Any + Send + Sync>;
+        State::<A>::from_connect_parts(&new_socket(), &None, &b).unwrap_err();
+    }
+
+    #[test]
+    fn extract_state_found() {
+        struct A;
+        let a = Arc::new(A) as Arc<dyn std::any::Any + Send + Sync>;
+        State::<A>::from_connect_parts(&new_socket(), &None, &a).unwrap();
     }
 }
