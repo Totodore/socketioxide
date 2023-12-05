@@ -60,9 +60,6 @@ use crate::{adapter::Adapter, socket::Socket};
 
 use super::MakeErasedHandler;
 
-#[cfg(feature = "state")]
-use crate::state::StateMap;
-
 /// A Type Erased [`ConnectHandler`] so it can be stored in a HashMap
 pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
@@ -70,7 +67,7 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
         &self,
         s: Arc<Socket<A>>,
         auth: Option<String>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     );
 }
 
@@ -94,14 +91,9 @@ where
         &self,
         s: Arc<Socket<A>>,
         auth: Option<String>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) {
-        self.handler.call(
-            s,
-            auth,
-            #[cfg(feature = "state")]
-            state,
-        );
+        self.handler.call(s, auth, state);
     }
 }
 
@@ -120,7 +112,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         auth: &Option<String>,
-        state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Self::Error>;
 }
 
@@ -135,7 +127,7 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
         &self,
         s: Arc<Socket<A>>,
         auth: Option<String>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     );
 
     #[doc(hidden)]
@@ -163,10 +155,14 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>,
-                #[cfg(feature = "state")] state: &StateMap) {
+            fn call(
+                &self,
+                s: Arc<Socket<A>>,
+                auth: Option<String>,
+                state: &Arc<dyn std::any::Any + Send + Sync>)
+            {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, #[cfg(feature = "state")] state) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth,  state) {
                             Ok(v) => v,
                             Err(_e) => {
                                 #[cfg(feature = "tracing")]
@@ -191,13 +187,18 @@ macro_rules! impl_handler {
         #[allow(non_snake_case, unused)]
         impl<A, F, $($ty,)*> ConnectHandler<A, (private::Sync, $($ty,)*)> for F
         where
-            F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
+            F:  FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, #[cfg(feature = "state")] state: &StateMap) {
+            fn call(
+                &self,
+                s: Arc<Socket<A>>,
+                auth: Option<String>,
+                state: &Arc<dyn std::any::Any + Send + Sync>)
+            {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, #[cfg(feature = "state")] state) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth,  state) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]

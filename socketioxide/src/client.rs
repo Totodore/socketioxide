@@ -11,8 +11,6 @@ use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
-#[cfg(feature = "state")]
-use crate::state::StateMap;
 use crate::ProtocolVersion;
 use crate::{
     errors::Error,
@@ -25,15 +23,16 @@ use crate::{
 pub struct Client<A: Adapter> {
     pub(crate) config: Arc<SocketIoConfig>,
     ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
-    #[cfg(feature = "state")]
-    state: StateMap,
+
+    state: Arc<dyn std::any::Any + Send + Sync>,
 }
 
 impl<A: Adapter> Client<A> {
-    pub fn new(config: Arc<SocketIoConfig>, #[cfg(feature = "state")] state: StateMap) -> Self {
+    pub fn new(config: Arc<SocketIoConfig>, state: Arc<dyn std::any::Any + Send + Sync>) -> Self {
         Self {
             config,
             ns: RwLock::new(HashMap::new()),
+
             state,
         }
     }
@@ -50,14 +49,7 @@ impl<A: Adapter> Client<A> {
 
         let sid = esocket.id;
         if let Some(ns) = self.get_ns(ns_path) {
-            ns.connect(
-                sid,
-                esocket.clone(),
-                auth,
-                self.config.clone(),
-                #[cfg(feature = "state")]
-                &self.state,
-            )?;
+            ns.connect(sid, esocket.clone(), auth, self.config.clone(), &self.state)?;
 
             // cancel the connect timeout task for v5
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
@@ -85,12 +77,7 @@ impl<A: Adapter> Client<A> {
     /// Propagate a packet to a its target namespace
     fn sock_propagate_packet(&self, packet: Packet<'_>, sid: Sid) -> Result<(), Error> {
         if let Some(ns) = self.get_ns(&packet.ns) {
-            ns.recv(
-                sid,
-                packet.inner,
-                #[cfg(feature = "state")]
-                &self.state,
-            )
+            ns.recv(sid, packet.inner, &self.state)
         } else {
             #[cfg(feature = "tracing")]
             tracing::debug!("invalid namespace requested: {}", packet.ns);

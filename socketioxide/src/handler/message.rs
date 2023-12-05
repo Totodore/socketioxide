@@ -79,9 +79,6 @@ use serde_json::Value;
 use crate::adapter::Adapter;
 use crate::socket::Socket;
 
-#[cfg(feature = "state")]
-use crate::state::StateMap;
-
 use super::MakeErasedHandler;
 
 /// A Type Erased [`MessageHandler`] so it can be stored in a HashMap
@@ -94,7 +91,7 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     );
 }
 
@@ -117,7 +114,7 @@ pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     );
 
     #[doc(hidden)]
@@ -150,16 +147,9 @@ where
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) {
-        self.handler.call(
-            s,
-            v,
-            p,
-            ack_id,
-            #[cfg(feature = "state")]
-            state,
-        );
+        self.handler.call(s, v, p, ack_id, state);
     }
 }
 
@@ -198,7 +188,7 @@ pub trait FromMessageParts<A: Adapter>: Sized {
         v: &mut Value,
         p: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Self::Error>;
 }
 
@@ -224,7 +214,7 @@ pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Self::Error>;
 }
 
@@ -240,7 +230,7 @@ where
         mut v: Value,
         mut p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Self::Error> {
         Self::from_message_parts(&s, &mut v, &mut p, &ack_id, state)
     }
@@ -259,7 +249,7 @@ where
         _: Value,
         _: Vec<Vec<u8>>,
         _: Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) {
         let fut = (self.clone())();
         tokio::spawn(fut);
@@ -278,7 +268,7 @@ where
         _: Value,
         _: Vec<Vec<u8>>,
         _: Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) {
         (self.clone())();
     }
@@ -297,9 +287,16 @@ macro_rules! impl_async_handler {
             $( $ty: FromMessageParts<A> + Send, )*
             $last: FromMessage<A, M> + Send,
         {
-        fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Vec<u8>>, ack_id: Option<i64>, #[cfg(feature = "state")] state: &StateMap) {
+        fn call(
+            &self,
+            s: Arc<Socket<A>>,
+            mut v: Value,
+            mut p: Vec<Vec<u8>>,
+            ack_id: Option<i64>,
+            state: &Arc<dyn std::any::Any + Send + Sync>)
+        {
                 $(
-                    let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id, #[cfg(feature = "state")] state) {
+                    let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id,  state) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -308,7 +305,7 @@ macro_rules! impl_async_handler {
                         },
                     };
                 )*
-                let last = match $last::from_message(s, v, p, ack_id, #[cfg(feature = "state")] state) {
+                let last = match $last::from_message(s, v, p, ack_id,  state) {
                     Ok(v) => v,
                     Err(_e) => {
                         #[cfg(feature = "tracing")]
@@ -334,14 +331,21 @@ macro_rules! impl_handler {
             $( $ty: FromMessageParts<A> + Send, )*
             $last: FromMessage<A, M> + Send,
         {
-            fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Vec<u8>>, ack_id: Option<i64>, #[cfg(feature = "state")] state: &StateMap) {
+            fn call(
+                &self,
+                s: Arc<Socket<A>>,
+                mut v: Value,
+                mut p: Vec<Vec<u8>>,
+                ack_id: Option<i64>,
+                state: &Arc<dyn std::any::Any + Send + Sync>)
+            {
                 $(
-                    let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id, #[cfg(feature = "state")] state) {
+                    let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id,  state) {
                         Ok(v) => v,
                         Err(_) => return,
                     };
                 )*
-                let last = match $last::from_message(s, v, p, ack_id, #[cfg(feature = "state")] state) {
+                let last = match $last::from_message(s, v, p, ack_id,  state) {
                     Ok(v) => v,
                     Err(_) => return,
                 };

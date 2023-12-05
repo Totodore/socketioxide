@@ -41,7 +41,6 @@ use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
     service::SocketIoService,
-    state::StateMap,
     SocketIoConfig,
 };
 
@@ -61,13 +60,9 @@ impl<A: Adapter> Clone for SocketIoLayer<A> {
 impl<A: Adapter> SocketIoLayer<A> {
     pub(crate) fn from_config(
         config: Arc<SocketIoConfig>,
-        #[cfg(feature = "state")] state: StateMap,
+        state: Arc<dyn std::any::Any + Send + Sync>,
     ) -> (Self, Arc<Client<A>>) {
-        let client = Arc::new(Client::new(
-            config.clone(),
-            #[cfg(feature = "state")]
-            state,
-        ));
+        let client = Arc::new(Client::new(config.clone(), state));
         let layer = Self {
             client: client.clone(),
         };

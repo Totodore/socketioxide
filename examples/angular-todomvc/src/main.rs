@@ -4,7 +4,7 @@ use axum::Server;
 
 use serde::{Deserialize, Serialize};
 use socketioxide::{
-    extract::{Data, SocketRef},
+    extract::{Data, SocketRef, State},
     SocketIo,
 };
 use tower::ServiceBuilder;
@@ -12,14 +12,14 @@ use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
 
-static TODOS: Mutex<Vec<Todo>> = Mutex::new(vec![]);
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Todo {
     completed: bool,
     editing: bool,
     title: String,
 }
+
+type Todos = Mutex<Vec<Todo>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,12 +29,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    let (layer, io) = SocketIo::new_layer();
+    let todos: Todos = Mutex::new(vec![]);
+    let (layer, io) = SocketIo::builder().with_state(todos).build_layer();
 
-    io.ns("/", |s: SocketRef| {
+    io.ns("/", |s: SocketRef, todos: State<Todos>| {
         info!("New connection: {}", s.id);
 
-        let todos = TODOS.lock().unwrap().clone();
+        let todos = todos.lock().unwrap().clone();
 
         // Because variadic args are not supported, array arguments are flattened.
         // Therefore to send a json array (required for the todomvc app) we need to wrap it in another array.
@@ -42,10 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "update-store",
-            |s: SocketRef, Data::<Vec<Todo>>(new_todos)| {
+            |s: SocketRef, Data::<Vec<Todo>>(new_todos), todos: State<Todos>| {
                 info!("Received update-store event: {:?}", new_todos);
 
-                let mut todos = TODOS.lock().unwrap();
+                let mut todos = todos.lock().unwrap();
                 todos.clear();
                 todos.extend_from_slice(&new_todos);
 

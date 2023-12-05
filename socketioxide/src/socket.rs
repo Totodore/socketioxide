@@ -20,8 +20,6 @@ use tokio::sync::oneshot;
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
-#[cfg(feature = "state")]
-use crate::state::StateMap;
 
 use crate::{
     adapter::{Adapter, LocalAdapter, Room},
@@ -598,24 +596,12 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn recv(
         self: Arc<Self>,
         packet: PacketData<'_>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<(), Error> {
         match packet {
-            PacketData::Event(e, data, ack) => self.recv_event(
-                &e,
-                data,
-                ack,
-                #[cfg(feature = "state")]
-                state,
-            ),
+            PacketData::Event(e, data, ack) => self.recv_event(&e, data, ack, state),
             PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
-            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(
-                &e,
-                packet,
-                ack,
-                #[cfg(feature = "state")]
-                state,
-            ),
+            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(&e, packet, ack, state),
             PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
             PacketData::Disconnect => self
                 .close(DisconnectReason::ClientNSDisconnect)
@@ -668,17 +654,10 @@ impl<A: Adapter> Socket<A> {
         e: &str,
         data: Value,
         ack: Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(
-                self.clone(),
-                data,
-                vec![],
-                ack,
-                #[cfg(feature = "state")]
-                state,
-            );
+            handler.call(self.clone(), data, vec![], ack, state);
         }
         Ok(())
     }
@@ -688,17 +667,10 @@ impl<A: Adapter> Socket<A> {
         e: &str,
         packet: BinaryPacket,
         ack: Option<i64>,
-        #[cfg(feature = "state")] state: &StateMap,
+        state: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(
-                self.clone(),
-                packet.data,
-                packet.bin,
-                ack,
-                #[cfg(feature = "state")]
-                state,
-            );
+            handler.call(self.clone(), packet.data, packet.bin, ack, state);
         }
         Ok(())
     }

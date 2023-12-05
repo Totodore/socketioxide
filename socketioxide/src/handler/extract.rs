@@ -91,8 +91,7 @@ use crate::{
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
-#[cfg(feature = "state")]
-use crate::state::StateMap;
+pub use state_extractor::*;
 
 /// Utility function to unwrap an array with a single element
 fn upwrap_array(v: &mut Value) {
@@ -117,7 +116,7 @@ where
     fn from_connect_parts(
         _: &Arc<Socket<A>>,
         auth: &Option<String>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Self::Error> {
         auth.as_ref()
             .map(|a| serde_json::from_str::<T>(a))
@@ -136,7 +135,7 @@ where
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Self::Error> {
         upwrap_array(v);
         serde_json::from_value(v.clone()).map(Data)
@@ -155,7 +154,7 @@ where
     fn from_connect_parts(
         _: &Arc<Socket<A>>,
         auth: &Option<String>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         let v: Result<T, serde_json::Error> = auth
             .as_ref()
@@ -175,7 +174,7 @@ where
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         upwrap_array(v);
         Ok(TryData(serde_json::from_value(v.clone())))
@@ -189,7 +188,7 @@ impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
@@ -201,7 +200,7 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
@@ -240,7 +239,7 @@ impl<A: Adapter> FromMessage<A> for Bin {
         _: serde_json::Value,
         bin: Vec<Vec<u8>>,
         _: Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(Bin(bin))
     }
@@ -261,7 +260,7 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(Self::new(s.clone(), *ack_id))
     }
@@ -303,7 +302,7 @@ impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
@@ -315,7 +314,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
@@ -326,7 +325,7 @@ impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
@@ -338,20 +337,100 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        #[cfg(feature = "state")] _: &StateMap,
+        _: &Arc<dyn std::any::Any + Send + Sync>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
 
-pub struct State<T: Send + Sync + 'static>(pub T);
-impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<&T> {
-    type Error = Infallible;
-    fn from_connect_parts(
-        _: &Arc<Socket<A>>,
-        _: &Option<String>,
-        state: &StateMap,
-    ) -> Result<Self, Infallible> {
-        Ok(State(&state.get::<T>().unwrap()))
+mod state_extractor {
+    use super::*;
+
+    /// An Extractor that contains a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+    /// It implements [`std::ops::Deref`] to access the inner type so you can use it as a normal reference.
+    ///  
+    /// The specified state type must be the same as the one set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+    /// If it is not the case, the handler won't be called and an error log will be print if the `tracing` feature is enabled.
+    ///
+    /// The state is shared between the entire socket.io app context.
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::{SocketRef, State}};
+    /// # use serde::{Serialize, Deserialize};
+    /// # use std::sync::atomic::AtomicUsize;
+    /// #[derive(Default)]
+    /// struct MyAppData {
+    ///     user_cnt: AtomicUsize,
+    /// }
+    /// impl MyAppData {
+    ///     fn add_user(&self) {
+    ///         self.user_cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    ///     }
+    ///     fn user_cnt(&self) -> usize {
+    ///         self.user_cnt.load(std::sync::atomic::Ordering::SeqCst)
+    ///     }
+    ///     fn rm_user(&self) {
+    ///         self.user_cnt.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    ///     }
+    /// }
+    /// let (_, io) = SocketIo::builder().with_state(MyAppData::default()).build_svc();
+    /// io.ns("/", |socket: SocketRef, state: State<MyAppData>| {
+    ///     state.add_user();
+    ///     println!("User count: {:?}", state.user_cnt);
+    ///     println!("User count: {}", state.user_cnt());
+    /// });
+    pub struct State<T: Send + Sync + 'static> {
+        /// The state must be in an `Arc` because it is impossible to have lifetime on the extracted data.
+        state: Arc<dyn std::any::Any + Send + Sync>,
+        _marker: std::marker::PhantomData<T>,
+    }
+    impl<T: Send + Sync + 'static> std::ops::Deref for State<T> {
+        type Target = T;
+        fn deref(&self) -> &Self::Target {
+            // SAFETY: The state type is checked when the extractor is created
+            // TODO: use `downcast_ref_unchecked` when it is stable
+            unsafe { &*(self.state.as_ref() as *const dyn std::any::Any as *const T) }
+        }
+    }
+
+    /// It was impossible to find the given state and therefore the handler won't be called.
+    #[derive(Debug, thiserror::Error)]
+    #[error("State not found")]
+    pub struct StateNotFound;
+
+    impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_connect_parts(
+            _: &Arc<Socket<A>>,
+            _: &Option<String>,
+            state: &Arc<dyn std::any::Any + Send + Sync>,
+        ) -> Result<Self, StateNotFound> {
+            if !state.is::<T>() {
+                return Err(StateNotFound);
+            }
+            Ok(State {
+                state: state.clone(),
+                _marker: std::marker::PhantomData,
+            })
+        }
+    }
+    impl<A: Adapter, T: Send + Sync + 'static> FromMessageParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_message_parts(
+            _: &Arc<Socket<A>>,
+            _: &mut Value,
+            _: &mut Vec<Vec<u8>>,
+            _: &Option<i64>,
+            state: &Arc<dyn std::any::Any + Send + Sync>,
+        ) -> Result<Self, StateNotFound> {
+            if !state.is::<T>() {
+                return Err(StateNotFound);
+            }
+            Ok(State {
+                state: state.clone(),
+                _marker: std::marker::PhantomData,
+            })
+        }
     }
 }

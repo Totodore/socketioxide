@@ -37,7 +37,7 @@ use tower::Service;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    SocketIoConfig, state::StateMap,
+    SocketIoConfig,
 };
 
 /// A [`Service`] that wraps [`EngineIoService`] and redirect every request to it
@@ -77,14 +77,10 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     pub(crate) fn with_config_inner(
         inner: S,
         config: Arc<SocketIoConfig>,
-        #[cfg(feature = "state")] state: StateMap,
+        state: Arc<dyn std::any::Any + Send + Sync>,
     ) -> (Self, Arc<Client<A>>) {
         let engine_config = config.engine_config.clone();
-        let client = Arc::new(Client::new(
-            config,
-            #[cfg(feature = "state")]
-            state,
-        ));
+        let client = Arc::new(Client::new(config, state));
         let svc = EngineIoService::with_config_inner(inner, client.clone(), engine_config);
         (Self { engine_svc: svc }, client)
     }
