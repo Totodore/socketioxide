@@ -81,7 +81,9 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use super::message::FromMessageParts;
+use super::FromDisconnectParts;
 use super::{connect::FromConnectParts, message::FromMessage};
+use crate::socket::DisconnectReason;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     packet::Packet,
@@ -185,6 +187,12 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
+        Ok(SocketRef(s.clone()))
+    }
+}
+impl<A: Adapter> FromDisconnectParts<A> for SocketRef<A> {
+    type Error = Infallible;
+    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
@@ -295,6 +303,12 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
         Ok(s.protocol())
     }
 }
+impl<A: Adapter> FromDisconnectParts<A> for crate::ProtocolVersion {
+    type Error = Infallible;
+    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+        Ok(s.protocol())
+    }
+}
 
 impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     type Error = Infallible;
@@ -311,5 +325,21 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
+    }
+}
+impl<A: Adapter> FromDisconnectParts<A> for crate::TransportType {
+    type Error = Infallible;
+    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+        Ok(s.transport_type())
+    }
+}
+
+impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
+    type Error = Infallible;
+    fn from_disconnect_parts(
+        _: &Arc<Socket<A>>,
+        reason: DisconnectReason,
+    ) -> Result<Self, Infallible> {
+        Ok(reason)
     }
 }

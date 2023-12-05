@@ -13,7 +13,6 @@ use std::{
 };
 
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
-use futures::{future::BoxFuture, Future};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -24,7 +23,10 @@ use crate::extensions::Extensions;
 use crate::{
     adapter::{Adapter, LocalAdapter, Room},
     errors::{AckError, Error},
-    handler::{BoxedMessageHandler, MakeErasedHandler, MessageHandler},
+    handler::{
+        BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
+        MessageHandler,
+    },
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
@@ -33,15 +35,10 @@ use crate::{
 use crate::{
     client::SocketData,
     errors::{AdapterError, SendError},
-    extract::SocketRef,
 };
 
-type DisconnectCallback<A> = Box<
-    dyn FnOnce(SocketRef<A>, DisconnectReason) -> BoxFuture<'static, ()> + Send + Sync + 'static,
->;
-
 /// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum DisconnectReason {
     /// The client gracefully closed the connection
     TransportClose,
@@ -117,7 +114,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
-    disconnect_handler: Mutex<Option<DisconnectCallback<A>>>,
+    disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
     ack_counter: AtomicI64,
     /// The socket id
@@ -240,12 +237,12 @@ impl<A: Adapter> Socket<A> {
     ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.id, socket.ns(), reason);
     ///     });
     /// });
-    pub fn on_disconnect<C, F>(&self, callback: C)
+    pub fn on_disconnect<C, T>(&self, callback: C)
     where
-        C: Fn(SocketRef<A>, DisconnectReason) -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
+        C: DisconnectHandler<A, T> + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
-        let handler = Box::new(move |s, r| Box::pin(callback(s, r)) as _);
+        let handler = MakeErasedHandler::new_disconnect_boxed(callback);
         *self.disconnect_handler.lock().unwrap() = Some(handler);
     }
 
@@ -585,7 +582,7 @@ impl<A: Adapter> Socket<A> {
     /// It maybe also close when the underlying transport is closed or failed.
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
         if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
-            tokio::spawn(handler(SocketRef::new(self.clone()), reason));
+            handler.call(self.clone(), reason);
         }
 
         self.ns.remove_socket(self.id)?;
