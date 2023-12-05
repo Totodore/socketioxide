@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok();
         });
 
-        s.on_disconnect(move |s, _| async move {
+        s.on_disconnect(|s: SocketRef| {
             if let Some(username) = s.extensions.get::<Username>() {
                 let i = NUM_USERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) - 1;
                 let res = Res::UserEvent {

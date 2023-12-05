@@ -139,17 +139,25 @@
 //! ```
 //!
 //! ## Handlers
-//! Handlers are functions or clonable closures that are given to the `io.ns` and the `socket.on` methods. They can be async or sync and can take from 0 to 16 arguments that implements the [`FromConnectParts`](handler::FromConnectParts) trait for the [`ConnectHandler`](handler::ConnectHandler) and the [`FromMessageParts`](handler::FromMessageParts) for the [`MessageHandler`](handler::MessageHandler). They are greatly inspired by the axum handlers.
+//! Handlers are functions or clonable closures that are given to the `io.ns`, the `socket.on` and the `socket.on_disconnect` fns.
+//! They can be async or sync and can take from 0 to 16 arguments that implements the [`FromConnectParts`](handler::FromConnectParts)
+//! trait for the [`ConnectHandler`](handler::ConnectHandler), the [`FromMessageParts`](handler::FromMessageParts) for
+//! the [`MessageHandler`](handler::MessageHandler) and the [`FromDisconnectParts`](handler::FromDisconnectParts) for
+//! the [`DisconnectHandler`](handler::DisconnectHandler).
+//! They are greatly inspired by the axum handlers.
 //!
 //! If they are async, a new task will be spawned for each incoming connection/message so it doesn't block the event management task.
 //!
 //! * Check the [`handler::connect`] module doc for more details on the connect handler
 //! * Check the [`handler::message`] module doc for more details on the message handler.
+//! * Check the [`handler::disconnect`] module doc for more details on the disconnect handler.
 //! * Check the [`handler::extract`] module doc for more details on the extractors.
 //!
 //! ## Extractors
 //! Handlers params are called extractors and are used to extract data from the incoming connection/message. They are inspired by the axum extractors.
-//! An extractor is a struct that implements the [`FromConnectParts`](handler::FromConnectParts) trait for the [`ConnectHandler`](handler::ConnectHandler) and the [`FromMessageParts`](handler::FromMessageParts) for the [`MessageHandler`](handler::MessageHandler).
+//! An extractor is a struct that implements the [`FromConnectParts`](handler::FromConnectParts) trait for the [`ConnectHandler`](handler::ConnectHandler)
+//! the [`FromMessageParts`](handler::FromMessageParts) for the [`MessageHandler`](handler::MessageHandler) and the
+//! [`FromDisconnectParts`](handler::FromDisconnectParts) for the [`DisconnectHandler`](handler::DisconnectHandler).
 //!
 //! Here are some examples of extractors:
 //! * [`Data`](extract::Data): extracts and deserialize to json any data, if a deserialize error occurs the handler won't be called
@@ -161,6 +169,8 @@
 //! * [`SocketRef`](extract::Data): extracts a reference to the [`Socket`](socket::Socket)
 //! * [`Bin`](extract::Data): extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`](extract::Data): Can be used to send an ack response to the current message event
+//! * [`ProtocolVersion`]: extracts the protocol version of the socket
+//! * [`TransportType`]: extracts the transport type of the socket
 //!
 //! ### Extractor order
 //! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
@@ -173,7 +183,7 @@
 //! There are three types of events:
 //! * The connect event is emitted when a new connection is established. It can be handled with the [`ConnectHandler`](handler::ConnectHandler) and the `io.ns` method.
 //! * The message event is emitted when a new message is received. It can be handled with the [`MessageHandler`](handler::MessageHandler) and the `socket.on` method.
-//! * The disconnect event is emitted when a socket is closed. Contrary to the two previous events, the callback is not flexible, it *must* be async and have the following signature `async fn(SocketRef, DisconnectReason)`. It can be handled with the `socket.on_disconnect` method.
+//! * The disconnect event is emitted when a socket is closed. It can be handled with the [`DisconnectHandler`](handler::DisconnectHandler) and the `socket.on_disconnect` method.
 //!
 //! Only one handler can exist for an event so registering a new handler for an event will replace the previous one.
 //!

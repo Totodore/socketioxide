@@ -61,7 +61,7 @@ pub fn on_connection(s: SocketRef, TryData(auth): TryData<Auth>) {
         },
     );
 
-    s.on_disconnect(|s, _| async move {
+    s.on_disconnect(|s: SocketRef| {
         let mut session = s.extensions.get::<Session>().unwrap().clone();
         session.connected = false;
 
