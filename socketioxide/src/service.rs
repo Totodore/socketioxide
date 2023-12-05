@@ -1,4 +1,4 @@
-//! ## A tower [`Service`](tower::Service) for socket.io so it can be used with frameworks supporting tower services.
+//! ## A tower [`Service`] for socket.io so it can be used with frameworks supporting tower services.
 //!
 //! #### Example with a `Warp` inner service :
 //! ```rust

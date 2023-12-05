@@ -1,5 +1,5 @@
 //! A [`Socket`] represents a client connected to a namespace.
-//! The socket struct itself should not be used directly, but through a [`SocketRef`].
+//! The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -38,6 +38,8 @@ use crate::{
 };
 
 /// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
+///
+/// It can be used as an extractor in the [`on_disconnect`](crate::handler::disconnect) handler.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum DisconnectReason {
     /// The client gracefully closed the connection
@@ -109,7 +111,7 @@ pub struct AckResponse<T> {
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
-/// The socket struct itself should not be used directly, but through a [`SocketRef`].
+/// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket<A: Adapter = LocalAdapter> {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace<A>>,
@@ -216,9 +218,10 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// ## Registers a disconnect handler.
+    /// You can register only one disconnect handler per socket. If you register multiple handlers, only the last one will be used.
     ///
-    /// Contrary to [`ConnectHandler`](crate::handler::ConnectHandler) and [`MessageHandler`].
-    /// Arguments are not dynamic and the handler should always be async.
+    /// * See the [`disconnect`](crate::handler::disconnect) module doc for more details on disconnect handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
     ///
     /// The callback will be called when the socket is disconnected from the server or the client or when the underlying connection crashes.
     /// A [`DisconnectReason`] is passed to the callback to indicate the reason for the disconnection.
@@ -233,7 +236,7 @@ impl<A: Adapter> Socket<A> {
     ///         // Close the current socket
     ///         socket.disconnect().ok();
     ///     });
-    ///     socket.on_disconnect(|socket, reason| async move {
+    ///     socket.on_disconnect(|socket: SocketRef, reason: DisconnectReason| async move {
     ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.id, socket.ns(), reason);
     ///     });
     /// });
@@ -243,7 +246,7 @@ impl<A: Adapter> Socket<A> {
         T: Send + Sync + 'static,
     {
         let handler = MakeErasedHandler::new_disconnect_boxed(callback);
-        *self.disconnect_handler.lock().unwrap() = Some(handler);
+        self.disconnect_handler.lock().unwrap().replace(handler);
     }
 
     /// Emits a message to the client

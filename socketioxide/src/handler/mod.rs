@@ -1,6 +1,6 @@
 //! Functions and types used to handle incoming connections and messages.
-//! There is two main types of handlers: [`ConnectHandler`] and [`MessageHandler`].
-//! Both handlers can be async or not.
+//! There is three main types of handlers: [`ConnectHandler`], [`MessageHandler`] and [`DisconnectHandler`].
+//! All handlers can be async or not.
 pub mod connect;
 pub mod disconnect;
 pub mod extract;

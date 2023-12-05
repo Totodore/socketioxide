@@ -1,4 +1,4 @@
-//! [`DisconnectHandler`] trait and implementations, used to handle the connect event.
+//! [`DisconnectHandler`] trait and implementations, used to handle the disconnect event.
 //! It has a flexible axum-like API, you can put any arguments as long as it implements the [`FromDisconnectParts`] trait.
 //!
 //! You can also implement the [`FromDisconnectParts`] trait for your own types.
@@ -11,11 +11,12 @@
 //! # use socketioxide::SocketIo;
 //! # use serde_json::Error;
 //! # use socketioxide::extract::*;
+//! # use socketioxide::socket::DisconnectReason;
 //! let (svc, io) = SocketIo::new_svc();
-//! // Here the handler is sync,
-//! // if there is a serialization error, the handler is not called
-//! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
-//!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
+//! io.ns("/", |s: SocketRef| {
+//!     s.on_disconnect(|s: SocketRef, reason: DisconnectReason| {
+//!         println!("Socket {} was disconnected because {} ", s.id, reason);
+//!     });
 //! });
 //! ```
 //!
@@ -25,14 +26,10 @@
 //! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
-//! // Here the handler is async and extract the current socket and the auth payload
-//! io.ns("/", move |s: SocketRef, TryData(auth): TryData<String>| async move {
-//!     println!("Socket connected on / namespace with id and auth data: {} {:?}", s.id, auth);
-//! });
-//! // Here the handler is async and only extract the current socket.
-//! // The auth payload won't be deserialized and will be dropped
-//! io.ns("/async_nsp", move |s: SocketRef| async move {
-//!     println!("Socket connected on /async_nsp namespace with id: {}", s.id);
+//! io.ns("/", |s: SocketRef| {
+//!     s.on_disconnect(move |s: SocketRef| async move {
+//!         println!("Socket {} was disconnected", s.id);
+//!     });
 //! });
 //! ```
 //!
@@ -41,16 +38,21 @@
 //! # use socketioxide::SocketIo;
 //! # use serde_json::Error;
 //! # use socketioxide::extract::*;
-//! async fn handler(s: SocketRef, TryData(auth): TryData<String>) {
+//! # use socketioxide::socket::DisconnectReason;
+//! async fn handler(s: SocketRef, reason: DisconnectReason) {
 //!     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-//!     println!("Socket connected on {} namespace with id and auth data: {} {:?}", s.ns(), s.id, auth);
+//!     println!("Socket disconnected on {} namespace with id and reason: {} {}", s.ns(), s.id, reason);
 //! }
 //!
 //! let (svc, io) = SocketIo::new_svc();
 //!
-//! // You can reuse the same handler for multiple namespaces
-//! io.ns("/", handler);
-//! io.ns("/admin", handler);
+//! // You can reuse the same handler for multiple sockets
+//! io.ns("/", |s: SocketRef| {
+//!     s.on_disconnect(handler);
+//! });
+//! io.ns("/admin", |s: SocketRef| {
+//!     s.on_disconnect(handler);
+//! });
 //! ```
 use std::sync::Arc;
 
@@ -90,17 +92,17 @@ where
     }
 }
 
-/// A trait used to extract the arguments from the connect event.
+/// A trait used to extract the arguments from the disconnect event.
 /// The `Result` associated type is used to return an error if the extraction fails,
 /// in this case the [`DisconnectHandler`] is not called.
 ///
-/// * See the [`connect`](super::connect) module doc for more details on connect handler.
+/// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait FromDisconnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
 
-    /// Extract the arguments from the connect event.
+    /// Extract the arguments from the disconnect event.
     /// If it fails, the handler is not called
     fn from_disconnect_parts(
         s: &Arc<Socket<A>>,
@@ -108,10 +110,10 @@ pub trait FromDisconnectParts<A: Adapter>: Sized {
     ) -> Result<Self, Self::Error>;
 }
 
-/// Define a handler for the connect event.
+/// Define a handler for the disconnect event.
 /// It is implemented for closures with up to 16 arguments. They must implement the [`FromDisconnectParts`] trait.
 ///
-/// * See the [`connect`](super::connect) module doc for more details on connect handler.
+/// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.

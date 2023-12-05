@@ -1,4 +1,5 @@
-//! ### Extractors for [`ConnectHandler`](super::ConnectHandler) and [`MessageHandler`](super::MessageHandler).
+//! ### Extractors for [`ConnectHandler`](super::ConnectHandler), [`MessageHandler`](super::MessageHandler)
+//! and [`DisconnectHandler`](super::DisconnectHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
 //! * [`Data`]: extracts and deserialize to json any data, if a deserialization error occurs the handler won't be called:
@@ -10,8 +11,10 @@
 //! * [`SocketRef`]: extracts a reference to the [`Socket`]
 //! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
+//! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
+//! * [`TransportType`](crate::TransportType): extracts the transport type
 //!
-//! ### You can also implement your own Extractor with the [`FromConnectParts`]and [`FromMessageParts`] traits
+//! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits
 //! When implementing these traits, if you clone the [`Arc<Socket>`] make sure that it is dropped at least when the socket is disconnected.
 //! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning the socket for common usage.
 //!
