@@ -1,3 +1,7 @@
+# 0.7.3
+## socketioxide
+* Fix [#189](https://github.com/Totodore/socketioxide/issues/189). Async message handlers were never called because the returned future was not spawned with `tokio::spawn`.
+
 # 0.7.2
 ## socketioxide
 * The `on_disconnect` callback now takes a `SocketRef` rather than an `Arc<Socket>` to match other handlers. It also avoids that the user clone the socket and create a memory leak.

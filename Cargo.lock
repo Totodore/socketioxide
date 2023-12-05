@@ -84,7 +84,7 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "angular-todomvc"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "serde",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "axum-echo"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "serde_json",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "background-task"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "serde",
@@ -218,7 +218,7 @@ checksum = "35636a1494ede3b646cc98f74f8e62c773a38a659ebc777a2cf26b9b74171df9"
 
 [[package]]
 name = "basic-crud-application"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "serde",
@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "engineio-echo"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "hyper 0.14.27",
  "serde_json",
@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "base64",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide-e2e"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "engineioxide",
  "hyper 0.14.27",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "hyper-echo"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "hyper 0.14.27",
  "serde_json",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "hyper-v1-echo"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "hyper 1.0.0-rc.4",
  "hyper-util",
@@ -1444,7 +1444,7 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
 name = "private-messaging"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "serde",
@@ -1639,7 +1639,7 @@ dependencies = [
 
 [[package]]
 name = "salvo-echo"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "salvo",
  "serde_json",
@@ -1886,7 +1886,7 @@ dependencies = [
 
 [[package]]
 name = "socketio-chat"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "serde",
@@ -1901,7 +1901,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "criterion",
@@ -1928,7 +1928,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-e2e"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "hyper 0.14.27",
  "serde_json",
@@ -2501,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "whiteboard"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "serde",
