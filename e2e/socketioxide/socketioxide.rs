@@ -23,9 +23,10 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
         },
     );
 
+    // keep this handler async to test async message handlers
     socket.on(
         "message-with-ack",
-        |Data::<Value>(data), ack: AckSender, Bin(bin)| {
+        |Data::<Value>(data), ack: AckSender, Bin(bin)| async move {
             info!("Received event: {:?} {:?}", data, bin);
             ack.bin(bin).send(data).ok();
         },

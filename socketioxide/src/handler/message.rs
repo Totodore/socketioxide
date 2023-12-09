@@ -314,7 +314,8 @@ macro_rules! impl_async_handler {
                     },
                 };
 
-                (self.clone())($($ty,)* last);
+                let fut = (self.clone())($($ty,)* last);
+                tokio::spawn(fut);
             }
         }
     };
