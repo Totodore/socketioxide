@@ -57,7 +57,7 @@ pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
     adapter: std::marker::PhantomData<A>,
-    state: Arc<dyn std::any::Any + Send + Sync>,
+    state: StateCell,
 }
 
 impl<A: Adapter> SocketIoBuilder<A> {

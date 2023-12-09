@@ -63,12 +63,7 @@ use super::MakeErasedHandler;
 /// A Type Erased [`ConnectHandler`] so it can be stored in a HashMap
 pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        auth: Option<String>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
-    );
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, state: &StateCell);
 }
 
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
@@ -87,12 +82,7 @@ where
     T: Send + Sync + 'static,
 {
     #[inline(always)]
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        auth: Option<String>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
-    ) {
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, state: &StateCell) {
         self.handler.call(s, auth, state);
     }
 }
@@ -112,7 +102,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         auth: &Option<String>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<Self, Self::Error>;
 }
 
@@ -123,12 +113,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        auth: Option<String>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
-    );
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, state: &StateCell);
 
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -159,7 +144,7 @@ macro_rules! impl_handler_async {
                 &self,
                 s: Arc<Socket<A>>,
                 auth: Option<String>,
-                state: &Arc<dyn std::any::Any + Send + Sync>)
+                state: &StateCell)
             {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth,  state) {
@@ -195,7 +180,7 @@ macro_rules! impl_handler {
                 &self,
                 s: Arc<Socket<A>>,
                 auth: Option<String>,
-                state: &Arc<dyn std::any::Any + Send + Sync>)
+                state: &StateCell)
             {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth,  state) {

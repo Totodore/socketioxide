@@ -43,7 +43,7 @@ impl<A: Adapter> Namespace<A> {
         esocket: Arc<engineioxide::Socket<SocketData>>,
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<(), serde_json::Error> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
 
@@ -73,12 +73,7 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.read().unwrap().values().any(|s| s.id == sid)
     }
 
-    pub fn recv(
-        &self,
-        sid: Sid,
-        packet: PacketData<'_>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
-    ) -> Result<(), Error> {
+    pub fn recv(&self, sid: Sid, packet: PacketData<'_>, state: &StateCell) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError => Err(Error::InvalidPacketType),

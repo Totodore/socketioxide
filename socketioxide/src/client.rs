@@ -24,11 +24,11 @@ pub struct Client<A: Adapter> {
     pub(crate) config: Arc<SocketIoConfig>,
     ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
 
-    state: Arc<dyn std::any::Any + Send + Sync>,
+    state: StateCell,
 }
 
 impl<A: Adapter> Client<A> {
-    pub fn new(config: Arc<SocketIoConfig>, state: Arc<dyn std::any::Any + Send + Sync>) -> Self {
+    pub fn new(config: Arc<SocketIoConfig>, state: StateCell) -> Self {
         Self {
             config,
             ns: RwLock::new(HashMap::new()),

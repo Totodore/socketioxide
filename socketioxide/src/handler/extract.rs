@@ -119,7 +119,7 @@ where
     fn from_connect_parts(
         _: &Arc<Socket<A>>,
         auth: &Option<String>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Self::Error> {
         auth.as_ref()
             .map(|a| serde_json::from_str::<T>(a))
@@ -138,7 +138,7 @@ where
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Self::Error> {
         upwrap_array(v);
         serde_json::from_value(v.clone()).map(Data)
@@ -157,7 +157,7 @@ where
     fn from_connect_parts(
         _: &Arc<Socket<A>>,
         auth: &Option<String>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         let v: Result<T, serde_json::Error> = auth
             .as_ref()
@@ -177,7 +177,7 @@ where
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         upwrap_array(v);
         Ok(TryData(serde_json::from_value(v.clone())))
@@ -191,7 +191,7 @@ impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
@@ -203,7 +203,7 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
@@ -248,7 +248,7 @@ impl<A: Adapter> FromMessage<A> for Bin {
         _: serde_json::Value,
         bin: Vec<Vec<u8>>,
         _: Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(Bin(bin))
     }
@@ -269,7 +269,7 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(Self::new(s.clone(), *ack_id))
     }
@@ -311,7 +311,7 @@ impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
@@ -323,7 +323,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
@@ -340,7 +340,7 @@ impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
@@ -352,7 +352,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
+        _: &StateCell,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
@@ -411,10 +411,12 @@ impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
 ///     println!("User count: {}", state.user_cnt());
 /// });
 pub struct State<T: Send + Sync + 'static> {
-    /// The state must be in an `Arc` because it is impossible to have lifetime on the extracted data.
-    state: Arc<dyn std::any::Any + Send + Sync>,
+    state: StateCell,
     _marker: std::marker::PhantomData<T>,
 }
+/// The state must be in an `Arc` because it is impossible to have lifetime on the extracted data.
+pub type StateCell = Arc<dyn std::any::Any + Send + Sync>;
+
 impl<T: Send + Sync + 'static> std::ops::Deref for State<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
@@ -442,7 +444,7 @@ impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<T> {
     fn from_connect_parts(
         _: &Arc<Socket<A>>,
         _: &Option<String>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<Self, StateNotFound> {
         // SAFETY: This check is mandatory because later when the extractor is used,
         // the state type is dereferenced without any checks
@@ -462,7 +464,7 @@ impl<A: Adapter, T: Send + Sync + 'static> FromMessageParts<A> for State<T> {
         _: &mut Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<Self, StateNotFound> {
         if !state.is::<T>() {
             return Err(StateNotFound);
@@ -494,14 +496,14 @@ mod tests {
     fn extract_state_not_found() {
         struct A;
         struct B;
-        let b = Arc::new(B) as Arc<dyn std::any::Any + Send + Sync>;
+        let b = Arc::new(B) as StateCell;
         State::<A>::from_connect_parts(&new_socket(), &None, &b).unwrap_err();
     }
 
     #[test]
     fn extract_state_found() {
         struct A;
-        let a = Arc::new(A) as Arc<dyn std::any::Any + Send + Sync>;
+        let a = Arc::new(A) as StateCell;
         State::<A>::from_connect_parts(&new_socket(), &None, &a).unwrap();
     }
 }

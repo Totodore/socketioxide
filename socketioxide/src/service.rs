@@ -77,7 +77,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     pub(crate) fn with_config_inner(
         inner: S,
         config: Arc<SocketIoConfig>,
-        state: Arc<dyn std::any::Any + Send + Sync>,
+        state: StateCell,
     ) -> (Self, Arc<Client<A>>) {
         let engine_config = config.engine_config.clone();
         let client = Arc::new(Client::new(config, state));

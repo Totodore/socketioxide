@@ -596,7 +596,7 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn recv(
         self: Arc<Self>,
         packet: PacketData<'_>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<(), Error> {
         match packet {
             PacketData::Event(e, data, ack) => self.recv_event(&e, data, ack, state),
@@ -654,7 +654,7 @@ impl<A: Adapter> Socket<A> {
         e: &str,
         data: Value,
         ack: Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), data, vec![], ack, state);
@@ -667,7 +667,7 @@ impl<A: Adapter> Socket<A> {
         e: &str,
         packet: BinaryPacket,
         ack: Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), packet.data, packet.bin, ack, state);

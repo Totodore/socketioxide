@@ -60,7 +60,7 @@ impl<A: Adapter> Clone for SocketIoLayer<A> {
 impl<A: Adapter> SocketIoLayer<A> {
     pub(crate) fn from_config(
         config: Arc<SocketIoConfig>,
-        state: Arc<dyn std::any::Any + Send + Sync>,
+        state: StateCell,
     ) -> (Self, Arc<Client<A>>) {
         let client = Arc::new(Client::new(config.clone(), state));
         let layer = Self {

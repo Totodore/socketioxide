@@ -91,7 +91,7 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     );
 }
 
@@ -114,7 +114,7 @@ pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     );
 
     #[doc(hidden)]
@@ -147,7 +147,7 @@ where
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) {
         self.handler.call(s, v, p, ack_id, state);
     }
@@ -188,7 +188,7 @@ pub trait FromMessageParts<A: Adapter>: Sized {
         v: &mut Value,
         p: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<Self, Self::Error>;
 }
 
@@ -214,7 +214,7 @@ pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
         v: Value,
         p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<Self, Self::Error>;
 }
 
@@ -230,7 +230,7 @@ where
         mut v: Value,
         mut p: Vec<Vec<u8>>,
         ack_id: Option<i64>,
-        state: &Arc<dyn std::any::Any + Send + Sync>,
+        state: &StateCell,
     ) -> Result<Self, Self::Error> {
         Self::from_message_parts(&s, &mut v, &mut p, &ack_id, state)
     }
@@ -243,14 +243,7 @@ where
     Fut: Future<Output = ()> + Send + 'static,
     A: Adapter,
 {
-    fn call(
-        &self,
-        _: Arc<Socket<A>>,
-        _: Value,
-        _: Vec<Vec<u8>>,
-        _: Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
-    ) {
+    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Vec<u8>>, _: Option<i64>, _: &StateCell) {
         let fut = (self.clone())();
         tokio::spawn(fut);
     }
@@ -262,14 +255,7 @@ where
     F: FnOnce() + Send + Sync + Clone + 'static,
     A: Adapter,
 {
-    fn call(
-        &self,
-        _: Arc<Socket<A>>,
-        _: Value,
-        _: Vec<Vec<u8>>,
-        _: Option<i64>,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
-    ) {
+    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Vec<u8>>, _: Option<i64>, _: &StateCell) {
         (self.clone())();
     }
 }
@@ -293,7 +279,7 @@ macro_rules! impl_async_handler {
             mut v: Value,
             mut p: Vec<Vec<u8>>,
             ack_id: Option<i64>,
-            state: &Arc<dyn std::any::Any + Send + Sync>)
+            state: &StateCell)
         {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id,  state) {
@@ -338,7 +324,7 @@ macro_rules! impl_handler {
                 mut v: Value,
                 mut p: Vec<Vec<u8>>,
                 ack_id: Option<i64>,
-                state: &Arc<dyn std::any::Any + Send + Sync>)
+                state: &StateCell)
             {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id,  state) {
