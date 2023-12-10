@@ -37,6 +37,7 @@ use tower::Service;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
+    extract::StateCell,
     SocketIoConfig,
 };
 

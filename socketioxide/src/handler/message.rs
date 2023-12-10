@@ -77,6 +77,7 @@ use futures::Future;
 use serde_json::Value;
 
 use crate::adapter::Adapter;
+use crate::extract::StateCell;
 use crate::socket::Socket;
 
 use super::MakeErasedHandler;

@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    extract::SocketRef,
+    extract::{SocketRef, StateCell},
     handler::ConnectHandler,
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},

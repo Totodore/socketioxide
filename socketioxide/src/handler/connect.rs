@@ -56,6 +56,7 @@ use std::sync::Arc;
 
 use futures::Future;
 
+use crate::extract::StateCell;
 use crate::{adapter::Adapter, socket::Socket};
 
 use super::MakeErasedHandler;

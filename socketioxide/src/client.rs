@@ -10,6 +10,7 @@ use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
+use crate::extract::StateCell;
 use crate::handler::ConnectHandler;
 use crate::ProtocolVersion;
 use crate::{

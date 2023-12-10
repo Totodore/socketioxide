@@ -23,6 +23,7 @@ use crate::extensions::Extensions;
 use crate::{
     adapter::{Adapter, LocalAdapter, Room},
     errors::{AckError, Error},
+    extract::StateCell,
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
         MessageHandler,
