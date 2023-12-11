@@ -5,7 +5,7 @@ edition.workspace = true
 
 
 [dependencies]
-socketioxide = { path = "../../socketioxide" }
+socketioxide = { path = "../../socketioxide", features = ["state"] }
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

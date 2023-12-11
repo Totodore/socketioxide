@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{OnceLock, RwLock},
-};
+use std::{collections::HashMap, sync::RwLock};
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -31,8 +28,7 @@ pub struct Message {
     pub content: String,
 }
 
-static SESSIONS: OnceLock<RwLock<HashMap<Uuid, Session>>> = OnceLock::new();
-pub fn get_sessions() -> &'static RwLock<HashMap<Uuid, Session>> {
-    SESSIONS.get_or_init(|| RwLock::new(HashMap::new()))
-}
-pub static MESSAGES: RwLock<Vec<Message>> = RwLock::new(vec![]);
+#[derive(Default)]
+pub struct Sessions(pub RwLock<HashMap<Uuid, Session>>);
+#[derive(Default)]
+pub struct Messages(pub RwLock<Vec<Message>>);

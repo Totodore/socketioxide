@@ -6,6 +6,8 @@ use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
 
+use crate::store::{Messages, Sessions};
+
 mod handlers;
 mod store;
 
@@ -17,7 +19,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    let (layer, io) = SocketIo::new_layer();
+    let (layer, io) = SocketIo::builder()
+        .with_state(Sessions::default())
+        .with_state(Messages::default())
+        .build_layer();
 
     io.ns("/", handlers::on_connection);
 
