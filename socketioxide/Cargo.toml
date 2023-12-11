@@ -67,7 +67,7 @@ criterion.workspace = true
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-features = ["v4", "extensions", "hyper-v1", "tracing"]
+features = ["v4", "extensions", "hyper-v1", "tracing", "state"]
 # Special configuration for docs.rs build
 rustdoc-args = ["--cfg", "docsrs"]
 
