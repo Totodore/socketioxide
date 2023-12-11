@@ -76,14 +76,6 @@ impl<H: EngineIoHandler> EngineIoLayer<H> {
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
         Self { config, handler }
     }
-
-    /// Create a `hyper-v1` compatible [`Layer`]
-    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-    #[cfg(feature = "hyper-v1")]
-    #[inline(always)]
-    pub fn with_hyper_v1(self) -> EngineIoHyperLayer<H> {
-        EngineIoHyperLayer(self)
-    }
 }
 
 impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
@@ -91,24 +83,5 @@ impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
 
     fn layer(&self, inner: S) -> Self::Service {
         EngineIoService::with_config_inner(inner, self.handler.clone(), self.config.clone())
-    }
-}
-
-/// Wrapper [`Layer`] for [`EngineIoLayer`] so it works with `hyper-v1`
-///
-/// It is only available through the feature flag `hyper-v1`
-#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-#[cfg(feature = "hyper-v1")]
-#[derive(Debug, Clone)]
-pub struct EngineIoHyperLayer<H: EngineIoHandler>(EngineIoLayer<H>);
-
-#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-#[cfg(feature = "hyper-v1")]
-impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoHyperLayer<H> {
-    type Service = crate::service::hyper_v1::EngineIoHyperService<H, S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        EngineIoService::with_config_inner(inner, self.0.handler.clone(), self.0.config.clone())
-            .with_hyper_v1()
     }
 }

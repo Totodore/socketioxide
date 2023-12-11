@@ -2,7 +2,7 @@ use http::{Response, StatusCode};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 
-use crate::body::response::ResponseBody;
+use crate::body::ResponseBody;
 use crate::packet::Packet;
 use crate::sid::Sid;
 

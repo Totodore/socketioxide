@@ -28,6 +28,8 @@ tokio = { workspace = true, features = ["rt", "time"] }
 tower.workspace = true
 hyper.workspace = true
 tokio-tungstenite.workspace = true
+http-body-util = { version = "0.1.0" }
+hyper-util = { version = "0.1.1", features = ["tokio"] }
 
 base64 = "0.21.0"
 bytes = "1.4.0"
@@ -41,9 +43,6 @@ tracing = { workspace = true, optional = true }
 memchr = { version = "2.5.0", optional = true }
 unicode-segmentation = { version = "1.10.1", optional = true }
 
-# Hyper v1.0
-hyper-v1 = { workspace = true, optional = true }
-http-body-v1 = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
@@ -51,13 +50,12 @@ tracing-subscriber.workspace = true
 criterion.workspace = true
 warp.workspace = true
 axum.workspace = true
-salvo.workspace = true
+hyper.workspace = { workspace = true, features = ["full"] }
 
 [features]
 v3 = ["memchr", "unicode-segmentation"]
 test-utils = []
 tracing = ["dep:tracing"]
-hyper-v1 = ["dep:hyper-v1", "dep:http-body-v1"]
 
 [[bench]]
 name = "packet_encode"

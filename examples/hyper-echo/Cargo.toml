@@ -1,13 +1,14 @@
 [package]
-name = "hyper-echo"
+name = "hyper-v1-echo"
 version.workspace = true
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-socketioxide = { path = "../../socketioxide" }
-hyper.workspace = true
+socketioxide = { path = "../../socketioxide", features = ["tracing"] }
+hyper = { workspace = true, features = ["server", "http1", "http2"] }
+hyper-util.version = "0.1.1"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true

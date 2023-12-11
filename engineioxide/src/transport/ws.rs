@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use futures::{
-    future::Either,
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
 };
@@ -22,7 +21,7 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    body::response::ResponseBody,
+    body::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
     errors::Error,
@@ -33,9 +32,6 @@ use crate::{
     sid::Sid,
     DisconnectReason, Socket,
 };
-
-#[cfg(feature = "hyper-v1")]
-mod tokio_io;
 
 /// Create a response for websocket upgrade
 fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
@@ -63,7 +59,6 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     protocol: ProtocolVersion,
     sid: Option<Sid>,
     req: Request<R>,
-    #[cfg(feature = "hyper-v1")] hyper_v1: bool,
 ) -> Result<Response<ResponseBody<B>>, Error> {
     let mut parts = Request::builder()
         .method(req.method().clone())
@@ -82,27 +77,12 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         .clone();
 
     tokio::spawn(async move {
-        #[cfg(feature = "hyper-v1")]
-        let res = if hyper_v1 {
-            // Wraps the hyper-v1 upgrade so it implement `AsyncRead` and `AsyncWrite`
-            Either::Left(hyper_v1::upgrade::on(req).await.map(tokio_io::TokioIo::new))
-        } else {
-            Either::Right(hyper::upgrade::on(req).await)
-        };
-        #[cfg(not(feature = "hyper-v1"))]
-        let res = {
-            type Res = Result<hyper::upgrade::Upgraded, hyper::Error>;
-            Either::Right(hyper::upgrade::on(req).await) as Either<Res, Res>
-        };
-        let res = match res {
-            Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
-            Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
-            Either::Left(Err(_e)) => {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("ws upgrade error: {}", _e);
-                return;
-            }
-            Either::Right(Err(_e)) => {
+        let conn = hyper::upgrade::on(req)
+            .await
+            .map(hyper_util::rt::TokioIo::new);
+        let res = match conn {
+            Ok(conn) => on_init(engine, conn, protocol, sid, parts).await,
+            Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
                 return;

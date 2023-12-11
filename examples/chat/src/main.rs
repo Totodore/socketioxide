@@ -1,7 +1,5 @@
 use std::sync::atomic::AtomicUsize;
 
-use axum::Server;
-
 use serde::{Deserialize, Serialize};
 use socketioxide::{
     extract::{Data, SocketRef, State},
@@ -9,7 +7,7 @@ use socketioxide::{
 };
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
-use tracing::{error, info};
+use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -122,11 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .layer(layer),
         );
 
-    let server = Server::bind(&"0.0.0.0:3000".parse().unwrap()).serve(app.into_make_service());
-
-    if let Err(e) = server.await {
-        error!("server error: {}", e);
-    }
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 
     Ok(())
 }

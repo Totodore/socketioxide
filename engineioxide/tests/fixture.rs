@@ -6,9 +6,11 @@ use std::{
 use bytes::Buf;
 use engineioxide::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 use http::Request;
-use hyper::Server;
+use http_body_util::{Either, Empty, Full};
+use hyper::{client::legacy::Client, server::conn::http1};
+use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// An OpenPacket is used to initiate a connection
@@ -29,9 +31,11 @@ pub async fn send_req(
     method: http::Method,
     body: Option<String>,
 ) -> String {
-    let body = body
-        .map(|b| hyper::Body::from(b))
-        .unwrap_or_else(hyper::Body::empty);
+    let body = match body {
+        Some(b) => Either::Left(Full::from(b)),
+        None => Either::Right(Empty::new()),
+    };
+
     let req = Request::builder()
         .method(method)
         .uri(format!(
@@ -40,8 +44,8 @@ pub async fn send_req(
         ))
         .body(body)
         .unwrap();
-    let mut res = hyper::Client::new().request(req).await.unwrap();
-    let body = hyper::body::aggregate(res.body_mut()).await.unwrap();
+    let mut res = Client::new().request(req).await.unwrap();
+    let body = http_body_util::Collected::aggregate(res.body_mut());
     String::from_utf8(body.chunk().to_vec())
         .unwrap()
         .chars()
@@ -74,7 +78,29 @@ pub fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
 
     let svc = EngineIoService::with_config(handler, config);
 
-    let server = Server::bind(addr).serve(svc.into_make_service());
+    tokio::spawn(async move {
+        let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
 
-    tokio::spawn(server);
+        // We start a loop to continuously accept incoming connections
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+
+            // Use an adapter to access something implementing `tokio::io` traits as if they implement
+            // `hyper::rt` IO traits.
+            let io = TokioIo::new(stream);
+            let svc = svc.clone();
+
+            // Spawn a tokio task to serve multiple connections concurrently
+            tokio::task::spawn(async move {
+                // Finally, we bind the incoming connection to our `hello` service
+                if let Err(err) = http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .with_upgrades()
+                    .await
+                {
+                    println!("Error serving connection: {:?}", err);
+                }
+            });
+        }
+    });
 }

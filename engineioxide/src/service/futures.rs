@@ -1,4 +1,4 @@
-use crate::body::response::ResponseBody;
+use crate::body::ResponseBody;
 use crate::errors::Error;
 use futures::ready;
 use http::Response;

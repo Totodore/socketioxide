@@ -2,12 +2,14 @@
 
 use std::time::Duration;
 
-use hyper::Server;
+use hyper::server::conn::http1;
+use hyper_util::rt::TokioIo;
 use serde_json::Value;
 use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},
     SocketIo,
 };
+use tokio::net::TcpListener;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -55,10 +57,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting server with v5 protocol");
     #[cfg(feature = "v4")]
     info!("Starting server with v4 protocol");
+    let listener = TcpListener::bind("127.0.0.1:3000").await?;
 
-    Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(svc.into_make_service())
-        .await?;
+    // We start a loop to continuously accept incoming connections
+    loop {
+        let (stream, _) = listener.accept().await?;
 
-    Ok(())
+        // Use an adapter to access something implementing `tokio::io` traits as if they implement
+        // `hyper::rt` IO traits.
+        let io = TokioIo::new(stream);
+        let svc = svc.clone();
+
+        // Spawn a tokio task to serve multiple connections concurrently
+        tokio::task::spawn(async move {
+            // Finally, we bind the incoming connection to our `hello` service
+            if let Err(err) = http1::Builder::new()
+                .serve_connection(io, svc)
+                .with_upgrades()
+                .await
+            {
+                println!("Error serving connection: {:?}", err);
+            }
+        });
+    }
 }
