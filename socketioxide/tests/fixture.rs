@@ -84,6 +84,22 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     ws
 }
 
+pub fn create_server_with_state<T: Send + Sync + 'static>(port: u16, state: T) -> SocketIo {
+    let (svc, io) = SocketIo::builder()
+        .ping_interval(Duration::from_millis(300))
+        .ping_timeout(Duration::from_millis(200))
+        .with_state(state)
+        .build_svc();
+
+    let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+
+    let server = Server::bind(addr).serve(svc.into_make_service());
+
+    tokio::spawn(server);
+
+    io
+}
+
 pub fn create_server(port: u16) -> SocketIo {
     let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
