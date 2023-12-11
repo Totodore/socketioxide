@@ -231,7 +231,7 @@
 //! #### Per socket state
 //! You can enable the `extensions` feature and use the [`extensions`](socket::Socket::extensions) field on any socket to manage
 //! the state of each socket. It is backed by a [`dashmap`] so you can safely access it from multiple threads.
-//! Beware that deadlocks can easily access if you hold a value ref and try to remove it at the same time.
+//! Beware that deadlocks can easily occur if you hold a value ref and try to remove it at the same time.
 //! See the [`extensions`] module doc for more details.
 //!
 //! #### Global state
@@ -241,8 +241,9 @@
 //! Because the global state is staticaly defined, beware that the state map will exist for the whole lifetime of the program even
 //! if you drop everything and close you socket.io server. This is a limitation because of the impossibility to have extractors with lifetimes,
 //! therefore state references must be `'static`.
+//!
 //! Another limitation is that because it is common to the whole server. If you build a second server, it will share the same state.
-//! Also if the first server is already started you won't be able to add new states because states are frozen at the start of the server.
+//! Also if the first server is already started you won't be able to add new states because states are frozen at the start of the first server.
 //!
 //! ## Adapters
 //! This library is designed to work with clustering. It uses the [`Adapter`](adapter::Adapter) trait to abstract the underlying storage.
@@ -253,7 +254,8 @@
 //! * `hyper-v1`: enable support for hyper v1
 //! * `v4`: enable support for the socket.io protocol v4
 //! * `tracing`: enable logging with [`tracing`] calls
-//! * `extensions`: enable [`extensions`] module
+//! * `extensions`: enable per-socket state with the [`extensions`] module
+//! * `state`: enable global state management
 //!
 pub mod adapter;
 
