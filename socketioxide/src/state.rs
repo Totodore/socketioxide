@@ -27,11 +27,11 @@ mod tests {
     fn test_state() {
         use super::*;
         set_state(1i32);
-        set_state(2u8);
+        set_state("hello");
 
         freeze_state();
 
         assert_eq!(get_state::<i32>(), Some(&1));
-        assert_eq!(get_state::<u8>(), Some(&2));
+        assert_eq!(get_state::<&str>(), Some(&"hello"));
     }
 }
