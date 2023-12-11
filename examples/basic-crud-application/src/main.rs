@@ -6,6 +6,8 @@ use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
 
+use crate::handlers::todo::Todos;
+
 mod handlers;
 
 #[tokio::main]
@@ -16,7 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    let (layer, io) = SocketIo::new_layer();
+    let (layer, io) = SocketIo::builder()
+        .with_state(Todos::default())
+        .build_layer();
 
     io.ns("/", |s: SocketRef| {
         s.on("todo:create", handlers::todo::create);

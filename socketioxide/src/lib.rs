@@ -43,6 +43,7 @@
 //! * [Events](#events)
 //! * [Emiting data](#emiting-data)
 //! * [Acknowledgements](#acknowledgements)
+//! * [State management](#state-management)
 //! * [Adapters](#adapters)
 //! * [Feature flags](#feature-flags)
 //!
@@ -224,6 +225,26 @@
 //! You can use the [`Socket::emit_with_ack`](socket::Socket) method to emit a message with an ack callback.
 //! It will return a [`Future`](futures::Future) that will resolve when the acknowledgement is received.
 //!
+//! ## [State management](#state-management)
+//! There are two ways to manage the state of the server:
+//!
+//! #### Per socket state
+//! You can enable the `extensions` feature and use the [`extensions`](socket::Socket::extensions) field on any socket to manage
+//! the state of each socket. It is backed by a [`dashmap`] so you can safely access it from multiple threads.
+//! Beware that deadlocks can easily occur if you hold a value ref and try to remove it at the same time.
+//! See the [`extensions`] module doc for more details.
+//!
+//! #### Global state
+//! You can enable the `state` feature and use [`SocketIoBuilder::with_state`](SocketIoBuilder) method to set
+//! multiple global states for the server. You can then access them from any handler with the [`State`](extract::State) extractor.
+//!
+//! Because the global state is staticaly defined, beware that the state map will exist for the whole lifetime of the program even
+//! if you drop everything and close you socket.io server. This is a limitation because of the impossibility to have extractors with lifetimes,
+//! therefore state references must be `'static`.
+//!
+//! Another limitation is that because it is common to the whole server. If you build a second server, it will share the same state.
+//! Also if the first server is already started you won't be able to add new states because states are frozen at the start of the first server.
+//!
 //! ## Adapters
 //! This library is designed to work with clustering. It uses the [`Adapter`](adapter::Adapter) trait to abstract the underlying storage.
 //! By default it uses the [`LocalAdapter`](adapter::LocalAdapter) which is a simple in-memory adapter.
@@ -233,7 +254,8 @@
 //! * `hyper-v1`: enable support for hyper v1
 //! * `v4`: enable support for the socket.io protocol v4
 //! * `tracing`: enable logging with [`tracing`] calls
-//! * `extensions`: enable [`extensions`] module
+//! * `extensions`: enable per-socket state with the [`extensions`] module
+//! * `state`: enable global state management
 //!
 pub mod adapter;
 
@@ -243,6 +265,8 @@ pub mod extensions;
 #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
 #[cfg(feature = "hyper-v1")]
 pub mod hyper_v1;
+#[cfg(feature = "state")]
+mod state;
 
 pub mod handler;
 pub mod layer;

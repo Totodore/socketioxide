@@ -27,6 +27,9 @@ pub struct Client<A: Adapter> {
 
 impl<A: Adapter> Client<A> {
     pub fn new(config: Arc<SocketIoConfig>) -> Self {
+        #[cfg(feature = "state")]
+        crate::state::freeze_state();
+
         Self {
             config,
             ns: RwLock::new(HashMap::new()),

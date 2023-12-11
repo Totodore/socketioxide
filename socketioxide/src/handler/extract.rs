@@ -96,6 +96,10 @@ use crate::{
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
+#[cfg(feature = "state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "state")))]
+pub use state_extract::*;
+
 /// Utility function to unwrap an array with a single element
 fn upwrap_array(v: &mut Value) {
     match v {
@@ -344,5 +348,85 @@ impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
         reason: DisconnectReason,
     ) -> Result<Self, Infallible> {
         Ok(reason)
+    }
+}
+
+#[cfg(feature = "state")]
+mod state_extract {
+    use super::*;
+    use crate::state::get_state;
+
+    /// An Extractor that contains a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+    /// It implements [`std::ops::Deref`] to access the inner type so you can use it as a normal reference.
+    ///  
+    /// The specified state type must be the same as the one set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+    /// If it is not the case, the handler won't be called and an error log will be print if the `tracing` feature is enabled.
+    ///
+    /// The state is shared between the entire socket.io app context.
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::{SocketRef, State}};
+    /// # use serde::{Serialize, Deserialize};
+    /// # use std::sync::atomic::AtomicUsize;
+    /// # use std::sync::atomic::Ordering;
+    /// #[derive(Default)]
+    /// struct MyAppData {
+    ///     user_cnt: AtomicUsize,
+    /// }
+    /// impl MyAppData {
+    ///     fn add_user(&self) {
+    ///         self.user_cnt.fetch_add(1, Ordering::SeqCst);
+    ///     }
+    ///     fn rm_user(&self) {
+    ///         self.user_cnt.fetch_sub(1, Ordering::SeqCst);
+    ///     }
+    /// }
+    /// let (_, io) = SocketIo::builder().with_state(MyAppData::default()).build_svc();
+    /// io.ns("/", |socket: SocketRef, state: State<MyAppData>| {
+    ///     state.add_user();
+    ///     println!("User count: {}", state.user_cnt.load(Ordering::SeqCst));
+    /// });
+    pub struct State<T: 'static>(pub &'static T);
+    /// It was impossible to find the given state and therefore the handler won't be called.
+    #[derive(Debug, thiserror::Error)]
+    #[error("State not found")]
+    pub struct StateNotFound;
+
+    impl<T> std::ops::Deref for State<T> {
+        type Target = T;
+        fn deref(&self) -> &Self::Target {
+            self.0
+        }
+    }
+
+    impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_connect_parts(
+            _: &Arc<Socket<A>>,
+            _: &Option<String>,
+        ) -> Result<Self, StateNotFound> {
+            get_state::<T>().map(State).ok_or(StateNotFound)
+        }
+    }
+    impl<A: Adapter, T: Send + Sync + 'static> FromDisconnectParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_disconnect_parts(
+            _: &Arc<Socket<A>>,
+            _: DisconnectReason,
+        ) -> Result<Self, StateNotFound> {
+            get_state::<T>().map(State).ok_or(StateNotFound)
+        }
+    }
+    impl<A: Adapter, T: Send + Sync + 'static> FromMessageParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_message_parts(
+            _: &Arc<Socket<A>>,
+            _: &mut serde_json::Value,
+            _: &mut Vec<Vec<u8>>,
+            _: &Option<i64>,
+        ) -> Result<Self, StateNotFound> {
+            get_state::<T>().map(State).ok_or(StateNotFound)
+        }
     }
 }
