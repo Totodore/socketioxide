@@ -385,7 +385,7 @@ mod state_extract {
     /// let (_, io) = SocketIo::builder().with_state(MyAppData::default()).build_svc();
     /// io.ns("/", |socket: SocketRef, state: State<MyAppData>| {
     ///     state.add_user();
-    ///     println!("User count: {:?}", state.user_cnt());
+    ///     println!("User count: {}", state.user_cnt.load(Ordering::SeqCst));
     /// });
     pub struct State<T: 'static>(pub &'static T);
     /// It was impossible to find the given state and therefore the handler won't be called.
