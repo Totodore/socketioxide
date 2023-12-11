@@ -241,6 +241,8 @@
 //! Because the global state is staticaly defined, beware that the state map will exist for the whole lifetime of the program even
 //! if you drop everything and close you socket.io server. This is a limitation because of the impossibility to have extractors with lifetimes,
 //! therefore state references must be `'static`.
+//! Another limitation is that because it is common to the whole server. If you build a second server, it will share the same state.
+//! Also if the first server is already started you won't be able to add new states because states are frozen at the start of the server.
 //!
 //! ## Adapters
 //! This library is designed to work with clustering. It uses the [`Adapter`](adapter::Adapter) trait to abstract the underlying storage.
