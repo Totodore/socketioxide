@@ -22,16 +22,20 @@ pub(crate) fn set_state<T: Send + Sync + 'static>(value: T) {
     unsafe { STATE.set(value) };
 }
 
-mod tests {
+mod test {
     #[test]
-    fn test_state() {
-        use super::*;
-        set_state(1i32);
-        set_state("hello");
+    fn state_lifecycle() {
+        use super::TypeMap;
+        // Mimic the parent static state
+        static mut STATE: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
-        freeze_state();
+        unsafe { STATE.set(1i32) };
+        unsafe { STATE.set("hello") };
 
-        assert_eq!(get_state::<i32>(), Some(&1));
-        assert_eq!(get_state::<&str>(), Some(&"hello"));
+        assert_eq!(unsafe { STATE.len() }, 2);
+        unsafe { STATE.freeze() }
+
+        assert_eq!(unsafe { STATE.try_get::<i32>() }, Some(&1));
+        assert_eq!(unsafe { STATE.try_get::<&str>() }, Some(&"hello"));
     }
 }
