@@ -13,7 +13,7 @@ http = "0.2.11"
 http-body = "0.4.5"
 thiserror = "1.0.40"
 tracing = "0.1.37"
-itoa = "1.0.9"
+itoa = "1.0.10"
 
 # Hyper v0.1
 http-body-v1 = { package = "http-body", version = "1.0.0-rc.2" }
