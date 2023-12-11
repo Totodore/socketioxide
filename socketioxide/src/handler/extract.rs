@@ -387,13 +387,13 @@ mod state {
     ///     state.add_user();
     ///     println!("User count: {:?}", state.user_cnt());
     /// });
-    pub struct State<T: Send + Sync + 'static>(&'static T);
+    pub struct State<T: 'static>(pub &'static T);
     /// It was impossible to find the given state and therefore the handler won't be called.
     #[derive(Debug, thiserror::Error)]
     #[error("State not found")]
     pub struct StateNotFound;
 
-    impl<T: Send + Sync + 'static> std::ops::Deref for State<T> {
+    impl<T> std::ops::Deref for State<T> {
         type Target = T;
         fn deref(&self) -> &Self::Target {
             self.0
