@@ -1,3 +1,12 @@
+# 0.8.0
+## socketioxide
+* Add `transport_type` and `protocol` fn on the `Socket` struct. It allows to know the transport type and the protocol used by the socket.
+* Dynamic `DisconnectHandler`. Now the `on_disconnect` handler take a dynamic handler that maybe async and contain any type that implements `FromDisconnectParts`. It allows to extract data from the disconnection, like the socket, the reason of the disconnection, the state etc.
+* New `state` feature flag. It enables global state management. It is useful to share data between handlers. It is disabled by default.
+
+## engineioxide
+* Packet encoding/decoding optimizations.
+
 # 0.7.3
 ## socketioxide
 * Fix [#189](https://github.com/Totodore/socketioxide/issues/189). Async message handlers were never called because the returned future was not spawned with `tokio::spawn`.
@@ -10,7 +19,7 @@
 
 # 0.7.1
 ## socketioxide
-* Fix [#154](https://github.com/Totodore/socketioxide/issues/154), build was broken when using the `hyper-v1` feature flag because of `hyper-util` dependencie which is not published on crates.io.
+* Fix [#154](https://github.com/Totodore/socketioxide/issues/154), build was broken when using the `hyper-v1` feature flag because of `hyper-util` dependency which is not published on crates.io.
 
 # 0.7.0
 ## socketioxide
