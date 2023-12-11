@@ -98,7 +98,7 @@ use serde_json::Value;
 
 #[cfg(feature = "state")]
 #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
-pub use state::*;
+pub use state_extract::*;
 
 /// Utility function to unwrap an array with a single element
 fn upwrap_array(v: &mut Value) {
@@ -352,7 +352,7 @@ impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
 }
 
 #[cfg(feature = "state")]
-mod state {
+mod state_extract {
     use super::*;
     use crate::state::get_state;
 
