@@ -71,6 +71,9 @@ use crate::{
 mod futures;
 mod parser;
 
+#[cfg(feature = "hyper-legacy")]
+pub mod legacy;
+
 pub use self::parser::{ProtocolVersion, TransportType};
 use self::{futures::ResponseFuture, parser::dispatch_req};
 
@@ -110,6 +113,16 @@ impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
         }
     }
 
+    /// Create a new [`legacy::EngineIoLegacyService`] with this [`EngineIoService`] as the inner service.
+    ///
+    /// It can be used as a compatibility layer for frameworks that only support hyper 0.14.
+    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-legacy")))]
+    #[cfg(feature = "hyper-legacy")]
+    #[inline(always)]
+    pub fn with_hyper_legacy(self) -> legacy::EngineIoLegacyService<H, S> {
+        legacy::EngineIoLegacyService::new(self)
+    }
+
     /// Convert this [`EngineIoService`] into a [`MakeEngineIoService`].
     /// This is useful when using [`EngineIoService`] without layers.
     pub fn into_make_service(self) -> MakeEngineIoService<H, S> {
@@ -131,7 +144,7 @@ impl<H: EngineIoHandler, S> std::fmt::Debug for EngineIoService<H, S> {
     }
 }
 
-/// Tower Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] response for `hyper-v1`
+/// Tower Service implementation with an [`http_body::Body`] request and response body
 impl<ReqBody, ResBody, S, H> tower::Service<Request<ReqBody>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,
@@ -229,7 +242,7 @@ impl<ReqBody> tower::Service<Request<ReqBody>> for NotFoundService {
     }
 }
 
-/// Implement a custom [`hyper_v1::service::Service`] for the [`NotFoundService`]
+/// Implement a custom [`hyper::service::Service`] for the [`NotFoundService`]
 impl hyper::service::Service<Request<Incoming>> for NotFoundService {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;

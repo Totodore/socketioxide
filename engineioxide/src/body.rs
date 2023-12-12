@@ -79,3 +79,42 @@ where
         }
     }
 }
+
+#[cfg(feature = "hyper-legacy")]
+impl<B> http_body_legacy::Body for ResponseBody<B>
+where
+    B: Body<Data = Bytes>,
+    B::Error: std::error::Error + 'static,
+{
+    type Data = B::Data;
+
+    type Error = B::Error;
+
+    /// We don't support trailers
+    fn poll_data(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
+        let frame = match self.project() {
+            BodyProj::EmptyResponse => Poll::Ready(None),
+            BodyProj::Body { body } => body.poll_frame(cx),
+            BodyProj::CustomBody { body } => body.poll_frame(cx).map_err(|err| match err {}),
+        };
+        let frame = futures::ready!(frame);
+        match frame {
+            Some(Ok(frame)) => match frame.into_data() {
+                Ok(data) => return Poll::Ready(Some(Ok(data))),
+                Err(_) => Poll::Ready(None),
+            },
+            Some(Err(err)) => Poll::Ready(Some(Err(err))),
+            None => Poll::Ready(None),
+        }
+    }
+
+    fn poll_trailers(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Result<Option<hyper_legacy::http::HeaderMap>, Self::Error>> {
+        Poll::Ready(Ok(None))
+    }
+}

@@ -15,7 +15,7 @@ publish = false
 socketioxide = { path = "../../socketioxide", default-features = false, features = [
     "tracing",
 ] }
-hyper-util = { version = "0.1.1", features = ["tokio"] }
+hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true

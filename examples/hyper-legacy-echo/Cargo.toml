@@ -1,19 +1,19 @@
 [package]
-name = "hyper-echo"
+name = "hyper-legacy-echo"
 version.workspace = true
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-socketioxide = { path = "../../socketioxide", features = ["tracing"] }
-hyper = { workspace = true, features = ["server", "http1", "http2"] }
-hyper-util = { workspace = true, features = ["tokio"] }
+engineioxide = { path = "../../engineioxide", features = ["hyper-legacy"] }
+hyper-legacy.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
+warp = { version = "0.3.1", features = ["tls"] }
 
 [[bin]]
-name = "hyper-echo"
-path = "hyper_echo.rs"
+name = "hyper-legacy-echo"
+path = "hyper_legacy_echo.rs"

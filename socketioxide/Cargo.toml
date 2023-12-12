@@ -24,6 +24,7 @@ http.workspace = true
 http-body.workspace = true
 thiserror.workspace = true
 itoa.workspace = true
+hyper.workspace = true
 
 # Extensions
 dashmap = { version = "5.4.0", optional = true }
@@ -56,12 +57,13 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
 ] }
 tracing-subscriber.workspace = true
-hyper.workspace = true
 criterion.workspace = true
+hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
+http-body-util.workspace = true
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-features = ["v4", "extensions", "hyper-v1", "tracing", "state"]
+features = ["v4", "extensions", "tracing", "state"]
 # Special configuration for docs.rs build
 rustdoc-args = ["--cfg", "docsrs"]
 

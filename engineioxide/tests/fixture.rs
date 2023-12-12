@@ -1,14 +1,17 @@
 use std::{
+    collections::VecDeque,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
 
-use bytes::Buf;
 use engineioxide::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 use http::Request;
-use http_body_util::{Either, Empty, Full};
-use hyper::{client::legacy::Client, server::conn::http1};
-use hyper_util::rt::TokioIo;
+use http_body_util::{BodyExt, Either, Empty, Full};
+use hyper::server::conn::http1;
+use hyper_util::{
+    client::legacy::Client,
+    rt::{TokioExecutor, TokioIo},
+};
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -32,8 +35,8 @@ pub async fn send_req(
     body: Option<String>,
 ) -> String {
     let body = match body {
-        Some(b) => Either::Left(Full::from(b)),
-        None => Either::Right(Empty::new()),
+        Some(b) => Either::Left(Full::new(VecDeque::from(b.into_bytes()))),
+        None => Either::Right(Empty::<VecDeque<u8>>::new()),
     };
 
     let req = Request::builder()
@@ -44,9 +47,13 @@ pub async fn send_req(
         ))
         .body(body)
         .unwrap();
-    let mut res = Client::new().request(req).await.unwrap();
-    let body = http_body_util::Collected::aggregate(res.body_mut());
-    String::from_utf8(body.chunk().to_vec())
+    let mut res = Client::builder(TokioExecutor::new())
+        .build_http()
+        .request(req)
+        .await
+        .unwrap();
+    let body = res.body_mut().collect().await.unwrap().to_bytes();
+    String::from_utf8(body.to_vec())
         .unwrap()
         .chars()
         .skip(1)
@@ -67,20 +74,19 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     .0
 }
 
-pub fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
+pub async fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .max_payload(1e6 as u64)
         .build();
 
-    let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
 
     let svc = EngineIoService::with_config(handler, config);
 
+    let listener = TcpListener::bind(&addr).await.unwrap();
     tokio::spawn(async move {
-        let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
-
         // We start a loop to continuously accept incoming connections
         loop {
             let (stream, _) = listener.accept().await.unwrap();

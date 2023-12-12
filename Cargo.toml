@@ -11,10 +11,20 @@ serde_json = "1.0.108"
 tower = { version = "0.4.13", default-features = false }
 http = "1.0.0"
 http-body = "1.0.0"
+http-body-util = { version = "0.1.0" }
 thiserror = "1.0.40"
 tracing = "0.1.37"
 itoa = "1.0.10"
-hyper = { version = "1.0.1" }
+hyper-util.version = "0.1.1"
+hyper = { version = "1.0.1", features = ["http1", "http2", "server"] }
+
+# Hyper legacy support
+hyper-legacy = { package = "hyper", version = "0.14.11", features = [
+    "http1",
+    "http2",
+    "server",
+] }
+http-body-legacy = { package = "http-body", version = "0.4.6" }
 
 # Dev deps
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

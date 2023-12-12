@@ -25,31 +25,6 @@
 //!     .layer(layer);
 //! // Spawn the axum server
 //! ```
-//!
-//! #### Example with salvo (with the `hyper-v1` feature flag) :
-//! ```rust
-//! # use engineioxide::layer::EngineIoLayer;
-//! # use engineioxide::handler::EngineIoHandler;
-//! # use engineioxide::{Socket, DisconnectReason};
-//! # use std::sync::Arc;
-//! #[derive(Debug, Clone)]
-//! struct MyHandler;
-//!
-//! impl EngineIoHandler for MyHandler {
-//!     type Data = ();
-//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
-//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
-//! }
-//! // Create a new engineio layer
-//! let layer = EngineIoLayer::new(MyHandler)
-//!     .with_hyper_v1();     // Enable the hyper-v1 compatibility layer for salvo
-//!     // .compat();         // Enable the salvo compatibility layer
-
-//! // Spawn the salvo server
-//! ```
-
 use tower::Layer;
 
 use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};

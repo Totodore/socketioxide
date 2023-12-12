@@ -50,10 +50,8 @@ fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, htt
 
 /// Upgrade a websocket request to create a websocket connection.
 ///
-/// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
-/// the http polling request is closed and the SID is kept for the websocket
-///
-/// It can be used with hyper-v1 by setting the `hyper_v1` parameter to true
+/// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request.
+/// In this case the http polling request is closed and the SID is kept for the websocket
 pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,

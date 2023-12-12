@@ -28,11 +28,12 @@
 use engineioxide::service::{EngineIoService, MakeEngineIoService};
 use http::{Request, Response};
 use http_body::Body;
+use hyper::{body::Incoming, service::Service as HyperSvc};
 use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tower::Service;
+use tower::Service as TowerSvc;
 
 use crate::{
     adapter::{Adapter, LocalAdapter},
@@ -44,17 +45,17 @@ use crate::{
 pub struct SocketIoService<S: Clone, A: Adapter = LocalAdapter> {
     engine_svc: EngineIoService<Arc<Client<A>>, S>,
 }
-impl<A: Adapter, ReqBody, ResBody, S> Service<Request<ReqBody>> for SocketIoService<S, A>
+impl<A: Adapter, ReqBody, ResBody, S> TowerSvc<Request<ReqBody>> for SocketIoService<S, A>
 where
     ResBody: Body + Send + 'static,
     ReqBody: Body + Send + 'static + std::fmt::Debug + Unpin,
     <ReqBody as Body>::Error: std::fmt::Debug,
     <ReqBody as Body>::Data: Send,
-    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone,
+    S: TowerSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
 {
-    type Response = <EngineIoService<Arc<Client<A>>, S> as Service<Request<ReqBody>>>::Response;
-    type Error = <EngineIoService<Arc<Client<A>>, S> as Service<Request<ReqBody>>>::Error;
-    type Future = <EngineIoService<Arc<Client<A>>, S> as Service<Request<ReqBody>>>::Future;
+    type Response = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Response;
+    type Error = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Error;
+    type Future = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Future;
 
     #[inline(always)]
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -62,6 +63,24 @@ where
     }
     #[inline(always)]
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+        self.engine_svc.call(req)
+    }
+}
+
+/// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body::Body`] Body
+impl<ResBody, S, A> HyperSvc<Request<Incoming>> for SocketIoService<S, A>
+where
+    ResBody: http_body::Body + Send + 'static,
+    S: hyper::service::Service<Request<Incoming>, Response = Response<ResBody>>,
+    S: Clone,
+    A: Adapter,
+{
+    type Response = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<Incoming>>>::Response;
+    type Error = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<Incoming>>>::Error;
+    type Future = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<Incoming>>>::Future;
+
+    #[inline(always)]
+    fn call(&self, req: Request<Incoming>) -> Self::Future {
         self.engine_svc.call(req)
     }
 }
@@ -90,17 +109,6 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
         let engine_config = client.config.engine_config.clone();
         let svc = EngineIoService::with_config_inner(inner, client, engine_config);
         Self { engine_svc: svc }
-    }
-
-    /// Converts this [`Service`] into a [`SocketIoHyperService`](crate::hyper_v1::SocketIoHyperService)
-    /// to use with hyper v1 and its dependent frameworks.
-    ///
-    /// This is only available when the `hyper-v1` feature is enabled.
-    #[inline(always)]
-    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-    #[cfg(feature = "hyper-v1")]
-    pub fn with_hyper_v1(self) -> crate::hyper_v1::SocketIoHyperService<S, A> {
-        crate::hyper_v1::SocketIoHyperService::new(self.engine_svc.with_hyper_v1())
     }
 }
 

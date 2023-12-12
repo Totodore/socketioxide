@@ -126,19 +126,6 @@
 //! let (svc, io) = SocketIo::new_svc();
 //! ```
 //!
-//! #### Tower service example with hyper v1 (requires the `hyper-v1` feature) and default configuration:
-//! ```
-//! use socketioxide::SocketIo;
-//! let (svc, io) = SocketIo::new_svc();
-//! let svc = svc.with_hyper_v1();
-//! ```
-//! #### Tower layer example with hyper v1 (requires the `hyper-v1` feature) and default configuration:
-//! ```
-//! use socketioxide::SocketIo;
-//! let (layer, io) = SocketIo::new_layer();
-//! let layer = layer.with_hyper_v1();
-//! ```
-//!
 //! ## Handlers
 //! Handlers are functions or clonable closures that are given to the `io.ns`, the `socket.on` and the `socket.on_disconnect` fns.
 //! They can be async or sync and can take from 0 to 16 arguments that implements the [`FromConnectParts`](handler::FromConnectParts)
@@ -251,7 +238,6 @@
 //! Currently there is no other adapters available but more will be added in the future.
 //!
 //! ## [Feature flags](#feature-flags)
-//! * `hyper-v1`: enable support for hyper v1
 //! * `v4`: enable support for the socket.io protocol v4
 //! * `tracing`: enable logging with [`tracing`] calls
 //! * `extensions`: enable per-socket state with the [`extensions`] module
@@ -262,9 +248,6 @@ pub mod adapter;
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 #[cfg(feature = "extensions")]
 pub mod extensions;
-#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-#[cfg(feature = "hyper-v1")]
-pub mod hyper_v1;
 #[cfg(feature = "state")]
 mod state;
 
