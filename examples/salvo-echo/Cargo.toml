@@ -1,0 +1,19 @@
+[package]
+name = "salvo-echo"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.67"    # required by salvo
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+socketioxide = { path = "../../socketioxide", features = ["tracing"] }
+salvo.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "salvo-echo"
+path = "salvo_echo.rs"

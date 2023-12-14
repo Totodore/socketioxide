@@ -31,6 +31,7 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 axum = "0.7.2"
 warp = "0.3.6"
+salvo = { version = "0.63.0", features = ["tower-compat"] }
 
 [workspace.package]
 version = "0.8.0"
