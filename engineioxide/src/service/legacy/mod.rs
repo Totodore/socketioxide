@@ -1,58 +1,45 @@
 //! Eavily inspired from : [davidpdrsn/tower-hyper-http-body-compat](https://github.com/davidpdrsn/tower-hyper-http-body-compat)
 use std::{
     convert::Infallible,
-    pin::Pin,
+    str::FromStr,
     task::{Context, Poll},
 };
 
 use crate::{body::ResponseBody, handler::EngineIoHandler};
 
+use self::futures::LegacyResponseFuture;
+
 use super::{futures::ResponseFuture, parser::dispatch_req, EngineIoService, NotFoundService};
-use futures::future::{self, Ready};
+use ::futures::future::{self, Ready};
 use http_body_legacy::Body;
 use hyper_legacy::http::{Request, Response};
-use pin_project::pin_project;
 use tower::Service;
+
+mod body;
+mod futures;
 
 /// A wrapper of [`EngineIoService`] that handles engine.io requests as a middleware for `hyper-v1`.
 pub struct EngineIoLegacyService<H: EngineIoHandler, S = NotFoundService>(EngineIoService<H, S>);
 
-#[pin_project]
-struct IncomingBody<B>(#[pin] B);
-impl<B> http_body::Body for IncomingBody<B>
-where
-    B: Body,
-{
-    type Data = B::Data;
+/// Map a [`hyper_legacy::http::Request`] to a current [`http::Request`].
+fn map_req<R>(req: Request<R>) -> http::Request<R> {
+    let (mut parts, body) = req.into_parts();
+    let mut req = http::Request::builder()
+        .method(http::Method::from_str(parts.method.as_str()).unwrap())
+        .uri(http::Uri::from_str(&parts.uri.to_string()).unwrap())
+        .version(match parts.version {
+            hyper_legacy::Version::HTTP_10 => http::Version::HTTP_10,
+            hyper_legacy::Version::HTTP_11 => http::Version::HTTP_11,
+            _ => unreachable!(),
+        })
+        .body(body)
+        .unwrap();
 
-    type Error = B::Error;
-
-    fn poll_frame(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        match self.as_mut().project().0.poll_data(cx) {
-            Poll::Ready(Some(Ok(buf))) => Poll::Ready(Some(Ok(http_body::Frame::data(buf)))),
-            Poll::Ready(Some(Err(err))) => Poll::Ready(Some(Err(err))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
+    for (k, v) in parts.headers.iter() {
+        let v = http::header::HeaderValue::from_bytes(v.as_bytes()).unwrap();
+        req.headers_mut().insert(k.as_str(), v);
     }
-
-    fn size_hint(&self) -> http_body::SizeHint {
-        let size_hint = self.0.size_hint();
-        let mut out = http_body::SizeHint::new();
-        out.set_lower(size_hint.lower());
-        if let Some(upper) = size_hint.upper() {
-            out.set_upper(upper);
-        }
-        out
-    }
-
-    #[inline]
-    fn is_end_stream(&self) -> bool {
-        self.0.is_end_stream()
-    }
+    req
 }
 
 impl<H: EngineIoHandler, S> EngineIoLegacyService<H, S> {
@@ -84,7 +71,7 @@ where
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
-    type Future = ResponseFuture<S::Future, ResBody>;
+    type Future = LegacyResponseFuture<S::Future, ResBody>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.0.inner.poll_ready(cx)
@@ -93,10 +80,12 @@ where
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         let path = self.0.engine.config.req_path.as_ref();
         if req.uri().path().starts_with(path) {
-            let req = req.map(IncomingBody);
-            dispatch_req(req, self.0.engine.clone())
+            let req = map_req(req).map(body::IncomingBody::new);
+            let res = dispatch_req(req, self.0.engine.clone());
+            LegacyResponseFuture::new(res)
         } else {
-            ResponseFuture::new(self.0.inner.call(req))
+            let res = self.0.inner.call(req);
+            LegacyResponseFuture::new(ResponseFuture::new(res))
         }
     }
 }
