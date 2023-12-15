@@ -48,7 +48,6 @@ unicode-segmentation = { version = "1.10.1", optional = true }
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
 tracing-subscriber.workspace = true
 criterion.workspace = true
-warp.workspace = true
 axum.workspace = true
 hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
 
