@@ -12,6 +12,19 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
+## Compatibility :
+With the recent migration of all frameworks to hyper v1. It can be complicated to know which version of socketioxide to use with which version of the framework. This table summarizes the compatibility between the different versions of socketioxide and the different frameworks.
+| Http framework | Hyper version | socketioxide version |
+| --- | --- | --- |
+| [🦀Hyper 0.14](https://docs.rs/hyper/0.14/hyper/)        | 0.14   | < 0.9  |
+| [🦀Hyper 1.0](https://docs.rs/hyper/latest/hyper/)       | 1.0    | >= 0.9 |
+| [🦀Hyper 1-rc*](https://docs.rs/hyper/1.0.0-rc.4/hyper/) | 1-rc*  | < 0.9  |
+| [🦀Axum 0.7](https://docs.rs/axum/0.6/axum/)             | 0.14   | < 0.9  |
+| [🦀Axum 0.6](https://docs.rs/axum/latest/axum/)          | 1.0    | >= 0.9 |
+| [🦀Warp 0.3](https://docs.rs/warp/0.3/warp/)             | 0.14   | < 0.9  |
+| [🦀Salvo 0.62](https://docs.rs/salvo/0.62/salvo)         | 1-rc*  | < 0.9  |
+| [🦀Salvo 0.63](https://docs.rs/salvo/latest/salvo)       | 1.0    | >= 0.9 |
+
 ## Features :
 * Integrates with :
   * [Axum](https://docs.rs/axum/latest/axum/): [🏓echo example](./examples/axum-echo/axum_echo.rs)
