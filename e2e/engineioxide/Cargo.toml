@@ -14,23 +14,17 @@ publish = false
 [dependencies]
 engineioxide = { path = "../../engineioxide", default-features = false, features = [
     "tracing",
-    "hyper-v1",
 ] }
-hyper-v1 = { workspace = true, features = ["server", "http1"] }
-hyper-util = { git = "https://github.com/hyperium/hyper-util.git", version = "0" }
-hyper = { workspace = true, features = ["server", "http1", "tcp"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
 
 [[bin]]
-name = "engineioxide-hyper-v1-e2e"
-path = "engineioxide-hyper-v1.rs"
-
-[[bin]]
-name = "engineioxide-hyper-v04-e2e"
-path = "engineioxide-hyper-v04.rs"
+name = "engineioxide-e2e"
+path = "engineioxide.rs"
 
 [features]
 v3 = ["engineioxide/v3"]

@@ -1,3 +1,6 @@
+# 0.9.0
+* Bump `hyper` to 1.0.1. Therefore it is now possible to use frameworks based on hyper v1.*. Check the [compatibility table](./README.md#compatibility) for more details.
+
 # 0.8.0
 ## socketioxide
 * Add `transport_type` and `protocol` fn on the `Socket` struct. It allows to know the transport type and the protocol used by the socket.

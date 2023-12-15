@@ -233,7 +233,7 @@ impl SocketIo<LocalAdapter> {
     }
 
     /// Creates a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
-    /// It can be used as a [`Service`](tower::Service) with an inner service (see warp example)
+    /// It can be used as a [`Service`](tower::Service) with an inner service
     #[inline(always)]
     pub fn new_inner_svc<S: Clone>(svc: S) -> (SocketIoService<S>, SocketIo) {
         Self::builder().build_with_inner_svc(svc)

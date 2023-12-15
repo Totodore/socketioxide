@@ -51,19 +51,19 @@
 //! * Easy to use flexible axum-like API
 //! * Fully compatible with the official [socket.io client](https://socket.io/docs/v4/client-api/)
 //! * Support for the previous version of the protocol (v4).
+//! * State Management
 //! * Namespaces
 //! * Rooms
 //! * Acknowledgements
 //! * Polling & Websocket transports
 //!
 //! ## Compatibility
-//! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) you can use it with any http server frameworks that works with tower/hyper:
+//! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) or an hyper [`service`](hyper::service::Service)
+//! you can use it with any http server frameworks that works with tower/hyper:
 //! * [Axum](https://docs.rs/axum/latest/axum/)
-//! * [Warp](https://docs.rs/warp/latest/warp/)
+//! * [Warp](https://docs.rs/warp/latest/warp/) (Not supported with socketioxide >= 0.9.0 as long as warp doesn't migrate to hyper v1)
 //! * [Hyper](https://docs.rs/hyper/latest/hyper/)
 //! * [Salvo](https://docs.rs/salvo/latest/salvo/)
-//!
-//! Note that for v1 of `hyper` and salvo, you need to enable the `hyper-v1` feature and call `with_hyper_v1` on your layer/service.
 //!
 //! Check the [examples](http://github.com/totodore/socketioxide/tree/main/examples) for more details on frameworks integration.
 //!
@@ -73,7 +73,6 @@
 //! #### Basic example with axum:
 //! ```no_run
 //! use axum::routing::get;
-//! use axum::Server;
 //! use socketioxide::{
 //!     extract::SocketRef,
 //!     SocketIo,
@@ -91,12 +90,11 @@
 //!     });
 //!
 //!     let app = axum::Router::new()
-//!         .route("/", get(|| async { "Hello, World!" }))
-//!         .layer(layer);
+//!     .route("/", get(|| async { "Hello, World!" }))
+//!     .layer(layer);
 //!
-//!     Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!         .serve(app.into_make_service())
-//!         .await?;
+//!     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+//!     axum::serve(listener, app).await.unwrap();
 //!
 //!     Ok(())
 //! }
@@ -109,7 +107,6 @@
 //! * See the [`SocketIoBuilder`] doc for more details on the available configuration options.
 //! * See the [`layer`] module doc for more details on layers.
 //! * See the [`service`] module doc for more details on services.
-//! * See the [`hyper_v1`] module doc for more details on hyper v1 compatibility.
 //!
 //! #### Tower layer example with custom configuration:
 //! ```
@@ -124,19 +121,6 @@
 //! ```
 //! use socketioxide::SocketIo;
 //! let (svc, io) = SocketIo::new_svc();
-//! ```
-//!
-//! #### Tower service example with hyper v1 (requires the `hyper-v1` feature) and default configuration:
-//! ```
-//! use socketioxide::SocketIo;
-//! let (svc, io) = SocketIo::new_svc();
-//! let svc = svc.with_hyper_v1();
-//! ```
-//! #### Tower layer example with hyper v1 (requires the `hyper-v1` feature) and default configuration:
-//! ```
-//! use socketioxide::SocketIo;
-//! let (layer, io) = SocketIo::new_layer();
-//! let layer = layer.with_hyper_v1();
 //! ```
 //!
 //! ## Handlers
@@ -251,7 +235,6 @@
 //! Currently there is no other adapters available but more will be added in the future.
 //!
 //! ## [Feature flags](#feature-flags)
-//! * `hyper-v1`: enable support for hyper v1
 //! * `v4`: enable support for the socket.io protocol v4
 //! * `tracing`: enable logging with [`tracing`] calls
 //! * `extensions`: enable per-socket state with the [`extensions`] module
@@ -262,9 +245,6 @@ pub mod adapter;
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 #[cfg(feature = "extensions")]
 pub mod extensions;
-#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-#[cfg(feature = "hyper-v1")]
-pub mod hyper_v1;
 #[cfg(feature = "state")]
 mod state;
 

@@ -4,10 +4,11 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::StreamExt;
 use http::{Request, Response, StatusCode};
-use http_body::{Body, Full};
+use http_body::Body;
+use http_body_util::Full;
 
 use crate::{
-    body::response::ResponseBody,
+    body::ResponseBody,
     engine::EngineIo,
     errors::Error,
     handler::EngineIoHandler,

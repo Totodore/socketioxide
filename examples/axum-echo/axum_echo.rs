@@ -1,5 +1,4 @@
 use axum::routing::get;
-use axum::Server;
 use serde_json::Value;
 use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},
@@ -44,9 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 
     Ok(())
 }

@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     io.ns("/", on_connect);
     io.ns("/custom", on_connect);
 
-    let layer = layer.with_hyper_v1().compat();
+    let layer = layer.compat();
     let router = Router::with_path("/socket.io").hoop(layer).goal(hello);
     let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
     Server::new(acceptor).serve(router).await;

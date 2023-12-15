@@ -9,7 +9,7 @@ use tokio_tungstenite::tungstenite::Message;
 #[tokio::test]
 pub async fn state_extractor() {
     let state = 1112i32;
-    let io = create_server_with_state(2000, state);
+    let io = create_server_with_state(2000, state).await;
     let (tx, mut rx) = mpsc::channel::<i32>(4);
     io.ns("/", move |socket: SocketRef, state: State<i32>| {
         println!("Socket connected on / namespace with id: {}", socket.id);
@@ -59,7 +59,7 @@ pub async fn state_extractor() {
 
 #[tokio::test]
 pub async fn data_extractor() {
-    let io = create_server(2001);
+    let io = create_server(2001).await;
     let (tx, mut rx) = mpsc::channel::<i32>(4);
     io.ns("/", move |socket: SocketRef| {
         println!("Socket connected on / namespace with id: {}", socket.id);
