@@ -1,31 +1,5 @@
 //! ## A tower [`Service`] for engine.io so it can be used with frameworks supporting tower services
 //!
-//! #### Example with a `Warp` inner service :
-//! ```rust
-//! # use engineioxide::layer::EngineIoLayer;
-//! # use engineioxide::handler::EngineIoHandler;
-//! # use engineioxide::service::EngineIoService;
-//! # use engineioxide::{Socket, DisconnectReason};
-//! # use std::sync::Arc;
-//! # use warp::Filter;
-//!
-//! #[derive(Debug)]
-//! struct MyHandler;
-//!
-//! impl EngineIoHandler for MyHandler {
-//!     type Data = ();
-//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
-//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
-//! }
-//! let filter = warp::any().map(|| "Hello From Warp!");
-//! let warp_svc = warp::service(filter);
-//!
-//! // Create a new engineio service by wrapping the warp service
-//! let service = EngineIoService::with_inner(warp_svc, MyHandler)
-//!     .into_make_service(); // Create a MakeService from the EngineIoService to give it to hyper
-//! ```
 //!
 //! #### Example with a `hyper` standalone service :
 //! ```rust
@@ -71,9 +45,6 @@ use crate::{
 mod futures;
 mod parser;
 
-#[cfg(feature = "hyper-legacy")]
-pub mod legacy;
-
 pub use self::parser::{ProtocolVersion, TransportType};
 use self::{futures::ResponseFuture, parser::dispatch_req};
 
@@ -111,16 +82,6 @@ impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
             inner,
             engine: Arc::new(EngineIo::new(handler, config)),
         }
-    }
-
-    /// Create a new [`legacy::EngineIoLegacyService`] with this [`EngineIoService`] as the inner service.
-    ///
-    /// It can be used as a compatibility layer for frameworks that only support hyper 0.14.
-    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-legacy")))]
-    #[cfg(feature = "hyper-legacy")]
-    #[inline(always)]
-    pub fn with_hyper_legacy(self) -> legacy::EngineIoLegacyService<H, S> {
-        legacy::EngineIoLegacyService::new(self)
     }
 
     /// Convert this [`EngineIoService`] into a [`MakeEngineIoService`].
