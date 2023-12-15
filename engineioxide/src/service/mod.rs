@@ -133,7 +133,7 @@ where
     }
 }
 
-/// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body_v1::Body`] response
+/// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body::Body`] response
 impl<ResBody, S, H> hyper::service::Service<Request<Incoming>> for EngineIoService<H, S>
 where
     ResBody: Body + Send + 'static,

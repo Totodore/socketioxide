@@ -51,19 +51,19 @@
 //! * Easy to use flexible axum-like API
 //! * Fully compatible with the official [socket.io client](https://socket.io/docs/v4/client-api/)
 //! * Support for the previous version of the protocol (v4).
+//! * State Management
 //! * Namespaces
 //! * Rooms
 //! * Acknowledgements
 //! * Polling & Websocket transports
 //!
 //! ## Compatibility
-//! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) you can use it with any http server frameworks that works with tower/hyper:
+//! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) or an hyper [`service`](hyper::service::Service)
+//! you can use it with any http server frameworks that works with tower/hyper:
 //! * [Axum](https://docs.rs/axum/latest/axum/)
-//! * [Warp](https://docs.rs/warp/latest/warp/)
+//! * [Warp](https://docs.rs/warp/latest/warp/) (Not supported with version > 0.9.0 as long as it doesn't support hyper v1)
 //! * [Hyper](https://docs.rs/hyper/latest/hyper/)
 //! * [Salvo](https://docs.rs/salvo/latest/salvo/)
-//!
-//! Note that for v1 of `hyper` and salvo, you need to enable the `hyper-v1` feature and call `with_hyper_v1` on your layer/service.
 //!
 //! Check the [examples](http://github.com/totodore/socketioxide/tree/main/examples) for more details on frameworks integration.
 //!
@@ -73,7 +73,6 @@
 //! #### Basic example with axum:
 //! ```no_run
 //! use axum::routing::get;
-//! use axum::Server;
 //! use socketioxide::{
 //!     extract::SocketRef,
 //!     SocketIo,
@@ -91,12 +90,11 @@
 //!     });
 //!
 //!     let app = axum::Router::new()
-//!         .route("/", get(|| async { "Hello, World!" }))
-//!         .layer(layer);
+//!     .route("/", get(|| async { "Hello, World!" }))
+//!     .layer(layer);
 //!
-//!     Server::bind(&"127.0.0.1:3000".parse().unwrap())
-//!         .serve(app.into_make_service())
-//!         .await?;
+//!     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+//!     axum::serve(listener, app).await.unwrap();
 //!
 //!     Ok(())
 //! }
@@ -109,7 +107,6 @@
 //! * See the [`SocketIoBuilder`] doc for more details on the available configuration options.
 //! * See the [`layer`] module doc for more details on layers.
 //! * See the [`service`] module doc for more details on services.
-//! * See the [`hyper_v1`] module doc for more details on hyper v1 compatibility.
 //!
 //! #### Tower layer example with custom configuration:
 //! ```
