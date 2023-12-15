@@ -3,34 +3,41 @@
 //! #### Example with a raw `hyper` standalone service (most of the time it easier to use a framework like `axum` or `salvo`):
 //! ```no_run
 //! # use socketioxide::SocketIo;
-//! let (svc, io) = SocketIo::new_svc();
+//! # use std::net::SocketAddr;
+//! # use hyper::server::conn::http1;
+//! # use tokio::net::TcpListener;
 //!
-//! // Add io namespaces and events...
+//! #[tokio::main]
+//! async fn main() {
+//!     let (svc, io) = SocketIo::new_svc();
 //!
-//! // Spawn raw hyper server
-//! let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-//! let listener = TcpListener::bind(addr).await?;
+//!      // Add io namespaces and events...
 //!
-//! // We start a loop to continuously accept incoming connections
-//! loop {
-//!     let (stream, _) = listener.accept().await?;
+//!      // Spawn raw hyper server
+//!      let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+//!      let listener = TcpListener::bind(addr).await.unwrap();
 //!
-//!     // Use an adapter to access something implementing `tokio::io` traits as if they implement
-//!     // `hyper::rt` IO traits.
-//!     let io = hyper_util::rt::TokioIo::new(stream);
-//!     let svc = svc.clone();
+//!      // We start a loop to continuously accept incoming connections
+//!      loop {
+//!          let (stream, _) = listener.accept().await.unwrap();
 //!
-//!     // Spawn a tokio task to serve multiple connections concurrently
-//!     tokio::task::spawn(async move {
-//!         // Finally, we bind the incoming connection to our `hello` service
-//!         if let Err(err) = http1::Builder::new()
-//!             .serve_connection(io, svc)
-//!             .with_upgrades()
-//!             .await
-//!         {
-//!             println!("Error serving connection: {:?}", err);
-//!         }
-//!     });
+//!          // Use an adapter to access something implementing `tokio::io` traits as if they implement
+//!          // `hyper::rt` IO traits.
+//!          let io = hyper_util::rt::TokioIo::new(stream);
+//!          let svc = svc.clone();
+//!
+//!          // Spawn a tokio task to serve multiple connections concurrently
+//!          tokio::task::spawn(async move {
+//!              // Finally, we bind the incoming connection to our `hello` service
+//!              if let Err(err) = http1::Builder::new()
+//!                  .serve_connection(io, svc)
+//!                  .with_upgrades()
+//!                  .await
+//!              {
+//!                  println!("Error serving connection: {:?}", err);
+//!             }
+//!         });
+//!     }
 //! }
 //! ```
 
