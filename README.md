@@ -28,7 +28,7 @@ With the recent migration of all frameworks to hyper v1. It can be complicated t
 ## Features :
 * Integrates with :
   * [Axum](https://docs.rs/axum/latest/axum/): [🏓echo example](./examples/axum-echo/axum_echo.rs)
-  * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](./examples/warp-echo/warp_echo.rs) (Not supported with `socketioxide >= 0.9.0` as long as warp doesn't migrate to hyper v1)
+  * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](https://github.com/Totodore/socketioxide/blob/v0.8.0/examples/warp-echo/warp_echo.rs) (Not supported with `socketioxide >= 0.9.0` as long as warp doesn't migrate to hyper v1)
   * [Hyper](https://docs.rs/hyper/latest/hyper/): [🏓echo example](./examples/hyper-echo/hyper_echo.rs)
   * [Salvo](https://salvo.rs): [🏓echo example](./examples/salvo-echo/salvo_echo.rs)
 * Out of the box support for any other middleware based on tower :
