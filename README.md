@@ -15,8 +15,9 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 ## Features :
 * Integrates with :
   * [Axum](https://docs.rs/axum/latest/axum/): [🏓echo example](./examples/axum-echo/axum_echo.rs)
-  * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](./examples/warp-echo/warp_echo.rs)
+  * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](./examples/warp-echo/warp_echo.rs) (Not supported with `socketioxide >= 0.9.0` as long as warp doesn't migrate to hyper v1)
   * [Hyper](https://docs.rs/hyper/latest/hyper/): [🏓echo example](./examples/hyper-echo/hyper_echo.rs)
+  * [Salvo](https://salvo.rs): [🏓echo example](./examples/salvo-echo/salvo_echo.rs)
 * Out of the box support for any other middleware based on tower :
   * [🔓CORS](https://docs.rs/tower-http/latest/tower_http/cors)
   * [📁Compression](https://docs.rs/tower-http/latest/tower_http/compression)
@@ -56,20 +57,23 @@ io.ns("/", |s: SocketRef| {
         s.broadcast().emit("new message", msg).ok();
     });
 
-    s.on("add user", |s: SocketRef, Data::<String>(username)| {
-        if s.extensions.get::<Username>().is_some() {
-            return;
-        }
-        let i = NUM_USERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        s.extensions.insert(Username(username.clone()));
-        s.emit("login", Res::Login { num_users: i }).ok();
+    s.on(
+        "add user",
+        |s: SocketRef, Data::<String>(username), user_cnt: State<UserCnt>| {
+            if s.extensions.get::<Username>().is_some() {
+                return;
+            }
+            let num_users = user_cnt.add_user();
+            s.extensions.insert(Username(username.clone()));
+            s.emit("login", Res::Login { num_users }).ok();
 
-        let res = Res::UserEvent {
-            num_users: i,
-            username: Username(username),
-        };
-        s.broadcast().emit("user joined", res).ok();
-    });
+            let res = Res::UserEvent {
+                num_users,
+                username: Username(username),
+            };
+            s.broadcast().emit("user joined", res).ok();
+        },
+    );
 
     s.on("typing", |s: SocketRef| {
         let username = s.extensions.get::<Username>().unwrap().clone();
@@ -85,11 +89,11 @@ io.ns("/", |s: SocketRef| {
             .ok();
     });
 
-    s.on_disconnect(move |s, _| async move {
+    s.on_disconnect(|s: SocketRef, user_cnt: State<UserCnt>| {
         if let Some(username) = s.extensions.get::<Username>() {
-            let i = NUM_USERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) - 1;
+            let num_users = user_cnt.remove_user();
             let res = Res::UserEvent {
-                num_users: i,
+                num_users,
                 username: username.clone(),
             };
             s.broadcast().emit("user left", res).ok();
@@ -104,7 +108,6 @@ io.ns("/", |s: SocketRef| {
 
 ```rust
 use axum::routing::get;
-use axum::Server;
 use serde_json::Value;
 use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},
@@ -149,9 +152,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 
     Ok(())
 }

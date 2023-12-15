@@ -61,7 +61,7 @@
 //! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) or an hyper [`service`](hyper::service::Service)
 //! you can use it with any http server frameworks that works with tower/hyper:
 //! * [Axum](https://docs.rs/axum/latest/axum/)
-//! * [Warp](https://docs.rs/warp/latest/warp/) (Not supported with version > 0.9.0 as long as it doesn't support hyper v1)
+//! * [Warp](https://docs.rs/warp/latest/warp/) (Not supported with socketioxide >= 0.9.0 as long as warp doesn't migrate to hyper v1)
 //! * [Hyper](https://docs.rs/hyper/latest/hyper/)
 //! * [Salvo](https://docs.rs/salvo/latest/salvo/)
 //!
