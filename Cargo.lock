@@ -583,7 +583,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "memchr",
- "pin-project",
+ "pin-project-lite",
  "rand",
  "serde",
  "serde_json",
