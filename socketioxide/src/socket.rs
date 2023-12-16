@@ -113,14 +113,15 @@ pub struct AckResponse<T> {
     pub binary: Vec<Vec<u8>>,
 }
 
-/// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
-/// Can be used to wait for multiple acknowledgements provided when broadcasting
-/// with an ack requirement.
-#[pin_project::pin_project]
-pub struct AckStream<T> {
-    #[pin]
-    rxs: FuturesUnordered<Timeout<oneshot::Receiver<AckResponse<Value>>>>,
-    res: Vec<Result<AckResponse<T>, AckError>>,
+pin_project_lite::pin_project! {
+    /// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
+    /// Can be used to wait for multiple acknowledgements provided when broadcasting
+    /// with an ack requirement.
+    pub struct AckStream<T> {
+        #[pin]
+        rxs: FuturesUnordered<Timeout<oneshot::Receiver<AckResponse<Value>>>>,
+        res: Vec<Result<AckResponse<T>, AckError>>,
+    }
 }
 impl<T> AckStream<T> {
     /// Creates a new [`AckStream`] from a [`Packet`] and a list of sockets.
