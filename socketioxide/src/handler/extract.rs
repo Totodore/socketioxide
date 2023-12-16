@@ -13,6 +13,8 @@
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
 //! * [`TransportType`](crate::TransportType): extracts the transport type
+//! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
+//! * [`State`]: extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 //!
 //! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits
 //! When implementing these traits, if you clone the [`Arc<Socket>`] make sure that it is dropped at least when the socket is disconnected.

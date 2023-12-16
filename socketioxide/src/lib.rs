@@ -156,7 +156,8 @@
 //! * [`AckSender`](extract::Data): Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`]: extracts the protocol version of the socket
 //! * [`TransportType`]: extracts the transport type of the socket
-//!
+//! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
+//! * [`State`](extract::State): extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 //! ### Extractor order
 //! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
 //!
