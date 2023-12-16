@@ -1854,6 +1854,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "itoa",
+ "pin-project",
  "salvo",
  "serde",
  "serde_json",

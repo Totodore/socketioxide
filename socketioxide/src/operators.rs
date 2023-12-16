@@ -4,16 +4,14 @@ use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
-use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
 
 use crate::adapter::LocalAdapter;
 use crate::errors::BroadcastError;
 use crate::extract::SocketRef;
-use crate::socket::AckResponse;
+use crate::socket::AckStream;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
-    errors::AckError,
     ns::Namespace,
     packet::Packet,
 };
@@ -326,7 +324,7 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
+    ) -> Result<AckStream<V>, BroadcastError> {
         let packet = self.get_packet(event, data)?;
         self.ns.adapter.broadcast_with_ack(packet, self.opts)
     }
