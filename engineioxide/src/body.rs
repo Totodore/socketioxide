@@ -3,21 +3,23 @@
 use bytes::Bytes;
 use http_body::{Body, Frame, SizeHint};
 use http_body_util::Full;
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-#[pin_project(project = BodyProj)]
-pub enum ResponseBody<B> {
-    EmptyResponse,
-    CustomBody {
-        #[pin]
-        body: Full<Bytes>,
-    },
-    Body {
-        #[pin]
-        body: B,
-    },
+pin_project! {
+    #[project = BodyProj]
+    pub enum ResponseBody<B> {
+        EmptyResponse,
+        CustomBody {
+            #[pin]
+            body: Full<Bytes>,
+        },
+        Body {
+            #[pin]
+            body: B,
+        },
+    }
 }
 impl<B> Default for ResponseBody<B> {
     fn default() -> Self {
