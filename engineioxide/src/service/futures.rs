@@ -2,7 +2,7 @@ use crate::body::ResponseBody;
 use crate::errors::Error;
 use futures::ready;
 use http::Response;
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -10,21 +10,23 @@ use std::task::{Context, Poll};
 pub(crate) type BoxFuture<B> =
     Pin<Box<dyn Future<Output = Result<Response<ResponseBody<B>>, Error>> + Send>>;
 
-#[pin_project(project = ResFutProj)]
-pub enum ResponseFuture<F, B> {
-    EmptyResponse {
-        code: u16,
-    },
-    ReadyResponse {
-        res: Option<Result<Response<ResponseBody<B>>, Error>>,
-    },
-    AsyncResponse {
-        future: BoxFuture<B>,
-    },
-    Future {
-        #[pin]
-        future: F,
-    },
+pin_project! {
+    #[project = ResFutProj]
+    pub enum ResponseFuture<F, B> {
+        EmptyResponse {
+            code: u16,
+        },
+        ReadyResponse {
+            res: Option<Result<Response<ResponseBody<B>>, Error>>,
+        },
+        AsyncResponse {
+            future: BoxFuture<B>,
+        },
+        Future {
+            #[pin]
+            future: F,
+        },
+    }
 }
 
 impl<F, B> ResponseFuture<F, B> {
