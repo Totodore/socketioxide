@@ -196,10 +196,11 @@ impl<T: DeserializeOwned> Future for AckStream<T> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         assert!(!self.rxs.is_empty());
         match self.as_mut().poll_next(cx) {
-            Poll::Ready(Some(v)) => return Poll::Ready(v),
-            Poll::Pending => return Poll::Pending,
-            // rxs is not empty so the stream should at least yield one value
-            Poll::Ready(None) => unreachable!(),
+            Poll::Ready(Some(v)) => Poll::Ready(v),
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => {
+                unreachable!("stream should at least yield 1 value")
+            }
         }
     }
 }
