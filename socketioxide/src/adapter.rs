@@ -222,7 +222,7 @@ impl Adapter for LocalAdapter {
             sockets.len(),
             sockets.iter().map(|s| s.id).collect::<Vec<_>>()
         );
-        AckStream::new(packet, sockets, duration)
+        AckStream::broadcast(packet, sockets, duration)
     }
 
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Infallible> {

@@ -120,7 +120,7 @@ pin_project_lite::pin_project! {
     pub struct AckStream<T> {
         #[pin]
         rxs: FuturesUnordered<Timeout<oneshot::Receiver<AckResponse<Value>>>>,
-        res: Vec<Result<AckResponse<T>, AckError>>,
+        _phantom: std::marker::PhantomData<T>,
     }
 }
 impl<T> AckStream<T> {
@@ -130,7 +130,7 @@ impl<T> AckStream<T> {
     ///
     /// The [`AckStream`] will wait for the default timeout specified in the config
     /// (5s by default) if no custom timeout is specified.
-    pub fn new(
+    pub fn broadcast(
         packet: Packet<'static>,
         sockets: Vec<SocketRef<impl Adapter>>,
         duration: Option<Duration>,
@@ -149,11 +149,25 @@ impl<T> AckStream<T> {
         if errs.is_empty() {
             Ok(Self {
                 rxs,
-                res: Vec::new(),
+                _phantom: std::marker::PhantomData,
             })
         } else {
             Err(errs.into())
         }
+    }
+
+    /// Creates a new [`AckStream`] from a [`oneshot::Receiver`] corresponding to the acknowledgement
+    /// of a single socket.
+    pub fn send(
+        rx: oneshot::Receiver<AckResponse<Value>>,
+        duration: Duration,
+    ) -> Result<Self, SendError> {
+        let rxs = FuturesUnordered::new();
+        rxs.push(tokio::time::timeout(duration, rx));
+        Ok(Self {
+            rxs,
+            _phantom: std::marker::PhantomData,
+        })
     }
 }
 impl<T: DeserializeOwned> Stream for AckStream<T> {
@@ -177,14 +191,16 @@ impl<T: DeserializeOwned> Stream for AckStream<T> {
     }
 }
 impl<T: DeserializeOwned> Future for AckStream<T> {
-    type Output = Vec<Result<AckResponse<T>, AckError>>;
+    type Output = Result<AckResponse<T>, AckError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        assert!(!self.rxs.is_empty());
         loop {
             match self.as_mut().poll_next(cx) {
-                Poll::Ready(Some(v)) => self.res.push(v),
-                Poll::Ready(None) => return Poll::Ready(std::mem::take(&mut self.res)),
+                Poll::Ready(Some(v)) => return Poll::Ready(v),
                 Poll::Pending => return Poll::Pending,
+                // rxs is not empty so the stream should at least yield one value
+                Poll::Ready(None) => unreachable!(),
             }
         }
     }
@@ -388,23 +404,19 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     /// ```
-    pub async fn emit_with_ack<V>(
+    pub fn emit_with_ack<V>(
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
-    ) -> Result<AckResponse<V>, AckError>
+    ) -> Result<AckStream<V>, SendError>
     where
-        V: DeserializeOwned + Send + Sync + 'static,
+        V: DeserializeOwned,
     {
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
         let rx = self.send_with_ack(packet)?;
-        let v = tokio::time::timeout(self.config.ack_timeout, rx).await??;
-        Ok(AckResponse {
-            data: serde_json::from_value(v.data)?,
-            binary: v.binary,
-        })
+        AckStream::send(rx, self.config.ack_timeout)
     }
 
     // Room actions
