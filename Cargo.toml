@@ -24,6 +24,7 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 axum = "0.7.2"
 salvo = { version = "0.63.0", features = ["tower-compat"] }
+viz = "0.7.0"
 
 [workspace.package]
 version = "0.9.0"

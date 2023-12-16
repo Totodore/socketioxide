@@ -51,6 +51,7 @@ engineioxide = { path = "../engineioxide", features = [
 tokio-tungstenite.workspace = true
 axum.workspace = true
 salvo.workspace = true
+viz.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",
