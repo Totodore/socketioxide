@@ -36,7 +36,6 @@ use bytes::Bytes;
 use http::{Request, Response};
 use http_body::Body;
 use http_body_util::Empty;
-use hyper::body::Incoming;
 use hyper::service::Service as HyperSvc;
 use tower::Service as TowerSvc;
 
@@ -210,12 +209,12 @@ impl<ReqBody> TowerSvc<Request<ReqBody>> for NotFoundService {
 }
 
 /// Implement a custom hyper [`Service`](HyperSvc) for the [`NotFoundService`]
-impl HyperSvc<Request<Incoming>> for NotFoundService {
+impl<ReqBody> HyperSvc<Request<ReqBody>> for NotFoundService {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
     type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
 
-    fn call(&self, _: Request<Incoming>) -> Self::Future {
+    fn call(&self, _: Request<ReqBody>) -> Self::Future {
         future::ready(Ok(Response::builder()
             .status(404)
             .body(ResponseBody::empty_response())
