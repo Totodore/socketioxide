@@ -1,7 +1,8 @@
-//! ## A tower [`Service`] for engine.io so it can be used with frameworks supporting tower services
+//! ## A tower [`Service`](tower::Service) for engine.io so it can be used with frameworks supporting tower services
 //!
 //!
 //! #### Example with a `hyper` standalone service :
+//!
 //! ```rust
 //! # use engineioxide::layer::EngineIoLayer;
 //! # use engineioxide::handler::EngineIoHandler;
@@ -36,7 +37,8 @@ use http::{Request, Response};
 use http_body::Body;
 use http_body_util::Empty;
 use hyper::body::Incoming;
-use tower::Service;
+use hyper::service::Service as HyperSvc;
+use tower::Service as TowerSvc;
 
 use crate::{
     body::ResponseBody, config::EngineIoConfig, engine::EngineIo, handler::EngineIoHandler,
@@ -48,7 +50,7 @@ mod parser;
 pub use self::parser::{ProtocolVersion, TransportType};
 use self::{futures::ResponseFuture, parser::dispatch_req};
 
-/// A [`Service`] that handles engine.io requests as a middleware.
+/// A `Service` that handles engine.io requests as a middleware.
 /// If the request is not an engine.io request, it forwards it to the inner service.
 /// If it is an engine.io request it will forward it to the appropriate `transport`.
 ///
@@ -105,15 +107,15 @@ impl<H: EngineIoHandler, S> std::fmt::Debug for EngineIoService<H, S> {
     }
 }
 
-/// Tower Service implementation with an [`http_body::Body`] request and response body
-impl<ReqBody, ResBody, S, H> tower::Service<Request<ReqBody>> for EngineIoService<H, S>
+/// Tower Service implementation.
+impl<H, ReqBody, ResBody, S> TowerSvc<Request<ReqBody>> for EngineIoService<H, S>
 where
-    ResBody: Body + Send + 'static,
+    H: EngineIoHandler,
     ReqBody: Body + Send + Unpin + 'static + std::fmt::Debug,
     ReqBody::Error: std::fmt::Debug,
     ReqBody::Data: Send,
-    S: tower::Service<Request<ReqBody>, Response = Response<ResBody>>,
-    H: EngineIoHandler,
+    ResBody: Body + Send + 'static,
+    S: TowerSvc<Request<ReqBody>, Response = Response<ResBody>>,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
@@ -133,18 +135,21 @@ where
     }
 }
 
-/// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body::Body`] response
-impl<ResBody, S, H> hyper::service::Service<Request<Incoming>> for EngineIoService<H, S>
+/// Hyper 1.0 Service implementation.
+impl<H, ReqBody, ResBody, S> HyperSvc<Request<ReqBody>> for EngineIoService<H, S>
 where
-    ResBody: Body + Send + 'static,
-    S: hyper::service::Service<Request<Incoming>, Response = Response<ResBody>>,
     H: EngineIoHandler,
+    ReqBody: Body + Send + Unpin + 'static + std::fmt::Debug,
+    ReqBody::Error: std::fmt::Debug,
+    ReqBody::Data: Send,
+    ResBody: Body + Send + 'static,
+    S: HyperSvc<Request<ReqBody>, Response = Response<ResBody>>,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
     type Future = ResponseFuture<S::Future, ResBody>;
 
-    fn call(&self, req: Request<Incoming>) -> Self::Future {
+    fn call(&self, req: Request<ReqBody>) -> Self::Future {
         let path = self.engine.config.req_path.as_ref();
         if req.uri().path().starts_with(path) {
             dispatch_req(req, self.engine.clone())
@@ -166,7 +171,7 @@ impl<H: EngineIoHandler, S> MakeEngineIoService<H, S> {
     }
 }
 
-impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
+impl<H: EngineIoHandler, S: Clone, T> TowerSvc<T> for MakeEngineIoService<H, S> {
     type Response = EngineIoService<H, S>;
 
     type Error = Infallible;
@@ -182,11 +187,12 @@ impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
     }
 }
 
-/// A [`Service`] that always returns a 404 response and that is compatible with [`EngineIoService`]
+/// A `Service` that always returns a 404 response and that is compatible with [`EngineIoService`]
 #[derive(Debug, Clone)]
 pub struct NotFoundService;
 
-impl<ReqBody> tower::Service<Request<ReqBody>> for NotFoundService {
+/// Implement a custom tower [`Service`](TowerSvc) for the [`NotFoundService`]
+impl<ReqBody> TowerSvc<Request<ReqBody>> for NotFoundService {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
     type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
@@ -203,8 +209,8 @@ impl<ReqBody> tower::Service<Request<ReqBody>> for NotFoundService {
     }
 }
 
-/// Implement a custom [`hyper::service::Service`] for the [`NotFoundService`]
-impl hyper::service::Service<Request<Incoming>> for NotFoundService {
+/// Implement a custom hyper [`Service`](HyperSvc) for the [`NotFoundService`]
+impl HyperSvc<Request<Incoming>> for NotFoundService {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
     type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
