@@ -120,6 +120,7 @@ pin_project_lite::pin_project! {
     pub struct AckStream<T> {
         #[pin]
         rxs: FuturesUnordered<Timeout<oneshot::Receiver<AckResponse<Value>>>>,
+        err: Option<SendError>,
         _phantom: std::marker::PhantomData<T>,
     }
 }
@@ -149,6 +150,7 @@ impl<T> AckStream<T> {
         if errs.is_empty() {
             Ok(Self {
                 rxs,
+                err: None,
                 _phantom: std::marker::PhantomData,
             })
         } else {
@@ -159,15 +161,24 @@ impl<T> AckStream<T> {
     /// Creates a new [`AckStream`] from a [`oneshot::Receiver`] corresponding to the acknowledgement
     /// of a single socket.
     pub fn send(
-        rx: oneshot::Receiver<AckResponse<Value>>,
+        rx: Result<oneshot::Receiver<AckResponse<Value>>, SendError>,
         duration: Duration,
-    ) -> Result<Self, SendError> {
+    ) -> Self {
         let rxs = FuturesUnordered::new();
-        rxs.push(tokio::time::timeout(duration, rx));
-        Ok(Self {
-            rxs,
-            _phantom: std::marker::PhantomData,
-        })
+        if let Ok(rx) = rx {
+            rxs.push(tokio::time::timeout(duration, rx));
+            Self {
+                rxs,
+                err: None,
+                _phantom: std::marker::PhantomData,
+            }
+        } else {
+            Self {
+                rxs,
+                err: rx.err(),
+                _phantom: std::marker::PhantomData,
+            }
+        }
     }
 }
 impl<T: DeserializeOwned> Stream for AckStream<T> {
@@ -407,15 +418,20 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
-    ) -> Result<AckStream<V>, SendError>
+    ) -> AckStream<V>
     where
         V: DeserializeOwned,
     {
         let ns = self.ns();
-        let data = serde_json::to_value(data)?;
-        let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
-        let rx = self.send_with_ack(packet)?;
-        AckStream::send(rx, self.config.ack_timeout)
+        serde_json::to_value(data)
+            .map(|data| {
+                let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
+                let rx = self.send_with_ack(packet);
+                AckStream::send(rx, self.config.ack_timeout)
+            })
+            .unwrap_or_else(|e| {
+                AckStream::send(Err(SendError::Serialize(e)), self.config.ack_timeout)
+            })
     }
 
     // Room actions
