@@ -54,7 +54,7 @@ use self::{futures::ResponseFuture, parser::dispatch_req};
 /// If the request is not an engine.io request, it forwards it to the inner service.
 /// If it is an engine.io request it will forward it to the appropriate `transport`.
 ///
-/// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
+/// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`](TowerSvc).
 pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
     inner: S,
     engine: Arc<EngineIo<H>>,
