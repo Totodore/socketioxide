@@ -19,8 +19,8 @@ With the recent migration of all frameworks to hyper v1. It can be complicated t
 | [🦀Hyper 1.0](https://docs.rs/hyper/latest/hyper/)       | 1.0    | >= 0.9 |
 | [🦀Hyper 1-rc*](https://docs.rs/hyper/1.0.0-rc.4/hyper/) | 1-rc*  | < 0.9  |
 | [🦀Hyper 0.14](https://docs.rs/hyper/0.14/hyper/)        | 0.14   | < 0.9  |
-| [🦀Axum 0.7](https://docs.rs/axum/0.6/axum/)             | 1.0   | >= 0.9  |
-| [🦀Axum 0.6](https://docs.rs/axum/latest/axum/)          | 0.14    | < 0.9 |
+| [🦀Axum 0.7](https://docs.rs/axum/latest/axum/)          | 1.0    | >= 0.9 |
+| [🦀Axum 0.6](https://docs.rs/axum/0.6/axum/)             | 0.14   | < 0.9  |
 | [🦀Warp 0.3](https://docs.rs/warp/0.3/warp/)             | 0.14   | < 0.9  |
 | [🦀Salvo 0.63](https://docs.rs/salvo/latest/salvo)       | 1.0    | >= 0.9 |
 | [🦀Salvo 0.62](https://docs.rs/salvo/0.62/salvo)         | 1-rc*  | < 0.9  |
