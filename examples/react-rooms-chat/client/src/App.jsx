@@ -1,5 +1,4 @@
 import {useState, useRef, useEffect} from "react";
-import "./App.css";
 import {io} from "socket.io-client";
 import {Bars3Icon, } from "@heroicons/react/24/outline";
 import {Sidebar} from "./components/sidebar/normal/Sidebar.jsx";
