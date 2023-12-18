@@ -1,6 +1,6 @@
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
-A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). It integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/), [***`Salvo`***](https://salvo.rs) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, authorization, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).
+A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). It integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/), [***`Salvo`***](https://salvo.rs), [***`Viz`***](https://viz.rs) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, authorization, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).
 
 > ⚠️ This crate is under active development and the API is not yet stable.
 
@@ -24,6 +24,7 @@ With the recent migration of all frameworks to hyper v1. It can be complicated t
 | [🦀Warp 0.3](https://docs.rs/warp/0.3/warp/)             | 0.14   | < 0.9  |
 | [🦀Salvo 0.63](https://docs.rs/salvo/latest/salvo)       | 1.0    | >= 0.9 |
 | [🦀Salvo 0.62](https://docs.rs/salvo/0.62/salvo)         | 1-rc*  | < 0.9  |
+| [🦀Viz 0.7](https://docs.rs/viz/latest/viz)              | 1.0    | >= 0.9 |
 
 ## Features :
 * Integrates with :
@@ -31,6 +32,7 @@ With the recent migration of all frameworks to hyper v1. It can be complicated t
   * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](https://github.com/Totodore/socketioxide/blob/v0.8.0/examples/warp-echo/warp_echo.rs) (Not supported with `socketioxide >= 0.9.0` as long as warp doesn't migrate to hyper v1)
   * [Hyper](https://docs.rs/hyper/latest/hyper/): [🏓echo example](./examples/hyper-echo/hyper_echo.rs)
   * [Salvo](https://salvo.rs): [🏓echo example](./examples/salvo-echo/salvo_echo.rs)
+  * [Viz](https://viz.rs): [🏓echo example](./examples/viz-echo/viz_echo.rs)
 * Out of the box support for any other middleware based on tower :
   * [🔓CORS](https://docs.rs/tower-http/latest/tower_http/cors)
   * [📁Compression](https://docs.rs/tower-http/latest/tower_http/compression)
