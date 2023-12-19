@@ -15,17 +15,17 @@ use crate::{
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
 
-pub struct Namespace<A: Adapter> {
+pub struct Namespace {
     pub path: Cow<'static, str>,
-    pub(crate) adapter: A,
-    handler: BoxedConnectHandler<A>,
-    sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
+    pub(crate) adapter: Box<dyn Adapter>,
+    handler: BoxedConnectHandler,
+    sockets: RwLock<HashMap<Sid, Arc<Socket>>>,
 }
 
-impl<A: Adapter> Namespace<A> {
+impl Namespace {
     pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
-        C: ConnectHandler<A, T> + Send + Sync + 'static,
+        C: ConnectHandler<T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         Arc::new_cyclic(|ns| Self {
@@ -44,7 +44,7 @@ impl<A: Adapter> Namespace<A> {
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
     ) -> Result<(), serde_json::Error> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
+        let socket: Arc<Socket> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
 
         self.sockets.write().unwrap().insert(sid, socket.clone());
 
@@ -79,7 +79,7 @@ impl<A: Adapter> Namespace<A> {
             packet => self.get_socket(sid)?.recv(packet),
         }
     }
-    pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {
+    pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket>, Error> {
         self.sockets
             .read()
             .unwrap()
@@ -87,7 +87,7 @@ impl<A: Adapter> Namespace<A> {
             .cloned()
             .ok_or(Error::SocketGone(sid))
     }
-    pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
+    pub fn get_sockets(&self) -> Vec<Arc<Socket>> {
         self.sockets.read().unwrap().values().cloned().collect()
     }
 
@@ -108,7 +108,7 @@ impl<A: Adapter> Namespace<A> {
 }
 
 #[cfg(test)]
-impl<A: Adapter> Namespace<A> {
+impl Namespace {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
         let ns = Namespace::new(Cow::Borrowed("/"), || {});
         for sid in sockets {
@@ -124,7 +124,7 @@ impl<A: Adapter> Namespace<A> {
     }
 }
 
-impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
+impl std::fmt::Debug for Namespace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Namespace")
             .field("path", &self.path)

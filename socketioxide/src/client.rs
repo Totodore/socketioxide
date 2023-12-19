@@ -20,12 +20,12 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Client<A: Adapter> {
+pub struct Client {
     pub(crate) config: Arc<SocketIoConfig>,
-    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
+    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace>>>,
 }
 
-impl<A: Adapter> Client<A> {
+impl Client {
     pub fn new(config: Arc<SocketIoConfig>) -> Self {
         #[cfg(feature = "state")]
         crate::state::freeze_state();
@@ -104,7 +104,7 @@ impl<A: Adapter> Client<A> {
     /// Adds a new namespace handler
     pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
@@ -120,7 +120,7 @@ impl<A: Adapter> Client<A> {
         self.ns.write().unwrap().remove(path);
     }
 
-    pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
+    pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace>> {
         self.ns.read().unwrap().get(path).cloned()
     }
 
@@ -146,7 +146,7 @@ pub struct SocketData {
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
-impl<A: Adapter> EngineIoHandler for Client<A> {
+impl EngineIoHandler for Client {
     type Data = SocketData;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]

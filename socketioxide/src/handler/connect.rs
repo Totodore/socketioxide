@@ -61,28 +61,28 @@ use crate::{adapter::Adapter, socket::Socket};
 use super::MakeErasedHandler;
 
 /// A Type Erased [`ConnectHandler`] so it can be stored in a HashMap
-pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
-pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+pub(crate) type BoxedConnectHandler = Box<dyn ErasedConnectHandler>;
+pub(crate) trait ErasedConnectHandler: Send + Sync + 'static {
+    fn call(&self, s: Arc<Socket>, auth: Option<String>);
 }
 
-impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
+impl<T, H> MakeErasedHandler<H, T>
 where
     T: Send + Sync + 'static,
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<T> + Send + Sync + 'static,
 {
-    pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler<A>> {
+    pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler> {
         Box::new(MakeErasedHandler::new(inner))
     }
 }
 
-impl<A: Adapter, T, H> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T>
+impl<T, H> ErasedConnectHandler for MakeErasedHandler<H, T>
 where
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     #[inline(always)]
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+    fn call(&self, s: Arc<Socket>, auth: Option<String>) {
         self.handler.call(s, auth);
     }
 }
@@ -93,13 +93,13 @@ where
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
-pub trait FromConnectParts<A: Adapter>: Sized {
+pub trait FromConnectParts: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
-    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
+    fn from_connect_parts(s: &Arc<Socket>, auth: &Option<String>) -> Result<Self, Self::Error>;
 }
 
 /// Define a handler for the connect event.
@@ -107,9 +107,9 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
-pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
+pub trait ConnectHandler<T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(&self, s: Arc<Socket>, auth: Option<String>);
 
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -129,14 +129,13 @@ macro_rules! impl_handler_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, (private::Async, $($ty,)*)> for F
+        impl<F, Fut, $($ty,)*> ConnectHandler<(private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
-            A: Adapter,
-            $( $ty: FromConnectParts<A> + Send, )*
+            $( $ty: FromConnectParts + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket>, auth: Option<String>) {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
@@ -161,13 +160,12 @@ macro_rules! impl_handler {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)*> ConnectHandler<A, (private::Sync, $($ty,)*)> for F
+        impl<F, $($ty,)*> ConnectHandler<(private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
-            A: Adapter,
-            $( $ty: FromConnectParts<A> + Send, )*
+            $( $ty: FromConnectParts + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket>, auth: Option<String>) {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,

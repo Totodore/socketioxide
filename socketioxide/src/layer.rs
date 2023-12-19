@@ -47,11 +47,11 @@ use crate::{
 };
 
 /// A [`Layer`] for [`SocketIoService`], acting as a middleware.
-pub struct SocketIoLayer<A: Adapter = LocalAdapter> {
-    client: Arc<Client<A>>,
+pub struct SocketIoLayer {
+    client: Arc<Client>,
 }
 
-impl<A: Adapter> Clone for SocketIoLayer<A> {
+impl Clone for SocketIoLayer {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
@@ -59,8 +59,8 @@ impl<A: Adapter> Clone for SocketIoLayer<A> {
     }
 }
 
-impl<A: Adapter> SocketIoLayer<A> {
-    pub(crate) fn from_config(config: Arc<SocketIoConfig>) -> (Self, Arc<Client<A>>) {
+impl SocketIoLayer {
+    pub(crate) fn from_config(config: Arc<SocketIoConfig>) -> (Self, Arc<Client>) {
         let client = Arc::new(Client::new(config.clone()));
         let layer = Self {
             client: client.clone(),
@@ -69,8 +69,8 @@ impl<A: Adapter> SocketIoLayer<A> {
     }
 }
 
-impl<S: Clone, A: Adapter> Layer<S> for SocketIoLayer<A> {
-    type Service = SocketIoService<S, A>;
+impl<S: Clone> Layer<S> for SocketIoLayer {
+    type Service = SocketIoService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
         SocketIoService::with_client(inner, self.client.clone())

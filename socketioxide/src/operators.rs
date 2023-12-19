@@ -7,8 +7,7 @@ use engineioxide::sid::Sid;
 use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
 
-use crate::adapter::LocalAdapter;
-use crate::errors::BroadcastError;
+use crate::errors::{AdapterError, BroadcastError};
 use crate::extract::SocketRef;
 use crate::socket::AckResponse;
 use crate::{
@@ -27,6 +26,8 @@ pub trait RoomParam: 'static {
 
     /// Convert `self` into an iterator of rooms.
     fn into_room_iter(self) -> Self::IntoIter;
+
+    fn into_slice(&self) -> &[Room];
 }
 
 impl RoomParam for Room {
@@ -35,12 +36,20 @@ impl RoomParam for Room {
     fn into_room_iter(self) -> Self::IntoIter {
         std::iter::once(self)
     }
+
+    fn into_slice(&self) -> &[Room] {
+        std::slice::from_ref(self)
+    }
 }
 impl RoomParam for String {
     type IntoIter = std::iter::Once<Room>;
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         std::iter::once(Cow::Owned(self))
+    }
+
+    fn into_slice(&self) -> &[Room] {
+        std::slice::from_ref(self)
     }
 }
 impl RoomParam for Vec<String> {
@@ -49,12 +58,20 @@ impl RoomParam for Vec<String> {
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(Cow::Owned)
     }
+
+    fn into_slice(&self) -> &[Room] {
+        self.as_slice()
+    }
 }
 impl RoomParam for Vec<&'static str> {
     type IntoIter = std::iter::Map<std::vec::IntoIter<&'static str>, fn(&'static str) -> Room>;
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(Cow::Borrowed)
+    }
+
+    fn into_slice(&self) -> &[Room] {
+        self.as_slice()
     }
 }
 
@@ -64,12 +81,20 @@ impl RoomParam for Vec<Room> {
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter()
     }
+
+    fn into_slice(&self) -> &[Room] {
+        self.as_slice()
+    }
 }
 impl RoomParam for &'static str {
     type IntoIter = std::iter::Once<Room>;
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         std::iter::once(Cow::Borrowed(self))
+    }
+
+    fn into_slice(&self) -> &[Room] {
+        std::slice::from_ref(self)
     }
 }
 impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
@@ -80,12 +105,20 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(Cow::Borrowed)
     }
+
+    fn into_slice(&self) -> &[Room] {
+        self.as_ref()
+    }
 }
 impl<const COUNT: usize> RoomParam for [String; COUNT] {
     type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(Cow::Owned)
+    }
+
+    fn into_slice(&self) -> &[Room] {
+        self.as_ref()
     }
 }
 impl RoomParam for Sid {
@@ -94,18 +127,22 @@ impl RoomParam for Sid {
     fn into_room_iter(self) -> Self::IntoIter {
         std::iter::once(Cow::Owned(self.to_string()))
     }
+
+    fn into_slice(&self) -> &[Room] {
+        std::slice::from_ref(self)
+    }
 }
 
 /// Operators are used to select sockets to send a packet to, or to configure the packet that will be emitted.
 #[derive(Debug)]
-pub struct Operators<A: Adapter = LocalAdapter> {
+pub struct Operators {
     opts: BroadcastOptions,
-    ns: Arc<Namespace<A>>,
+    ns: Arc<Namespace>,
     binary: Vec<Vec<u8>>,
 }
 
-impl<A: Adapter> Operators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>, sid: Option<Sid>) -> Self {
+impl Operators {
+    pub(crate) fn new(ns: Arc<Namespace>, sid: Option<Sid>) -> Self {
         Self {
             opts: BroadcastOptions::new(sid),
             ns,
@@ -348,7 +385,7 @@ impl<A: Adapter> Operators<A> {
     ///     }
     ///   });
     /// });
-    pub fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
+    pub fn sockets(self) -> Result<Vec<SocketRef>, AdapterError> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 
@@ -380,7 +417,7 @@ impl<A: Adapter> Operators<A> {
     ///     socket.within("room1").within("room3").join(["room4", "room5"]).unwrap();
     ///   });
     /// });
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+    pub fn join(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
         self.ns.adapter.add_sockets(self.opts, rooms)
     }
 
@@ -396,7 +433,7 @@ impl<A: Adapter> Operators<A> {
     ///     socket.within("room1").within("room3").leave(["room4", "room5"]).unwrap();
     ///   });
     /// });
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+    pub fn leave(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
         self.ns.adapter.del_sockets(self.opts, rooms)
     }
 
@@ -419,7 +456,7 @@ impl<A: Adapter> Operators<A> {
 }
 
 #[cfg(feature = "test-utils")]
-impl<A: Adapter> Operators<A> {
+impl Operators {
     #[allow(dead_code)]
     pub(crate) fn is_broadcast(&self) -> bool {
         self.opts.flags.contains(&BroadcastFlags::Broadcast)

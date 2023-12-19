@@ -40,9 +40,9 @@
 //! }
 //! impl std::error::Error for UserIdNotFound {}
 //!
-//! impl<A: Adapter> FromConnectParts<A> for UserId {
+//! impl FromConnectParts for UserId {
 //!     type Error = Infallible;
-//!     fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
+//!     fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Self::Error> {
 //!         // In a real app it would be better to parse the query params with a crate like `url`
 //!         let uri = &s.req_parts().uri;
 //!         let uid = uri
@@ -56,11 +56,11 @@
 //!
 //! // Here, if the user id is not found, the handler won't be called
 //! // and a tracing `error` log will be printed (if the `tracing` feature is enabled)
-//! impl<A: Adapter> FromMessageParts<A> for UserId {
+//! impl FromMessageParts for UserId {
 //!     type Error = UserIdNotFound;
 //!
 //!     fn from_message_parts(
-//!         s: &Arc<Socket<A>>,
+//!         s: &Arc<Socket>,
 //!         _: &mut serde_json::Value,
 //!         _: &mut Vec<Vec<u8>>,
 //!         _: &Option<i64>,
@@ -116,27 +116,25 @@ fn upwrap_array(v: &mut Value) {
 /// If a deserialization error occurs, the [`ConnectHandler`](super::ConnectHandler) won't be called
 /// and an error log will be print if the `tracing` feature is enabled.
 pub struct Data<T: DeserializeOwned>(pub T);
-impl<T, A> FromConnectParts<A> for Data<T>
+impl<T> FromConnectParts for Data<T>
 where
     T: DeserializeOwned,
-    A: Adapter,
 {
     type Error = serde_json::Error;
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error> {
+    fn from_connect_parts(_: &Arc<Socket>, auth: &Option<String>) -> Result<Self, Self::Error> {
         auth.as_ref()
             .map(|a| serde_json::from_str::<T>(a))
             .unwrap_or(serde_json::from_str::<T>("{}"))
             .map(Data)
     }
 }
-impl<T, A> FromMessageParts<A> for Data<T>
+impl<T> FromMessageParts for Data<T>
 where
     T: DeserializeOwned,
-    A: Adapter,
 {
     type Error = serde_json::Error;
     fn from_message_parts(
-        _: &Arc<Socket<A>>,
+        _: &Arc<Socket>,
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
@@ -149,13 +147,12 @@ where
 /// An Extractor that returns the deserialized data related to the event.
 pub struct TryData<T: DeserializeOwned>(pub Result<T, serde_json::Error>);
 
-impl<T, A> FromConnectParts<A> for TryData<T>
+impl<T> FromConnectParts for TryData<T>
 where
     T: DeserializeOwned,
-    A: Adapter,
 {
     type Error = Infallible;
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(_: &Arc<Socket>, auth: &Option<String>) -> Result<Self, Infallible> {
         let v: Result<T, serde_json::Error> = auth
             .as_ref()
             .map(|a| serde_json::from_str(a))
@@ -163,14 +160,13 @@ where
         Ok(TryData(v))
     }
 }
-impl<T, A> FromMessageParts<A> for TryData<T>
+impl<T> FromMessageParts for TryData<T>
 where
     T: DeserializeOwned,
-    A: Adapter,
 {
     type Error = Infallible;
     fn from_message_parts(
-        _: &Arc<Socket<A>>,
+        _: &Arc<Socket>,
         v: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
@@ -180,18 +176,18 @@ where
     }
 }
 /// An Extractor that returns a reference to a [`Socket`].
-pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
+pub struct SocketRef(Arc<Socket>);
 
-impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
+impl FromConnectParts for SocketRef {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
-impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
+impl FromMessageParts for SocketRef {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
@@ -199,24 +195,24 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
         Ok(SocketRef(s.clone()))
     }
 }
-impl<A: Adapter> FromDisconnectParts<A> for SocketRef<A> {
+impl FromDisconnectParts for SocketRef {
     type Error = Infallible;
-    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+    fn from_disconnect_parts(s: &Arc<Socket>, _: DisconnectReason) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
 
-impl<A: Adapter> std::ops::Deref for SocketRef<A> {
-    type Target = Socket<A>;
+impl std::ops::Deref for SocketRef {
+    type Target = Socket;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<A: Adapter> SocketRef<A> {
+impl SocketRef {
     #[inline(always)]
-    pub(crate) fn new(socket: Arc<Socket<A>>) -> Self {
+    pub(crate) fn new(socket: Arc<Socket>) -> Self {
         Self(socket)
     }
 
@@ -232,10 +228,10 @@ impl<A: Adapter> SocketRef<A> {
 /// An Extractor that returns the binary data of the message.
 /// If there is no binary data, it will contain an empty vec.
 pub struct Bin(pub Vec<Vec<u8>>);
-impl<A: Adapter> FromMessage<A> for Bin {
+impl FromMessage for Bin {
     type Error = Infallible;
     fn from_message(
-        _: Arc<Socket<A>>,
+        _: Arc<Socket>,
         _: serde_json::Value,
         bin: Vec<Vec<u8>>,
         _: Option<i64>,
@@ -247,15 +243,15 @@ impl<A: Adapter> FromMessage<A> for Bin {
 /// An Extractor to send an ack response corresponding to the current event.
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 #[derive(Debug)]
-pub struct AckSender<A: Adapter = LocalAdapter> {
+pub struct AckSender {
     binary: Vec<Vec<u8>>,
-    socket: Arc<Socket<A>>,
+    socket: Arc<Socket>,
     ack_id: Option<i64>,
 }
-impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
+impl FromMessageParts for AckSender {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         ack_id: &Option<i64>,
@@ -263,8 +259,8 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
         Ok(Self::new(s.clone(), *ack_id))
     }
 }
-impl<A: Adapter> AckSender<A> {
-    pub(crate) fn new(socket: Arc<Socket<A>>, ack_id: Option<i64>) -> Self {
+impl AckSender {
+    pub(crate) fn new(socket: Arc<Socket>, ack_id: Option<i64>) -> Self {
         Self {
             binary: vec![],
             socket,
@@ -295,16 +291,16 @@ impl<A: Adapter> AckSender<A> {
     }
 }
 
-impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
+impl FromConnectParts for crate::ProtocolVersion {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
 }
-impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
+impl FromMessageParts for crate::ProtocolVersion {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
@@ -312,23 +308,23 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
         Ok(s.protocol())
     }
 }
-impl<A: Adapter> FromDisconnectParts<A> for crate::ProtocolVersion {
+impl FromDisconnectParts for crate::ProtocolVersion {
     type Error = Infallible;
-    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+    fn from_disconnect_parts(s: &Arc<Socket>, _: DisconnectReason) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
 }
 
-impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
+impl FromConnectParts for crate::TransportType {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
-impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
+impl FromMessageParts for crate::TransportType {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Vec<u8>>,
         _: &Option<i64>,
@@ -336,17 +332,17 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
         Ok(s.transport_type())
     }
 }
-impl<A: Adapter> FromDisconnectParts<A> for crate::TransportType {
+impl FromDisconnectParts for crate::TransportType {
     type Error = Infallible;
-    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+    fn from_disconnect_parts(s: &Arc<Socket>, _: DisconnectReason) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
 
-impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
+impl FromDisconnectParts for DisconnectReason {
     type Error = Infallible;
     fn from_disconnect_parts(
-        _: &Arc<Socket<A>>,
+        _: &Arc<Socket>,
         reason: DisconnectReason,
     ) -> Result<Self, Infallible> {
         Ok(reason)
@@ -402,28 +398,27 @@ mod state_extract {
         }
     }
 
-    impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<T> {
+    impl<T: Send + Sync + 'static> FromConnectParts for State<T> {
         type Error = StateNotFound;
-        fn from_connect_parts(
-            _: &Arc<Socket<A>>,
-            _: &Option<String>,
-        ) -> Result<Self, StateNotFound> {
+        fn from_connect_parts(_: &Arc<Socket>, _: &Option<String>) -> Result<Self, StateNotFound> {
             get_state::<T>().map(State).ok_or(StateNotFound)
         }
     }
-    impl<A: Adapter, T: Send + Sync + 'static> FromDisconnectParts<A> for State<T> {
+
+    impl<T: Send + Sync + 'static> FromDisconnectParts for State<T> {
         type Error = StateNotFound;
         fn from_disconnect_parts(
-            _: &Arc<Socket<A>>,
+            _: &Arc<Socket>,
             _: DisconnectReason,
         ) -> Result<Self, StateNotFound> {
             get_state::<T>().map(State).ok_or(StateNotFound)
         }
     }
-    impl<A: Adapter, T: Send + Sync + 'static> FromMessageParts<A> for State<T> {
+
+    impl<T: Send + Sync + 'static> FromMessageParts for State<T> {
         type Error = StateNotFound;
         fn from_message_parts(
-            _: &Arc<Socket<A>>,
+            _: &Arc<Socket>,
             _: &mut serde_json::Value,
             _: &mut Vec<Vec<u8>>,
             _: &Option<i64>,
