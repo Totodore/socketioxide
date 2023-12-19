@@ -69,7 +69,6 @@ where
     <ReqBody as Body>::Data: Send,
     ResBody: Body + Send + 'static,
     S: TowerSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
-    A: Adapter,
 {
     type Response = <EngineIoService<Arc<Client>, S> as TowerSvc<Request<ReqBody>>>::Response;
     type Error = <EngineIoService<Arc<Client>, S> as TowerSvc<Request<ReqBody>>>::Error;

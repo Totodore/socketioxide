@@ -4,25 +4,29 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
+    pin::Pin,
     sync::Mutex,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc, RwLock,
     },
+    task::{Context, Poll},
     time::Duration,
 };
 
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
+use futures::{stream::FuturesUnordered, Future, Stream};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, time::Timeout};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
 
 use crate::{
-    adapter::{Adapter, LocalAdapter, Room},
+    adapter::{Adapter, Room},
     errors::{AckError, Error},
+    extract::SocketRef,
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
         MessageHandler,
@@ -30,7 +34,7 @@ use crate::{
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    SocketIoConfig,
+    BroadcastError, SocketIoConfig,
 };
 use crate::{
     client::SocketData,
@@ -109,10 +113,113 @@ pub struct AckResponse<T> {
     pub binary: Vec<Vec<u8>>,
 }
 
+pin_project_lite::pin_project! {
+    /// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
+    /// Can be used to wait for multiple acknowledgements provided when broadcasting
+    /// with an ack requirement.
+    pub struct AckStream<T> {
+        #[pin]
+        rxs: FuturesUnordered<Timeout<oneshot::Receiver<AckResponse<Value>>>>,
+        err: Option<SendError>,
+        _phantom: std::marker::PhantomData<T>,
+    }
+}
+impl<T> AckStream<T> {
+    /// Creates a new [`AckStream`] from a [`Packet`] and a list of sockets.
+    /// The [`Packet`] is sent to all the sockets and the [`AckStream`] will wait
+    /// for an acknowledgement from each socket.
+    ///
+    /// The [`AckStream`] will wait for the default timeout specified in the config
+    /// (5s by default) if no custom timeout is specified.
+    pub fn broadcast(
+        packet: Packet<'static>,
+        sockets: Vec<SocketRef>,
+        duration: Option<Duration>,
+    ) -> Result<Self, BroadcastError> {
+        assert!(!sockets.is_empty());
+
+        let rxs = FuturesUnordered::new();
+        let mut errs = Vec::new();
+        let duration = duration.unwrap_or_else(|| sockets.first().unwrap().config.ack_timeout);
+        for socket in sockets {
+            match socket.send_with_ack(packet.clone()) {
+                Ok(rx) => rxs.push(tokio::time::timeout(duration, rx)),
+                Err(e) => errs.push(e),
+            }
+        }
+        if errs.is_empty() {
+            Ok(Self {
+                rxs,
+                err: None,
+                _phantom: std::marker::PhantomData,
+            })
+        } else {
+            Err(errs.into())
+        }
+    }
+
+    /// Creates a new [`AckStream`] from a [`oneshot::Receiver`] corresponding to the acknowledgement
+    /// of a single socket.
+    pub fn send(
+        rx: Result<oneshot::Receiver<AckResponse<Value>>, SendError>,
+        duration: Duration,
+    ) -> Self {
+        let rxs = FuturesUnordered::new();
+        if let Ok(rx) = rx {
+            rxs.push(tokio::time::timeout(duration, rx));
+            Self {
+                rxs,
+                err: None,
+                _phantom: std::marker::PhantomData,
+            }
+        } else {
+            Self {
+                rxs,
+                err: rx.err(),
+                _phantom: std::marker::PhantomData,
+            }
+        }
+    }
+}
+impl<T: DeserializeOwned> Stream for AckStream<T> {
+    type Item = Result<AckResponse<T>, AckError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.project().rxs.poll_next(cx) {
+            Poll::Ready(Some(Ok(Ok(v)))) => Poll::Ready(Some(Ok(AckResponse {
+                data: serde_json::from_value(v.data)?,
+                binary: v.binary,
+            }))),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+            Poll::Ready(Some(Ok(Err(e)))) => Poll::Ready(Some(Err(e.into()))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.rxs.size_hint()
+    }
+}
+impl<T: DeserializeOwned> Future for AckStream<T> {
+    type Output = Result<AckResponse<T>, AckError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        assert!(!self.rxs.is_empty());
+        match self.as_mut().poll_next(cx) {
+            Poll::Ready(Some(v)) => Poll::Ready(v),
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => {
+                unreachable!("stream should at least yield 1 value")
+            }
+        }
+    }
+}
+
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
-pub struct Socket<A: Adapter = LocalAdapter> {
+pub struct Socket {
     config: Arc<SocketIoConfig>,
     ns: Arc<Namespace>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler>>,
@@ -307,19 +414,24 @@ impl Socket {
     ///    });
     /// });
     /// ```
-    pub async fn emit_with_ack<V>(
+    pub fn emit_with_ack<V>(
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
-    ) -> Result<AckResponse<V>, AckError>
+    ) -> AckStream<V>
     where
-        V: DeserializeOwned + Send + Sync + 'static,
+        V: DeserializeOwned,
     {
         let ns = self.ns();
-        let data = serde_json::to_value(data)?;
-        let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
-
-        self.send_with_ack(packet, None).await
+        serde_json::to_value(data)
+            .map(|data| {
+                let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
+                let rx = self.send_with_ack(packet);
+                AckStream::send(rx, self.config.ack_timeout)
+            })
+            .unwrap_or_else(|e| {
+                AckStream::send(Err(SendError::Serialize(e)), self.config.ack_timeout)
+            })
     }
 
     // Room actions
@@ -562,22 +674,16 @@ impl Socket {
         Ok(())
     }
 
-    pub(crate) async fn send_with_ack<'a, V: DeserializeOwned>(
+    pub(crate) fn send_with_ack(
         &self,
-        mut packet: Packet<'a>,
-        timeout: Option<Duration>,
-    ) -> Result<AckResponse<V>, AckError> {
+        mut packet: Packet<'_>,
+    ) -> Result<oneshot::Receiver<AckResponse<Value>>, SendError> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.lock().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
         self.send(packet)?;
-        let timeout = timeout.unwrap_or(self.config.ack_timeout);
-        let v = tokio::time::timeout(timeout, rx).await??;
-        Ok(AckResponse {
-            data: serde_json::from_value(v.data)?,
-            binary: v.binary,
-        })
+        Ok(rx)
     }
 
     /// Called when the socket is gracefully disconnected from the server or the client

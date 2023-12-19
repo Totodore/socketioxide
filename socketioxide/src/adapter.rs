@@ -12,19 +12,15 @@ use std::{
 };
 
 use engineioxide::sid::Sid;
-use futures::{
-    stream::{self, BoxStream},
-    StreamExt,
-};
 use serde::de::DeserializeOwned;
 
 use crate::{
-    errors::{AckError, AdapterError, BroadcastError},
+    errors::{AdapterError, BroadcastError},
     extract::SocketRef,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::AckResponse,
+    socket::AckStream,
 };
 
 /// A room identifier
@@ -95,7 +91,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError>;
+    ) -> Result<AckStream<V>, BroadcastError>;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: Cow<'_, &[Room]>) -> Result<Vec<Sid>, AdapterError>;
@@ -211,7 +207,7 @@ impl Adapter for LocalAdapter {
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
+    ) -> Result<AckStream<V>, BroadcastError> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,
@@ -223,12 +219,7 @@ impl Adapter for LocalAdapter {
             sockets.len(),
             sockets.iter().map(|s| s.id).collect::<Vec<_>>()
         );
-        let count = sockets.len();
-        let ack_futs = sockets.into_iter().map(move |socket| {
-            let packet = packet.clone();
-            async move { socket.send_with_ack(packet, duration).await }
-        });
-        Ok(stream::iter(ack_futs).buffer_unordered(count).boxed())
+        AckStream::broadcast(packet, sockets, duration)
     }
 
     fn sockets(&self, rooms: Cow<'_, &[Room]>) -> Result<Vec<Sid>, Infallible> {

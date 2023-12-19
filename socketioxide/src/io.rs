@@ -5,7 +5,6 @@ use engineioxide::{
     service::NotFoundService,
     TransportType,
 };
-use futures::stream::BoxStream;
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -17,8 +16,8 @@ use crate::{
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    socket::AckResponse,
-    AckError, BroadcastError,
+    socket::AckStream,
+    BroadcastError,
 };
 
 /// Configuration for Socket.IO & Engine.IO
@@ -622,7 +621,7 @@ impl SocketIo {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
+    ) -> Result<AckStream<V>, BroadcastError> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
