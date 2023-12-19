@@ -1,0 +1,28 @@
+[package]
+name = "redisioxide-e2e"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+redisioxide = { path = "../../adapters/redisioxide" }
+socketioxide = { path = "../../socketioxide" }
+tracing-subscriber.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+rust_socketio = { version = "0.4.2", features = ["async"] }
+
+[[bin]]
+name = "redisioxide-e2e"
+path = "server.rs"
+
+[[bin]]
+name = "redisioxide-client-e2e"
+path = "client.rs"

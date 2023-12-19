@@ -251,14 +251,13 @@ mod state;
 
 pub mod handler;
 pub mod layer;
+pub mod ns;
 pub mod operators;
+pub mod packet;
 pub mod service;
 pub mod socket;
 
-#[cfg(feature = "test-utils")]
-pub use packet::*;
-
-pub use engineioxide::TransportType;
+pub use engineioxide::{sid::Sid, TransportType};
 pub use errors::{AckError, BroadcastError, SendError};
 pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
@@ -266,8 +265,6 @@ pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 mod client;
 mod errors;
 mod io;
-mod ns;
-mod packet;
 
 /// Socket.IO protocol version.
 /// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor

@@ -1,5 +1,5 @@
 [workspace]
-members = ["engineioxide", "socketioxide", "e2e/*", "examples/*"]
+members = ["engineioxide", "socketioxide", "e2e/*", "examples/*", "adapters/*"]
 resolver = "2"
 
 [workspace.dependencies]

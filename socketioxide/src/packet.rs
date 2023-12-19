@@ -12,14 +12,14 @@ use engineioxide::sid::Sid;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Packet<'a> {
     /// The packet data
-    pub inner: PacketData<'a>,
+    pub(crate) inner: PacketData<'a>,
     /// The namespace the packet belongs to
-    pub ns: Cow<'a, str>,
+    pub(crate) ns: Cow<'a, str>,
 }
 
 impl<'a> Packet<'a> {
     /// Send a connect packet with a default payload for v5 and no payload for v4
-    pub fn connect(
+    pub(crate) fn connect(
         ns: &'a str,
         #[allow(unused_variables)] sid: Sid,
         #[allow(unused_variables)] protocol: ProtocolVersion,
@@ -57,7 +57,7 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a disconnect packet for the given namespace
-    pub fn disconnect(ns: &'a str) -> Self {
+    pub(crate) fn disconnect(ns: &'a str) -> Self {
         Self {
             inner: PacketData::Disconnect,
             ns: Cow::Borrowed(ns),
@@ -67,7 +67,7 @@ impl<'a> Packet<'a> {
 
 impl<'a> Packet<'a> {
     /// Create a connect error packet for the given namespace
-    pub fn invalid_namespace(ns: &'a str) -> Self {
+    pub(crate) fn invalid_namespace(ns: &'a str) -> Self {
         Self {
             inner: PacketData::ConnectError,
             ns: Cow::Borrowed(ns),
@@ -75,7 +75,11 @@ impl<'a> Packet<'a> {
     }
 
     /// Create an event packet for the given namespace
-    pub fn event(ns: impl Into<Cow<'a, str>>, e: impl Into<Cow<'a, str>>, data: Value) -> Self {
+    pub(crate) fn event(
+        ns: impl Into<Cow<'a, str>>,
+        e: impl Into<Cow<'a, str>>,
+        data: Value,
+    ) -> Self {
         Self {
             inner: PacketData::Event(e.into(), data, None),
             ns: ns.into(),
@@ -83,7 +87,7 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a binary event packet for the given namespace
-    pub fn bin_event(
+    pub(crate) fn bin_event(
         ns: impl Into<Cow<'a, str>>,
         e: impl Into<Cow<'a, str>>,
         data: Value,
@@ -99,7 +103,7 @@ impl<'a> Packet<'a> {
     }
 
     /// Create an ack packet for the given namespace
-    pub fn ack(ns: &'a str, data: Value, ack: i64) -> Self {
+    pub(crate) fn ack(ns: &'a str, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::EventAck(data, ack),
             ns: Cow::Borrowed(ns),
@@ -107,7 +111,7 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: &'a str, data: Value, bin: Vec<Vec<u8>>, ack: i64) -> Self {
+    pub(crate) fn bin_ack(ns: &'a str, data: Value, bin: Vec<Vec<u8>>, ack: i64) -> Self {
         debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
@@ -175,7 +179,7 @@ impl<'a> Packet<'a> {
 /// | BINARY_EVENT  | 5   | Used to [send binary data](#sending-and-receiving-data) to the other side.            |
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PacketData<'a> {
+pub(crate) enum PacketData<'a> {
     /// Connect packet with optional payload (only used with v5 for response)
     Connect(Option<String>),
     /// Disconnect packet, used to disconnect from a namespace
@@ -194,7 +198,7 @@ pub enum PacketData<'a> {
 
 /// Binary packet used when sending binary data
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BinaryPacket {
+pub(crate) struct BinaryPacket {
     /// Data related to the packet
     pub data: Value,
     /// Binary payload
@@ -238,7 +242,7 @@ impl<'a> PacketData<'a> {
 
 impl BinaryPacket {
     /// Create a binary packet from incoming data and remove all placeholders and get the payload count
-    pub fn incoming(mut data: Value) -> Self {
+    pub(crate) fn incoming(mut data: Value) -> Self {
         let payload_count = match &mut data {
             Value::Array(ref mut v) => {
                 let count = v.len();
@@ -267,7 +271,7 @@ impl BinaryPacket {
     }
 
     /// Create a binary packet from outgoing data and a payload
-    pub fn outgoing(data: Value, bin: Vec<Vec<u8>>) -> Self {
+    pub(crate) fn outgoing(data: Value, bin: Vec<Vec<u8>>) -> Self {
         let mut data = match data {
             Value::Array(v) => Value::Array(v),
             d => Value::Array(vec![d]),

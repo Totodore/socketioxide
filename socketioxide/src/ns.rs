@@ -15,7 +15,10 @@ use crate::{
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
 
+/// A namespace act as a layer of multiplexing for sockets.
+/// It should only be used when implementing a custom adapter.
 pub struct Namespace<A: Adapter> {
+    /// The namespace path
     pub path: Cow<'static, str>,
     pub(crate) adapter: A,
     handler: BoxedConnectHandler<A>,
@@ -23,7 +26,7 @@ pub struct Namespace<A: Adapter> {
 }
 
 impl<A: Adapter> Namespace<A> {
-    pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
+    pub(crate) fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
         C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
@@ -37,7 +40,7 @@ impl<A: Adapter> Namespace<A> {
     }
 
     /// Connects a socket to a namespace
-    pub fn connect(
+    pub(crate) fn connect(
         self: Arc<Self>,
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData>>,
@@ -61,24 +64,26 @@ impl<A: Adapter> Namespace<A> {
     }
 
     /// Removes a socket from a namespace and propagate the event to the adapter
-    pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
+    pub(crate) fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
         self.sockets.write().unwrap().remove(&sid);
         self.adapter
             .del_all(sid)
             .map_err(|err| AdapterError(Box::new(err)))
     }
 
+    /// Returns true if the namespace contains a socket with the given id
     pub fn has(&self, sid: Sid) -> bool {
         self.sockets.read().unwrap().values().any(|s| s.id == sid)
     }
 
-    pub fn recv(&self, sid: Sid, packet: PacketData<'_>) -> Result<(), Error> {
+    pub(crate) fn recv(&self, sid: Sid, packet: PacketData<'_>) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError => Err(Error::InvalidPacketType),
             packet => self.get_socket(sid)?.recv(packet),
         }
     }
+    /// Returns a socket from the namespace
     pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {
         self.sockets
             .read()
@@ -87,6 +92,8 @@ impl<A: Adapter> Namespace<A> {
             .cloned()
             .ok_or(Error::SocketGone(sid))
     }
+
+    /// Returns all the sockets from the namespace
     pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
         self.sockets.read().unwrap().values().cloned().collect()
     }
@@ -95,7 +102,7 @@ impl<A: Adapter> Namespace<A> {
     /// * Closes the adapter
     /// * Closes all the sockets and their underlying connections
     /// * Removes all the sockets from the namespace
-    pub async fn close(&self) {
+    pub(crate) async fn close(&self) {
         self.adapter.close().ok();
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all sockets in namespace {}", self.path);

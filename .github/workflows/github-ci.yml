@@ -255,3 +255,36 @@ jobs:
       - name: Client output
         if: always()
         run:  cat client.txt
+
+  redisioxide:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+      - name: Start Redis
+        uses: supercharge/redis-github-action@1.7.0
+      - name: Install deps & run tests 
+        run: |
+          cargo build --bin redisioxide --release
+          cargo run --bin redisioxide-e2e --release > server1.txt && cargo run --bin redisioxide-e2e --release > server2.txt && cargo run --bin redisioxide-client-e2e --release > client.txt
+      - name: Server 1 output
+        if: always()
+        run: cat server1.txt
+      - name: Server 2 output
+        if: always()
+        run: cat server2.txt
+      - name: Client output
+        if: always()
+        run: cat client.txt
