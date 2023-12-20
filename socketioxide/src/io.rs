@@ -3,6 +3,7 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
+    sid::Sid,
     TransportType,
 };
 use futures::stream::BoxStream;
@@ -11,6 +12,7 @@ use serde::de::DeserializeOwned;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
+    errors::Error,
     extract::SocketRef,
     handler::ConnectHandler,
     layer::SocketIoLayer,
@@ -723,6 +725,12 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().leave(rooms)
     }
 
+    /// Gets a [`SocketRef`] by the specified [`Sid`].
+    #[inline]
+    pub fn get_socket(&self, sid: Sid) -> Result<SocketRef<A>, Error> {
+        self.get_default_op().get_socket(sid)
+    }
+
     /// Returns a new operator on the given namespace
     #[inline(always)]
     fn get_op(&self, path: &str) -> Option<Operators<A>> {
@@ -772,6 +780,13 @@ mod tests {
         io.ns("test", || {});
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
+    }
+
+    #[test]
+    fn get_socket_by_sid() {
+        let (_, io) = SocketIo::builder().build_svc();
+        io.ns("/", || {});
+        assert!(io.get_socket(Sid::new()).is_err());
     }
 
     #[test]

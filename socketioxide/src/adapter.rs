@@ -119,6 +119,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// Removes the sockets that match the [`BroadcastOptions`] from the rooms.
     fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam)
         -> Result<(), Self::Error>;
+
     /// Disconnects the sockets that match the [`BroadcastOptions`].
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
