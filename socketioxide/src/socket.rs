@@ -15,10 +15,17 @@ use std::{
 };
 
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
-use futures::{stream::FuturesUnordered, Future, Stream};
+use futures::{
+    future::{self, Either, Ready},
+    stream::FuturesUnordered,
+    Future, Stream,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use tokio::{sync::oneshot, time::Timeout};
+use tokio::{
+    sync::oneshot::{self, Receiver},
+    time::Timeout,
+};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
@@ -113,17 +120,26 @@ pub struct AckResponse<T> {
     pub binary: Vec<Vec<u8>>,
 }
 
+type AckResult = Timeout<Receiver<AckResponse<Value>>>;
 pin_project_lite::pin_project! {
     /// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
     /// Can be used to wait for multiple acknowledgements provided when broadcasting
     /// with an ack requirement.
-    pub struct AckStream<T> {
-        #[pin]
-        rxs: FuturesUnordered<Timeout<oneshot::Receiver<AckResponse<Value>>>>,
-        err: Option<SendError>,
-        _phantom: std::marker::PhantomData<T>,
+    #[project = AckStreamProj]
+    pub enum AckStream<T> {
+        Stream {
+            #[pin]
+            rxs: FuturesUnordered<AckResult>,
+            _phantom: std::marker::PhantomData<T>,
+        },
+        Fut {
+            #[pin]
+            rx: Either<AckResult, Ready<SendError>>,
+            _phantom: std::marker::PhantomData<T>,
+        },
     }
 }
+
 impl<T> AckStream<T> {
     /// Creates a new [`AckStream`] from a [`Packet`] and a list of sockets.
     /// The [`Packet`] is sent to all the sockets and the [`AckStream`] will wait
@@ -148,9 +164,8 @@ impl<T> AckStream<T> {
             }
         }
         if errs.is_empty() {
-            Ok(Self {
+            Ok(Self::Stream {
                 rxs,
-                err: None,
                 _phantom: std::marker::PhantomData,
             })
         } else {
@@ -160,52 +175,58 @@ impl<T> AckStream<T> {
 
     /// Creates a new [`AckStream`] from a [`oneshot::Receiver`] corresponding to the acknowledgement
     /// of a single socket.
-    pub fn send(
-        rx: Result<oneshot::Receiver<AckResponse<Value>>, SendError>,
-        duration: Duration,
-    ) -> Self {
-        let rxs = FuturesUnordered::new();
-        if let Ok(rx) = rx {
-            rxs.push(tokio::time::timeout(duration, rx));
-            Self {
-                rxs,
-                err: None,
+    pub fn send(rx: Result<Receiver<AckResponse<Value>>, SendError>, duration: Duration) -> Self {
+        match rx {
+            Ok(rx) => Self::Fut {
+                rx: Either::Left(tokio::time::timeout(duration, rx)),
                 _phantom: std::marker::PhantomData,
-            }
-        } else {
-            Self {
-                rxs,
-                err: rx.err(),
+            },
+            Err(e) => Self::Fut {
+                rx: Either::Right(future::ready(e)),
                 _phantom: std::marker::PhantomData,
-            }
+            },
         }
     }
 }
+
 impl<T: DeserializeOwned> Stream for AckStream<T> {
     type Item = Result<AckResponse<T>, AckError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.project().rxs.poll_next(cx) {
-            Poll::Ready(Some(Ok(Ok(v)))) => Poll::Ready(Some(Ok(AckResponse {
-                data: serde_json::from_value(v.data)?,
-                binary: v.binary,
-            }))),
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
-            Poll::Ready(Some(Ok(Err(e)))) => Poll::Ready(Some(Err(e.into()))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
+        match self.project() {
+            AckStreamProj::Stream { rxs, .. } => match rxs.poll_next(cx) {
+                Poll::Ready(Some(Ok(Ok(v)))) => Poll::Ready(Some(Ok(AckResponse {
+                    data: serde_json::from_value(v.data)?,
+                    binary: v.binary,
+                }))),
+                Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+                Poll::Ready(Some(Ok(Err(e)))) => Poll::Ready(Some(Err(e.into()))),
+                Poll::Ready(None) => Poll::Ready(None),
+                Poll::Pending => Poll::Pending,
+            },
+            AckStreamProj::Fut { rx, .. } => match rx.poll(cx) {
+                Poll::Ready(Ok(Ok(v))) => Poll::Ready(Some(Ok(AckResponse {
+                    data: serde_json::from_value(v.data)?,
+                    binary: v.binary,
+                }))),
+                Poll::Ready(Ok(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+                Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e.into()))),
+                Poll::Pending => Poll::Pending,
+            },
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.rxs.size_hint()
+        match self {
+            AckStream::Stream { rxs, .. } => rxs.size_hint(),
+            AckStream::Fut { .. } => (1, Some(1)),
+        }
     }
 }
 impl<T: DeserializeOwned> Future for AckStream<T> {
     type Output = Result<AckResponse<T>, AckError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        assert!(!self.rxs.is_empty());
         match self.as_mut().poll_next(cx) {
             Poll::Ready(Some(v)) => Poll::Ready(v),
             Poll::Pending => Poll::Pending,
@@ -677,7 +698,7 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn send_with_ack(
         &self,
         mut packet: Packet<'_>,
-    ) -> Result<oneshot::Receiver<AckResponse<Value>>, SendError> {
+    ) -> Result<Receiver<AckResponse<Value>>, SendError> {
         let (tx, rx) = oneshot::channel();
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         self.ack_message.lock().unwrap().insert(ack, tx);
