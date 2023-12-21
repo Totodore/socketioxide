@@ -54,7 +54,7 @@ pub enum AckError {
 
     /// The ack response timed out
     #[error("ack timeout error")]
-    Timeout(#[from] tokio::time::error::Elapsed),
+    Timeout,
 
     /// The emit payload cannot be sent
     #[error("send channel error: {0:?}")]

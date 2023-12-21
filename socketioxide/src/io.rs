@@ -5,9 +5,9 @@ use engineioxide::{
     service::NotFoundService,
     TransportType,
 };
-use serde::de::DeserializeOwned;
 
 use crate::{
+    ack::AckStream,
     adapter::{Adapter, LocalAdapter},
     client::Client,
     extract::SocketRef,
@@ -15,7 +15,6 @@ use crate::{
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    socket::AckStream,
     BroadcastError,
 };
 
@@ -619,12 +618,14 @@ impl<A: Adapter> SocketIo<A> {
     ///      }
     ///   });
     #[inline]
-    pub fn emit_with_ack<V: DeserializeOwned + Send>(
+    pub fn emit_with_ack<V>(
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<AckStream<V>, BroadcastError> {
-        self.get_default_op().emit_with_ack(event, data)
+        self.get_default_op()
+            .emit_with_ack(event, data)
+            .map(AckStream::<V>::from)
     }
 
     /// Gets all sockets selected with the previous operators.

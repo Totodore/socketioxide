@@ -12,15 +12,14 @@ use std::{
 };
 
 use engineioxide::sid::Sid;
-use serde::de::DeserializeOwned;
 
 use crate::{
+    ack::AckInnerStream,
     errors::{AdapterError, BroadcastError},
     extract::SocketRef,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::AckStream,
 };
 
 /// A room identifier
@@ -92,11 +91,11 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
-    fn broadcast_with_ack<V: DeserializeOwned>(
+    fn broadcast_with_ack(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<AckStream<V>, BroadcastError>;
+    ) -> Result<AckInnerStream, BroadcastError>;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
@@ -206,11 +205,11 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast_with_ack<V: DeserializeOwned>(
+    fn broadcast_with_ack(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<AckStream<V>, BroadcastError> {
+    ) -> Result<AckInnerStream, BroadcastError> {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,
@@ -222,7 +221,7 @@ impl Adapter for LocalAdapter {
             sockets.len(),
             sockets.iter().map(|s| s.id).collect::<Vec<_>>()
         );
-        AckStream::broadcast(packet, sockets, duration)
+        AckInnerStream::broadcast(packet, sockets, duration)
     }
 
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Infallible> {

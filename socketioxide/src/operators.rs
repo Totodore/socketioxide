@@ -4,12 +4,11 @@ use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
-use serde::de::DeserializeOwned;
 
+use crate::ack::AckStream;
 use crate::adapter::LocalAdapter;
 use crate::errors::BroadcastError;
 use crate::extract::SocketRef;
-use crate::socket::AckStream;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
     ns::Namespace,
@@ -320,13 +319,16 @@ impl<A: Adapter> Operators<A> {
     ///             }).await;
     ///    });
     /// });
-    pub fn emit_with_ack<V: DeserializeOwned + Send>(
+    pub fn emit_with_ack<V>(
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<AckStream<V>, BroadcastError> {
         let packet = self.get_packet(event, data)?;
-        self.ns.adapter.broadcast_with_ack(packet, self.opts)
+        self.ns
+            .adapter
+            .broadcast_with_ack(packet, self.opts)
+            .map(AckStream::<V>::from)
     }
 
     /// Gets all sockets selected with the previous operators.
