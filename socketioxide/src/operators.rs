@@ -13,7 +13,7 @@ use crate::extract::SocketRef;
 use crate::socket::AckResponse;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
-    errors::{AckError, Error},
+    errors::AckError,
     ns::Namespace,
     packet::Packet,
 };
@@ -369,8 +369,8 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Gets a [`SocketRef`] by the specified [`Sid`].
-    pub fn get_socket(&self, sid: Sid) -> Result<SocketRef<A>, Error> {
-        self.ns.get_socket(sid).map(SocketRef::new)
+    pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
+        self.ns.get_socket(sid).map(SocketRef::new).ok()
     }
 
     /// Makes all sockets selected with the previous operators join the given room(s).

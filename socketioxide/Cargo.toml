@@ -14,7 +14,7 @@ readme = "../README.md"
 
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.9.0" }
+engineioxide = { path = "../engineioxide", version = "0.9.1" }
 futures.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 serde.workspace = true
@@ -51,7 +51,6 @@ engineioxide = { path = "../engineioxide", features = [
 tokio-tungstenite.workspace = true
 axum.workspace = true
 salvo.workspace = true
-viz.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",

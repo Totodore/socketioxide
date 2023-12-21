@@ -1,3 +1,8 @@
+# 0.9.1
+## socketioxide
+* Add `SocketIo::get_socket` and `Operators::get_socket` methods to get a socket ref from its id.
+* Switch to `pin-project-lite` instead of `pin-project`.
+
 # 0.9.0
 * Bump `hyper` to 1.0.1. Therefore it is now possible to use frameworks based on hyper v1.*. Check the [compatibility table](./README.md#compatibility) for more details.
 
