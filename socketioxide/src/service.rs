@@ -1,6 +1,8 @@
 //! ## A Tower [`Service`](tower::Service) and Hyper [`Service`](hyper::service::Service) for socket.io so it
 //! can be used with frameworks supporting tower and hyper services.
+//!
 //! #### Example with a raw `hyper` standalone service (most of the time it easier to use a framework like `axum` or `salvo`):
+//!
 //! ```no_run
 //! # use socketioxide::SocketIo;
 //! # use std::net::SocketAddr;
@@ -44,7 +46,7 @@
 use engineioxide::service::{EngineIoService, MakeEngineIoService};
 use http::{Request, Response};
 use http_body::Body;
-use hyper::{body::Incoming, service::Service as HyperSvc};
+use hyper::service::Service as HyperSvc;
 use std::{
     sync::Arc,
     task::{Context, Poll},
@@ -57,18 +59,21 @@ use crate::{
     SocketIoConfig,
 };
 
-/// A [`Tower`](tower::Service)/[`Hyper`](hyper::service::Service) Service that wraps [`EngineIoService`] and
+/// A [`Tower`](TowerSvc)/[`Hyper`](HyperSvc) Service that wraps [`EngineIoService`] and
 /// redirect every request to it
 pub struct SocketIoService<S: Clone, A: Adapter = LocalAdapter> {
     engine_svc: EngineIoService<Arc<Client<A>>, S>,
 }
-impl<A: Adapter, ReqBody, ResBody, S> TowerSvc<Request<ReqBody>> for SocketIoService<S, A>
+
+/// Tower Service implementation.
+impl<S, ReqBody, ResBody, A> TowerSvc<Request<ReqBody>> for SocketIoService<S, A>
 where
-    ResBody: Body + Send + 'static,
-    ReqBody: Body + Send + 'static + std::fmt::Debug + Unpin,
+    ReqBody: Body + Send + Unpin + std::fmt::Debug + 'static,
     <ReqBody as Body>::Error: std::fmt::Debug,
     <ReqBody as Body>::Data: Send,
+    ResBody: Body + Send + 'static,
     S: TowerSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
+    A: Adapter,
 {
     type Response = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Response;
     type Error = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Error;
@@ -84,20 +89,22 @@ where
     }
 }
 
-/// Hyper 1.0 Service implementation with an [`Incoming`] body and a [`http_body::Body`] Body
-impl<ResBody, S, A> HyperSvc<Request<Incoming>> for SocketIoService<S, A>
+/// Hyper 1.0 Service implementation.
+impl<S, ReqBody, ResBody, A> HyperSvc<Request<ReqBody>> for SocketIoService<S, A>
 where
-    ResBody: http_body::Body + Send + 'static,
-    S: hyper::service::Service<Request<Incoming>, Response = Response<ResBody>>,
-    S: Clone,
+    ReqBody: Body + Send + Unpin + std::fmt::Debug + 'static,
+    <ReqBody as Body>::Error: std::fmt::Debug,
+    <ReqBody as Body>::Data: Send,
+    ResBody: Body + Send + 'static,
+    S: HyperSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
     A: Adapter,
 {
-    type Response = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<Incoming>>>::Response;
-    type Error = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<Incoming>>>::Error;
-    type Future = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<Incoming>>>::Future;
+    type Response = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<ReqBody>>>::Response;
+    type Error = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<ReqBody>>>::Error;
+    type Future = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<ReqBody>>>::Future;
 
     #[inline(always)]
-    fn call(&self, req: Request<Incoming>) -> Self::Future {
+    fn call(&self, req: Request<ReqBody>) -> Self::Future {
         self.engine_svc.call(req)
     }
 }

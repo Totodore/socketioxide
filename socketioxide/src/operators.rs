@@ -11,6 +11,7 @@ use crate::errors::BroadcastError;
 use crate::extract::SocketRef;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
+    errors::{AckError, Error},
     ns::Namespace,
     packet::Packet,
 };
@@ -366,6 +367,11 @@ impl<A: Adapter> Operators<A> {
     /// });
     pub fn disconnect(self) -> Result<(), BroadcastError> {
         self.ns.adapter.disconnect_socket(self.opts)
+    }
+
+    /// Gets a [`SocketRef`] by the specified [`Sid`].
+    pub fn get_socket(&self, sid: Sid) -> Result<SocketRef<A>, Error> {
+        self.ns.get_socket(sid).map(SocketRef::new)
     }
 
     /// Makes all sockets selected with the previous operators join the given room(s).
