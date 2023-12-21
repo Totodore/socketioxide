@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
+use engineioxide::socket::DisconnectReason as EIoDisconnectReason;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
@@ -37,6 +37,8 @@ use crate::{
     client::SocketData,
     errors::{AdapterError, SendError},
 };
+
+pub use engineioxide::sid::Sid;
 
 /// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
 ///

@@ -11,7 +11,6 @@ use crate::{
     ack::AckStream,
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    errors::Error,
     extract::SocketRef,
     handler::ConnectHandler,
     layer::SocketIoLayer,
@@ -727,7 +726,7 @@ impl<A: Adapter> SocketIo<A> {
 
     /// Gets a [`SocketRef`] by the specified [`Sid`].
     #[inline]
-    pub fn get_socket(&self, sid: Sid) -> Result<SocketRef<A>, Error> {
+    pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
         self.get_default_op().get_socket(sid)
     }
 
@@ -784,9 +783,20 @@ mod tests {
 
     #[test]
     fn get_socket_by_sid() {
+        use engineioxide::Socket;
+        let sid = Sid::new();
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
-        assert!(io.get_socket(Sid::new()).is_err());
+
+        let socket = Socket::new_dummy(sid, Box::new(|_, _| {})).into();
+        let config = SocketIoConfig::default().into();
+        io.0.get_ns("/")
+            .unwrap()
+            .connect(sid, socket, None, config)
+            .unwrap();
+
+        assert!(io.get_socket(sid).is_some());
+        assert!(io.get_socket(Sid::new()).is_none());
     }
 
     #[test]
