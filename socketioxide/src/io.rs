@@ -12,7 +12,6 @@ use serde::de::DeserializeOwned;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    errors::Error,
     extract::SocketRef,
     handler::ConnectHandler,
     layer::SocketIoLayer,
@@ -727,7 +726,7 @@ impl<A: Adapter> SocketIo<A> {
 
     /// Gets a [`SocketRef`] by the specified [`Sid`].
     #[inline]
-    pub fn get_socket(&self, sid: Sid) -> Result<SocketRef<A>, Error> {
+    pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
         self.get_default_op().get_socket(sid)
     }
 
