@@ -4,10 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+viz = "0.7.0"
 socketioxide = { path = "../../socketioxide" }
-viz.workspace = true
-hyper.workspace = true
-http-body-util.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
