@@ -11,7 +11,6 @@ use crate::errors::BroadcastError;
 use crate::extract::SocketRef;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
-    errors::AckError,
     ns::Namespace,
     packet::Packet,
 };
