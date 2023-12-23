@@ -1,6 +1,5 @@
 [workspace]
 members = ["engineioxide", "socketioxide", "e2e/*", "examples/*"]
-exclude = ["examples/viz-echo"]
 resolver = "2"
 
 [workspace.dependencies]
