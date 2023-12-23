@@ -1,99 +1,99 @@
-use futures::SinkExt;
-use socketioxide::extract::{Data, SocketRef, State};
+//! Tests for extractors
+use serde_json::json;
+use socketioxide::extract::{Data, SocketRef, State, TryData};
 use tokio::sync::mpsc;
 
+use fixture::{create_server, create_server_with_state};
+
+use crate::fixture::socketio_client;
+
 mod fixture;
-use fixture::{create_server, create_server_with_state, create_ws_connection};
-use tokio_tungstenite::tungstenite::Message;
+mod utils;
 
 #[tokio::test]
 pub async fn state_extractor() {
+    const PORT: u16 = 2000;
     let state = 1112i32;
-    let io = create_server_with_state(2000, state).await;
+    let io = create_server_with_state(PORT, state).await;
     let (tx, mut rx) = mpsc::channel::<i32>(4);
     io.ns("/", move |socket: SocketRef, state: State<i32>| {
-        println!("Socket connected on / namespace with id: {}", socket.id);
-        tx.try_send(*state).unwrap();
-
-        let tx1 = tx.clone();
-        let tx2 = tx.clone();
-        let tx3 = tx.clone();
+        assert_ok!(tx.try_send(*state));
         socket.on("test", move |State(state): State<i32>| {
-            println!("test event received");
-            tx.try_send(*state).unwrap();
-        });
-        socket.on("async_test", move |State(state): State<i32>| async move {
-            println!("async_test event received");
-            tx2.try_send(*state).unwrap();
-        });
-        // This handler should not be called
-        socket.on("ko_test", move |State(_): State<String>| {
-            println!("ko_test event received");
-            tx3.try_send(1213231).unwrap();
-        });
-        socket.on_disconnect(move |State(state): State<i32>| {
-            println!("close event received");
-            tx1.try_send(*state).unwrap();
+            assert_ok!(tx.try_send(*state))
         });
     });
+    let client = assert_ok!(socketio_client(PORT, ()).await);
+    assert_eq!(rx.recv().await.unwrap(), state);
 
-    let mut stream = create_ws_connection(2000).await;
-    stream
-        .send(Message::Text("42[\"test\", 1]".to_string()))
-        .await
-        .unwrap();
-    stream
-        .send(Message::Text("42[\"async_test\", 2]".to_string()))
-        .await
-        .unwrap();
-    stream
-        .send(Message::Text("42[\"ko_test\", 2]".to_string()))
-        .await
-        .unwrap();
+    assert_ok!(client.emit("test", json!("foo")).await);
     assert_eq!(rx.recv().await.unwrap(), state);
-    assert_eq!(rx.recv().await.unwrap(), state);
-    assert_eq!(rx.recv().await.unwrap(), state);
-    stream.close(None).await.unwrap();
-    assert_eq!(rx.recv().await.unwrap(), state);
+
+    assert_ok!(client.disconnect().await);
 }
 
 #[tokio::test]
 pub async fn data_extractor() {
-    let io = create_server(2001).await;
-    let (tx, mut rx) = mpsc::channel::<i32>(4);
-    io.ns("/", move |socket: SocketRef| {
-        println!("Socket connected on / namespace with id: {}", socket.id);
-        let tx1 = tx.clone();
-        let tx2 = tx.clone();
-        socket.on("test", move |Data(data): Data<i32>| {
-            println!("test event received");
-            tx1.try_send(data).unwrap();
-        });
-        socket.on("async_test", move |Data(data): Data<i32>| async move {
-            println!("async_test event received");
-            tx2.try_send(data).unwrap();
-        });
-        // This handler should not be called
-        socket.on("ko_test", move |Data(_): Data<String>| {
-            println!("ko_test event received");
-            tx.try_send(1213231).unwrap();
+    const PORT: u16 = 2001;
+    let io = create_server(PORT).await;
+    let (tx, mut rx) = mpsc::channel::<String>(4);
+    let tx1 = tx.clone();
+    io.ns("/", move |socket: SocketRef, Data(data): Data<String>| {
+        assert_ok!(tx.try_send(data));
+        socket.on("test", move |Data(data): Data<String>| {
+            assert_ok!(tx.try_send(data));
         });
     });
 
-    let mut stream = create_ws_connection(2001).await;
-    stream
-        .send(Message::Text("42[\"test\", 1]".to_string()))
-        .await
-        .unwrap();
-    stream
-        .send(Message::Text("42[\"async_test\", 2]".to_string()))
-        .await
-        .unwrap();
-    stream
-        .send(Message::Text("42[\"ko_test\", 2]".to_string()))
-        .await
-        .unwrap();
-    assert_eq!(rx.recv().await.unwrap(), 1);
-    assert_eq!(rx.recv().await.unwrap(), 2);
-    stream.close(None).await.unwrap();
+    assert_ok!(socketio_client(PORT, ()).await);
+    assert_ok!(socketio_client(PORT, 1321).await);
+
+    // Capacity should be the same as the handler should not be called
+    assert_eq!(tx1.capacity(), 4);
+
+    let client = assert_ok!(socketio_client(PORT, "foo").await);
+    assert_eq!(assert_ok!(rx.try_recv()), "foo");
+
+    assert_ok!(client.emit("test", json!("oof")).await);
+    assert_eq!(rx.recv().await.unwrap(), "oof");
+
+    assert_ok!(client.emit("test", json!({ "test": 132 })).await);
+    // Capacity should be the same as the handler should not be called
+    assert_eq!(tx1.capacity(), 4);
+
+    assert_ok!(client.disconnect().await);
+}
+
+#[tokio::test]
+pub async fn try_data_extractor() {
+    const PORT: u16 = 2002;
+    let io = create_server(PORT).await;
+    let (tx, mut rx) = mpsc::channel::<Result<String, serde_json::Error>>(4);
+    io.ns("/", move |s: SocketRef, TryData(data): TryData<String>| {
+        assert_ok!(tx.try_send(data));
+        s.on("test", move |TryData(data): TryData<String>| {
+            assert_ok!(tx.try_send(data));
+        });
+    });
+
+    // Non deserializable data
+    assert_ok!(socketio_client(PORT, ()).await);
+    assert_err!(rx.recv().await.unwrap());
+
+    // Non deserializable data
+    assert_ok!(socketio_client(PORT, 1321).await);
+    assert_err!(rx.recv().await.unwrap());
+
+    let client = assert_ok!(socketio_client(PORT, "foo").await);
+    let res = assert_ok!(rx.recv().await.unwrap());
+    assert_eq!(res, "foo");
+
+    assert_ok!(client.emit("test", json!("oof")).await);
+    let res = assert_ok!(rx.recv().await.unwrap());
+    assert_eq!(res, "oof");
+
+    // Non deserializable data
+    assert_ok!(client.emit("test", json!({ "test": 132 })).await);
+    assert_err!(rx.recv().await.unwrap());
+
+    assert_ok!(client.disconnect().await);
 }
