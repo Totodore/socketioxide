@@ -51,7 +51,7 @@ pub async fn data_extractor() {
     assert_eq!(tx1.capacity(), 4);
 
     let client = assert_ok!(socketio_client(PORT, "foo").await);
-    assert_eq!(assert_ok!(rx.try_recv()), "foo");
+    assert_eq!(rx.recv().await.unwrap(), "foo");
 
     assert_ok!(client.emit("test", json!("oof")).await);
     assert_eq!(rx.recv().await.unwrap(), "oof");
