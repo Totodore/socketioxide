@@ -50,6 +50,7 @@ engineioxide = { path = "../engineioxide", features = [
     "test-utils",
 ] }
 tokio-tungstenite.workspace = true
+rust_socketio.workspace = true
 axum.workspace = true
 salvo.workspace = true
 tokio = { workspace = true, features = [
