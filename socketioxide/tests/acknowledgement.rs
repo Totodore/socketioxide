@@ -1,40 +1,31 @@
 mod fixture;
+mod utils;
+
 use fixture::{create_server, create_ws_connection};
-use futures::SinkExt;
+use futures::{FutureExt, SinkExt};
 use socketioxide::extract::SocketRef;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::fixture::{socketio_client, socketio_client_with_handler};
+
 #[tokio::test]
 pub async fn ack_emit_single_with_ack() {
-    let io = create_server(2001).await;
+    const PORT: u16 = 2100;
+    let io = create_server(PORT).await;
     let (tx, mut rx) = mpsc::channel::<String>(4);
 
     io.ns("/", move |socket: SocketRef| async move {
-        println!("Socket connected on / namespace with id: {}", socket.id);
-        let ack = socket
-            .emit_with_ack::<String>("test", "test")
-            .unwrap()
-            .await
-            .unwrap();
+        let res = assert_ok!(socket.emit_with_ack::<String>("test", "test"));
+        let ack = assert_ok!(res.await);
         tx.try_send(ack.data).unwrap();
     });
 
-    let mut stream = create_ws_connection(2001).await;
-    stream
-        .send(Message::Text("42[\"test\", 1]".to_string()))
-        .await
-        .unwrap();
-    stream
-        .send(Message::Text("42[\"async_test\", 2]".to_string()))
-        .await
-        .unwrap();
-    stream
-        .send(Message::Text("42[\"ko_test\", 2]".to_string()))
-        .await
-        .unwrap();
+    let handler = |_, _| Box::pin(async move {});
+    let client = socketio_client_with_handler(PORT, "test", handler, ()).await;
+    let client = assert_ok!(client);
 
     assert_eq!(rx.recv().await.unwrap(), "test");
     assert_eq!(rx.recv().await.unwrap(), "test");
-    stream.close(None).await.unwrap();
+    assert_ok!(client.disconnect().await);
 }
