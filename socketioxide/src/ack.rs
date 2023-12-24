@@ -158,14 +158,14 @@ impl Stream for AckInnerStream {
             InnerProj::Stream { rxs, .. } => match rxs.poll_next(cx) {
                 Poll::Ready(Some(Ok(Ok(v)))) => Poll::Ready(Some(Ok(v))),
                 Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(AckError::Timeout))),
-                Poll::Ready(Some(Ok(Err(e)))) => Poll::Ready(Some(Err(e.into()))),
+                Poll::Ready(Some(Ok(Err(_)))) => Poll::Ready(Some(Err(AckError::SocketClosed))),
                 Poll::Ready(None) => Poll::Ready(None),
                 Poll::Pending => Poll::Pending,
             },
             InnerProj::Fut { polled, .. } if *polled => Poll::Ready(None),
             InnerProj::Fut { rx, .. } => match rx.poll(cx) {
                 Poll::Ready(Ok(Ok(v))) => Poll::Ready(Some(Ok(v))),
-                Poll::Ready(Ok(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+                Poll::Ready(Ok(Err(_))) => Poll::Ready(Some(Err(AckError::SocketClosed))),
                 Poll::Ready(Err(_)) => Poll::Ready(Some(Err(AckError::Timeout))),
                 Poll::Pending => Poll::Pending,
             },

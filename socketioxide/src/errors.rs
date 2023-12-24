@@ -1,6 +1,6 @@
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::fmt::{Debug, Display};
-use tokio::sync::{mpsc::error::TrySendError, oneshot};
+use tokio::sync::mpsc::error::TrySendError;
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -48,17 +48,13 @@ pub enum AckError {
     #[error("cannot deserializing json packet from ack response: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
-    /// The ack response cannot be received correctly
-    #[error("ack receive error")]
-    AckReceive(#[from] oneshot::error::RecvError),
-
     /// The ack response timed out
     #[error("ack timeout error")]
     Timeout,
 
-    /// The emit payload cannot be sent
-    #[error("send channel error: {0:?}")]
-    SendChannel(#[from] SendError),
+    /// the socket closed before receiving the ack response
+    #[error("the socket closed before receiving the ack response")]
+    SocketClosed,
 }
 
 /// Error type for broadcast operations.
