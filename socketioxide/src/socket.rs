@@ -288,13 +288,13 @@ impl<A: Adapter> Socket<A> {
     ///
     /// # Errors
     ///
-    /// When sending the message a [`SendError`] can be returned:
+    /// When sending the message:
     /// * A [`SendError::Serialize`] is returned if a serialization error occurs when encoding the data to send.
     /// * A [`SendError::InternalChannelFull`] is returned if the packet buffer is full.
     /// See [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) option for more infos on
     /// internal buffer config.
     ///
-    /// When receiving the acknowledgement, an [`AckError`](crate::AckError) can be returned:
+    /// When receiving the acknowledgement:
     /// * A [`AckError::Serialize`](crate::AckError::Serialize) is returned if a deserialization error occurs
     /// when decoding the data received.
     /// * A [`AckError::Timeout`](crate::AckError::Timeout) is returned if the acknowledgement timed out.

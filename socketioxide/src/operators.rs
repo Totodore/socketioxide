@@ -223,7 +223,7 @@ impl<A: Adapter> Operators<A> {
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
-    /// #### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -232,7 +232,8 @@ impl<A: Adapter> Operators<A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
+    ///       // Emit a test message in the room1 and room3 rooms, except for the room2
+    ///       // room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
@@ -295,29 +296,66 @@ impl<A: Adapter> Operators<A> {
         Ok(())
     }
 
-    /// Emits a message to all sockets selected with the previous operators and return a stream of acknowledgements.
+    /// Emits a message to all sockets selected with the previous operators and
+    /// waits for the acknowledgement(s).
     ///
-    /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
-    /// #### Example
+    /// The acknowledgement has a timeout specified in the config (5s by default)
+    /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the [`timeout()`] operator.
+    ///
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It is both a [`Stream`](futures::Stream) and a [`Future`](futures::Future).
+    /// If you `await` it like a future, it will yield the **first** [`AckResponse`](crate::ack::AckResponse)
+    /// received from the client or an [`AckError`](crate::AckError) in case of error.
+    /// If you poll it like a stream it will yield **all** the [`AckResponse`](crate::ack::AckResponse)
+    /// corresponding to each client or an [`AckError`](crate::AckError) in case of error.
+    ///
+    /// # Errors
+    ///
+    /// When sending the message:
+    /// * A [`BroadcastError::Serialize`] is returned if a serialization error
+    /// occurs when encoding the data to send.
+    /// * A [`BroadcastError::SendError`] is returned if a packet could not be sent to one of the
+    /// selected socket.
+    /// * A [`BroadcastError::Adapter`] is returned if an error occurs with the [`Adapter`].
+    ///
+    /// When receiving the acknowledgement:
+    /// * A [`AckError::Serialize`](crate::AckError::Serialize) is returned if a deserialization error occurs
+    /// when decoding the data received.
+    /// * A [`AckError::Timeout`](crate::AckError::Timeout) is returned if the acknowledgement timed out.
+    /// * A [`AckError::SocketClosed`](crate::AckError::SocketClosed) is returned if the socket closed before
+    /// receiving the acknowledgement.
+    ///
+    /// [`timeout()`]: #method.timeout
+    ///
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
-    ///       socket.to("room1")
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // Emit a test message in the room1 and room3 rooms,
+    ///         // except for the room2 room with the binary payload received
+    ///         let ack_stream = match socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
-    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
-    ///                match ack {
-    ///                    Ok(ack) => println!("Ack received {:?}", ack),
-    ///                    Err(err) => println!("Ack error {:?}", err),
-    ///                }
-    ///             }).await;
-    ///    });
+    ///             .emit_with_ack::<String>("message-back", data) {
+    ///                 Ok(ack_stream) => ack_stream,
+    ///                 Err(err) => {
+    ///                     println!("Error sending message: {:?}", err);
+    ///                     return;
+    ///             }
+    ///         };
+    ///
+    ///         ack_stream.for_each(|ack| async move {
+    ///             match ack {
+    ///                 Ok(ack) => println!("Ack received {:?}", ack),
+    ///                 Err(err) => println!("Ack error {:?}", err),
+    ///             }
+    ///         }).await;
+    ///     });
     /// });
     pub fn emit_with_ack<V>(
         mut self,
