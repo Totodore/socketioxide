@@ -57,26 +57,35 @@ pub async fn broadcast_with_ack() {
     const PORT: u16 = 2100;
     use Message::*;
     let io = create_server(PORT).await;
-    let (tx, mut rx) = mpsc::channel::<[String; 1]>(4);
+    let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
 
     let io2 = io.clone();
     io.ns("/", move |socket: SocketRef| async move {
         let res = assert_ok!(io2.emit_with_ack::<[String; 1]>("test", "foo"));
-        let ack = assert_ok!(res.await);
-        assert_ok!(tx.try_send(ack.data));
+        res.for_each(|res| async {
+            let ack = assert_ok!(res);
+            assert_ok!(tx.try_send(ack.data));
+        })
+        .await;
 
         let res = assert_ok!(io2
             .timeout(Duration::from_millis(500))
             .emit_with_ack::<[String; 1]>("test", "foo"));
-        let ack = assert_ok!(res.await);
-        assert_ok!(tx.try_send(ack.data));
+        res.for_each(|res| async {
+            let ack = assert_ok!(res);
+            assert_ok!(tx.try_send(ack.data));
+        })
+        .await;
 
         let res = assert_ok!(socket
             .broadcast()
             .timeout(Duration::from_millis(500))
             .emit_with_ack::<[String; 1]>("test", "foo"));
-        let ack = assert_ok!(res.await);
-        assert_ok!(tx.try_send(ack.data));
+        res.for_each(|res| async {
+            let ack = assert_ok!(res);
+            assert_ok!(tx.try_send(ack.data));
+        })
+        .await;
     });
 
     // Spawn 5 clients and make them echo the ack
@@ -103,8 +112,10 @@ pub async fn broadcast_with_ack() {
         });
     }
 
-    for _ in 0..(5 * 3) {
-        let msg = rx.recv().await.unwrap();
-        assert_eq!(msg[0], "oof");
+    for _ in 0..5 {
+        for _ in 0..3 {
+            let msg = rx.recv().await.unwrap();
+            assert_eq!(msg[0], "oof");
+        }
     }
 }
