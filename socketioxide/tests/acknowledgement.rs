@@ -54,7 +54,7 @@ pub async fn emit_with_ack() {
 
 #[tokio::test]
 pub async fn broadcast_with_ack() {
-    const PORT: u16 = 2100;
+    const PORT: u16 = 2101;
     use Message::*;
     let io = create_server(PORT).await;
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
