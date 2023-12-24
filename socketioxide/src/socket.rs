@@ -277,13 +277,33 @@ impl<A: Adapter> Socket<A> {
     /// Emits a message to the client and wait for acknowledgement.
     ///
     /// The acknowledgement has a timeout specified in the config (5s by default)
-    /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the `timeout()` operator.
+    /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the [`timeout()`] operator.
     ///
-    /// ## Errors
-    /// * If the data cannot be serialized to JSON, a [`AckError::Serialize`](crate::errors::AckError) is returned.
-    /// * If the packet could not be sent, a [`AckError::SendChannel`](crate::errors::AckError) is returned.
-    /// * In case of timeout an [`AckError::Timeout`](crate::errors::AckError) is returned.
-    /// ##### Example without custom timeout
+    /// To get the acknowledgement, an [`AckStream`] is returned.
+    /// It is both a [`Stream`](futures::Stream) and a [`Future`](futures::Future).
+    /// If you `await` it like a future, it will yield the [`AckResponse`] received from the client or
+    /// an [`AckError`](crate::AckError) in case of error.
+    /// If you poll it like a stream it will only yield one [`AckResponse`] or
+    /// an [`AckError`](crate::AckError) in case of error, before being exhausted.
+    ///
+    /// # Errors
+    ///
+    /// When sending the message a [`SendError`] can be returned:
+    /// * A [`SendError::Serialize`] is returned if a serialization error occurs when encoding the data to send.
+    /// * A [`SendError::InternalChannelFull`] is returned if the packet buffer is full.
+    /// See [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) option for more infos on
+    /// internal buffer config.
+    ///
+    /// When receiving the acknowledgement, an [`AckError`](crate::AckError) can be returned:
+    /// * A [`AckError::Serialize`](crate::AckError::Serialize) is returned if a deserialization error occurs
+    /// when decoding the data received.
+    /// * A [`AckError::Timeout`](crate::AckError::Timeout) is returned if the acknowledgement timed out.
+    /// * A [`AckError::SocketClosed`](crate::AckError::SocketClosed) is returned if the socket closed before
+    /// receiving the acknowledgement.
+    ///
+    /// [`timeout()`]: crate::operators::Operators#method.timeout
+    ///
+    /// # Basic example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -292,7 +312,8 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.emit_with_ack::<Value>("test", data).await {
+    ///         let ack = socket.emit_with_ack::<Value>("test", data).unwrap();
+    ///         match ack.await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
