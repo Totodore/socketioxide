@@ -1,6 +1,7 @@
 //! Acknowledgement related types and functions.
 //!
 //! There are two main types:
+//!
 //! - [`AckStream`]: A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
 //! - [`AckResponse`]: An acknowledgement sent by the client.
 use std::{
@@ -40,18 +41,25 @@ pin_project_lite::pin_project! {
     ///
     /// It can be used in two ways:
     /// * As a [`Stream`]: It will yield all the [`AckResponse`] received from the client.
+    /// It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement.
     /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
     ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `T`,
-    /// an [`AckError::Deserialize`] will be yielded.
+    /// an [`AckError::Serialize`] will be yielded.
     ///
     /// It can be created from:
     /// * The [`SocketRef::emit_with_ack`] method, in this case there will be only one [`AckResponse`].
-    /// * The [`Operator::broadcast_with_ack`] method, in this case there will be as many [`AckResponse`]
+    /// * The [`Operator::emit_with_ack`] method, in this case there will be as many [`AckResponse`]
     /// as there are selected sockets.
-    /// * The [`SocketIo::broadcast_with_ack`] method, in this case there will be as many [`AckResponse`]
+    /// * The [`SocketIo::emit_with_ack`] method, in this case there will be as many [`AckResponse`]
     /// as there are sockets in the namespace.
+    ///
+    /// [`SocketRef::emit_with_ack`]: crate::extract::SocketRef#method.emit_with_ack
+    /// [`Operator::emit_with_ack`]: crate::operators::Operators#method.emit_with_ack
+    /// [`SocketIo::emit_with_ack`]: crate::SocketIo#method.emit_with_ack
     ///
     /// # Example
     /// ```rust
@@ -71,9 +79,6 @@ pin_project_lite::pin_project! {
     ///         .for_each(|ack| async move { println!("Ack: {:?}", ack); }).await;
     /// });
     /// ```
-    /// [`SocketRef::emit_with_ack`]: crate::extract::SocketRef::emit_with_ack
-    /// [`Operator::broadcast_with_ack`]: crate::operators::Operators::broadcast_with_ack
-    /// [`SocketIo::broadcast_with_ack`]: crate::SocketIo::broadcast_with_ack
     #[must_use = "futures and streams do nothing unless you `.await` or poll them"]
     pub struct AckStream<T> {
         #[pin]
