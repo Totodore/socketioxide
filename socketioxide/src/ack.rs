@@ -42,11 +42,15 @@ pin_project_lite::pin_project! {
     /// * As a [`Stream`]: It will yield all the [`AckResponse`] received from the client.
     /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
     ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `T`,
+    /// an [`AckError::Deserialize`] will be yielded.
+    ///
     /// It can be created from:
-    /// * The [`SocketRef::emit_with_ack`](extract::SocketRef) method, in this case there will be only one [`AckResponse`].
-    /// * The [`Operator::broadcast_with_ack`](operators::Operators) method, in this case there will be as many [`AckResponse`]
+    /// * The [`SocketRef::emit_with_ack`] method, in this case there will be only one [`AckResponse`].
+    /// * The [`Operator::broadcast_with_ack`] method, in this case there will be as many [`AckResponse`]
     /// as there are selected sockets.
-    /// * The [`SocketIo::broadcast_with_ack`](crate::SocketIo) method, in this case there will be as many [`AckResponse`]
+    /// * The [`SocketIo::broadcast_with_ack`] method, in this case there will be as many [`AckResponse`]
     /// as there are sockets in the namespace.
     ///
     /// # Example
@@ -66,6 +70,10 @@ pin_project_lite::pin_project! {
     ///         .unwrap()
     ///         .for_each(|ack| async move { println!("Ack: {:?}", ack); }).await;
     /// });
+    /// ```
+    /// [`SocketRef::emit_with_ack`]: crate::extract::SocketRef::emit_with_ack
+    /// [`Operator::broadcast_with_ack`]: crate::operators::Operators::broadcast_with_ack
+    /// [`SocketIo::broadcast_with_ack`]: crate::SocketIo::broadcast_with_ack
     #[must_use = "futures and streams do nothing unless you `.await` or poll them"]
     pub struct AckStream<T> {
         #[pin]
@@ -107,6 +115,11 @@ impl AckInnerStream {
         duration: Option<Duration>,
     ) -> Result<Self, BroadcastError> {
         let rxs = FuturesUnordered::new();
+
+        if sockets.is_empty() {
+            return Ok(AckInnerStream::Stream { rxs });
+        }
+
         let mut errs = Vec::new();
         let duration = duration.unwrap_or_else(|| sockets.first().unwrap().config.ack_timeout);
         for socket in sockets {
