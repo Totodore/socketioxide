@@ -7,7 +7,7 @@ mod utils;
 use fixture::{create_server, create_ws_connection};
 use futures::{SinkExt, StreamExt};
 use socketioxide::extract::SocketRef;
-use socketioxide::{Packet, PacketData};
+use socketioxide::packet::{Packet, PacketData};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 use tokio_tungstenite::tungstenite::Message;

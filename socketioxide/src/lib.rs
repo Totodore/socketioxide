@@ -253,11 +253,9 @@ pub mod ack;
 pub mod handler;
 pub mod layer;
 pub mod operators;
+pub mod packet;
 pub mod service;
 pub mod socket;
-
-#[cfg(feature = "test-utils")]
-pub use packet::*;
 
 pub use engineioxide::TransportType;
 pub use errors::{AckError, BroadcastError, SendError};
@@ -268,7 +266,6 @@ mod client;
 mod errors;
 mod io;
 mod ns;
-mod packet;
 
 /// Socket.IO protocol version.
 /// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor

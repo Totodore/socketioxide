@@ -1,3 +1,6 @@
+//! Socket.io packet implementation.
+//! The [`Packet`] is the base unit of data that is sent over the engine.io socket.
+//! It should not be used directly except when implementing the [`Adapter`](crate::adapter::Adapter) trait.
 use std::borrow::Cow;
 
 use crate::ProtocolVersion;
