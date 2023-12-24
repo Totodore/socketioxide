@@ -106,8 +106,6 @@ impl AckInnerStream {
         sockets: Vec<SocketRef<impl Adapter>>,
         duration: Option<Duration>,
     ) -> Result<Self, BroadcastError> {
-        assert!(!sockets.is_empty());
-
         let rxs = FuturesUnordered::new();
         let mut errs = Vec::new();
         let duration = duration.unwrap_or_else(|| sockets.first().unwrap().config.ack_timeout);
