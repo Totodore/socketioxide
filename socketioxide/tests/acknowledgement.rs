@@ -20,7 +20,7 @@ pub async fn emit_with_ack() {
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(4);
 
     io.ns("/", move |socket: SocketRef| async move {
-        let res = assert_ok!(socket.emit_with_ack::<[String; 1]>("test", "foo"));
+        let res = socket.emit_with_ack::<[String; 1]>("test", "foo");
         let ack = assert_ok!(res.await);
         assert_ok!(tx.try_send(ack.data));
 
