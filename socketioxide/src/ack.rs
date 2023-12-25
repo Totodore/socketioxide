@@ -34,6 +34,8 @@ pub struct AckResponse<T> {
     pub binary: Vec<Vec<u8>>,
 }
 
+pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError>;
+
 pin_project_lite::pin_project! {
     /// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
     ///
@@ -93,12 +95,12 @@ pin_project_lite::pin_project! {
     pub enum AckInnerStream {
         Stream {
             #[pin]
-            rxs: FuturesUnordered<Timeout<Receiver<Result<AckResponse<Value>, AckError>>>>,
+            rxs: FuturesUnordered<Timeout<Receiver<AckResult>>>,
         },
 
         Fut {
             #[pin]
-            rx: Timeout<Receiver<Result<AckResponse<Value>, AckError>>>,
+            rx: Timeout<Receiver<AckResult>>,
             polled: bool,
         },
 
@@ -140,7 +142,7 @@ impl AckInnerStream {
 
     /// Creates a new [`AckInnerStream`] from a [`oneshot::Receiver`](tokio) corresponding to the acknowledgement
     /// of a single socket.
-    pub fn send(rx: Receiver<Result<AckResponse<Value>, AckError>>, duration: Duration) -> Self {
+    pub fn send(rx: Receiver<AckResult>, duration: Duration) -> Self {
         AckInnerStream::Fut {
             polled: false,
             rx: tokio::time::timeout(duration, rx),
@@ -149,7 +151,7 @@ impl AckInnerStream {
 }
 
 impl Stream for AckInnerStream {
-    type Item = Result<AckResponse<Value>, AckError>;
+    type Item = AckResult;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use InnerProj::*;
@@ -210,7 +212,7 @@ impl FusedStream for AckInnerStream {
 }
 
 impl Future for AckInnerStream {
-    type Output = Result<AckResponse<Value>, AckError>;
+    type Output = AckResult;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.as_mut().poll_next(cx) {
@@ -236,7 +238,7 @@ impl FusedFuture for AckInnerStream {
 // ==== impl AckStream ====
 
 impl<T: DeserializeOwned> Stream for AckStream<T> {
-    type Item = Result<AckResponse<T>, AckError>;
+    type Item = AckResult<T>;
 
     #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -260,7 +262,7 @@ impl<T: DeserializeOwned> FusedStream for AckStream<T> {
 }
 
 impl<T: DeserializeOwned> Future for AckStream<T> {
-    type Output = Result<AckResponse<T>, AckError>;
+    type Output = AckResult<T>;
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -295,9 +297,7 @@ impl<T> From<serde_json::Error> for AckStream<T> {
     }
 }
 
-fn map_ack_response<T: DeserializeOwned>(
-    ack: Result<AckResponse<Value>, AckError>,
-) -> Result<AckResponse<T>, AckError> {
+fn map_ack_response<T: DeserializeOwned>(ack: AckResult) -> AckResult<T> {
     ack.and_then(|v| {
         serde_json::from_value(v.data)
             .map(|data| AckResponse {

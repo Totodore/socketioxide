@@ -21,7 +21,7 @@ use tokio::sync::oneshot::{self, Receiver};
 use crate::extensions::Extensions;
 
 use crate::{
-    ack::{AckInnerStream, AckResponse, AckStream},
+    ack::{AckInnerStream, AckResponse, AckResult, AckStream},
     adapter::{Adapter, LocalAdapter, Room},
     errors::Error,
     handler::{
@@ -31,7 +31,7 @@ use crate::{
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    AckError, SocketIoConfig,
+    SocketIoConfig,
 };
 use crate::{
     client::SocketData,
@@ -109,7 +109,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<Result<AckResponse<Value>, AckError>>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult>>>,
     ack_counter: AtomicI64,
     /// The socket id
     pub id: Sid,
@@ -576,10 +576,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    pub(crate) fn send_with_ack(
-        &self,
-        mut packet: Packet<'_>,
-    ) -> Receiver<Result<AckResponse<Value>, AckError>> {
+    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult> {
         let (tx, rx) = oneshot::channel();
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
