@@ -724,6 +724,7 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::AckError;
 
     #[tokio::test]
     async fn send_with_ack_error() {
