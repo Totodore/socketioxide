@@ -41,7 +41,7 @@ impl From<&Error> for Option<EIoDisconnectReason> {
     }
 }
 
-/// Error type for ack responses
+/// Error type for ack operations.
 #[derive(thiserror::Error, Debug)]
 pub enum AckError {
     /// The ack response cannot be parsed
@@ -55,6 +55,10 @@ pub enum AckError {
     /// the socket closed before receiving the ack response
     #[error("the socket closed before receiving the ack response")]
     SocketClosed,
+
+    /// It was impossible to emit the message
+    #[error("impossible to emit the packet to the client")]
+    Send(#[from] SendError),
 }
 
 /// Error type for broadcast operations.

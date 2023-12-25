@@ -517,7 +517,6 @@ impl<A: Adapter> SocketIo<A> {
     ///   .except("room2")
     ///   .timeout(Duration::from_secs(5))
     ///   .emit_with_ack::<Value>("message-back", "I expect an ack in 5s!")
-    ///   .unwrap()
     ///   .for_each(|ack| async move {
     ///      match ack {
     ///          Ok(ack) => println!("Ack received {:?}", ack),
@@ -632,17 +631,11 @@ impl<A: Adapter> SocketIo<A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // Emit a test message in the room1 and room3 rooms,
     ///         // except for the room2 room with the binary payload received
-    ///         let ack_stream = match socket.to("room1")
+    ///         let ack_stream = socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
-    ///             .emit_with_ack::<String>("message-back", data) {
-    ///                 Ok(ack_stream) => ack_stream,
-    ///                 Err(err) => {
-    ///                     println!("Error sending message: {:?}", err);
-    ///                     return;
-    ///             }
-    ///         };
+    ///             .emit_with_ack::<String>("message-back", data);
     ///
     ///         ack_stream.for_each(|ack| async move {
     ///             match ack {
@@ -657,7 +650,7 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<AckStream<V>, BroadcastError> {
+    ) -> AckStream<V> {
         self.get_default_op().emit_with_ack(event, data)
     }
 

@@ -24,9 +24,9 @@ pub async fn emit_with_ack() {
         let ack = assert_ok!(res.await);
         assert_ok!(tx.try_send(ack.data));
 
-        let res = assert_ok!(socket
+        let res = socket
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<[String; 1]>("test", "foo"));
+            .emit_with_ack::<[String; 1]>("test", "foo");
         let ack = assert_ok!(res.await);
         assert_ok!(tx.try_send(ack.data));
     });
@@ -61,26 +61,26 @@ pub async fn broadcast_with_ack() {
 
     let io2 = io.clone();
     io.ns("/", move |socket: SocketRef| async move {
-        let res = assert_ok!(io2.emit_with_ack::<[String; 1]>("test", "foo"));
+        let res = io2.emit_with_ack::<[String; 1]>("test", "foo");
         res.for_each(|res| async {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack.data));
         })
         .await;
 
-        let res = assert_ok!(io2
+        let res = io2
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<[String; 1]>("test", "foo"));
+            .emit_with_ack::<[String; 1]>("test", "foo");
         res.for_each(|res| async {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack.data));
         })
         .await;
 
-        let res = assert_ok!(socket
+        let res = socket
             .broadcast()
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<[String; 1]>("test", "foo"));
+            .emit_with_ack::<[String; 1]>("test", "foo");
         res.for_each(|res| async {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack.data));

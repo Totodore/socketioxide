@@ -341,13 +341,7 @@ impl<A: Adapter> Operators<A> {
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
-    ///             .emit_with_ack::<String>("message-back", data) {
-    ///                 Ok(ack_stream) => ack_stream,
-    ///                 Err(err) => {
-    ///                     println!("Error sending message: {:?}", err);
-    ///                     return;
-    ///             }
-    ///         };
+    ///             .emit_with_ack::<String>("message-back", data);
     ///
     ///         ack_stream.for_each(|ack| async move {
     ///             match ack {
@@ -361,12 +355,11 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<AckStream<V>, BroadcastError> {
-        let packet = self.get_packet(event, data)?;
-        self.ns
-            .adapter
-            .broadcast_with_ack(packet, self.opts)
-            .map(AckStream::<V>::from)
+    ) -> AckStream<V> {
+        self.get_packet(event, data)
+            .map(|p| self.ns.adapter.broadcast_with_ack(p, self.opts))
+            .map(AckStream::from)
+            .unwrap_or_else(AckStream::from)
     }
 
     /// Gets all sockets selected with the previous operators.

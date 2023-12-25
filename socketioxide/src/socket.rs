@@ -31,7 +31,7 @@ use crate::{
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    SocketIoConfig,
+    AckError, SocketIoConfig,
 };
 use crate::{
     client::SocketData,
@@ -109,7 +109,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<Result<AckResponse<Value>, AckError>>>>,
     ack_counter: AtomicI64,
     /// The socket id
     pub id: Sid,
@@ -312,8 +312,7 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         let ack = socket.emit_with_ack::<Value>("test", data).unwrap();
-    ///         match ack.await {
+    ///         match socket.emit_with_ack::<Value>("test", data).await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -324,12 +323,17 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
-    ) -> Result<AckStream<V>, SendError> {
+    ) -> AckStream<V> {
         let ns = self.ns();
-        let data = serde_json::to_value(data)?;
-        let packet = Packet::event(ns, event.into(), data);
-        let rx = self.send_with_ack(packet)?;
-        Ok(AckInnerStream::send(rx, self.config.ack_timeout).into())
+        match serde_json::to_value(data) {
+            Ok(data) => {
+                let packet = Packet::event(ns, event.into(), data);
+                let rx = self.send_with_ack(packet);
+                let stream = AckInnerStream::send(rx, self.config.ack_timeout);
+                AckStream::<V>::from(stream)
+            }
+            Err(e) => AckStream::<V>::from(e),
+        }
     }
 
     // Room actions
@@ -575,13 +579,18 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn send_with_ack(
         &self,
         mut packet: Packet<'_>,
-    ) -> Result<Receiver<AckResponse<Value>>, SendError> {
+    ) -> Receiver<Result<AckResponse<Value>, AckError>> {
         let (tx, rx) = oneshot::channel();
+
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        self.ack_message.lock().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
-        self.send(packet)?;
-        Ok(rx)
+        match self.send(packet) {
+            Ok(()) => {
+                self.ack_message.lock().unwrap().insert(ack, tx);
+            }
+            Err(e) => tx.send(Err(e.into())).unwrap(),
+        }
+        rx
     }
 
     /// Called when the socket is gracefully disconnected from the server or the client
@@ -674,7 +683,7 @@ impl<A: Adapter> Socket<A> {
                 data,
                 binary: vec![],
             };
-            tx.send(res).ok();
+            tx.send(Ok(res)).ok();
         }
         Ok(())
     }
@@ -685,7 +694,7 @@ impl<A: Adapter> Socket<A> {
                 data: packet.data,
                 binary: packet.bin,
             };
-            tx.send(res).ok();
+            tx.send(Ok(res)).ok();
         }
         Ok(())
     }
@@ -712,5 +721,29 @@ impl<A: Adapter> Socket<A> {
             engineioxide::Socket::new_dummy(sid, close_fn).into(),
             Arc::new(SocketIoConfig::default()),
         )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn send_with_ack_error() {
+        let sid = Sid::new();
+        let ns = Namespace::<LocalAdapter>::new_dummy([sid]).into();
+        let socket = Socket::new_dummy(sid, ns);
+        // Saturate the channel
+        for _ in 0..200 {
+            socket
+                .send(Packet::event("test", "test", Value::Null))
+                .unwrap();
+        }
+
+        let ack = socket.emit_with_ack::<Value>("test", Value::Null).await;
+        assert!(matches!(
+            ack,
+            Err(AckError::Send(SendError::InternalChannelFull))
+        ));
     }
 }
