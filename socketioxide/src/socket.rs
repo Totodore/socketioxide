@@ -485,7 +485,8 @@ impl<A: Adapter> Socket<A> {
     ///             .except("room2")
     ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .for_each(|ack| async move {
     ///                match ack {
     ///                    Ok(ack) => println!("Ack received {:?}", ack),
     ///                    Err(err) => println!("Ack error {:?}", err),

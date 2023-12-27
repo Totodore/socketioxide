@@ -75,7 +75,6 @@ pin_project_lite::pin_project! {
     ///
     ///     // We apply the `for_each` StreamExt fn to the AckStream
     ///     socket.broadcast().emit_with_ack::<String>("test", "test")
-    ///         .unwrap()
     ///         .for_each(|ack| async move { println!("Ack: {:?}", ack); }).await;
     /// });
     /// ```
