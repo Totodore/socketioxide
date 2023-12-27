@@ -23,7 +23,7 @@ use crate::extensions::Extensions;
 use crate::{
     ack::{AckInnerStream, AckResponse, AckResult, AckStream},
     adapter::{Adapter, LocalAdapter, Room},
-    errors::{DisconnectError, Error},
+    errors::{DisconnectError, Error, SendError},
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
         MessageHandler,
@@ -35,7 +35,7 @@ use crate::{
 };
 use crate::{
     client::SocketData,
-    errors::{AdapterError, SendError},
+    errors::{AdapterError, SocketError},
 };
 
 pub use engineioxide::sid::Sid;
@@ -537,7 +537,7 @@ impl<A: Adapter> Socket<A> {
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
         match self.send(Packet::disconnect(&self.ns.path)) {
-            Err(SendError::InternalChannelFull) => {
+            Err(SocketError::InternalChannelFull) => {
                 return Err(DisconnectError::InternalChannelFull)
             }
             _ => (),
@@ -563,7 +563,7 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SendError> {
+    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError> {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 Some(std::mem::take(&mut bin.bin))
@@ -747,7 +747,7 @@ mod test {
         let ack = socket.emit_with_ack::<Value>("test", Value::Null).await;
         assert!(matches!(
             ack,
-            Err(AckError::Send(SendError::InternalChannelFull))
+            Err(AckError::Socket(SocketError::InternalChannelFull))
         ));
     }
 }

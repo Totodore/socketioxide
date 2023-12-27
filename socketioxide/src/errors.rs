@@ -24,49 +24,28 @@ pub enum Error {
     Adapter(#[from] AdapterError),
 }
 
-/// Convert an [`Error`] to an [`EIoDisconnectReason`] if possible
-///
-/// If the error cannot be converted to a [`EIoDisconnectReason`] it means that the error was not fatal
-/// and the engine `Socket` can be kept alive
-impl From<&Error> for Option<EIoDisconnectReason> {
-    fn from(value: &Error) -> Self {
-        use EIoDisconnectReason::*;
-        match value {
-            Error::SocketGone(_) => Some(TransportClose),
-            Error::Serialize(_) | Error::InvalidPacketType | Error::InvalidEventName => {
-                Some(PacketParsingError)
-            }
-            Error::Adapter(_) | Error::InvalidNamespace => None,
-        }
-    }
-}
-
 /// Error type for ack operations.
 #[derive(thiserror::Error, Debug)]
 pub enum AckError {
     /// The ack response cannot be parsed
-    #[error("cannot deserializing json packet from ack response: {0:?}")]
-    Serialize(#[from] serde_json::Error),
+    #[error("cannot (de)serialize json packet: {0:?}")]
+    Serde(#[from] serde_json::Error),
 
     /// The ack response timed out
     #[error("ack timeout error")]
     Timeout,
 
-    /// the socket closed before receiving the ack response
-    #[error("the socket closed before receiving the ack response")]
-    SocketClosed,
-
-    /// It was impossible to emit the message
-    #[error("impossible to emit the packet to the client")]
-    Send(#[from] SendError),
+    /// Error sending/receiving data through the engine.io socket
+    #[error("Error sending data through the engine.io socket: {0:?}")]
+    Socket(#[from] SocketError),
 }
 
 /// Error type for broadcast operations.
 #[derive(Debug, thiserror::Error)]
 pub enum BroadcastError {
     /// An error occurred while sending packets.
-    #[error("Sending error: {0:?}")]
-    SendError(Vec<SendError>),
+    #[error("Error sending data through the engine.io socket: {0:?}")]
+    Socket(Vec<SocketError>),
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
@@ -77,21 +56,6 @@ pub enum BroadcastError {
     Adapter(#[from] AdapterError),
 }
 
-impl From<Vec<SendError>> for BroadcastError {
-    /// Converts a vector of `SendError` into a `BroadcastError`.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - A vector of `SendError` representing the sending errors.
-    ///
-    /// # Returns
-    ///
-    /// A `BroadcastError` containing the sending errors.
-    fn from(value: Vec<SendError>) -> Self {
-        Self::SendError(value)
-    }
-}
-
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
 pub enum SendError {
@@ -99,6 +63,14 @@ pub enum SendError {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
+    /// Error sending/receiving data through the engine.io socket
+    #[error("Error sending data through the engine.io socket: {0:?}")]
+    SocketError(#[from] SocketError),
+}
+
+/// Error type when using the underlying engine.io socket
+#[derive(thiserror::Error, Debug)]
+pub enum SocketError {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) method.
     #[error("internal channel full error")]
@@ -106,7 +78,7 @@ pub enum SendError {
 
     /// The socket is already closed
     #[error("socket closed")]
-    SocketClosed,
+    Closed,
 }
 
 /// Error type for sending operations.
@@ -122,20 +94,52 @@ pub enum DisconnectError {
     Adapter(#[from] AdapterError),
 }
 
-impl<T> From<TrySendError<T>> for SendError {
-    fn from(value: TrySendError<T>) -> Self {
-        match value {
-            TrySendError::Full(_) => Self::InternalChannelFull,
-            TrySendError::Closed(_) => panic!("internal channel closed"),
-        }
-    }
-}
-
 /// Error type for the [`Adapter`] trait.
 #[derive(Debug, thiserror::Error)]
 pub struct AdapterError(#[from] pub Box<dyn std::error::Error + Send>);
 impl Display for AdapterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl<T> From<TrySendError<T>> for SocketError {
+    fn from(value: TrySendError<T>) -> Self {
+        match value {
+            TrySendError::Full(_) => Self::InternalChannelFull,
+            TrySendError::Closed(_) => Self::Closed,
+        }
+    }
+}
+
+impl From<Vec<SocketError>> for BroadcastError {
+    /// Converts a vector of `SendError` into a `BroadcastError`.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A vector of `SendError` representing the sending errors.
+    ///
+    /// # Returns
+    ///
+    /// A `BroadcastError` containing the sending errors.
+    fn from(value: Vec<SocketError>) -> Self {
+        Self::Socket(value)
+    }
+}
+
+/// Convert an [`Error`] to an [`EIoDisconnectReason`] if possible
+///
+/// If the error cannot be converted to a [`EIoDisconnectReason`] it means that the error was not fatal
+/// and the engine `Socket` can be kept alive
+impl From<&Error> for Option<EIoDisconnectReason> {
+    fn from(value: &Error) -> Self {
+        use EIoDisconnectReason::*;
+        match value {
+            Error::SocketGone(_) => Some(TransportClose),
+            Error::Serialize(_) | Error::InvalidPacketType | Error::InvalidEventName => {
+                Some(PacketParsingError)
+            }
+            Error::Adapter(_) | Error::InvalidNamespace => None,
+        }
     }
 }

@@ -88,13 +88,12 @@ use std::sync::Arc;
 use super::message::FromMessageParts;
 use super::FromDisconnectParts;
 use super::{connect::FromConnectParts, message::FromMessage};
-use crate::errors::DisconnectError;
+use crate::errors::{DisconnectError, SendError};
 use crate::socket::DisconnectReason;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     packet::Packet,
     socket::Socket,
-    SendError,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -289,7 +288,7 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.send(packet)
+            Ok(self.socket.send(packet)?)
         } else {
             Ok(())
         }

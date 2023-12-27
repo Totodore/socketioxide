@@ -258,7 +258,7 @@ pub mod service;
 pub mod socket;
 
 pub use engineioxide::TransportType;
-pub use errors::{AckError, BroadcastError, DisconnectError, SendError};
+pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};
 pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 

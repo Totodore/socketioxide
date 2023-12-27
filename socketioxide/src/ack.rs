@@ -20,7 +20,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
-use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet, SendError};
+use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet, SocketError};
 
 /// An acknowledgement sent by the client.
 /// It contains the data sent by the client and the binary payloads if there are any.
@@ -166,7 +166,9 @@ impl Stream for AckInnerStream {
             Stream { rxs } => match rxs.poll_next(cx) {
                 Poll::Ready(Some(Ok(Ok(Ok(v))))) => Poll::Ready(Some(Ok(v))),
                 Poll::Ready(Some(Ok(Ok(Err(e))))) => Poll::Ready(Some(Err(e))),
-                Poll::Ready(Some(Ok(Err(_)))) => Poll::Ready(Some(Err(AckError::SocketClosed))),
+                Poll::Ready(Some(Ok(Err(_)))) => {
+                    Poll::Ready(Some(Err(AckError::Socket(SocketError::Closed))))
+                }
                 Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(AckError::Timeout))),
                 Poll::Ready(None) => Poll::Ready(None),
                 Poll::Pending => Poll::Pending,
@@ -177,7 +179,7 @@ impl Stream for AckInnerStream {
                     Poll::Ready(match val {
                         Ok(Ok(Ok(v))) => Some(Ok(v)),
                         Ok(Ok(Err(e))) => Some(Err(e)),
-                        Ok(Err(_)) => Some(Err(AckError::SocketClosed)),
+                        Ok(Err(_)) => Some(Err(AckError::Socket(SocketError::Closed))),
                         Err(_) => Some(Err(AckError::Timeout)),
                     })
                 }
@@ -185,9 +187,7 @@ impl Stream for AckInnerStream {
             },
             EncodingError { error, polled } => {
                 *polled = true;
-                Poll::Ready(Some(Err(AckError::Send(SendError::Serialize(
-                    error.take().unwrap(),
-                )))))
+                Poll::Ready(Some(Err(AckError::Serde(error.take().unwrap()))))
             }
         }
     }
@@ -401,11 +401,11 @@ mod test {
 
         assert!(matches!(
             stream.next().await.unwrap().unwrap_err(),
-            AckError::Serialize(_)
+            AckError::Serde(_)
         ));
         assert!(matches!(
             stream.next().await.unwrap().unwrap_err(),
-            AckError::Serialize(_)
+            AckError::Serde(_)
         ));
         assert!(stream.next().await.is_none());
     }
@@ -426,7 +426,7 @@ mod test {
 
         assert!(matches!(
             stream.next().await.unwrap().unwrap_err(),
-            AckError::Serialize(_)
+            AckError::Serde(_)
         ));
         assert!(stream.next().await.is_none());
     }
@@ -441,7 +441,7 @@ mod test {
         }))
         .unwrap();
 
-        assert!(matches!(stream.await.unwrap_err(), AckError::Serialize(_)));
+        assert!(matches!(stream.await.unwrap_err(), AckError::Serde(_)));
     }
 
     #[tokio::test]
@@ -453,7 +453,7 @@ mod test {
 
         assert!(matches!(
             stream.next().await.unwrap().unwrap_err(),
-            AckError::Send(SendError::Serialize(_))
+            AckError::Serde(_)
         ));
         assert!(stream.next().await.is_none());
     }
@@ -463,10 +463,7 @@ mod test {
         let serde_error = serde_json::from_str::<usize>("\"test\"").unwrap_err();
         let stream: AckStream<String> = AckStream::from(serde_error);
 
-        assert!(matches!(
-            stream.await.unwrap_err(),
-            AckError::Send(SendError::Serialize(_))
-        ));
+        assert!(matches!(stream.await.unwrap_err(), AckError::Serde(_)));
     }
 
     #[tokio::test]
@@ -491,7 +488,7 @@ mod test {
         socket2.disconnect().unwrap();
         assert!(matches!(
             stream.next().await.unwrap().unwrap_err(),
-            AckError::SocketClosed
+            AckError::Socket(SocketError::Closed)
         ));
         assert!(stream.next().await.is_none());
     }
@@ -505,7 +502,7 @@ mod test {
 
         assert!(matches!(
             stream.next().await.unwrap().unwrap_err(),
-            AckError::SocketClosed
+            AckError::Socket(SocketError::Closed)
         ));
     }
 
@@ -515,7 +512,10 @@ mod test {
         let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_secs(1)).into();
         drop(tx);
 
-        assert!(matches!(stream.await.unwrap_err(), AckError::SocketClosed));
+        assert!(matches!(
+            stream.await.unwrap_err(),
+            AckError::Socket(SocketError::Closed)
+        ));
     }
 
     #[tokio::test]
