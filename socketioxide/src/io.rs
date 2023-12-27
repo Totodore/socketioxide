@@ -16,7 +16,7 @@ use crate::{
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    BroadcastError,
+    BroadcastError, DisconnectError,
 };
 
 /// Configuration for Socket.IO & Engine.IO
@@ -701,7 +701,7 @@ impl<A: Adapter> SocketIo<A> {
     /// // Later in your code you can disconnect all sockets in the root namespace
     /// io.disconnect();
     #[inline]
-    pub fn disconnect(&self) -> Result<(), BroadcastError> {
+    pub fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
         self.get_default_op().disconnect()
     }
 

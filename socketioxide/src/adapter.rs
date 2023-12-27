@@ -20,6 +20,7 @@ use crate::{
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
+    DisconnectError,
 };
 
 /// A room identifier
@@ -113,7 +114,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
         -> Result<(), Self::Error>;
 
     /// Disconnects the sockets that match the [`BroadcastOptions`].
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>>;
 
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
@@ -262,16 +263,19 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
-        let errors: Vec<_> = self
-            .apply_opts(opts)
-            .into_iter()
-            .filter_map(|socket| socket.disconnect().err())
-            .collect();
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>> {
+        let mut errors: Vec<_> = Vec::new();
+
+        for sock in self.apply_opts(opts) {
+            if let Err(e) = sock.disconnect() {
+                errors.push(e);
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(errors.into())
+            Err(errors)
         }
     }
 }
@@ -498,14 +502,7 @@ mod test {
 
         let mut opts = BroadcastOptions::new(Some(socket0));
         opts.rooms = hash_set!["room5".into()];
-        match adapter.disconnect_socket(opts) {
-            // todo it returns Ok, in previous commits it also returns Ok
-            Err(BroadcastError::SendError(_)) | Ok(_) => {}
-            e => panic!(
-                "should return an EngineGone error as it is a stub namespace: {:?}",
-                e
-            ),
-        }
+        adapter.disconnect_socket(opts).unwrap();
 
         let sockets = adapter.sockets("room2").unwrap();
         assert_eq!(sockets.len(), 2);

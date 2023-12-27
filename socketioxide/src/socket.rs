@@ -23,7 +23,7 @@ use crate::extensions::Extensions;
 use crate::{
     ack::{AckInnerStream, AckResponse, AckResult, AckStream},
     adapter::{Adapter, LocalAdapter, Room},
-    errors::Error,
+    errors::{DisconnectError, Error},
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
         MessageHandler,
@@ -269,7 +269,7 @@ impl<A: Adapter> Socket<A> {
         if let Err(e) = self.send(Packet::event(ns, event.into(), data)) {
             #[cfg(feature = "tracing")]
             tracing::debug!("sending error during emit message: {e:?}");
-            return Err(e);
+            return Err(e)?;
         }
         Ok(())
     }
@@ -535,8 +535,14 @@ impl<A: Adapter> Socket<A> {
     /// Disconnects the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
-    pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
-        self.send(Packet::disconnect(&self.ns.path))?;
+    pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
+        match self.send(Packet::disconnect(&self.ns.path)) {
+            Err(SendError::InternalChannelFull) => {
+                return Err(DisconnectError::InternalChannelFull)
+            }
+            _ => (),
+        };
+
         self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())
     }
@@ -565,7 +571,7 @@ impl<A: Adapter> Socket<A> {
             _ => None,
         };
 
-        let msg = packet.try_into()?;
+        let msg = packet.into();
         self.esocket.emit(msg)?;
         if let Some(bin_payloads) = bin_payloads {
             for bin in bin_payloads {

@@ -88,6 +88,7 @@ use std::sync::Arc;
 use super::message::FromMessageParts;
 use super::FromDisconnectParts;
 use super::{connect::FromConnectParts, message::FromMessage};
+use crate::errors::DisconnectError;
 use crate::socket::DisconnectReason;
 use crate::{
     adapter::{Adapter, LocalAdapter},
@@ -224,7 +225,7 @@ impl<A: Adapter> SocketRef<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     #[inline(always)]
-    pub fn disconnect(self) -> Result<(), SendError> {
+    pub fn disconnect(self) -> Result<(), DisconnectError> {
         self.0.disconnect()
     }
 }

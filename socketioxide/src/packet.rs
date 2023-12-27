@@ -300,10 +300,8 @@ impl BinaryPacket {
     }
 }
 
-impl<'a> TryInto<String> for Packet<'a> {
-    type Error = serde_json::Error;
-
-    fn try_into(mut self) -> Result<String, Self::Error> {
+impl<'a> Into<String> for Packet<'a> {
+    fn into(mut self) -> String {
         use PacketData::*;
 
         // Serialize the data if there is any
@@ -318,7 +316,8 @@ impl<'a> TryInto<String> for Packet<'a> {
                     }
                     Value::Array(_) => serde_json::to_string::<(_, [(); 0])>(&(e, [])),
                     _ => serde_json::to_string(&(e, data)),
-                }?;
+                }
+                .unwrap();
                 Some(packet)
             }
             EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
@@ -327,7 +326,8 @@ impl<'a> TryInto<String> for Packet<'a> {
                     Value::Array(_) => serde_json::to_string(&data),
                     Value::Null => Ok("[]".to_string()),
                     _ => serde_json::to_string(&[data]),
-                }?;
+                }
+                .unwrap();
                 Some(packet)
             }
             _ => None,
@@ -392,7 +392,8 @@ impl<'a> TryInto<String> for Packet<'a> {
                 res.push_str(&data.unwrap())
             }
         };
-        Ok(res)
+
+        res
     }
 }
 
@@ -531,12 +532,12 @@ mod test {
     #[test]
     fn packet_decode_connect() {
         let sid = Sid::new();
-        let payload = format!("0{}", json!({"sid": sid}));
+        let payload = format!("0{}", json!({ "sid": sid }));
         let packet = Packet::try_from(payload).unwrap();
 
         assert_eq!(Packet::connect("/", sid, ProtocolVersion::V5), packet);
 
-        let payload = format!("0/admin™,{}", json!({"sid": sid}));
+        let payload = format!("0/admin™,{}", json!({ "sid": sid }));
         let packet = Packet::try_from(payload).unwrap();
 
         assert_eq!(Packet::connect("/admin™", sid, ProtocolVersion::V5), packet);
@@ -545,13 +546,13 @@ mod test {
     #[test]
     fn packet_encode_connect() {
         let sid = Sid::new();
-        let payload = format!("0{}", json!({"sid": sid}));
+        let payload = format!("0{}", json!({ "sid": sid }));
         let packet: String = Packet::connect("/", sid, ProtocolVersion::V5)
             .try_into()
             .unwrap();
         assert_eq!(packet, payload);
 
-        let payload = format!("0/admin™,{}", json!({"sid": sid}));
+        let payload = format!("0/admin™,{}", json!({ "sid": sid }));
         let packet: String = Packet::connect("/admin™", sid, ProtocolVersion::V5)
             .try_into()
             .unwrap();

@@ -7,7 +7,7 @@ use engineioxide::sid::Sid;
 
 use crate::ack::AckStream;
 use crate::adapter::LocalAdapter;
-use crate::errors::BroadcastError;
+use crate::errors::{BroadcastError, DisconnectError};
 use crate::extract::SocketRef;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
@@ -395,7 +395,7 @@ impl<A: Adapter> Operators<A> {
     ///     socket.within("room1").within("room3").except("room2").disconnect().unwrap();
     ///   });
     /// });
-    pub fn disconnect(self) -> Result<(), BroadcastError> {
+    pub fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
         self.ns.adapter.disconnect_socket(self.opts)
     }
 

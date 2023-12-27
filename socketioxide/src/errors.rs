@@ -99,14 +99,27 @@ pub enum SendError {
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
-    /// An error occured while broadcasting to other nodes.
-    #[error("Adapter error: {0}")]
-    AdapterError(#[from] AdapterError),
-
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) method.
     #[error("internal channel full error")]
     InternalChannelFull,
+
+    /// The socket is already closed
+    #[error("socket closed")]
+    SocketClosed,
+}
+
+/// Error type for sending operations.
+#[derive(thiserror::Error, Debug)]
+pub enum DisconnectError {
+    /// The socket channel is full.
+    /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) method.
+    #[error("internal channel full error")]
+    InternalChannelFull,
+
+    /// An error occured while broadcasting to other nodes.
+    #[error("adapter error: {0:?}")]
+    Adapter(#[from] AdapterError),
 }
 
 impl<T> From<TrySendError<T>> for SendError {
