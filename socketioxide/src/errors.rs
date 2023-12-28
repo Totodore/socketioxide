@@ -76,7 +76,9 @@ pub enum SendError {
 #[derive(thiserror::Error, Debug)]
 pub enum SocketError {
     /// The socket channel is full.
-    /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) method.
+    /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     #[error("internal channel full error")]
     InternalChannelFull,
 
@@ -89,7 +91,9 @@ pub enum SocketError {
 #[derive(thiserror::Error, Debug)]
 pub enum DisconnectError {
     /// The socket channel is full.
-    /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) method.
+    /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     #[error("internal channel full error")]
     InternalChannelFull,
 
@@ -98,7 +102,7 @@ pub enum DisconnectError {
     Adapter(#[from] AdapterError),
 }
 
-/// Error type for the [`Adapter`] trait.
+/// Error type for the [`Adapter`](crate::adapter::Adapter) trait.
 #[derive(Debug, thiserror::Error)]
 pub struct AdapterError(#[from] pub Box<dyn std::error::Error + Send>);
 impl Display for AdapterError {

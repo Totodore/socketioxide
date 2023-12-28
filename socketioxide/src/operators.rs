@@ -314,16 +314,17 @@ impl<A: Adapter> Operators<A> {
     /// When sending the message:
     /// * A [`BroadcastError::Serialize`] is returned if a serialization error
     /// occurs when encoding the data to send.
-    /// * A [`BroadcastError::SendError`] is returned if a packet could not be sent to one of the
+    /// * A [`BroadcastError::Socket`] is returned if a packet could not be sent to some of the
     /// selected socket.
     /// * A [`BroadcastError::Adapter`] is returned if an error occurs with the [`Adapter`].
     ///
     /// When receiving the acknowledgement:
-    /// * A [`AckError::Serialize`](crate::AckError::Serialize) is returned if a deserialization error occurs
+    /// * A [`AckError::Serde`](crate::AckError::Serde) is returned if a deserialization error occurs
     /// when decoding the data received.
     /// * A [`AckError::Timeout`](crate::AckError::Timeout) is returned if the acknowledgement timed out.
-    /// * A [`AckError::SocketClosed`](crate::AckError::SocketClosed) is returned if the socket closed before
-    /// receiving the acknowledgement.
+    /// * A [`AckError::Socket`](crate::AckError::Socket) is returned if an error happened with the underlying
+    /// engine.io socket. The socket might have closed when sending the message or before receiving the
+    /// acknowledgement.
     ///
     /// [`timeout()`]: #method.timeout
     ///
