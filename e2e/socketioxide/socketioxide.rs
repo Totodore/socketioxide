@@ -33,6 +33,16 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
             ack.bin(bin).send(data).ok();
         },
     );
+
+    socket.on(
+        "emit-with-ack",
+        |s: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+            const TIMEOUT: Duration = Duration::from_millis(200);
+            let ack = s.bin(bin).emit_with_ack::<Value>("emit-with-ack", data);
+            let ack = tokio::time::timeout(TIMEOUT, ack).await.unwrap().unwrap();
+            s.bin(ack.binary).emit("emit-with-ack", ack.data).unwrap();
+        },
+    );
 }
 
 #[tokio::main]
