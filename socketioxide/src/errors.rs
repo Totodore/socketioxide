@@ -35,6 +35,10 @@ pub enum AckError {
     #[error("ack timeout error")]
     Timeout,
 
+    /// An error happened while broadcasting to other socket.io nodes
+    #[error("adapter error: {0}")]
+    Adapter(#[from] AdapterError),
+
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
     Socket(#[from] SocketError),
@@ -65,7 +69,7 @@ pub enum SendError {
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    SocketError(#[from] SocketError),
+    Socket(#[from] SocketError),
 }
 
 /// Error type when using the underlying engine.io socket
