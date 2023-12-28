@@ -239,7 +239,8 @@ impl<A: Adapter> Operators<A> {
     ///             .except("room2")
     ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .for_each(|ack| async move {
     ///                match ack {
     ///                    Ok(ack) => println!("Ack received {:?}", ack),
     ///                    Err(err) => println!("Ack error {:?}", err),
@@ -338,7 +339,7 @@ impl<A: Adapter> Operators<A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // Emit a test message in the room1 and room3 rooms,
     ///         // except for the room2 room with the binary payload received
-    ///         let ack_stream = match socket.to("room1")
+    ///         let ack_stream = socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
