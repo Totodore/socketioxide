@@ -546,12 +546,10 @@ impl<A: Adapter> Socket<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
-        match self.send(Packet::disconnect(&self.ns.path)) {
-            Err(SocketError::InternalChannelFull) => {
-                return Err(DisconnectError::InternalChannelFull)
-            }
-            _ => (),
-        };
+        let res = self.send(Packet::disconnect(&self.ns.path));
+        if let Err(SocketError::InternalChannelFull) = res {
+            return Err(DisconnectError::InternalChannelFull);
+        }
 
         self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())

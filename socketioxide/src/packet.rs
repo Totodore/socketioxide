@@ -300,13 +300,13 @@ impl BinaryPacket {
     }
 }
 
-impl<'a> Into<String> for Packet<'a> {
-    fn into(mut self) -> String {
+impl<'a> From<Packet<'a>> for String {
+    fn from(mut packet: Packet<'a>) -> String {
         use PacketData::*;
 
         // Serialize the data if there is any
         // pre-serializing allows to preallocate the buffer
-        let data = match &mut self.inner {
+        let data = match &mut packet.inner {
             Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
                 // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
@@ -333,29 +333,29 @@ impl<'a> Into<String> for Packet<'a> {
             _ => None,
         };
 
-        let capacity = self.get_size_hint() + data.as_ref().map(|d| d.len()).unwrap_or(0);
+        let capacity = packet.get_size_hint() + data.as_ref().map(|d| d.len()).unwrap_or(0);
         let mut res = String::with_capacity(capacity);
-        res.push(self.inner.index());
+        res.push(packet.inner.index());
 
         // Add the ns if it is not the default one and the packet is not binary
         // In case of bin packet, we should first add the payload count before ns
         let push_nsp = |res: &mut String| {
-            if !self.ns.is_empty() && self.ns != "/" {
-                if !self.ns.starts_with('/') {
+            if !packet.ns.is_empty() && packet.ns != "/" {
+                if !packet.ns.starts_with('/') {
                     res.push('/');
                 }
-                res.push_str(&self.ns);
+                res.push_str(&packet.ns);
                 res.push(',');
             }
         };
 
-        if !self.inner.is_binary() {
+        if !packet.inner.is_binary() {
             push_nsp(&mut res);
         }
 
         let mut itoa_buf = itoa::Buffer::new();
 
-        match self.inner {
+        match packet.inner {
             PacketData::Connect(Some(data)) => res.push_str(&data),
             PacketData::Disconnect | PacketData::Connect(None) => (),
             PacketData::Event(_, _, ack) => {
