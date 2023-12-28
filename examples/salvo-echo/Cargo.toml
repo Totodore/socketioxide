@@ -13,6 +13,8 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
+tower.workspace = true
+tower-http = { version = "0.5.0", features = ["cors"] }
 
 [[bin]]
 name = "salvo-echo"
