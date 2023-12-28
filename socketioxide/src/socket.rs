@@ -285,27 +285,32 @@ impl<A: Adapter> Socket<A> {
     /// To get the acknowledgement, an [`AckStream`] is returned.
     /// It is both a [`Stream`](futures::Stream) and a [`Future`](futures::Future).
     /// If you `await` it like a future, it will yield the [`AckResponse`] received from the client or
-    /// an [`AckError`](crate::AckError) in case of error.
+    /// an [`AckError`] in case of error.
     /// If you poll it like a stream it will only yield one [`AckResponse`] or
-    /// an [`AckError`](crate::AckError) in case of error, before being exhausted.
+    /// an [`AckError`] in case of error, before being exhausted.
     ///
     /// # Errors
     ///
     /// When sending the message:
-    /// * A [`AckError::Serde`](crate::AckError::Serde) is returned if a serialization error
+    /// * A [`AckError::Serde`] is returned if a serialization error
     /// occurs when encoding the data to send.
-    /// * A [`AckError::Socket`](crate::AckError::Socket) is returned if a packet could not be sent
+    /// * A [`AckError::Socket`] is returned if a packet could not be sent
     /// to one of the selected socket.
     ///
     /// When receiving the acknowledgement:
-    /// * A [`AckError::Serde`](crate::AckError::Serde) is returned if a deserialization error occurs
+    /// * A [`AckError::Serde`] is returned if a deserialization error occurs
     /// when decoding the data received.
-    /// * A [`AckError::Timeout`](crate::AckError::Timeout) is returned if the acknowledgement timed out.
-    /// * A [`AckError::Socket(SocketError::Closed)`](crate::AckError::Socket) is returned if the socket
+    /// * A [`AckError::Timeout`] is returned if the acknowledgement timed out.
+    /// * A [`AckError::Socket(SocketError::Closed)`] is returned if the socket
     /// closed before receiving the acknowledgement.
     ///
     /// [`timeout()`]: crate::operators::Operators#method.timeout
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
+    /// [`AckError`]: crate::AckError
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
     ///
     /// # Basic example
     /// ```
