@@ -20,21 +20,29 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
-use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet, SocketError};
+use crate::{
+    adapter::{Adapter, LocalAdapter},
+    errors::AckError,
+    extract::SocketRef,
+    packet::Packet,
+    SocketError,
+};
 
 /// An acknowledgement sent by the client.
 /// It contains the data sent by the client and the binary payloads if there are any.
 #[derive(Debug)]
-pub struct AckResponse<T> {
+pub struct AckResponse<T, A: Adapter = LocalAdapter> {
     /// The data returned by the client
     pub data: T,
-    /// Optional binary payloads
-    ///
+    /// Optional binary payloads.
     /// If there is no binary payload, the `Vec` will be empty
     pub binary: Vec<Vec<u8>>,
+
+    /// The socket that sent the acknowledgement
+    pub socket: SocketRef<A>,
 }
 
-pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError>;
+pub(crate) type AckResult<T = Value, A = LocalAdapter> = Result<AckResponse<T, A>, AckError>;
 
 pin_project_lite::pin_project! {
     /// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
@@ -79,9 +87,9 @@ pin_project_lite::pin_project! {
     /// });
     /// ```
     #[must_use = "futures and streams do nothing unless you `.await` or poll them"]
-    pub struct AckStream<T> {
+    pub struct AckStream<T, A: Adapter = LocalAdapter> {
         #[pin]
-        inner: AckInnerStream,
+        inner: AckInnerStream<A>,
         _marker: std::marker::PhantomData<T>,
     }
 }
@@ -91,15 +99,15 @@ pin_project_lite::pin_project! {
     #[project = InnerProj]
     /// An internal stream used by [`AckStream`]. It should not be used directly except when implementing the
     /// [`Adapter`](crate::adapter::Adapter) trait.
-    pub enum AckInnerStream {
+    pub enum AckInnerStream<A: Adapter> {
         Stream {
             #[pin]
-            rxs: FuturesUnordered<Timeout<Receiver<AckResult>>>,
+            rxs: FuturesUnordered<Timeout<Receiver<AckResult<Value, A>>>>,
         },
 
         Fut {
             #[pin]
-            rx: Timeout<Receiver<AckResult>>,
+            rx: Timeout<Receiver<AckResult<Value, A>>>,
             polled: bool,
         },
 
@@ -113,7 +121,7 @@ pin_project_lite::pin_project! {
 }
 
 // ==== impl AckInnerStream ====
-impl AckInnerStream {
+impl<A: Adapter> AckInnerStream<A> {
     /// Creates a new [`AckInnerStream`] from a [`Packet`] and a list of sockets.
     /// The [`Packet`] is sent to all the sockets and the [`AckInnerStream`] will wait
     /// for an acknowledgement from each socket.
@@ -122,7 +130,7 @@ impl AckInnerStream {
     /// (5s by default) if no custom timeout is specified.
     pub fn broadcast(
         packet: Packet<'static>,
-        sockets: Vec<SocketRef<impl Adapter>>,
+        sockets: Vec<SocketRef<A>>,
         duration: Option<Duration>,
     ) -> Self {
         let rxs = FuturesUnordered::new();
@@ -141,7 +149,7 @@ impl AckInnerStream {
 
     /// Creates a new [`AckInnerStream`] from a [`oneshot::Receiver`](tokio) corresponding to the acknowledgement
     /// of a single socket.
-    pub fn send(rx: Receiver<AckResult>, duration: Duration) -> Self {
+    pub fn send(rx: Receiver<AckResult<Value, A>>, duration: Duration) -> Self {
         AckInnerStream::Fut {
             polled: false,
             rx: tokio::time::timeout(duration, rx),
@@ -149,8 +157,8 @@ impl AckInnerStream {
     }
 }
 
-impl Stream for AckInnerStream {
-    type Item = AckResult;
+impl<A: Adapter> Stream for AckInnerStream<A> {
+    type Item = AckResult<Value, A>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use InnerProj::*;
@@ -200,7 +208,7 @@ impl Stream for AckInnerStream {
     }
 }
 
-impl FusedStream for AckInnerStream {
+impl<A: Adapter> FusedStream for AckInnerStream<A> {
     fn is_terminated(&self) -> bool {
         use AckInnerStream::*;
         match self {
@@ -210,8 +218,8 @@ impl FusedStream for AckInnerStream {
     }
 }
 
-impl Future for AckInnerStream {
-    type Output = AckResult;
+impl<A: Adapter> Future for AckInnerStream<A> {
+    type Output = AckResult<Value, A>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.as_mut().poll_next(cx) {
@@ -224,7 +232,7 @@ impl Future for AckInnerStream {
     }
 }
 
-impl FusedFuture for AckInnerStream {
+impl<A: Adapter> FusedFuture for AckInnerStream<A> {
     fn is_terminated(&self) -> bool {
         use AckInnerStream::*;
         match self {
@@ -236,8 +244,8 @@ impl FusedFuture for AckInnerStream {
 
 // ==== impl AckStream ====
 
-impl<T: DeserializeOwned> Stream for AckStream<T> {
-    type Item = AckResult<T>;
+impl<T: DeserializeOwned, A: Adapter> Stream for AckStream<T, A> {
+    type Item = AckResult<T, A>;
 
     #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -253,15 +261,15 @@ impl<T: DeserializeOwned> Stream for AckStream<T> {
     }
 }
 
-impl<T: DeserializeOwned> FusedStream for AckStream<T> {
+impl<T: DeserializeOwned, A: Adapter> FusedStream for AckStream<T, A> {
     #[inline(always)]
     fn is_terminated(&self) -> bool {
         FusedStream::is_terminated(&self.inner)
     }
 }
 
-impl<T: DeserializeOwned> Future for AckStream<T> {
-    type Output = AckResult<T>;
+impl<T: DeserializeOwned, A: Adapter> Future for AckStream<T, A> {
+    type Output = AckResult<T, A>;
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -269,22 +277,22 @@ impl<T: DeserializeOwned> Future for AckStream<T> {
     }
 }
 
-impl<T: DeserializeOwned> FusedFuture for AckStream<T> {
+impl<T: DeserializeOwned, A: Adapter> FusedFuture for AckStream<T, A> {
     #[inline(always)]
     fn is_terminated(&self) -> bool {
         FusedFuture::is_terminated(&self.inner)
     }
 }
 
-impl<T> From<AckInnerStream> for AckStream<T> {
-    fn from(inner: AckInnerStream) -> Self {
+impl<T, A: Adapter> From<AckInnerStream<A>> for AckStream<T, A> {
+    fn from(inner: AckInnerStream<A>) -> Self {
         Self {
             inner,
             _marker: std::marker::PhantomData,
         }
     }
 }
-impl<T> From<serde_json::Error> for AckStream<T> {
+impl<T, A: Adapter> From<serde_json::Error> for AckStream<T, A> {
     fn from(error: serde_json::Error) -> Self {
         Self {
             inner: AckInnerStream::EncodingError {
@@ -296,12 +304,13 @@ impl<T> From<serde_json::Error> for AckStream<T> {
     }
 }
 
-fn map_ack_response<T: DeserializeOwned>(ack: AckResult) -> AckResult<T> {
+fn map_ack_response<T: DeserializeOwned, A: Adapter>(ack: AckResult<Value, A>) -> AckResult<T, A> {
     ack.and_then(|v| {
         serde_json::from_value(v.data)
             .map(|data| AckResponse {
                 data,
                 binary: v.binary,
+                socket: v.socket,
             })
             .map_err(|e| e.into())
     })
@@ -331,10 +340,7 @@ mod test {
         let socket2 = create_socket();
         let mut packet = Packet::event("/", "test", "test".into());
         packet.inner.set_ack_id(1);
-        let socks = vec![
-            SocketRef::new(socket.clone()),
-            SocketRef::new(socket2.clone()),
-        ];
+        let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
         let res_packet = Packet::ack("test", "test".into(), 1);
@@ -355,6 +361,7 @@ mod test {
         tx.send(Ok(AckResponse {
             data: Value::String("test".into()),
             binary: vec![],
+            socket: create_socket().into(),
         }))
         .unwrap();
 
@@ -374,6 +381,7 @@ mod test {
         tx.send(Ok(AckResponse {
             data: Value::String("test".into()),
             binary: vec![],
+            socket: create_socket().into(),
         }))
         .unwrap();
 
@@ -386,10 +394,7 @@ mod test {
         let socket2 = create_socket();
         let mut packet = Packet::event("/", "test", "test".into());
         packet.inner.set_ack_id(1);
-        let socks = vec![
-            SocketRef::new(socket.clone()),
-            SocketRef::new(socket2.clone()),
-        ];
+        let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
         let res_packet = Packet::ack("test", 132.into(), 1);
@@ -416,6 +421,7 @@ mod test {
         tx.send(Ok(AckResponse {
             data: Value::Bool(true),
             binary: vec![],
+            socket: create_socket().into(),
         }))
         .unwrap();
         assert_eq!(stream.size_hint().0, 1);
@@ -437,6 +443,7 @@ mod test {
         tx.send(Ok(AckResponse {
             data: Value::Bool(true),
             binary: vec![],
+            socket: create_socket().into(),
         }))
         .unwrap();
 
@@ -471,10 +478,7 @@ mod test {
         let socket2 = create_socket();
         let mut packet = Packet::event("/", "test", "test".into());
         packet.inner.set_ack_id(1);
-        let socks = vec![
-            SocketRef::new(socket.clone()),
-            SocketRef::new(socket2.clone()),
-        ];
+        let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
         let res_packet = Packet::ack("test", "test".into(), 1);
@@ -523,10 +527,7 @@ mod test {
         let socket2 = create_socket();
         let mut packet = Packet::event("/", "test", "test".into());
         packet.inner.set_ack_id(1);
-        let socks = vec![
-            SocketRef::new(socket.clone()),
-            SocketRef::new(socket2.clone()),
-        ];
+        let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> =
             AckInnerStream::broadcast(packet, socks, Some(Duration::from_millis(10))).into();
 

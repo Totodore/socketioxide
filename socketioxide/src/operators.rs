@@ -357,7 +357,7 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> AckStream<V> {
+    ) -> AckStream<V, A> {
         self.get_packet(event, data)
             .map(|p| self.ns.adapter.broadcast_with_ack(p, self.opts))
             .map(AckStream::from)
@@ -403,7 +403,7 @@ impl<A: Adapter> Operators<A> {
 
     /// Gets a [`SocketRef`] by the specified [`Sid`].
     pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
-        self.ns.get_socket(sid).map(SocketRef::new).ok()
+        self.ns.get_socket(sid).map(SocketRef::from).ok()
     }
 
     /// Makes all sockets selected with the previous operators join the given room(s).

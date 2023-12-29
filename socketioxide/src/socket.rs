@@ -109,7 +109,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value, A>>>>,
     ack_counter: AtomicI64,
     /// The socket id
     pub id: Sid,
@@ -332,16 +332,16 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
-    ) -> AckStream<V> {
+    ) -> AckStream<V, A> {
         let ns = self.ns();
         match serde_json::to_value(data) {
             Ok(data) => {
                 let packet = Packet::event(ns, event.into(), data);
                 let rx = self.send_with_ack(packet);
                 let stream = AckInnerStream::send(rx, self.config.ack_timeout);
-                AckStream::<V>::from(stream)
+                AckStream::<V, A>::from(stream)
             }
-            Err(e) => AckStream::<V>::from(e),
+            Err(e) => AckStream::<V, A>::from(e),
         }
     }
 
@@ -590,7 +590,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult> {
+    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value, A>> {
         let (tx, rx) = oneshot::channel();
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -693,6 +693,7 @@ impl<A: Adapter> Socket<A> {
             let res = AckResponse {
                 data,
                 binary: vec![],
+                socket: self.clone().into(),
             };
             tx.send(Ok(res)).ok();
         }
@@ -704,6 +705,7 @@ impl<A: Adapter> Socket<A> {
             let res = AckResponse {
                 data: packet.data,
                 binary: packet.bin,
+                socket: self.clone().into(),
             };
             tx.send(Ok(res)).ok();
         }

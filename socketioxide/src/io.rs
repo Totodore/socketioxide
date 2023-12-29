@@ -652,7 +652,7 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> AckStream<V> {
+    ) -> AckStream<V, A> {
         self.get_default_op().emit_with_ack(event, data)
     }
 

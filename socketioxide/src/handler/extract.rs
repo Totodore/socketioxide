@@ -180,6 +180,7 @@ where
     }
 }
 /// An Extractor that returns a reference to a [`Socket`].
+#[derive(Debug)]
 pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
@@ -213,13 +214,14 @@ impl<A: Adapter> std::ops::Deref for SocketRef<A> {
         &self.0
     }
 }
-
-impl<A: Adapter> SocketRef<A> {
+impl<A: Adapter> From<Arc<Socket<A>>> for SocketRef<A> {
     #[inline(always)]
-    pub(crate) fn new(socket: Arc<Socket<A>>) -> Self {
+    fn from(socket: Arc<Socket<A>>) -> Self {
         Self(socket)
     }
+}
 
+impl<A: Adapter> SocketRef<A> {
     /// Disconnect the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
