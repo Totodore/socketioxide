@@ -109,7 +109,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value, A>>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
     ack_counter: AtomicI64,
     /// The socket id
     pub id: Sid,
@@ -321,7 +321,7 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.emit_with_ack::<Value>("test", data).await {
+    ///         match socket.emit_with_ack::<Value>("test", data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -332,17 +332,13 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
-    ) -> AckStream<V, A> {
+    ) -> Result<AckStream<V>, serde_json::Error> {
         let ns = self.ns();
-        match serde_json::to_value(data) {
-            Ok(data) => {
-                let packet = Packet::event(ns, event.into(), data);
-                let rx = self.send_with_ack(packet);
-                let stream = AckInnerStream::send(rx, self.config.ack_timeout);
-                AckStream::<V, A>::from(stream)
-            }
-            Err(e) => AckStream::<V, A>::from(e),
-        }
+        let data = serde_json::to_value(data)?;
+        let packet = Packet::event(ns, event.into(), data);
+        let rx = self.send_with_ack(packet);
+        let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
+        Ok(AckStream::<V>::from(stream))
     }
 
     // Room actions
@@ -495,10 +491,11 @@ impl<A: Adapter> Socket<A> {
     ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
     ///             .emit_with_ack::<Value>("message-back", data)
-    ///             .for_each(|ack| async move {
+    ///             .unwrap()
+    ///             .for_each(|(sid, ack)| async move {
     ///                match ack {
-    ///                    Ok(ack) => println!("Ack received {:?}", ack),
-    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                    Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
+    ///                    Err(err) => println!("Ack error, socket {} {:?}", sid, err),
     ///                }
     ///             }).await;
     ///    });
@@ -590,7 +587,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value, A>> {
+    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {
         let (tx, rx) = oneshot::channel();
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -693,7 +690,6 @@ impl<A: Adapter> Socket<A> {
             let res = AckResponse {
                 data,
                 binary: vec![],
-                socket: self.clone().into(),
             };
             tx.send(Ok(res)).ok();
         }
@@ -705,7 +701,6 @@ impl<A: Adapter> Socket<A> {
             let res = AckResponse {
                 data: packet.data,
                 binary: packet.bin,
-                socket: self.clone().into(),
             };
             tx.send(Ok(res)).ok();
         }
@@ -721,6 +716,11 @@ impl<A: Adapter> Debug for Socket<A> {
             .field("ack_counter", &self.ack_counter)
             .field("sid", &self.id)
             .finish()
+    }
+}
+impl<A: Adapter> PartialEq for Socket<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
 }
 
@@ -746,7 +746,7 @@ mod test {
     async fn send_with_ack_error() {
         let sid = Sid::new();
         let ns = Namespace::<LocalAdapter>::new_dummy([sid]).into();
-        let socket = Socket::new_dummy(sid, ns);
+        let socket: Arc<Socket> = Socket::new_dummy(sid, ns).into();
         // Saturate the channel
         for _ in 0..200 {
             socket
@@ -754,7 +754,10 @@ mod test {
                 .unwrap();
         }
 
-        let ack = socket.emit_with_ack::<Value>("test", Value::Null).await;
+        let ack = socket
+            .emit_with_ack::<Value>("test", Value::Null)
+            .unwrap()
+            .await;
         assert!(matches!(
             ack,
             Err(AckError::Socket(SocketError::InternalChannelFull))

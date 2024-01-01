@@ -41,3 +41,24 @@ macro_rules! assert_err {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! assert_some {
+    ($e:expr) => {
+        assert_some!($e,);
+    };
+    ($e:expr,) => {{
+        use std::option::Option::*;
+        match $e {
+            Some(v) => v,
+            None => panic!("assertion failed: None"),
+        }
+    }};
+    ($e:expr, $($arg:tt)+) => {{
+        use std::option::Option::*;
+        match $e {
+            Some(v) => v,
+            None => panic!("assertion failed: None: {}", format_args!($($arg)+)),
+        }
+    }};
+}

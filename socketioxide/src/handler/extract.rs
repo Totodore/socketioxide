@@ -214,6 +214,12 @@ impl<A: Adapter> std::ops::Deref for SocketRef<A> {
         &self.0
     }
 }
+impl<A: Adapter> PartialEq for SocketRef<A> {
+    #[inline(always)]
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id == other.0.id
+    }
+}
 impl<A: Adapter> From<Arc<Socket<A>>> for SocketRef<A> {
     #[inline(always)]
     fn from(socket: Arc<Socket<A>>) -> Self {

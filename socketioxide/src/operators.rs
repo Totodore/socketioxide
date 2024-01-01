@@ -240,10 +240,11 @@ impl<A: Adapter> Operators<A> {
     ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
     ///             .emit_with_ack::<Value>("message-back", data)
-    ///             .for_each(|ack| async move {
+    ///             .unwrap()
+    ///             .for_each(|(id, ack)| async move {
     ///                match ack {
-    ///                    Ok(ack) => println!("Ack received {:?}", ack),
-    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                    Ok(ack) => println!("Ack received, socket {} {:?}", id, ack),
+    ///                    Err(err) => println!("Ack error, socket {} {:?}", id, err),
     ///                }
     ///             }).await;
     ///    });
@@ -304,28 +305,21 @@ impl<A: Adapter> Operators<A> {
     /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the [`timeout()`] operator.
     ///
     /// To get acknowledgements, an [`AckStream`] is returned.
-    /// It is both a [`Stream`](futures::Stream) and a [`Future`](futures::Future).
-    /// If you `await` it like a future, it will yield the **first** [`AckResponse`](crate::ack::AckResponse)
-    /// received from the client or an [`AckError`](crate::AckError) in case of error.
-    /// If you poll it like a stream it will yield **all** the [`AckResponse`](crate::ack::AckResponse)
-    /// corresponding to each client or an [`AckError`](crate::AckError) in case of error.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement.
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
     ///
-    /// # Errors
+    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
     ///
-    /// When sending the message:
-    /// * A [`BroadcastError::Serialize`] is returned if a serialization error
-    /// occurs when encoding the data to send.
-    /// * A [`BroadcastError::Socket`] is returned if a packet could not be sent to some of the
-    /// selected socket.
-    /// * A [`BroadcastError::Adapter`] is returned if an error occurs with the [`Adapter`].
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`AckError::Socket`] will be yielded.
     ///
-    /// When receiving the acknowledgement:
-    /// * A [`AckError::Serde`](crate::AckError::Serde) is returned if a deserialization error occurs
-    /// when decoding the data received.
-    /// * A [`AckError::Timeout`](crate::AckError::Timeout) is returned if the acknowledgement timed out.
-    /// * A [`AckError::Socket`](crate::AckError::Socket) is returned if an error happened with the underlying
-    /// engine.io socket. The socket might have closed when sending the message or before receiving the
-    /// acknowledgement.
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `T`,
+    /// an [`AckError::Serde`] will be yielded.
     ///
     /// [`timeout()`]: #method.timeout
     ///
@@ -343,12 +337,13 @@ impl<A: Adapter> Operators<A> {
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
-    ///             .emit_with_ack::<String>("message-back", data);
+    ///             .emit_with_ack::<String>("message-back", data)
+    ///             .unwrap();
     ///
-    ///         ack_stream.for_each(|ack| async move {
+    ///         ack_stream.for_each(|(id, ack)| async move {
     ///             match ack {
-    ///                 Ok(ack) => println!("Ack received {:?}", ack),
-    ///                 Err(err) => println!("Ack error {:?}", err),
+    ///                 Ok(ack) => println!("Ack received, socket {} {:?}", id, ack),
+    ///                 Err(err) => println!("Ack error, socket {} {:?}", id, err),
     ///             }
     ///         }).await;
     ///     });
@@ -357,11 +352,9 @@ impl<A: Adapter> Operators<A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> AckStream<V, A> {
-        self.get_packet(event, data)
-            .map(|p| self.ns.adapter.broadcast_with_ack(p, self.opts))
-            .map(AckStream::from)
-            .unwrap_or_else(AckStream::from)
+    ) -> Result<AckStream<V>, serde_json::Error> {
+        let packet = self.get_packet(event, data)?;
+        Ok(self.ns.adapter.broadcast_with_ack(packet, self.opts).into())
     }
 
     /// Gets all sockets selected with the previous operators.

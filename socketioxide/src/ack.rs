@@ -11,6 +11,7 @@ use std::{
     time::Duration,
 };
 
+use engineioxide::sid::Sid;
 use futures::{
     future::FusedFuture,
     stream::{FusedStream, FuturesUnordered},
@@ -20,45 +21,66 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
-use crate::{
-    adapter::{Adapter, LocalAdapter},
-    errors::AckError,
-    extract::SocketRef,
-    packet::Packet,
-    SocketError,
-};
+use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet, SocketError};
 
 /// An acknowledgement sent by the client.
 /// It contains the data sent by the client and the binary payloads if there are any.
 #[derive(Debug)]
-pub struct AckResponse<T, A: Adapter = LocalAdapter> {
+pub struct AckResponse<T> {
     /// The data returned by the client
     pub data: T,
     /// Optional binary payloads.
     /// If there is no binary payload, the `Vec` will be empty
     pub binary: Vec<Vec<u8>>,
-
-    /// The socket that sent the acknowledgement
-    pub socket: SocketRef<A>,
 }
 
-pub(crate) type AckResult<T = Value, A = LocalAdapter> = Result<AckResponse<T, A>, AckError>;
+pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError>;
+
+pin_project_lite::pin_project! {
+    pub(crate) struct AckResultWithId<T> {
+        id: Sid,
+        #[pin]
+        result: Timeout<Receiver<AckResult<T>>>,
+    }
+}
+
+impl<T> Future for AckResultWithId<T> {
+    type Output = (Sid, AckResult<T>);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let project = self.project();
+        match project.result.poll(cx) {
+            Poll::Ready(v) => {
+                let v = match v {
+                    Ok(Ok(Ok(v))) => Ok(v),
+                    Ok(Ok(Err(e))) => Err(e),
+                    Ok(Err(_)) => Err(AckError::Socket(SocketError::Closed)),
+                    Err(_) => Err(AckError::Timeout),
+                };
+                Poll::Ready((*project.id, v))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 pin_project_lite::pin_project! {
     /// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
     ///
     /// It can be used in two ways:
-    /// * As a [`Stream`]: It will yield all the [`AckResponse`] received from the client.
-    /// It can useful when broadcasting to multiple sockets and therefore expecting
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
     /// more than one acknowledgement.
     /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
     /// Useful when expecting only one acknowledgement.
     ///
+    /// If the packet encoding failed an [`serde_json::Error`] is **immediately** returned.
+    ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `T`,
-    /// an [`AckError::Serialize`] will be yielded.
+    /// an [`AckError::Serde`] will be yielded.
     ///
-    /// It can be created from:
+    /// An [`AckStream`] can be created from:
     /// * The [`SocketRef::emit_with_ack`] method, in this case there will be only one [`AckResponse`].
     /// * The [`Operator::emit_with_ack`] method, in this case there will be as many [`AckResponse`]
     /// as there are selected sockets.
@@ -78,18 +100,19 @@ pin_project_lite::pin_project! {
     /// let (svc, io) = SocketIo::new_svc();
     /// io.ns("/test", move |socket: SocketRef| async move {
     ///     // We wait for the acknowledgement of the first emit (only one in this case)
-    ///     let ack = socket.emit_with_ack::<String>("test", "test").await.unwrap();
+    ///     let ack = socket.emit_with_ack::<String>("test", "test").unwrap().await;
     ///     println!("Ack: {:?}", ack);
     ///
     ///     // We apply the `for_each` StreamExt fn to the AckStream
     ///     socket.broadcast().emit_with_ack::<String>("test", "test")
-    ///         .for_each(|ack| async move { println!("Ack: {:?}", ack); }).await;
+    ///         .unwrap()
+    ///         .for_each(|(id, ack)| async move { println!("Ack: {} {:?}", id, ack); }).await;
     /// });
     /// ```
     #[must_use = "futures and streams do nothing unless you `.await` or poll them"]
-    pub struct AckStream<T, A: Adapter = LocalAdapter> {
+    pub struct AckStream<T> {
         #[pin]
-        inner: AckInnerStream<A>,
+        inner: AckInnerStream,
         _marker: std::marker::PhantomData<T>,
     }
 }
@@ -99,36 +122,30 @@ pin_project_lite::pin_project! {
     #[project = InnerProj]
     /// An internal stream used by [`AckStream`]. It should not be used directly except when implementing the
     /// [`Adapter`](crate::adapter::Adapter) trait.
-    pub enum AckInnerStream<A: Adapter> {
+    pub enum AckInnerStream {
         Stream {
             #[pin]
-            rxs: FuturesUnordered<Timeout<Receiver<AckResult<Value, A>>>>,
+            rxs: FuturesUnordered<AckResultWithId<Value>>,
         },
 
         Fut {
             #[pin]
-            rx: Timeout<Receiver<AckResult<Value, A>>>,
+            rx: AckResultWithId<Value>,
             polled: bool,
         },
-
-        /// Used to track a serialization error that might occur
-        /// before sending to any socket
-        EncodingError {
-            error: Option<serde_json::Error>,
-            polled: bool,
-        }
     }
 }
 
 // ==== impl AckInnerStream ====
-impl<A: Adapter> AckInnerStream<A> {
+
+impl AckInnerStream {
     /// Creates a new [`AckInnerStream`] from a [`Packet`] and a list of sockets.
     /// The [`Packet`] is sent to all the sockets and the [`AckInnerStream`] will wait
     /// for an acknowledgement from each socket.
     ///
     /// The [`AckInnerStream`] will wait for the default timeout specified in the config
     /// (5s by default) if no custom timeout is specified.
-    pub fn broadcast(
+    pub fn broadcast<A: Adapter>(
         packet: Packet<'static>,
         sockets: Vec<SocketRef<A>>,
         duration: Option<Duration>,
@@ -142,60 +159,43 @@ impl<A: Adapter> AckInnerStream<A> {
         let duration = duration.unwrap_or_else(|| sockets.first().unwrap().config.ack_timeout);
         for socket in sockets {
             let rx = socket.send_with_ack(packet.clone());
-            rxs.push(tokio::time::timeout(duration, rx));
+            rxs.push(AckResultWithId {
+                result: tokio::time::timeout(duration, rx),
+                id: socket.id,
+            });
         }
         AckInnerStream::Stream { rxs }
     }
 
     /// Creates a new [`AckInnerStream`] from a [`oneshot::Receiver`](tokio) corresponding to the acknowledgement
     /// of a single socket.
-    pub fn send(rx: Receiver<AckResult<Value, A>>, duration: Duration) -> Self {
+    pub fn send(rx: Receiver<AckResult<Value>>, duration: Duration, id: Sid) -> Self {
         AckInnerStream::Fut {
             polled: false,
-            rx: tokio::time::timeout(duration, rx),
+            rx: AckResultWithId {
+                id,
+                result: tokio::time::timeout(duration, rx),
+            },
         }
     }
 }
 
-impl<A: Adapter> Stream for AckInnerStream<A> {
-    type Item = AckResult<Value, A>;
+impl Stream for AckInnerStream {
+    type Item = (Sid, AckResult<Value>);
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use InnerProj::*;
 
-        debug_assert!(match self.as_mut().project() {
-            EncodingError { polled, error } => error.is_some() || *polled,
-            Stream { .. } | Fut { .. } => true,
-        });
-
         match self.project() {
-            Fut { polled, .. } | EncodingError { polled, .. } if *polled => Poll::Ready(None),
-            Stream { rxs } => match rxs.poll_next(cx) {
-                Poll::Ready(Some(Ok(Ok(Ok(v))))) => Poll::Ready(Some(Ok(v))),
-                Poll::Ready(Some(Ok(Ok(Err(e))))) => Poll::Ready(Some(Err(e))),
-                Poll::Ready(Some(Ok(Err(_)))) => {
-                    Poll::Ready(Some(Err(AckError::Socket(SocketError::Closed))))
-                }
-                Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(AckError::Timeout))),
-                Poll::Ready(None) => Poll::Ready(None),
-                Poll::Pending => Poll::Pending,
-            },
+            Fut { polled, .. } if *polled => Poll::Ready(None),
+            Stream { rxs } => rxs.poll_next(cx),
             Fut { rx, polled } => match rx.poll(cx) {
                 Poll::Ready(val) => {
                     *polled = true;
-                    Poll::Ready(match val {
-                        Ok(Ok(Ok(v))) => Some(Ok(v)),
-                        Ok(Ok(Err(e))) => Some(Err(e)),
-                        Ok(Err(_)) => Some(Err(AckError::Socket(SocketError::Closed))),
-                        Err(_) => Some(Err(AckError::Timeout)),
-                    })
+                    Poll::Ready(Some(val))
                 }
                 Poll::Pending => Poll::Pending,
             },
-            EncodingError { error, polled } => {
-                *polled = true;
-                Poll::Ready(Some(Err(AckError::Serde(error.take().unwrap()))))
-            }
         }
     }
 
@@ -203,27 +203,27 @@ impl<A: Adapter> Stream for AckInnerStream<A> {
         use AckInnerStream::*;
         match self {
             Stream { rxs, .. } => rxs.size_hint(),
-            Fut { .. } | EncodingError { .. } => (1, Some(1)),
+            Fut { .. } => (1, Some(1)),
         }
     }
 }
 
-impl<A: Adapter> FusedStream for AckInnerStream<A> {
+impl FusedStream for AckInnerStream {
     fn is_terminated(&self) -> bool {
         use AckInnerStream::*;
         match self {
             Stream { rxs, .. } => rxs.is_terminated(),
-            Fut { polled, .. } | EncodingError { polled, .. } => *polled,
+            Fut { polled, .. } => *polled,
         }
     }
 }
 
-impl<A: Adapter> Future for AckInnerStream<A> {
-    type Output = AckResult<Value, A>;
+impl Future for AckInnerStream {
+    type Output = AckResult<Value>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.as_mut().poll_next(cx) {
-            Poll::Ready(Some(v)) => Poll::Ready(v),
+            Poll::Ready(Some(v)) => Poll::Ready(v.1),
             Poll::Pending => Poll::Pending,
             Poll::Ready(None) => {
                 unreachable!("stream should at least yield 1 value")
@@ -232,27 +232,27 @@ impl<A: Adapter> Future for AckInnerStream<A> {
     }
 }
 
-impl<A: Adapter> FusedFuture for AckInnerStream<A> {
+impl FusedFuture for AckInnerStream {
     fn is_terminated(&self) -> bool {
         use AckInnerStream::*;
         match self {
             Stream { rxs, .. } => rxs.is_terminated(),
-            Fut { polled, .. } | EncodingError { polled, .. } => *polled,
+            Fut { polled, .. } => *polled,
         }
     }
 }
 
 // ==== impl AckStream ====
 
-impl<T: DeserializeOwned, A: Adapter> Stream for AckStream<T, A> {
-    type Item = AckResult<T, A>;
+impl<T: DeserializeOwned> Stream for AckStream<T> {
+    type Item = (Sid, AckResult<T>);
 
     #[inline]
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project()
             .inner
             .poll_next(cx)
-            .map(|v| v.map(map_ack_response))
+            .map(|v| v.map(|(s, v)| (s, map_ack_response(v))))
     }
 
     #[inline(always)]
@@ -261,15 +261,15 @@ impl<T: DeserializeOwned, A: Adapter> Stream for AckStream<T, A> {
     }
 }
 
-impl<T: DeserializeOwned, A: Adapter> FusedStream for AckStream<T, A> {
+impl<T: DeserializeOwned> FusedStream for AckStream<T> {
     #[inline(always)]
     fn is_terminated(&self) -> bool {
         FusedStream::is_terminated(&self.inner)
     }
 }
 
-impl<T: DeserializeOwned, A: Adapter> Future for AckStream<T, A> {
-    type Output = AckResult<T, A>;
+impl<T: DeserializeOwned> Future for AckStream<T> {
+    type Output = AckResult<T>;
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -277,40 +277,28 @@ impl<T: DeserializeOwned, A: Adapter> Future for AckStream<T, A> {
     }
 }
 
-impl<T: DeserializeOwned, A: Adapter> FusedFuture for AckStream<T, A> {
+impl<T: DeserializeOwned> FusedFuture for AckStream<T> {
     #[inline(always)]
     fn is_terminated(&self) -> bool {
         FusedFuture::is_terminated(&self.inner)
     }
 }
 
-impl<T, A: Adapter> From<AckInnerStream<A>> for AckStream<T, A> {
-    fn from(inner: AckInnerStream<A>) -> Self {
+impl<T> From<AckInnerStream> for AckStream<T> {
+    fn from(inner: AckInnerStream) -> Self {
         Self {
             inner,
             _marker: std::marker::PhantomData,
         }
     }
 }
-impl<T, A: Adapter> From<serde_json::Error> for AckStream<T, A> {
-    fn from(error: serde_json::Error) -> Self {
-        Self {
-            inner: AckInnerStream::EncodingError {
-                error: Some(error),
-                polled: false,
-            },
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
 
-fn map_ack_response<T: DeserializeOwned, A: Adapter>(ack: AckResult<Value, A>) -> AckResult<T, A> {
+fn map_ack_response<T: DeserializeOwned>(ack: AckResult<Value>) -> AckResult<T> {
     ack.and_then(|v| {
         serde_json::from_value(v.data)
             .map(|data| AckResponse {
                 data,
                 binary: v.binary,
-                socket: v.socket,
             })
             .map_err(|e| e.into())
     })
@@ -349,26 +337,27 @@ mod test {
 
         futures::pin_mut!(stream);
 
-        assert!(matches!(stream.next().await.unwrap(), Ok(_)));
-        assert!(matches!(stream.next().await.unwrap(), Ok(_)));
+        assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
+        assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
         assert!(stream.next().await.is_none());
     }
 
     #[tokio::test]
     async fn ack_stream() {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_secs(1)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
             data: Value::String("test".into()),
             binary: vec![],
-            socket: create_socket().into(),
         }))
         .unwrap();
 
         futures::pin_mut!(stream);
 
         assert_eq!(
-            stream.next().await.unwrap().unwrap().data,
+            stream.next().await.unwrap().1.unwrap().data,
             "test".to_string()
         );
         assert!(stream.next().await.is_none());
@@ -377,11 +366,12 @@ mod test {
     #[tokio::test]
     async fn ack_fut() {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_secs(1)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
             data: Value::String("test".into()),
             binary: vec![],
-            socket: create_socket().into(),
         }))
         .unwrap();
 
@@ -404,11 +394,11 @@ mod test {
         futures::pin_mut!(stream);
 
         assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
+            stream.next().await.unwrap().1.unwrap_err(),
             AckError::Serde(_)
         ));
         assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
+            stream.next().await.unwrap().1.unwrap_err(),
             AckError::Serde(_)
         ));
         assert!(stream.next().await.is_none());
@@ -417,11 +407,12 @@ mod test {
     #[tokio::test]
     async fn ack_stream_with_deserialize_error() {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_secs(1)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
             data: Value::Bool(true),
             binary: vec![],
-            socket: create_socket().into(),
         }))
         .unwrap();
         assert_eq!(stream.size_hint().0, 1);
@@ -430,7 +421,7 @@ mod test {
         futures::pin_mut!(stream);
 
         assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
+            stream.next().await.unwrap().1.unwrap_err(),
             AckError::Serde(_)
         ));
         assert!(stream.next().await.is_none());
@@ -439,35 +430,14 @@ mod test {
     #[tokio::test]
     async fn ack_fut_with_deserialize_error() {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_secs(1)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
             data: Value::Bool(true),
             binary: vec![],
-            socket: create_socket().into(),
         }))
         .unwrap();
-
-        assert!(matches!(stream.await.unwrap_err(), AckError::Serde(_)));
-    }
-
-    #[tokio::test]
-    async fn ack_stream_with_serialize_error() {
-        let serde_error = serde_json::from_str::<usize>("\"test\"").unwrap_err();
-        let stream: AckStream<String> = AckStream::from(serde_error);
-
-        futures::pin_mut!(stream);
-
-        assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
-            AckError::Serde(_)
-        ));
-        assert!(stream.next().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn ack_fut_with_serialize_error() {
-        let serde_error = serde_json::from_str::<usize>("\"test\"").unwrap_err();
-        let stream: AckStream<String> = AckStream::from(serde_error);
 
         assert!(matches!(stream.await.unwrap_err(), AckError::Serde(_)));
     }
@@ -482,29 +452,33 @@ mod test {
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
         let res_packet = Packet::ack("test", "test".into(), 1);
-        socket.recv(res_packet.inner.clone()).unwrap();
+        socket.clone().recv(res_packet.inner.clone()).unwrap();
 
         futures::pin_mut!(stream);
 
-        assert!(matches!(stream.next().await.unwrap(), Ok(_)));
+        let (id, ack) = stream.next().await.unwrap();
+        assert_eq!(id, socket.id);
+        assert!(matches!(ack, Ok(_)));
 
+        let sid = socket2.id;
         socket2.disconnect().unwrap();
-        assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
-            AckError::Socket(SocketError::Closed)
-        ));
+        let (id, ack) = stream.next().await.unwrap();
+        assert_eq!(id, sid);
+        assert!(matches!(ack, Err(AckError::Socket(SocketError::Closed))));
         assert!(stream.next().await.is_none());
     }
     #[tokio::test]
     async fn ack_stream_with_closed_socket() {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_secs(1)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         drop(tx);
 
         futures::pin_mut!(stream);
 
         assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
+            stream.next().await.unwrap().1.unwrap_err(),
             AckError::Socket(SocketError::Closed)
         ));
     }
@@ -512,7 +486,9 @@ mod test {
     #[tokio::test]
     async fn ack_fut_with_closed_socket() {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_secs(1)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         drop(tx);
 
         assert!(matches!(
@@ -537,9 +513,9 @@ mod test {
 
         futures::pin_mut!(stream);
 
-        assert!(matches!(stream.next().await.unwrap(), Ok(_)));
+        assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
         assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
+            stream.next().await.unwrap().1.unwrap_err(),
             AckError::Timeout
         ));
         assert!(stream.next().await.is_none());
@@ -548,12 +524,14 @@ mod test {
     #[tokio::test]
     async fn ack_stream_with_timeout() {
         let (_tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_millis(10)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_millis(10), sid).into();
 
         futures::pin_mut!(stream);
 
         assert!(matches!(
-            stream.next().await.unwrap().unwrap_err(),
+            stream.next().await.unwrap().1.unwrap_err(),
             AckError::Timeout
         ));
     }
@@ -561,7 +539,9 @@ mod test {
     #[tokio::test]
     async fn ack_fut_with_timeout() {
         let (_tx, rx) = tokio::sync::oneshot::channel();
-        let stream: AckStream<String> = AckInnerStream::send(rx, Duration::from_millis(10)).into();
+        let sid = Sid::new();
+        let stream: AckStream<String> =
+            AckInnerStream::send(rx, Duration::from_millis(10), sid).into();
 
         assert!(matches!(stream.await.unwrap_err(), AckError::Timeout));
     }

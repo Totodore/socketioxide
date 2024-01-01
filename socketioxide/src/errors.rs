@@ -1,6 +1,6 @@
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::fmt::{Debug, Display};
-use tokio::sync::mpsc::error::TrySendError;
+use tokio::{sync::mpsc::error::TrySendError, time::error::Elapsed};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -28,7 +28,7 @@ pub enum Error {
 #[derive(thiserror::Error, Debug)]
 pub enum AckError {
     /// The ack response cannot be parsed
-    #[error("cannot (de)serialize json packet: {0:?}")]
+    #[error("cannot deserialize json packet from ack response: {0:?}")]
     Serde(#[from] serde_json::Error),
 
     /// The ack response timed out
@@ -132,6 +132,12 @@ impl From<Vec<SocketError>> for BroadcastError {
     /// A `BroadcastError` containing the sending errors.
     fn from(value: Vec<SocketError>) -> Self {
         Self::Socket(value)
+    }
+}
+
+impl From<Elapsed> for AckError {
+    fn from(_: Elapsed) -> Self {
+        Self::Timeout
     }
 }
 

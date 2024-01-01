@@ -92,13 +92,8 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
-    fn broadcast_with_ack(
-        &self,
-        packet: Packet<'static>,
-        opts: BroadcastOptions,
-    ) -> AckInnerStream<Self>
-    where
-        Self: Sized;
+    fn broadcast_with_ack(&self, packet: Packet<'static>, opts: BroadcastOptions)
+        -> AckInnerStream;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
@@ -213,7 +208,7 @@ impl Adapter for LocalAdapter {
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> AckInnerStream<Self> {
+    ) -> AckInnerStream {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,

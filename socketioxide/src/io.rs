@@ -517,10 +517,11 @@ impl<A: Adapter> SocketIo<A> {
     ///   .except("room2")
     ///   .timeout(Duration::from_secs(5))
     ///   .emit_with_ack::<Value>("message-back", "I expect an ack in 5s!")
-    ///   .for_each(|ack| async move {
+    ///   .unwrap()
+    ///   .for_each(|(sid, ack)| async move {
     ///      match ack {
-    ///          Ok(ack) => println!("Ack received {:?}", ack),
-    ///          Err(err) => println!("Ack error {:?}", err),
+    ///          Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
+    ///          Err(err) => println!("Ack error, socket {} {:?}", sid, err),
     ///      }
     ///   });
     #[inline]
@@ -637,12 +638,13 @@ impl<A: Adapter> SocketIo<A> {
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
-    ///             .emit_with_ack::<String>("message-back", data);
+    ///             .emit_with_ack::<String>("message-back", data)
+    ///             .unwrap();
     ///
-    ///         ack_stream.for_each(|ack| async move {
+    ///         ack_stream.for_each(|(sid, ack)| async move {
     ///             match ack {
-    ///                 Ok(ack) => println!("Ack received {:?}", ack),
-    ///                 Err(err) => println!("Ack error {:?}", err),
+    ///                 Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
+    ///                 Err(err) => println!("Ack error, socket {} {:?}", sid, err),
     ///             }
     ///         }).await;
     ///     });
@@ -652,7 +654,7 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> AckStream<V, A> {
+    ) -> Result<AckStream<V>, serde_json::Error> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
