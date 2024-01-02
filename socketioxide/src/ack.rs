@@ -37,7 +37,7 @@ pub struct AckResponse<T> {
 pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError>;
 
 pin_project_lite::pin_project! {
-    pub(crate) struct AckResultWithId<T> {
+    struct AckResultWithId<T> {
         id: Sid,
         #[pin]
         result: Timeout<Receiver<AckResult<T>>>,
