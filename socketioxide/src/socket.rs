@@ -282,35 +282,33 @@ impl<A: Adapter> Socket<A> {
     /// The acknowledgement has a timeout specified in the config (5s by default)
     /// (see [`SocketIoBuilder::ack_timeout`]) or with the [`timeout()`] operator.
     ///
-    /// To get the acknowledgement, an [`AckStream`] is returned.
-    /// It is both a [`Stream`](futures::Stream) and a [`Future`](futures::Future).
-    /// If you `await` it like a future, it will yield the [`AckResponse`] received from the client or
-    /// an [`AckError`] in case of error.
-    /// If you poll it like a stream it will only yield one [`AckResponse`] or
-    /// an [`AckError`] in case of error, before being exhausted.
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
     ///
-    /// # Errors
+    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
     ///
-    /// When sending the message:
-    /// * A [`AckError::Serde`] is returned if a serialization error
-    /// occurs when encoding the data to send.
-    /// * A [`AckError::Socket`] is returned if a packet could not be sent
-    /// to one of the selected socket.
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`AckError::Socket`] will be yielded.
     ///
-    /// When receiving the acknowledgement:
-    /// * A [`AckError::Serde`] is returned if a deserialization error occurs
-    /// when decoding the data received.
-    /// * A [`AckError::Timeout`] is returned if the acknowledgement timed out.
-    /// * A [`AckError::Socket(SocketError::Closed)`] is returned if the socket
-    /// closed before receiving the acknowledgement.
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
     ///
     /// [`timeout()`]: crate::operators::Operators#method.timeout
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
     /// [`AckError`]: crate::AckError
     /// [`AckError::Serde`]: crate::AckError::Serde
     /// [`AckError::Timeout`]: crate::AckError::Timeout
     /// [`AckError::Socket`]: crate::AckError::Socket
     /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
     ///
     /// # Basic example
     /// ```
@@ -385,7 +383,7 @@ impl<A: Adapter> Socket<A> {
     /// Selects all clients in the given rooms except the current socket.
     ///
     /// If you want to include the current socket, use the `within()` operator.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -431,7 +429,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Filters out all clients selected with the previous operators which are in the given rooms.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -456,7 +454,7 @@ impl<A: Adapter> Socket<A> {
 
     /// Broadcasts to all clients only connected on this node (when using multiple nodes).
     /// When using the default in-memory [`LocalAdapter`], this operator is a no-op.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -474,7 +472,13 @@ impl<A: Adapter> Socket<A> {
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
-    /// ##### Example
+    /// See [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder) for the default timeout.
+    ///
+    /// See [`emit_with_ack()`] for more details on acknowledgements.
+    ///
+    /// [`emit_with_ack()`]: #method.emit_with_ack
+    ///
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -506,7 +510,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Adds a binary payload to the message.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -523,7 +527,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Broadcasts to all clients without any filtering (except the current socket).
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;

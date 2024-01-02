@@ -223,6 +223,12 @@ impl<A: Adapter> Operators<A> {
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
+    /// See [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder) for the default timeout.
+    ///
+    /// See [`emit_with_ack()`] for more details on acknowledgements.
+    ///
+    /// [`emit_with_ack()`]: #method.emit_with_ack
+    ///
     /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -308,7 +314,7 @@ impl<A: Adapter> Operators<A> {
     /// It can be used in two ways:
     /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
     /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
-    /// more than one acknowledgement.
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
     /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
     /// Useful when expecting only one acknowledgement.
     ///
@@ -318,10 +324,18 @@ impl<A: Adapter> Operators<A> {
     /// an [`AckError::Socket`] will be yielded.
     ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
-    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `T`,
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
     /// an [`AckError::Serde`] will be yielded.
     ///
     /// [`timeout()`]: #method.timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
     ///
     /// # Example
     /// ```

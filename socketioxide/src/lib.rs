@@ -207,18 +207,10 @@
 //! If the client doesn't send an ack response, the [`AckSender::send`](extract::AckSender) method will do nothing.
 //!
 //! #### Client acknowledgements
-//! If you want to emit a message and await for a client acknowledgment you can use:
+//! If you want to emit/broadcast a message and await for a/many client(s) acknowledgment(s) you can use:
 //! * [`SocketRef::emit_with_ack`] for a single client
 //! * [`Operators::emit_with_ack`] for broadcasting or [emit configuration](#emiting-data).
 //! * [`SocketIo::emit_with_ack`] for broadcasting.
-//!
-//! In any case, an [`AckStream`] will be returned.
-//! It can be used in two ways:
-//! * As a [`Stream`](futures::Stream): It will yield all the [`AckResponse`] received from the client.
-//! It can be useful when broadcasting to multiple clients and therefore expecting
-//! more than one acknowledgement.
-//! * As a [`Future`](futures::Future): It will yield the first [`AckResponse`] received from the client.
-//! Useful when sending to only one client and therefore expecting only one acknowledgement.
 //!
 //! [`SocketRef::emit_with_ack`]: crate::extract::SocketRef#method.emit_with_ack
 //! [`Operators::emit_with_ack`]: crate::operators::Operators#method.emit_with_ack

@@ -499,6 +499,12 @@ impl<A: Adapter> SocketIo<A> {
     /// # Panics
     /// If the **default namespace "/" is not found** this fn will panic!
     ///
+    /// See [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder) for the default timeout.
+    ///
+    /// See [`emit_with_ack()`] for more details on acknowledgements.
+    ///
+    /// [`emit_with_ack()`]: #method.emit_with_ack
+    ///
     /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
@@ -591,38 +597,35 @@ impl<A: Adapter> SocketIo<A> {
     /// Emits a message to all sockets selected with the previous operators and
     /// waits for the acknowledgement(s).
     ///
-    /// The acknowledgement has a timeout specified in the config (5s by default)
-    /// (see [`SocketIoBuilder::ack_timeout`]) or with the [`timeout()`] operator.
-    ///
     /// To get acknowledgements, an [`AckStream`] is returned.
-    /// It is both a [`Stream`](futures::Stream) and a [`Future`](futures::Future).
-    /// If you `await` it like a future, it will yield the **first** [`AckResponse`](crate::ack::AckResponse)
-    /// received from the client or an [`AckError`](crate::AckError) in case of error.
-    /// If you poll it like a stream it will yield **all** the [`AckResponse`](crate::ack::AckResponse)
-    /// corresponding to each client or an [`AckError`](crate::AckError) in case of error.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
+    ///
+    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
+    ///
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`AckError::Socket`] will be yielded.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
+    ///
+    /// [`timeout()`]: #method.timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
     ///
     /// # Panics
     /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// # Errors
-    ///
-    /// When sending the message:
-    /// * A [`AckError::Serde`](crate::AckError::Serde) is returned if a serialization error
-    /// occurs when encoding the data to send.
-    /// * A [`AckError::Socket`](crate::AckError::Socket) is returned if a packet could not be sent
-    /// to one of the selected socket.
-    /// * A [`AckError::Adapter`](crate::AckError::Adapter) is returned if an error occurs
-    /// with the [`Adapter`] when broadcasting to multiple socket.io nodes.
-    ///
-    /// When receiving the acknowledgement:
-    /// * A [`AckError::Serde`](crate::AckError::Serde) is returned if a deserialization error occurs
-    /// when decoding the data received.
-    /// * A [`AckError::Timeout`](crate::AckError::Timeout) is returned if the acknowledgement timed out.
-    /// * A [`AckError::Socket(SocketError::Closed)`](crate::AckError::Socket) is returned if the socket
-    /// closed before receiving the acknowledgement.
-    ///
-    /// [`timeout()`]: crate::operators::Operators#method.timeout
-    /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
     ///
     /// # Example
     /// ```
