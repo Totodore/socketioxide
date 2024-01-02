@@ -410,7 +410,7 @@ fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
     };
 
     let event = packet
-        .get(0)
+        .first()
         .ok_or(Error::InvalidEventName)?
         .as_str()
         .ok_or(Error::InvalidEventName)?
