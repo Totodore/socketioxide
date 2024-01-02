@@ -76,7 +76,6 @@ use std::sync::Arc;
 use futures::Future;
 use serde_json::Value;
 
-use crate::adapter::Adapter;
 use crate::socket::Socket;
 
 use super::MakeErasedHandler;

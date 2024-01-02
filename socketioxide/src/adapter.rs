@@ -18,7 +18,6 @@ use crate::{
     errors::{AdapterError, BroadcastError},
     extract::SocketRef,
     ns::Namespace,
-    operators::RoomParam,
     packet::Packet,
     DisconnectError,
 };
@@ -59,14 +58,13 @@ impl BroadcastOptions {
     }
 }
 
+pub type AdapterBuilder = Box<dyn Fn(Weak<Namespace>) -> Box<dyn Adapter> + Send + Sync + 'static>;
+
 //TODO: Make an AsyncAdapter trait
 /// An adapter is responsible for managing the state of the server.
 /// This adapter can be implemented to share the state between multiple servers.
 /// The default adapter is the [`LocalAdapter`], which stores the state in memory.
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
-    /// Create a new adapter and give the namespace ref to retrieve sockets.
-    fn new(ns: Weak<Namespace>) -> Box<dyn Adapter>;
-
     /// Initializes the adapter.
     fn init(&self) -> Result<(), AdapterError>;
     /// Closes the adapter.
@@ -76,9 +74,9 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn server_count(&self) -> Result<u16, AdapterError>;
 
     /// Adds the socket to all the rooms.
-    fn add_all(&self, sid: Sid, rooms: Cow<'_, &[Room]>) -> Result<(), AdapterError>;
+    fn add_all(&self, sid: Sid, rooms: &[Room]) -> Result<(), AdapterError>;
     /// Removes the socket from the rooms.
-    fn del(&self, sid: Sid, rooms: Cow<'_, &[Room]>) -> Result<(), AdapterError>;
+    fn del(&self, sid: Sid, rooms: &[Room]) -> Result<(), AdapterError>;
     /// Removes the socket from all the rooms.
     fn del_all(&self, sid: Sid) -> Result<(), AdapterError>;
 
@@ -90,7 +88,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
         -> AckInnerStream;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
-    fn sockets(&self, rooms: Cow<'_, &[Room]>) -> Result<Vec<Sid>, AdapterError>;
+    fn sockets(&self, rooms: &[Room]) -> Result<Vec<Sid>, AdapterError>;
 
     /// Returns the rooms of the socket.
     fn socket_rooms(&self, sid: Sid) -> Result<Vec<Room>, AdapterError>;
@@ -99,17 +97,9 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<SocketRef>, AdapterError>;
 
     /// Adds the sockets that match the [`BroadcastOptions`] to the rooms.
-    fn add_sockets(
-        &self,
-        opts: BroadcastOptions,
-        rooms: Cow<'_, &[Room]>,
-    ) -> Result<(), AdapterError>;
+    fn add_sockets(&self, opts: BroadcastOptions, rooms: &[Room]) -> Result<(), AdapterError>;
     /// Removes the sockets that match the [`BroadcastOptions`] from the rooms.
-    fn del_sockets(
-        &self,
-        opts: BroadcastOptions,
-        rooms: Cow<'_, &[Room]>,
-    ) -> Result<(), AdapterError>;
+    fn del_sockets(&self, opts: BroadcastOptions, rooms: &[Room]) -> Result<(), AdapterError>;
     /// Disconnects the sockets that match the [`BroadcastOptions`].
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>>;
 
@@ -133,18 +123,11 @@ impl From<Infallible> for AdapterError {
 }
 
 impl Adapter for LocalAdapter {
-    fn new(ns: Weak<Namespace>) -> Box<LocalAdapter> {
-        Box::new(Self {
-            rooms: HashMap::new().into(),
-            ns,
-        })
-    }
-
-    fn init(&self) -> Result<(), Infallible> {
+    fn init(&self) -> Result<(), AdapterError> {
         Ok(())
     }
 
-    fn close(&self) -> Result<(), Infallible> {
+    fn close(&self) -> Result<(), AdapterError> {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing local adapter: {}", self.ns.upgrade().unwrap().path);
         let mut rooms = self.rooms.write().unwrap();
@@ -153,29 +136,29 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn server_count(&self) -> Result<u16, Infallible> {
+    fn server_count(&self) -> Result<u16, AdapterError> {
         Ok(1)
     }
 
-    fn add_all(&self, sid: Sid, rooms: Cow<'_, &[Room]>) -> Result<(), Infallible> {
+    fn add_all(&self, sid: Sid, rooms: &[Room]) -> Result<(), AdapterError> {
         let mut rooms_map = self.rooms.write().unwrap();
-        for room in rooms.into_room_iter() {
-            rooms_map.entry(room).or_default().insert(sid);
+        for room in rooms.into_iter() {
+            rooms_map.entry(room.to_owned()).or_default().insert(sid);
         }
         Ok(())
     }
 
-    fn del(&self, sid: Sid, rooms: Cow<'_, &[Room]>) -> Result<(), Infallible> {
+    fn del(&self, sid: Sid, rooms: &[Room]) -> Result<(), AdapterError> {
         let mut rooms_map = self.rooms.write().unwrap();
-        for room in rooms.into_room_iter() {
-            if let Some(room) = rooms_map.get_mut(&room) {
+        for room in rooms.iter() {
+            if let Some(room) = rooms_map.get_mut(room) {
                 room.remove(&sid);
             }
         }
         Ok(())
     }
 
-    fn del_all(&self, sid: Sid) -> Result<(), Infallible> {
+    fn del_all(&self, sid: Sid) -> Result<(), AdapterError> {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms_map.values_mut() {
             room.remove(&sid);
@@ -218,9 +201,9 @@ impl Adapter for LocalAdapter {
         AckInnerStream::broadcast(packet, sockets, duration)
     }
 
-    fn sockets(&self, rooms: Cow<'_, &[Room]>) -> Result<Vec<Sid>, Infallible> {
+    fn sockets(&self, rooms: &[Room]) -> Result<Vec<Sid>, AdapterError> {
         let mut opts = BroadcastOptions::new(None);
-        opts.rooms.extend(rooms.into_room_iter());
+        opts.rooms.extend(rooms.to_owned());
         Ok(self
             .apply_opts(opts)
             .into_iter()
@@ -229,7 +212,7 @@ impl Adapter for LocalAdapter {
     }
 
     //TODO: make this operation O(1)
-    fn socket_rooms(&self, sid: Sid) -> Result<Vec<Cow<'static, str>>, Infallible> {
+    fn socket_rooms(&self, sid: Sid) -> Result<Vec<Cow<'static, str>>, AdapterError> {
         let rooms_map = self.rooms.read().unwrap();
         Ok(rooms_map
             .iter()
@@ -238,28 +221,18 @@ impl Adapter for LocalAdapter {
             .collect())
     }
 
-    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<SocketRef>, Infallible> {
+    fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<SocketRef>, AdapterError> {
         Ok(self.apply_opts(opts))
     }
 
-    fn add_sockets(
-        &self,
-        opts: BroadcastOptions,
-        rooms: Cow<'_, &[Room]>,
-    ) -> Result<(), Infallible> {
-        let rooms: Vec<Room> = rooms.into_room_iter().collect();
+    fn add_sockets(&self, opts: BroadcastOptions, rooms: &[Room]) -> Result<(), AdapterError> {
         for socket in self.apply_opts(opts) {
             self.add_all(socket.id, rooms.clone()).unwrap();
         }
         Ok(())
     }
 
-    fn del_sockets(
-        &self,
-        opts: BroadcastOptions,
-        rooms: Cow<'_, &[Room]>,
-    ) -> Result<(), Infallible> {
-        let rooms: Vec<Room> = rooms.into_room_iter().collect();
+    fn del_sockets(&self, opts: BroadcastOptions, rooms: &[Room]) -> Result<(), AdapterError> {
         for socket in self.apply_opts(opts) {
             self.del(socket.id, rooms.clone()).unwrap();
         }
@@ -284,6 +257,15 @@ impl Adapter for LocalAdapter {
 }
 
 impl LocalAdapter {
+    pub fn builder() -> AdapterBuilder {
+        Box::new(|ns| {
+            Box::new(LocalAdapter {
+                ns,
+                rooms: RwLock::new(HashMap::new()),
+            })
+        })
+    }
+
     /// Applies the given `opts` and return the sockets that match.
     fn apply_opts(&self, opts: BroadcastOptions) -> Vec<SocketRef> {
         let rooms = opts.rooms;

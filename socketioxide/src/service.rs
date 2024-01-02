@@ -53,7 +53,7 @@ use std::{
 };
 use tower::Service as TowerSvc;
 
-use crate::{adapter::Adapter, client::Client, SocketIoConfig};
+use crate::{adapter::AdapterBuilder, client::Client, SocketIoConfig};
 
 /// A [`Tower`](TowerSvc)/[`Hyper`](HyperSvc) Service that wraps [`EngineIoService`] and
 /// redirect every request to it
@@ -111,9 +111,13 @@ impl<S: Clone> SocketIoService<S> {
     }
 
     /// Creates a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub(crate) fn with_config_inner(inner: S, config: Arc<SocketIoConfig>) -> (Self, Arc<Client>) {
+    pub(crate) fn with_config_inner(
+        inner: S,
+        config: Arc<SocketIoConfig>,
+        adapter: AdapterBuilder,
+    ) -> (Self, Arc<Client>) {
         let engine_config = config.engine_config.clone();
-        let client = Arc::new(Client::new(config));
+        let client = Arc::new(Client::new(config, adapter));
         let svc = EngineIoService::with_config_inner(inner, client.clone(), engine_config);
         (Self { engine_svc: svc }, client)
     }

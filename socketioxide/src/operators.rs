@@ -10,7 +10,7 @@ use crate::errors::{BroadcastError, DisconnectError};
 use crate::extract::SocketRef;
 use crate::AdapterError;
 use crate::{
-    adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
+    adapter::{BroadcastFlags, BroadcastOptions, Room},
     ns::Namespace,
     packet::Packet,
 };
@@ -47,7 +47,7 @@ impl RoomParam for String {
     }
 
     fn into_slice(&self) -> &[Room] {
-        std::slice::from_ref(self)
+        std::slice::from_ref(&Cow::Borrowed(self))
     }
 }
 impl RoomParam for Vec<String> {
@@ -92,33 +92,33 @@ impl RoomParam for &'static str {
     }
 
     fn into_slice(&self) -> &[Room] {
-        std::slice::from_ref(self)
+        std::slice::from_ref(&Cow::Borrowed(self))
     }
 }
-impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
-    type IntoIter =
-        std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
+
+impl<const COUNT: usize, T: Into<Cow<'static, str>> + 'static> RoomParam for [T; COUNT] {
+    type IntoIter = std::iter::Map<std::array::IntoIter<T, COUNT>, fn(T) -> Room>;
 
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(Cow::Borrowed)
+        self.into_iter().map(Cow::<'static, str>::from)
     }
 
     fn into_slice(&self) -> &[Room] {
         self.as_ref()
     }
 }
-impl<const COUNT: usize> RoomParam for [String; COUNT] {
-    type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(Cow::Owned)
-    }
+// impl<const COUNT: usize> RoomParam for [String; COUNT] {
+//     type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
+//     #[inline(always)]
+//     fn into_room_iter(self) -> Self::IntoIter {
+//         self.into_iter().map(Cow::Owned)
+//     }
 
-    fn into_slice(&self) -> &[Room] {
-        self.as_ref()
-    }
-}
+//     fn into_slice(&self) -> &[Room] {
+//         self.as_ref()
+//     }
+// }
 impl RoomParam for Sid {
     type IntoIter = std::iter::Once<Room>;
     #[inline(always)]
@@ -127,7 +127,7 @@ impl RoomParam for Sid {
     }
 
     fn into_slice(&self) -> &[Room] {
-        std::slice::from_ref(self)
+        std::slice::from_ref(&Cow::Borrowed(self.as_str()))
     }
 }
 
@@ -464,7 +464,7 @@ impl Operators {
     ///   });
     /// });
     pub fn join(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.add_sockets(self.opts, rooms)
+        self.ns.adapter.add_sockets(self.opts, rooms.into_slice())
     }
 
     /// Makes all sockets selected with the previous operators leave the given room(s).
@@ -480,7 +480,7 @@ impl Operators {
     ///   });
     /// });
     pub fn leave(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.del_sockets(self.opts, rooms)
+        self.ns.adapter.del_sockets(self.opts, rooms.into_slice())
     }
 
     /// Creates a packet with the given event and data.

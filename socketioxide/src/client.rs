@@ -9,30 +9,31 @@ use futures::TryFutureExt;
 use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
 
-use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::ProtocolVersion;
 use crate::{
+    adapter::AdapterBuilder,
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
 };
 
-#[derive(Debug)]
 pub struct Client {
     pub(crate) config: Arc<SocketIoConfig>,
     ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace>>>,
+    adapter_builder: AdapterBuilder,
 }
 
 impl Client {
-    pub fn new(config: Arc<SocketIoConfig>) -> Self {
+    pub fn new(config: Arc<SocketIoConfig>, adapter_builder: AdapterBuilder) -> Self {
         #[cfg(feature = "state")]
         crate::state::freeze_state();
 
         Self {
             config,
             ns: RwLock::new(HashMap::new()),
+            adapter_builder,
         }
     }
 
@@ -109,7 +110,7 @@ impl Client {
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
-        let ns = Namespace::new(path.clone(), callback);
+        let ns = Namespace::new(path.clone(), callback, &self.adapter_builder);
         self.ns.write().unwrap().insert(path, ns);
     }
 
@@ -257,6 +258,15 @@ impl EngineIoHandler for Client {
                 }
             }
         }
+    }
+}
+
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("config", &self.config)
+            .field("ns", &self.ns)
+            .finish()
     }
 }
 

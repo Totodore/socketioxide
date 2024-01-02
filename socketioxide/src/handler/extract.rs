@@ -90,7 +90,7 @@ use super::FromDisconnectParts;
 use super::{connect::FromConnectParts, message::FromMessage};
 use crate::errors::{DisconnectError, SendError};
 use crate::socket::DisconnectReason;
-use crate::{adapter::Adapter, packet::Packet, socket::Socket};
+use crate::{packet::Packet, socket::Socket};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 

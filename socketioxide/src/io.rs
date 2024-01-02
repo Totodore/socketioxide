@@ -9,7 +9,7 @@ use engineioxide::{
 
 use crate::{
     ack::AckStream,
-    adapter::Adapter,
+    adapter::{AdapterBuilder, LocalAdapter},
     client::Client,
     errors::AdapterError,
     extract::SocketRef,
@@ -56,6 +56,7 @@ impl Default for SocketIoConfig {
 pub struct SocketIoBuilder {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
+    adapter_builder: AdapterBuilder,
 }
 
 impl SocketIoBuilder {
@@ -64,6 +65,7 @@ impl SocketIoBuilder {
         Self {
             config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
+            adapter_builder: LocalAdapter::builder(),
         }
     }
 
@@ -152,10 +154,11 @@ impl SocketIoBuilder {
     }
 
     /// Sets a custom [`Adapter`] for this [`SocketIoBuilder`]
-    pub fn with_adapter<B: Adapter>(self) -> SocketIoBuilder {
+    pub fn with_adapter(self, adapter_builder: AdapterBuilder) -> SocketIoBuilder {
         SocketIoBuilder {
             config: self.config,
             engine_config_builder: self.engine_config_builder,
+            adapter_builder,
         }
     }
 
@@ -176,7 +179,8 @@ impl SocketIoBuilder {
     pub fn build_layer(mut self) -> (SocketIoLayer, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
-        let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
+        let (layer, client) =
+            SocketIoLayer::from_config(Arc::new(self.config), self.adapter_builder);
         (layer, SocketIo(client))
     }
 
@@ -187,8 +191,11 @@ impl SocketIoBuilder {
     pub fn build_svc(mut self) -> (SocketIoService<NotFoundService>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
-        let (svc, client) =
-            SocketIoService::with_config_inner(NotFoundService, Arc::new(self.config));
+        let (svc, client) = SocketIoService::with_config_inner(
+            NotFoundService,
+            Arc::new(self.config),
+            self.adapter_builder,
+        );
         (svc, SocketIo(client))
     }
 
@@ -198,7 +205,8 @@ impl SocketIoBuilder {
     pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<S>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
-        let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
+        let (svc, client) =
+            SocketIoService::with_config_inner(svc, Arc::new(self.config), self.adapter_builder);
         (svc, SocketIo(client))
     }
 }

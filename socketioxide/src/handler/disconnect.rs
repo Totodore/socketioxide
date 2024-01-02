@@ -58,10 +58,7 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use crate::{
-    adapter::Adapter,
-    socket::{DisconnectReason, Socket},
-};
+use crate::socket::{DisconnectReason, Socket};
 
 use super::MakeErasedHandler;
 

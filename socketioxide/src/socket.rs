@@ -22,7 +22,7 @@ use crate::extensions::Extensions;
 
 use crate::{
     ack::{AckInnerStream, AckResponse, AckResult, AckStream},
-    adapter::{Adapter, Room},
+    adapter::Room,
     errors::{DisconnectError, Error, SendError},
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
@@ -105,11 +105,11 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket {
-    config: Arc<SocketIoConfig>,
+    pub(crate) config: Arc<SocketIoConfig>,
     ns: Arc<Namespace>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResponse<Value>>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
     ack_counter: AtomicI64,
     /// The socket id
     pub id: Sid,
@@ -349,7 +349,7 @@ impl Socket {
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn join(&self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.add_all(self.id, rooms)
+        self.ns.adapter.add_all(self.id, rooms.into_slice())
     }
 
     /// Leaves the given rooms.
@@ -359,7 +359,7 @@ impl Socket {
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn leave(&self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.del(self.id, rooms)
+        self.ns.adapter.del(self.id, rooms.into_slice())
     }
 
     /// Leaves all rooms where the socket is connected.

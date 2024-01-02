@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    adapter::Adapter,
+    adapter::{Adapter, AdapterBuilder},
     errors::Error,
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
@@ -23,7 +23,7 @@ pub struct Namespace {
 }
 
 impl Namespace {
-    pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
+    pub fn new<C, T>(path: Cow<'static, str>, handler: C, adapter: &AdapterBuilder) -> Arc<Self>
     where
         C: ConnectHandler<T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
@@ -32,7 +32,7 @@ impl Namespace {
             path,
             handler: MakeErasedHandler::new_ns_boxed(handler),
             sockets: HashMap::new().into(),
-            adapter: A::new(ns.clone()),
+            adapter: adapter(ns.clone()),
         })
     }
 

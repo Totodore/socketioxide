@@ -39,12 +39,7 @@ use std::sync::Arc;
 
 use tower::Layer;
 
-use crate::{
-    adapter::{Adapter, LocalAdapter},
-    client::Client,
-    service::SocketIoService,
-    SocketIoConfig,
-};
+use crate::{adapter::AdapterBuilder, client::Client, service::SocketIoService, SocketIoConfig};
 
 /// A [`Layer`] for [`SocketIoService`], acting as a middleware.
 pub struct SocketIoLayer {
@@ -60,8 +55,11 @@ impl Clone for SocketIoLayer {
 }
 
 impl SocketIoLayer {
-    pub(crate) fn from_config(config: Arc<SocketIoConfig>) -> (Self, Arc<Client>) {
-        let client = Arc::new(Client::new(config.clone()));
+    pub(crate) fn from_config(
+        config: Arc<SocketIoConfig>,
+        adapter_builder: AdapterBuilder,
+    ) -> (Self, Arc<Client>) {
+        let client = Arc::new(Client::new(config.clone(), adapter_builder));
         let layer = Self {
             client: client.clone(),
         };
