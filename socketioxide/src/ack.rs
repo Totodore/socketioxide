@@ -37,7 +37,9 @@ pub struct AckResponse<T> {
 pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError>;
 
 pin_project_lite::pin_project! {
-    struct AckResultWithId<T> {
+    /// A [`Future`] of [`AckResponse`] received from the client with its corresponding [`Sid`].
+    /// It is used internally by [`AckStream`] and **should not** be used directly.
+    pub struct AckResultWithId<T> {
         id: Sid,
         #[pin]
         result: Timeout<Receiver<AckResult<T>>>,
