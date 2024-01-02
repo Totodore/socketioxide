@@ -14,9 +14,9 @@ readme = "../README.md"
 
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.9.1" }
+engineioxide = { path = "../engineioxide", version = "0.10" }
 futures.workspace = true
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 serde.workspace = true
 serde_json.workspace = true
 tower.workspace = true
@@ -25,6 +25,7 @@ http-body.workspace = true
 thiserror.workspace = true
 itoa.workspace = true
 hyper.workspace = true
+pin-project-lite.workspace = true
 
 # Extensions
 dashmap = { version = "5.4.0", optional = true }

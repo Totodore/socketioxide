@@ -6,10 +6,9 @@ use engineioxide::{
     sid::Sid,
     TransportType,
 };
-use futures::stream::BoxStream;
-use serde::de::DeserializeOwned;
 
 use crate::{
+    ack::AckStream,
     adapter::{Adapter, LocalAdapter},
     client::Client,
     extract::SocketRef,
@@ -17,8 +16,7 @@ use crate::{
     layer::SocketIoLayer,
     operators::{Operators, RoomParam},
     service::SocketIoService,
-    socket::AckResponse,
-    AckError, BroadcastError,
+    BroadcastError, DisconnectError,
 };
 
 /// Configuration for Socket.IO & Engine.IO
@@ -494,14 +492,20 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().local()
     }
 
-    /// Sets a custom timeout when sending a message with an acknowledgement.
+    /// Sets a custom timeout when broadcasting a message with an acknowledgement.
     ///
     /// Alias for `io.of("/").unwrap().timeout(duration)`
     ///
-    /// ## Panics
+    /// # Panics
     /// If the **default namespace "/" is not found** this fn will panic!
     ///
-    /// ### Example
+    /// See [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder) for the default timeout.
+    ///
+    /// See [`emit_with_ack()`] for more details on acknowledgements.
+    ///
+    /// [`emit_with_ack()`]: #method.emit_with_ack
+    ///
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use futures::stream::StreamExt;
@@ -520,10 +524,10 @@ impl<A: Adapter> SocketIo<A> {
     ///   .timeout(Duration::from_secs(5))
     ///   .emit_with_ack::<Value>("message-back", "I expect an ack in 5s!")
     ///   .unwrap()
-    ///   .for_each(|ack| async move {
+    ///   .for_each(|(sid, ack)| async move {
     ///      match ack {
-    ///          Ok(ack) => println!("Ack received {:?}", ack),
-    ///          Err(err) => println!("Ack error {:?}", err),
+    ///          Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
+    ///          Err(err) => println!("Ack error, socket {} {:?}", sid, err),
     ///      }
     ///   });
     #[inline]
@@ -590,42 +594,70 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().emit(event, data)
     }
 
-    /// Emits a message to all sockets selected with the previous operators and return a stream of acknowledgements.
+    /// Emits a message to all sockets selected with the previous operators and
+    /// waits for the acknowledgement(s).
     ///
-    /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
     ///
-    /// Alias for `io.of("/").unwrap().emit_with_ack(event, data)`
+    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
     ///
-    /// ## Panics
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`AckError::Socket`] will be yielded.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
+    ///
+    /// [`timeout()`]: #method.timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
+    ///
+    /// # Panics
     /// If the **default namespace "/" is not found** this fn will panic!
     ///
-    /// ## Example
+    /// # Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use futures::stream::StreamExt;
+    /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
+    /// # use futures::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // Emit a test message in the room1 and room3 rooms,
+    ///         // except for the room2 room with the binary payload received
+    ///         let ack_stream = socket.to("room1")
+    ///             .to("room3")
+    ///             .except("room2")
+    ///             .bin(bin)
+    ///             .emit_with_ack::<String>("message-back", data)
+    ///             .unwrap();
     ///
-    /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
-    /// // except for the room2
-    /// io.to("room1")
-    ///   .to("room3")
-    ///   .except("room2")
-    ///   .emit_with_ack::<Value>("message-back", "I expect an ack!").unwrap().for_each(|ack| async move {
-    ///      match ack {
-    ///          Ok(ack) => println!("Ack received {:?}", ack),
-    ///          Err(err) => println!("Ack error {:?}", err),
-    ///      }
-    ///   });
+    ///         ack_stream.for_each(|(sid, ack)| async move {
+    ///             match ack {
+    ///                 Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
+    ///                 Err(err) => println!("Ack error, socket {} {:?}", sid, err),
+    ///             }
+    ///         }).await;
+    ///     });
+    /// });
     #[inline]
-    pub fn emit_with_ack<V: DeserializeOwned + Send>(
+    pub fn emit_with_ack<V>(
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError>>, BroadcastError> {
+    ) -> Result<AckStream<V>, serde_json::Error> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
@@ -676,7 +708,7 @@ impl<A: Adapter> SocketIo<A> {
     /// // Later in your code you can disconnect all sockets in the root namespace
     /// io.disconnect();
     #[inline]
-    pub fn disconnect(&self) -> Result<(), BroadcastError> {
+    pub fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
         self.get_default_op().disconnect()
     }
 

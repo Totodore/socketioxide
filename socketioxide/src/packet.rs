@@ -1,3 +1,6 @@
+//! Socket.io packet implementation.
+//! The [`Packet`] is the base unit of data that is sent over the engine.io socket.
+//! It should not be used directly except when implementing the [`Adapter`](crate::adapter::Adapter) trait.
 use std::borrow::Cow;
 
 use crate::ProtocolVersion;
@@ -297,15 +300,13 @@ impl BinaryPacket {
     }
 }
 
-impl<'a> TryInto<String> for Packet<'a> {
-    type Error = serde_json::Error;
-
-    fn try_into(mut self) -> Result<String, Self::Error> {
+impl<'a> From<Packet<'a>> for String {
+    fn from(mut packet: Packet<'a>) -> String {
         use PacketData::*;
 
         // Serialize the data if there is any
         // pre-serializing allows to preallocate the buffer
-        let data = match &mut self.inner {
+        let data = match &mut packet.inner {
             Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
                 // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
@@ -315,7 +316,8 @@ impl<'a> TryInto<String> for Packet<'a> {
                     }
                     Value::Array(_) => serde_json::to_string::<(_, [(); 0])>(&(e, [])),
                     _ => serde_json::to_string(&(e, data)),
-                }?;
+                }
+                .unwrap();
                 Some(packet)
             }
             EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
@@ -324,35 +326,36 @@ impl<'a> TryInto<String> for Packet<'a> {
                     Value::Array(_) => serde_json::to_string(&data),
                     Value::Null => Ok("[]".to_string()),
                     _ => serde_json::to_string(&[data]),
-                }?;
+                }
+                .unwrap();
                 Some(packet)
             }
             _ => None,
         };
 
-        let capacity = self.get_size_hint() + data.as_ref().map(|d| d.len()).unwrap_or(0);
+        let capacity = packet.get_size_hint() + data.as_ref().map(|d| d.len()).unwrap_or(0);
         let mut res = String::with_capacity(capacity);
-        res.push(self.inner.index());
+        res.push(packet.inner.index());
 
         // Add the ns if it is not the default one and the packet is not binary
         // In case of bin packet, we should first add the payload count before ns
         let push_nsp = |res: &mut String| {
-            if !self.ns.is_empty() && self.ns != "/" {
-                if !self.ns.starts_with('/') {
+            if !packet.ns.is_empty() && packet.ns != "/" {
+                if !packet.ns.starts_with('/') {
                     res.push('/');
                 }
-                res.push_str(&self.ns);
+                res.push_str(&packet.ns);
                 res.push(',');
             }
         };
 
-        if !self.inner.is_binary() {
+        if !packet.inner.is_binary() {
             push_nsp(&mut res);
         }
 
         let mut itoa_buf = itoa::Buffer::new();
 
-        match self.inner {
+        match packet.inner {
             PacketData::Connect(Some(data)) => res.push_str(&data),
             PacketData::Disconnect | PacketData::Connect(None) => (),
             PacketData::Event(_, _, ack) => {
@@ -389,7 +392,8 @@ impl<'a> TryInto<String> for Packet<'a> {
                 res.push_str(&data.unwrap())
             }
         };
-        Ok(res)
+
+        res
     }
 }
 
@@ -528,12 +532,12 @@ mod test {
     #[test]
     fn packet_decode_connect() {
         let sid = Sid::new();
-        let payload = format!("0{}", json!({"sid": sid}));
+        let payload = format!("0{}", json!({ "sid": sid }));
         let packet = Packet::try_from(payload).unwrap();
 
         assert_eq!(Packet::connect("/", sid, ProtocolVersion::V5), packet);
 
-        let payload = format!("0/admin™,{}", json!({"sid": sid}));
+        let payload = format!("0/admin™,{}", json!({ "sid": sid }));
         let packet = Packet::try_from(payload).unwrap();
 
         assert_eq!(Packet::connect("/admin™", sid, ProtocolVersion::V5), packet);
@@ -542,13 +546,13 @@ mod test {
     #[test]
     fn packet_encode_connect() {
         let sid = Sid::new();
-        let payload = format!("0{}", json!({"sid": sid}));
+        let payload = format!("0{}", json!({ "sid": sid }));
         let packet: String = Packet::connect("/", sid, ProtocolVersion::V5)
             .try_into()
             .unwrap();
         assert_eq!(packet, payload);
 
-        let payload = format!("0/admin™,{}", json!({"sid": sid}));
+        let payload = format!("0/admin™,{}", json!({ "sid": sid }));
         let packet: String = Packet::connect("/admin™", sid, ProtocolVersion::V5)
             .try_into()
             .unwrap();

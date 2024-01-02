@@ -1,4 +1,6 @@
 //! Tests for extractors
+use std::time::Duration;
+
 use serde_json::json;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
 use tokio::sync::mpsc;
@@ -13,6 +15,7 @@ mod utils;
 #[tokio::test]
 pub async fn state_extractor() {
     const PORT: u16 = 2000;
+    const TIMEOUT: Duration = Duration::from_millis(200);
     let state = 1112i32;
     let io = create_server_with_state(PORT, state).await;
     let (tx, mut rx) = mpsc::channel::<i32>(4);
@@ -23,10 +26,22 @@ pub async fn state_extractor() {
         });
     });
     let client = assert_ok!(socketio_client(PORT, ()).await);
-    assert_eq!(rx.recv().await.unwrap(), state);
+    assert_eq!(
+        tokio::time::timeout(TIMEOUT, rx.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        state
+    );
 
     assert_ok!(client.emit("test", json!("foo")).await);
-    assert_eq!(rx.recv().await.unwrap(), state);
+    assert_eq!(
+        tokio::time::timeout(TIMEOUT, rx.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        state
+    );
 
     assert_ok!(client.disconnect().await);
 }
