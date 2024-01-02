@@ -12,21 +12,20 @@ use std::{
 };
 
 use engineioxide::sid::Sid;
-use serde::de::DeserializeOwned;
 
 use crate::{
+    ack::AckInnerStream,
     errors::{AdapterError, BroadcastError},
     extract::SocketRef,
     ns::Namespace,
     operators::RoomParam,
     packet::Packet,
-    socket::AckStream,
+    DisconnectError,
 };
 
 /// A room identifier
 pub type Room = Cow<'static, str>;
 
-/// Flags that can be used to modify the behavior of the broadcast methods.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum BroadcastFlags {
     /// Broadcast only to the current server
@@ -87,11 +86,8 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
-    fn broadcast_with_ack<V: DeserializeOwned>(
-        &self,
-        packet: Packet<'static>,
-        opts: BroadcastOptions,
-    ) -> Result<AckStream<V>, BroadcastError>;
+    fn broadcast_with_ack(&self, packet: Packet<'static>, opts: BroadcastOptions)
+        -> AckInnerStream;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: Cow<'_, &[Room]>) -> Result<Vec<Sid>, AdapterError>;
@@ -115,7 +111,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
         rooms: Cow<'_, &[Room]>,
     ) -> Result<(), AdapterError>;
     /// Disconnects the sockets that match the [`BroadcastOptions`].
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>>;
 
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
@@ -203,11 +199,11 @@ impl Adapter for LocalAdapter {
         }
     }
 
-    fn broadcast_with_ack<V: DeserializeOwned>(
+    fn broadcast_with_ack(
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
-    ) -> Result<AckStream<V>, BroadcastError> {
+    ) -> AckInnerStream {
         let duration = opts.flags.iter().find_map(|flag| match flag {
             BroadcastFlags::Timeout(duration) => Some(*duration),
             _ => None,
@@ -219,7 +215,7 @@ impl Adapter for LocalAdapter {
             sockets.len(),
             sockets.iter().map(|s| s.id).collect::<Vec<_>>()
         );
-        AckStream::broadcast(packet, sockets, duration)
+        AckInnerStream::broadcast(packet, sockets, duration)
     }
 
     fn sockets(&self, rooms: Cow<'_, &[Room]>) -> Result<Vec<Sid>, Infallible> {
@@ -270,16 +266,19 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
-        let errors: Vec<_> = self
-            .apply_opts(opts)
-            .into_iter()
-            .filter_map(|socket| socket.disconnect().err())
-            .collect();
+    fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>> {
+        let mut errors: Vec<_> = Vec::new();
+
+        for sock in self.apply_opts(opts) {
+            if let Err(e) = sock.disconnect() {
+                errors.push(e);
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(errors.into())
+            Err(errors)
         }
     }
 }
@@ -303,7 +302,7 @@ impl LocalAdapter {
                             || opts.sid.map(|s| s != **sid).unwrap_or(true))
                 })
                 .filter_map(|sid| ns.get_socket(*sid).ok())
-                .map(SocketRef::new)
+                .map(SocketRef::from)
                 .collect()
         } else if opts.flags.contains(&BroadcastFlags::Broadcast) {
             let sockets = ns.get_sockets();
@@ -312,10 +311,10 @@ impl LocalAdapter {
                 .filter(|socket| {
                     !except.contains(&socket.id) && opts.sid.map(|s| s != socket.id).unwrap_or(true)
                 })
-                .map(SocketRef::new)
+                .map(SocketRef::from)
                 .collect()
         } else if let Some(sock) = opts.sid.and_then(|sid| ns.get_socket(sid).ok()) {
-            vec![SocketRef::new(sock)]
+            vec![sock.into()]
         } else {
             vec![]
         }
@@ -506,14 +505,7 @@ mod test {
 
         let mut opts = BroadcastOptions::new(Some(socket0));
         opts.rooms = hash_set!["room5".into()];
-        match adapter.disconnect_socket(opts) {
-            // todo it returns Ok, in previous commits it also returns Ok
-            Err(BroadcastError::SendError(_)) | Ok(_) => {}
-            e => panic!(
-                "should return an EngineGone error as it is a stub namespace: {:?}",
-                e
-            ),
-        }
+        adapter.disconnect_socket(opts).unwrap();
 
         let sockets = adapter.sockets("room2").unwrap();
         assert_eq!(sockets.len(), 2);

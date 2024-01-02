@@ -13,7 +13,7 @@
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
 //! * [`TransportType`](crate::TransportType): extracts the transport type
-//! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
+//! * [`DisconnectReason`]: extracts the reason of the disconnection
 //! * [`State`]: extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 //!
 //! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits
@@ -88,13 +88,9 @@ use std::sync::Arc;
 use super::message::FromMessageParts;
 use super::FromDisconnectParts;
 use super::{connect::FromConnectParts, message::FromMessage};
+use crate::errors::{DisconnectError, SendError};
 use crate::socket::DisconnectReason;
-use crate::{
-    adapter::{Adapter, LocalAdapter},
-    packet::Packet,
-    socket::Socket,
-    SendError,
-};
+use crate::{adapter::Adapter, packet::Packet, socket::Socket};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
@@ -209,18 +205,25 @@ impl std::ops::Deref for SocketRef {
         &self.0
     }
 }
-
-impl SocketRef {
+impl PartialEq for SocketRef {
     #[inline(always)]
-    pub(crate) fn new(socket: Arc<Socket>) -> Self {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id == other.0.id
+    }
+}
+impl From<Arc<Socket>> for SocketRef {
+    #[inline(always)]
+    fn from(socket: Arc<Socket>) -> Self {
         Self(socket)
     }
+}
 
+impl SocketRef {
     /// Disconnect the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
     #[inline(always)]
-    pub fn disconnect(self) -> Result<(), SendError> {
+    pub fn disconnect(self) -> Result<(), DisconnectError> {
         self.0.disconnect()
     }
 }
@@ -284,7 +287,7 @@ impl AckSender {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.send(packet)
+            Ok(self.socket.send(packet)?)
         } else {
             Ok(())
         }

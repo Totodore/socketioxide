@@ -14,7 +14,7 @@ readme = "../README.md"
 
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.9.0" }
+engineioxide = { path = "../engineioxide", version = "0.10" }
 futures.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 serde.workspace = true
@@ -50,9 +50,9 @@ engineioxide = { path = "../engineioxide", features = [
     "test-utils",
 ] }
 tokio-tungstenite.workspace = true
+rust_socketio.workspace = true
 axum.workspace = true
 salvo.workspace = true
-viz.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",

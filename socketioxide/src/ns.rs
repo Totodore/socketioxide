@@ -119,6 +119,7 @@ impl Namespace {
         }
         ns
     }
+
     pub fn clean_dummy_sockets(&self) {
         self.sockets.write().unwrap().clear();
     }

@@ -4,29 +4,26 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
-    pin::Pin,
     sync::Mutex,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc, RwLock,
     },
-    task::{Context, Poll},
     time::Duration,
 };
 
-use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
-use futures::{stream::FuturesUnordered, Future, Stream};
-use serde::{de::DeserializeOwned, Serialize};
+use engineioxide::socket::DisconnectReason as EIoDisconnectReason;
+use serde::Serialize;
 use serde_json::Value;
-use tokio::{sync::oneshot, time::Timeout};
+use tokio::sync::oneshot::{self, Receiver};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
 
 use crate::{
+    ack::{AckInnerStream, AckResponse, AckResult, AckStream},
     adapter::{Adapter, Room},
-    errors::{AckError, Error},
-    extract::SocketRef,
+    errors::{DisconnectError, Error, SendError},
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
         MessageHandler,
@@ -34,12 +31,14 @@ use crate::{
     ns::Namespace,
     operators::{Operators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    BroadcastError, SocketIoConfig,
+    SocketIoConfig,
 };
 use crate::{
     client::SocketData,
-    errors::{AdapterError, SendError},
+    errors::{AdapterError, SocketError},
 };
+
+pub use engineioxide::sid::Sid;
 
 /// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
 ///
@@ -98,120 +97,6 @@ impl From<EIoDisconnectReason> for DisconnectReason {
             EIoDisconnectReason::MultipleHttpPollingError => MultipleHttpPollingError,
             EIoDisconnectReason::PacketParsingError => PacketParsingError,
             EIoDisconnectReason::ClosingServer => ClosingServer,
-        }
-    }
-}
-/// An acknowledgement sent by the client.
-/// It contains the data sent by the client and the binary payloads if there are any.
-#[derive(Debug)]
-pub struct AckResponse<T> {
-    /// The data returned by the client
-    pub data: T,
-    /// Optional binary payloads
-    ///
-    /// If there is no binary payload, the `Vec` will be empty
-    pub binary: Vec<Vec<u8>>,
-}
-
-pin_project_lite::pin_project! {
-    /// A [`Stream`]/[`Future`] of [`AckResponse`] received from the client.
-    /// Can be used to wait for multiple acknowledgements provided when broadcasting
-    /// with an ack requirement.
-    pub struct AckStream<T> {
-        #[pin]
-        rxs: FuturesUnordered<Timeout<oneshot::Receiver<AckResponse<Value>>>>,
-        err: Option<SendError>,
-        _phantom: std::marker::PhantomData<T>,
-    }
-}
-impl<T> AckStream<T> {
-    /// Creates a new [`AckStream`] from a [`Packet`] and a list of sockets.
-    /// The [`Packet`] is sent to all the sockets and the [`AckStream`] will wait
-    /// for an acknowledgement from each socket.
-    ///
-    /// The [`AckStream`] will wait for the default timeout specified in the config
-    /// (5s by default) if no custom timeout is specified.
-    pub fn broadcast(
-        packet: Packet<'static>,
-        sockets: Vec<SocketRef>,
-        duration: Option<Duration>,
-    ) -> Result<Self, BroadcastError> {
-        assert!(!sockets.is_empty());
-
-        let rxs = FuturesUnordered::new();
-        let mut errs = Vec::new();
-        let duration = duration.unwrap_or_else(|| sockets.first().unwrap().config.ack_timeout);
-        for socket in sockets {
-            match socket.send_with_ack(packet.clone()) {
-                Ok(rx) => rxs.push(tokio::time::timeout(duration, rx)),
-                Err(e) => errs.push(e),
-            }
-        }
-        if errs.is_empty() {
-            Ok(Self {
-                rxs,
-                err: None,
-                _phantom: std::marker::PhantomData,
-            })
-        } else {
-            Err(errs.into())
-        }
-    }
-
-    /// Creates a new [`AckStream`] from a [`oneshot::Receiver`] corresponding to the acknowledgement
-    /// of a single socket.
-    pub fn send(
-        rx: Result<oneshot::Receiver<AckResponse<Value>>, SendError>,
-        duration: Duration,
-    ) -> Self {
-        let rxs = FuturesUnordered::new();
-        if let Ok(rx) = rx {
-            rxs.push(tokio::time::timeout(duration, rx));
-            Self {
-                rxs,
-                err: None,
-                _phantom: std::marker::PhantomData,
-            }
-        } else {
-            Self {
-                rxs,
-                err: rx.err(),
-                _phantom: std::marker::PhantomData,
-            }
-        }
-    }
-}
-impl<T: DeserializeOwned> Stream for AckStream<T> {
-    type Item = Result<AckResponse<T>, AckError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.project().rxs.poll_next(cx) {
-            Poll::Ready(Some(Ok(Ok(v)))) => Poll::Ready(Some(Ok(AckResponse {
-                data: serde_json::from_value(v.data)?,
-                binary: v.binary,
-            }))),
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
-            Poll::Ready(Some(Ok(Err(e)))) => Poll::Ready(Some(Err(e.into()))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.rxs.size_hint()
-    }
-}
-impl<T: DeserializeOwned> Future for AckStream<T> {
-    type Output = Result<AckResponse<T>, AckError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        assert!(!self.rxs.is_empty());
-        match self.as_mut().poll_next(cx) {
-            Poll::Ready(Some(v)) => Poll::Ready(v),
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(None) => {
-                unreachable!("stream should at least yield 1 value")
-            }
         }
     }
 }
@@ -358,9 +243,12 @@ impl Socket {
 
     /// Emits a message to the client
     /// ## Errors
-    /// * If the data cannot be serialized to JSON, a [`SendError::Serialize`] is returned.
-    /// * If the packet buffer is full, a [`SendError::InternalChannelFull`] is returned.
-    /// See [`SocketIoBuilder::max_buffer_size`](crate::SocketIoBuilder) option for more infos on internal buffer config
+    /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
+    /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`].
+    /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`].
+    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     /// ## Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -384,7 +272,7 @@ impl Socket {
         if let Err(e) = self.send(Packet::event(ns, event.into(), data)) {
             #[cfg(feature = "tracing")]
             tracing::debug!("sending error during emit message: {e:?}");
-            return Err(e);
+            return Err(e)?;
         }
         Ok(())
     }
@@ -392,13 +280,37 @@ impl Socket {
     /// Emits a message to the client and wait for acknowledgement.
     ///
     /// The acknowledgement has a timeout specified in the config (5s by default)
-    /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the `timeout()` operator.
+    /// (see [`SocketIoBuilder::ack_timeout`]) or with the [`timeout()`] operator.
     ///
-    /// ## Errors
-    /// * If the data cannot be serialized to JSON, a [`AckError::Serialize`] is returned.
-    /// * If the packet could not be sent, a [`AckError::SendChannel`] is returned.
-    /// * In case of timeout an [`AckError::Timeout`] is returned.
-    /// ##### Example without custom timeout
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
+    ///
+    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
+    ///
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`AckError::Socket`] will be yielded.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
+    ///
+    /// [`timeout()`]: crate::operators::Operators#method.timeout
+    /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckError`]: crate::AckError
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
+    ///
+    /// # Basic example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -407,7 +319,7 @@ impl Socket {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.emit_with_ack::<Value>("test", data).await {
+    ///         match socket.emit_with_ack::<Value>("test", data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -418,20 +330,13 @@ impl Socket {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl Serialize,
-    ) -> AckStream<V>
-    where
-        V: DeserializeOwned,
-    {
+    ) -> Result<AckStream<V>, serde_json::Error> {
         let ns = self.ns();
-        serde_json::to_value(data)
-            .map(|data| {
-                let packet = Packet::event(Cow::Borrowed(ns), event.into(), data);
-                let rx = self.send_with_ack(packet);
-                AckStream::send(rx, self.config.ack_timeout)
-            })
-            .unwrap_or_else(|e| {
-                AckStream::send(Err(SendError::Serialize(e)), self.config.ack_timeout)
-            })
+        let data = serde_json::to_value(data)?;
+        let packet = Packet::event(ns, event.into(), data);
+        let rx = self.send_with_ack(packet);
+        let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
+        Ok(AckStream::<V>::from(stream))
     }
 
     // Room actions
@@ -478,7 +383,7 @@ impl Socket {
     /// Selects all clients in the given rooms except the current socket.
     ///
     /// If you want to include the current socket, use the `within()` operator.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -524,7 +429,7 @@ impl Socket {
     }
 
     /// Filters out all clients selected with the previous operators which are in the given rooms.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -549,7 +454,7 @@ impl Socket {
 
     /// Broadcasts to all clients only connected on this node (when using multiple nodes).
     /// When using the default in-memory [`LocalAdapter`], this operator is a no-op.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -567,7 +472,13 @@ impl Socket {
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
-    /// ##### Example
+    /// See [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder) for the default timeout.
+    ///
+    /// See [`emit_with_ack()`] for more details on acknowledgements.
+    ///
+    /// [`emit_with_ack()`]: #method.emit_with_ack
+    ///
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -583,10 +494,12 @@ impl Socket {
     ///             .except("room2")
     ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .unwrap()
+    ///             .for_each(|(sid, ack)| async move {
     ///                match ack {
-    ///                    Ok(ack) => println!("Ack received {:?}", ack),
-    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                    Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
+    ///                    Err(err) => println!("Ack error, socket {} {:?}", sid, err),
     ///                }
     ///             }).await;
     ///    });
@@ -597,7 +510,7 @@ impl Socket {
     }
 
     /// Adds a binary payload to the message.
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -614,7 +527,7 @@ impl Socket {
     }
 
     /// Broadcasts to all clients without any filtering (except the current socket).
-    /// ##### Example
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -633,8 +546,12 @@ impl Socket {
     /// Disconnects the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
-    pub fn disconnect(self: Arc<Self>) -> Result<(), SendError> {
-        self.send(Packet::disconnect(&self.ns.path))?;
+    pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
+        let res = self.send(Packet::disconnect(&self.ns.path));
+        if let Err(SocketError::InternalChannelFull) = res {
+            return Err(DisconnectError::InternalChannelFull);
+        }
+
         self.close(DisconnectReason::ServerNSDisconnect)?;
         Ok(())
     }
@@ -655,7 +572,7 @@ impl Socket {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SendError> {
+    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError> {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 Some(std::mem::take(&mut bin.bin))
@@ -663,7 +580,7 @@ impl Socket {
             _ => None,
         };
 
-        let msg = packet.try_into()?;
+        let msg = packet.into();
         self.esocket.emit(msg)?;
         if let Some(bin_payloads) = bin_payloads {
             for bin in bin_payloads {
@@ -674,16 +591,18 @@ impl Socket {
         Ok(())
     }
 
-    pub(crate) fn send_with_ack(
-        &self,
-        mut packet: Packet<'_>,
-    ) -> Result<oneshot::Receiver<AckResponse<Value>>, SendError> {
+    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {
         let (tx, rx) = oneshot::channel();
+
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        self.ack_message.lock().unwrap().insert(ack, tx);
         packet.inner.set_ack_id(ack);
-        self.send(packet)?;
-        Ok(rx)
+        match self.send(packet) {
+            Ok(()) => {
+                self.ack_message.lock().unwrap().insert(ack, tx);
+            }
+            Err(e) => tx.send(Err(e.into())).unwrap(),
+        }
+        rx
     }
 
     /// Called when the socket is gracefully disconnected from the server or the client
@@ -776,7 +695,7 @@ impl Socket {
                 data,
                 binary: vec![],
             };
-            tx.send(res).ok();
+            tx.send(Ok(res)).ok();
         }
         Ok(())
     }
@@ -787,7 +706,7 @@ impl Socket {
                 data: packet.data,
                 binary: packet.bin,
             };
-            tx.send(res).ok();
+            tx.send(Ok(res)).ok();
         }
         Ok(())
     }
@@ -803,6 +722,11 @@ impl Debug for Socket {
             .finish()
     }
 }
+impl PartialEq for Socket {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
 
 #[cfg(test)]
 impl Socket {
@@ -814,5 +738,33 @@ impl Socket {
             engineioxide::Socket::new_dummy(sid, close_fn).into(),
             Arc::new(SocketIoConfig::default()),
         )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::AckError;
+
+    #[tokio::test]
+    async fn send_with_ack_error() {
+        let sid = Sid::new();
+        let ns = Namespace::new_dummy([sid]).into();
+        let socket: Arc<Socket> = Socket::new_dummy(sid, ns).into();
+        // Saturate the channel
+        for _ in 0..200 {
+            socket
+                .send(Packet::event("test", "test", Value::Null))
+                .unwrap();
+        }
+
+        let ack = socket
+            .emit_with_ack::<Value>("test", Value::Null)
+            .unwrap()
+            .await;
+        assert!(matches!(
+            ack,
+            Err(AckError::Socket(SocketError::InternalChannelFull))
+        ));
     }
 }

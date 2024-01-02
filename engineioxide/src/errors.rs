@@ -29,7 +29,7 @@ pub enum Error {
     #[error("heartbeat timeout")]
     HeartbeatTimeout,
     #[error("upgrade error")]
-    UpgradeError,
+    Upgrade,
     #[error("aborted connection")]
     Aborted,
 

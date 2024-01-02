@@ -207,8 +207,16 @@
 //! If the client doesn't send an ack response, the [`AckSender::send`](extract::AckSender) method will do nothing.
 //!
 //! #### Client acknowledgements
-//! You can use the [`Socket::emit_with_ack`](socket::Socket) method to emit a message with an ack callback.
-//! It will return a [`Future`](futures::Future) that will resolve when the acknowledgement is received.
+//! If you want to emit/broadcast a message and await for a/many client(s) acknowledgment(s) you can use:
+//! * [`SocketRef::emit_with_ack`] for a single client
+//! * [`Operators::emit_with_ack`] for broadcasting or [emit configuration](#emiting-data).
+//! * [`SocketIo::emit_with_ack`] for broadcasting.
+//!
+//! [`SocketRef::emit_with_ack`]: crate::extract::SocketRef#method.emit_with_ack
+//! [`Operators::emit_with_ack`]: crate::operators::Operators#method.emit_with_ack
+//! [`SocketIo::emit_with_ack`]: SocketIo#method.emit_with_ack
+//! [`AckStream`]: crate::ack::AckStream
+//! [`AckResponse`]: crate::ack::AckResponse
 //!
 //! ## [State management](#state-management)
 //! There are two ways to manage the state of the server:
@@ -249,17 +257,16 @@ pub mod extensions;
 #[cfg(feature = "state")]
 mod state;
 
+pub mod ack;
 pub mod handler;
 pub mod layer;
 pub mod operators;
+pub mod packet;
 pub mod service;
 pub mod socket;
 
-#[cfg(feature = "test-utils")]
-pub use packet::*;
-
 pub use engineioxide::TransportType;
-pub use errors::{AckError, BroadcastError, SendError};
+pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};
 pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 
@@ -267,7 +274,6 @@ mod client;
 mod errors;
 mod io;
 mod ns;
-mod packet;
 
 /// Socket.IO protocol version.
 /// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor

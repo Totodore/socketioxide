@@ -121,7 +121,7 @@ where
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {
             None => return Err(Error::UnknownSessionID(sid)),
-            Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
+            Some(socket) if socket.is_ws() => return Err(Error::Upgrade),
             Some(socket) => {
                 let mut ws = ws_init().await;
                 upgrade_handshake::<H, S>(&socket, &mut ws).await?;
@@ -306,7 +306,7 @@ where
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
         Some(Ok(Message::Text(d))) => d,
-        _ => Err(Error::UpgradeError)?,
+        _ => Err(Error::Upgrade)?,
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
@@ -326,12 +326,12 @@ where
         Some(Ok(Message::Close(_))) => {
             #[cfg(feature = "tracing")]
             tracing::debug!("ws stream closed before upgrade");
-            Err(Error::UpgradeError)?
+            Err(Error::Upgrade)?
         }
         _ => {
             #[cfg(feature = "tracing")]
             tracing::debug!("unexpected ws message before upgrade");
-            Err(Error::UpgradeError)?
+            Err(Error::Upgrade)?
         }
     };
     match Packet::try_from(msg)? {
