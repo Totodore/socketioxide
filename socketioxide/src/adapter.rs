@@ -227,14 +227,14 @@ impl Adapter for LocalAdapter {
 
     fn add_sockets(&self, opts: BroadcastOptions, rooms: &[Room]) -> Result<(), AdapterError> {
         for socket in self.apply_opts(opts) {
-            self.add_all(socket.id, rooms.clone()).unwrap();
+            self.add_all(socket.id, rooms).unwrap();
         }
         Ok(())
     }
 
     fn del_sockets(&self, opts: BroadcastOptions, rooms: &[Room]) -> Result<(), AdapterError> {
         for socket in self.apply_opts(opts) {
-            self.del(socket.id, rooms.clone()).unwrap();
+            self.del(socket.id, rooms).unwrap();
         }
         Ok(())
     }

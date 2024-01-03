@@ -25,7 +25,9 @@ pub trait RoomParam: 'static {
     /// Convert `self` into an iterator of rooms.
     fn into_room_iter(self) -> Self::IntoIter;
 
-    fn into_slice(&self) -> &[Room];
+    fn as_cow(&self) -> Cow<'_, [Room]> {
+        Cow::Owned(self.into_room_iter().collect())
+    }
 }
 
 impl RoomParam for Room {
@@ -35,8 +37,8 @@ impl RoomParam for Room {
         std::iter::once(self)
     }
 
-    fn into_slice(&self) -> &[Room] {
-        std::slice::from_ref(self)
+    fn as_cow(&self) -> Cow<'_, [Room]> {
+        Cow::Borrowed(std::slice::from_ref(self))
     }
 }
 impl RoomParam for String {
@@ -46,8 +48,8 @@ impl RoomParam for String {
         std::iter::once(Cow::Owned(self))
     }
 
-    fn into_slice(&self) -> &[Room] {
-        std::slice::from_ref(&Cow::Borrowed(self))
+    fn as_cow(&self) -> Cow<'_, [Room]> {
+        Cow::Borrowed(std::slice::from_ref(&Cow::Borrowed(self)))
     }
 }
 impl RoomParam for Vec<String> {
@@ -56,20 +58,12 @@ impl RoomParam for Vec<String> {
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(Cow::Owned)
     }
-
-    fn into_slice(&self) -> &[Room] {
-        self.as_slice()
-    }
 }
 impl RoomParam for Vec<&'static str> {
     type IntoIter = std::iter::Map<std::vec::IntoIter<&'static str>, fn(&'static str) -> Room>;
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
         self.into_iter().map(Cow::Borrowed)
-    }
-
-    fn into_slice(&self) -> &[Room] {
-        self.as_slice()
     }
 }
 
@@ -80,10 +74,11 @@ impl RoomParam for Vec<Room> {
         self.into_iter()
     }
 
-    fn into_slice(&self) -> &[Room] {
-        self.as_slice()
+    fn as_cow(&self) -> Cow<'_, [Room]> {
+        Cow::Borrowed(self)
     }
 }
+
 impl RoomParam for &'static str {
     type IntoIter = std::iter::Once<Room>;
     #[inline(always)]
@@ -91,34 +86,37 @@ impl RoomParam for &'static str {
         std::iter::once(Cow::Borrowed(self))
     }
 
-    fn into_slice(&self) -> &[Room] {
-        std::slice::from_ref(&Cow::Borrowed(self))
+    fn as_cow(&self) -> Cow<'_, [Room]> {
+        Cow::Borrowed(std::slice::from_ref(&Cow::Borrowed(self)))
     }
 }
 
-impl<const COUNT: usize, T: Into<Cow<'static, str>> + 'static> RoomParam for [T; COUNT] {
-    type IntoIter = std::iter::Map<std::array::IntoIter<T, COUNT>, fn(T) -> Room>;
-
+impl<const COUNT: usize> RoomParam for [String; COUNT] {
+    type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(Cow::<'static, str>::from)
-    }
-
-    fn into_slice(&self) -> &[Room] {
-        self.as_ref()
+        self.into_iter().map(Cow::Owned)
     }
 }
-// impl<const COUNT: usize> RoomParam for [String; COUNT] {
-//     type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
-//     #[inline(always)]
-//     fn into_room_iter(self) -> Self::IntoIter {
-//         self.into_iter().map(Cow::Owned)
-//     }
+impl<const COUNT: usize> RoomParam for [Room; COUNT] {
+    type IntoIter = std::array::IntoIter<Room, COUNT>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter()
+    }
 
-//     fn into_slice(&self) -> &[Room] {
-//         self.as_ref()
-//     }
-// }
+    fn as_cow(&self) -> Cow<'_, [Room]> {
+        Cow::Borrowed(self)
+    }
+}
+impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
+    type IntoIter =
+        std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter().map(Cow::Borrowed)
+    }
+}
 impl RoomParam for Sid {
     type IntoIter = std::iter::Once<Room>;
     #[inline(always)]
@@ -126,8 +124,8 @@ impl RoomParam for Sid {
         std::iter::once(Cow::Owned(self.to_string()))
     }
 
-    fn into_slice(&self) -> &[Room] {
-        std::slice::from_ref(&Cow::Borrowed(self.as_str()))
+    fn as_cow(&self) -> Cow<'_, [Room]> {
+        Cow::Borrowed(std::slice::from_ref(&Cow::Borrowed(self.as_str())))
     }
 }
 
@@ -464,7 +462,7 @@ impl Operators {
     ///   });
     /// });
     pub fn join(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.add_sockets(self.opts, rooms.into_slice())
+        self.ns.adapter.add_sockets(self.opts, &rooms.as_cow())
     }
 
     /// Makes all sockets selected with the previous operators leave the given room(s).
@@ -480,7 +478,7 @@ impl Operators {
     ///   });
     /// });
     pub fn leave(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.del_sockets(self.opts, rooms.into_slice())
+        self.ns.adapter.del_sockets(self.opts, &rooms.as_cow())
     }
 
     /// Creates a packet with the given event and data.

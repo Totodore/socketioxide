@@ -349,7 +349,7 @@ impl Socket {
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn join(&self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.add_all(self.id, rooms.into_slice())
+        self.ns.adapter.add_all(self.id, &rooms.as_cow())
     }
 
     /// Leaves the given rooms.
@@ -359,7 +359,7 @@ impl Socket {
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn leave(&self, rooms: impl RoomParam) -> Result<(), AdapterError> {
-        self.ns.adapter.del(self.id, rooms.into_slice())
+        self.ns.adapter.del(self.id, &rooms.as_cow())
     }
 
     /// Leaves all rooms where the socket is connected.
