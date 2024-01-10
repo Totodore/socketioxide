@@ -58,16 +58,9 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     sid: Option<Sid>,
     req: Request<R>,
 ) -> Result<Response<ResponseBody<B>>, Error> {
-    let mut parts = Request::builder()
-        .method(req.method().clone())
-        .uri(req.uri().clone())
-        .version(req.version())
-        .body(())
-        .unwrap()
-        .into_parts()
-        .0;
+    let (parts, body) = req.into_parts();
+    let req = Request::from_parts(parts.clone(), body);
 
-    parts.headers.extend(req.headers().clone());
     let ws_key = parts
         .headers
         .get("Sec-WebSocket-Key")
