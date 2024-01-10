@@ -33,6 +33,19 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
             ack.bin(bin).send(data).ok();
         },
     );
+
+    socket.on(
+        "emit-with-ack",
+        |s: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+            let ack = s
+                .bin(bin)
+                .emit_with_ack::<Value>("emit-with-ack", data)
+                .unwrap()
+                .await
+                .unwrap();
+            s.bin(ack.binary).emit("emit-with-ack", ack.data).unwrap();
+        },
+    );
 }
 
 #[tokio::main]
@@ -46,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
+        .ack_timeout(Duration::from_millis(200))
         .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
         .build_svc();

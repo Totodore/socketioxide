@@ -83,7 +83,6 @@ impl<A: Adapter> Namespace<A> {
             packet => self.get_socket(sid)?.recv(packet),
         }
     }
-    /// Returns a socket from the namespace
     pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {
         self.sockets
             .read()
@@ -93,7 +92,6 @@ impl<A: Adapter> Namespace<A> {
             .ok_or(Error::SocketGone(sid))
     }
 
-    /// Returns all the sockets from the namespace
     pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
         self.sockets.read().unwrap().values().cloned().collect()
     }
@@ -126,6 +124,7 @@ impl<A: Adapter> Namespace<A> {
         }
         ns
     }
+
     pub fn clean_dummy_sockets(&self) {
         self.sockets.write().unwrap().clear();
     }

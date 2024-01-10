@@ -1,3 +1,12 @@
+# 0.10.0
+## socketioxide
+* Rework for `emit_with_ack` fns. It now returns an `AckStream` that can be used either as a future when expecting one ack or as a stream when expecting multiple acks. When expecting multiple acks the `AckStream` will yield `AckResult`s as well as their corresponding socket `id`.
+
+# 0.9.1
+## socketioxide
+* Add `SocketIo::get_socket` and `Operators::get_socket` methods to get a socket ref from its id.
+* Switch to `pin-project-lite` instead of `pin-project`.
+
 # 0.9.0
 * Bump `hyper` to 1.0.1. Therefore it is now possible to use frameworks based on hyper v1.*. Check the [compatibility table](./README.md#compatibility) for more details.
 
