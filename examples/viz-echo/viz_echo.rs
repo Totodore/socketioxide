@@ -3,10 +3,9 @@ use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},
     SocketIo,
 };
-use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
-use viz::{handler::ServiceHandler, serve_with_upgrades, Result, Router, Tree};
+use viz::{handler::ServiceHandler, serve, Result, Router};
 
 fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
@@ -41,15 +40,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .get("/", |_| async { Ok("Hello, World!") })
         .any("/*", ServiceHandler::new(svc));
-    let tree = Arc::new(Tree::from(app));
 
     info!("Starting server");
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        let tree = tree.clone();
-        tokio::task::spawn(serve_with_upgrades(stream, tree, Some(addr)));
+    if let Err(e) = serve(listener, app).await {
+        error!("{}", e);
     }
+
+    Ok(())
 }

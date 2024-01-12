@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-viz = ">=0.7.1"
+viz = ">=0.7.2"
 socketioxide = { path = "../../socketioxide" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
