@@ -195,6 +195,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     }
 
     fn on_message(&self, msg: String, socket: Arc<EIoSocket<SocketData>>) {
+        println!("on_message '{:?}'", msg);
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
@@ -242,6 +243,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     ///
     /// If the packet is complete, it is propagated to the namespace
     fn on_binary(&self, data: Vec<u8>, socket: Arc<EIoSocket<SocketData>>) {
+        println!("on_binary '{:X?}'", data);
         if apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {

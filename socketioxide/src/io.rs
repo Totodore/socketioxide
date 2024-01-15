@@ -18,6 +18,7 @@ use crate::{
     service::SocketIoService,
     BroadcastError, DisconnectError,
 };
+use crate::parser::{DefaultParser, Parser};
 
 /// Configuration for Socket.IO & Engine.IO
 #[derive(Debug, Clone)]
@@ -34,6 +35,9 @@ pub struct SocketIoConfig {
     ///
     /// Defaults to 45 seconds.
     pub connect_timeout: Duration,
+
+    /// A custom parser that encodes and decodes packets
+    pub parser: Box<dyn Parser>
 }
 
 impl Default for SocketIoConfig {
@@ -45,6 +49,7 @@ impl Default for SocketIoConfig {
             },
             ack_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(45),
+            parser: Box::new(DefaultParser::default())
         }
     }
 }
@@ -56,6 +61,7 @@ pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
     adapter: std::marker::PhantomData<A>,
+    parser: Box<dyn Parser>,
 }
 
 impl<A: Adapter> SocketIoBuilder<A> {
@@ -65,6 +71,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
             config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
             adapter: std::marker::PhantomData,
+            parser: Box::new(DefaultParser::default())
         }
     }
 
@@ -152,12 +159,20 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// Sets a custom [`Parser`] for encoding and decoding packets for this [`SocketIoBuilder`].
+    /// Can be used to implement a custom protocol.
+    pub fn with_parser<P : Parser + Send + Sync + 'static>(mut self, parser: P) -> Self {
+        self.parser = Box::new(parser);
+        self
+    }
+
     /// Sets a custom [`Adapter`] for this [`SocketIoBuilder`]
     pub fn with_adapter<B: Adapter>(self) -> SocketIoBuilder<B> {
         SocketIoBuilder {
             config: self.config,
             engine_config_builder: self.engine_config_builder,
             adapter: std::marker::PhantomData,
+            parser: self.parser,
         }
     }
 

@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="CargoProjectFeatures">
+    <cargoProject file="$PROJECT_DIR$/Cargo.toml">
+      <package file="$PROJECT_DIR$/e2e/socketioxide">
+        <feature name="v4" />
+      </package>
+    </cargoProject>
+  </component>
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="075318bb-4784-4e15-86dd-b60945a7407b" name="Changes" comment="operators_single.rs">
+      <change afterPath="$PROJECT_DIR$/examples/axum-echo/index.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/axum-echo/package-lock.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/axum-echo/package.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/axum-echo/parser.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/socketioxide/src/parser.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/angular-todomvc/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/examples/angular-todomvc/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/axum-echo/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/examples/axum-echo/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/chat/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/examples/chat/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/src/client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/client.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/src/io.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/io.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/src/operators.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/operators.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/src/packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/src/socket.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/socket.rs" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="package.json" />
+        <option value="Rust File" />
+        <option value="JavaScript File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/socketioxide/src/operators_single.rs" root0="FORCE_HIGHLIGHTING" />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="19202pr2" />
+  </component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 6
+}</component>
+  <component name="ProjectId" id="2ZthkWwH13GuUx988elWdODNiJm" />
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_ADD_EXTERNAL_FILES&quot;: &quot;true&quot;,
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;Cargo.Build `Run socketio-chat`.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Build `Test socketioxide`.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Run angular-todomvc.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Run axum-echo.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Run basic-crud-application.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Run socketio-chat.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Test packet::test::packet_decode_connect.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Test socketioxide.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;ShowUsagesActions.previewPropertyKey&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;ft-custom-parser&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/fabian/Documents/Projects/Rust/socketioxide/socketioxide/src&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;/Users/fabian/Applications/RustRover.app/Contents/plugins/javascript-impl/jsLanguageServicesImpl/external&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/socketioxide/src" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Cargo.Run axum-echo">
+    <configuration name="Run angular-todomvc" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package angular-todomvc --bin angular-todomvc" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run axum-echo" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package axum-echo --bin axum-echo" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run background-task" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package background-task --bin background-task" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run basic-crud-application" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package basic-crud-application --bin basic-crud-application" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run chatly" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package chatly --bin chatly" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run engineioxide-e2e" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package engineioxide-e2e --bin engineioxide-e2e" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run hyper-echo" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package hyper-echo --bin hyper-echo" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run private-messaging" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package private-messaging --bin private-messaging" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run salvo-echo" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package salvo-echo --bin salvo-echo" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run socketio-chat" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package socketio-chat --bin socketio-chat" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run socketioxide-e2e" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package socketioxide-e2e --bin socketioxide-e2e" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run viz-echo" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package viz-echo --bin viz-echo" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run whiteboard" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package whiteboard --bin whiteboard" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test packet::test::packet_decode_connect" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package socketioxide --lib packet::test::packet_decode_connect -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test socketioxide" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="test --workspace" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Cargo.Test packet::test::packet_decode_connect" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="075318bb-4784-4e15-86dd-b60945a7407b" name="Changes" comment="" />
+      <created>1703247425228</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1703247425228</updated>
+      <workItem from="1703247426289" duration="8546000" />
+      <workItem from="1703291225873" duration="1032000" />
+      <workItem from="1703424443931" duration="1198000" />
+      <workItem from="1703502108551" duration="147000" />
+      <workItem from="1703504905319" duration="1383000" />
+      <workItem from="1703506678287" duration="1000" />
+      <workItem from="1703506856251" duration="63000" />
+      <workItem from="1703512872064" duration="1820000" />
+      <workItem from="1703524105367" duration="156000" />
+      <workItem from="1703802694438" duration="728000" />
+      <workItem from="1703803898654" duration="38000" />
+      <workItem from="1703803954872" duration="717000" />
+      <workItem from="1703852030177" duration="2608000" />
+      <workItem from="1703862429039" duration="1446000" />
+      <workItem from="1704972074216" duration="2020000" />
+      <workItem from="1705085405168" duration="13568000" />
+      <workItem from="1705158003801" duration="2124000" />
+      <workItem from="1705243356330" duration="175000" />
+      <workItem from="1705243532947" duration="17196000" />
+      <workItem from="1705327965285" duration="7000" />
+      <workItem from="1705349638716" duration="900000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="main" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <option name="ADD_EXTERNAL_FILES_SILENTLY" value="true" />
+    <MESSAGE value="operators_single.rs" />
+    <option name="LAST_COMMIT_MESSAGE" value="operators_single.rs" />
+  </component>
+</project>

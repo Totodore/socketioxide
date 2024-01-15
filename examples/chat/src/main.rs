@@ -1,14 +1,12 @@
 use std::sync::atomic::AtomicUsize;
 
 use serde::{Deserialize, Serialize};
-use socketioxide::{
-    extract::{Data, SocketRef, State},
-    SocketIo,
-};
+use socketioxide::{extract::{Data, SocketRef, State}, SocketIo};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use socketioxide::parser::DefaultParser;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(transparent)]
@@ -56,7 +54,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    let (layer, io) = SocketIo::builder().with_state(UserCnt::new()).build_layer();
+    let (layer, io) = SocketIo::builder()
+        .with_state(UserCnt::new())
+        .with_parser(DefaultParser::default())
+        .build_layer();
 
     io.ns("/", |s: SocketRef| {
         s.on("new message", |s: SocketRef, Data::<String>(msg)| {

@@ -264,6 +264,7 @@ pub mod operators;
 pub mod packet;
 pub mod service;
 pub mod socket;
+pub mod parser;
 
 pub use engineioxide::TransportType;
 pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};

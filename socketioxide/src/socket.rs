@@ -39,6 +39,7 @@ use crate::{
 };
 
 pub use engineioxide::sid::Sid;
+use crate::parser::Emittable;
 
 /// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
 ///
@@ -573,18 +574,14 @@ impl<A: Adapter> Socket<A> {
     }
 
     pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError> {
-        let bin_payloads = match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                Some(std::mem::take(&mut bin.bin))
-            }
-            _ => None,
-        };
+        let config = &self.config.parser;
 
-        let msg = packet.into();
-        self.esocket.emit(msg)?;
-        if let Some(bin_payloads) = bin_payloads {
-            for bin in bin_payloads {
-                self.esocket.emit_binary(bin)?;
+        let packets = config.encode(packet);
+
+        for packet in packets {
+            match packet {
+                Emittable::String(msg) => { self.esocket.emit(msg); }
+                Emittable::Binary(bin) => { self.esocket.emit_binary(bin); }
             }
         }
 
