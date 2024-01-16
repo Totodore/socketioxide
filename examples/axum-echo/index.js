@@ -3,7 +3,7 @@ import parser from "./parser.js";
 
 const enc = new TextEncoder();
 const socket = io(`ws://127.0.0.1:3000/`, {
-    // parser: parser
+    parser: parser
 });
 
 socket.on("connect", () => {

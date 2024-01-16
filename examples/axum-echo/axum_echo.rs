@@ -1,11 +1,9 @@
 use axum::routing::get;
 use serde_json::Value;
-use socketioxide::{
-    extract::{AckSender, Bin, Data, SocketRef},
-    SocketIo,
-};
+use socketioxide::{extract::{AckSender, Bin, Data, SocketRef}, SocketIo, SocketIoBuilder};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use socketioxide::parser::MsgpackParser;
 
 fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
@@ -32,7 +30,9 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    let (layer, io) = SocketIo::new_layer();
+    let (layer, io) = SocketIoBuilder::new()
+        .with_parser(MsgpackParser::default())
+        .build_layer();
 
     io.ns("/", on_connect);
     io.ns("/custom", on_connect);

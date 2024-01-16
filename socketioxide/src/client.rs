@@ -195,10 +195,9 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     }
 
     fn on_message(&self, msg: String, socket: Arc<EIoSocket<SocketData>>) {
-        println!("on_message '{:?}'", msg);
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
-        let packet = match Packet::try_from(msg) {
+        let packet = match self.config.parser.decode_msg(msg, socket.clone()) {
             Ok(packet) => packet,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
@@ -243,43 +242,19 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     ///
     /// If the packet is complete, it is propagated to the namespace
     fn on_binary(&self, data: Vec<u8>, socket: Arc<EIoSocket<SocketData>>) {
-        println!("on_binary '{:X?}'", data);
-        if apply_payload_on_packet(data, &socket) {
-            if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
-                if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!(
+        if let Some(packet) = self.config.parser.decode_bin(data, socket.clone()) {
+            if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(
                         "error while propagating packet to socket {}: {}",
                         socket.id,
                         err
                     );
-                    if let Some(reason) = err.into() {
-                        socket.close(reason);
-                    }
+                if let Some(reason) = err.into() {
+                    socket.close(reason);
                 }
             }
         }
     }
 }
 
-/// Utility that applies an incoming binary payload to a partial binary packet
-/// waiting to be filled with all the payloads
-///
-/// Returns true if the packet is complete and should be processed
-fn apply_payload_on_packet(data: Vec<u8>, socket: &EIoSocket<SocketData>) -> bool {
-    #[cfg(feature = "tracing")]
-    tracing::debug!("[sid={}] applying payload on packet", socket.id);
-    if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
-        match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                bin.add_payload(data);
-                bin.is_complete()
-            }
-            _ => unreachable!("partial_bin_packet should only be set for binary packets"),
-        }
-    } else {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] socket received unexpected bin data", socket.id);
-        false
-    }
-}

@@ -61,7 +61,6 @@ pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
     adapter: std::marker::PhantomData<A>,
-    parser: Box<dyn Parser>,
 }
 
 impl<A: Adapter> SocketIoBuilder<A> {
@@ -71,7 +70,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
             config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
             adapter: std::marker::PhantomData,
-            parser: Box::new(DefaultParser::default())
         }
     }
 
@@ -162,7 +160,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Sets a custom [`Parser`] for encoding and decoding packets for this [`SocketIoBuilder`].
     /// Can be used to implement a custom protocol.
     pub fn with_parser<P : Parser + Send + Sync + 'static>(mut self, parser: P) -> Self {
-        self.parser = Box::new(parser);
+        self.config.parser = Box::new(parser);
         self
     }
 
@@ -172,7 +170,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
             config: self.config,
             engine_config_builder: self.engine_config_builder,
             adapter: std::marker::PhantomData,
-            parser: self.parser,
         }
     }
 

@@ -15,21 +15,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="075318bb-4784-4e15-86dd-b60945a7407b" name="Changes" comment="operators_single.rs">
-      <change afterPath="$PROJECT_DIR$/examples/axum-echo/index.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/axum-echo/package-lock.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/axum-echo/package.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/axum-echo/parser.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/socketioxide/src/parser.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/angular-todomvc/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/examples/angular-todomvc/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/axum-echo/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/examples/axum-echo/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/chat/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/examples/chat/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/socketioxide/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/axum-echo/axum_echo.rs" beforeDir="false" afterPath="$PROJECT_DIR$/examples/axum-echo/axum_echo.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/axum-echo/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/examples/axum-echo/index.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/socketioxide/src/client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/client.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/socketioxide/src/io.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/io.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/socketioxide/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/socketioxide/src/operators.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/operators.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/socketioxide/src/packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/socketioxide/src/socket.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/socket.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/socketioxide/src/parser.rs" beforeDir="false" afterPath="$PROJECT_DIR$/socketioxide/src/parser.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -68,33 +60,36 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ASKED_ADD_EXTERNAL_FILES&quot;: &quot;true&quot;,
-    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;Cargo.Build `Run socketio-chat`.executor&quot;: &quot;Run&quot;,
-    &quot;Cargo.Build `Test socketioxide`.executor&quot;: &quot;Run&quot;,
-    &quot;Cargo.Run angular-todomvc.executor&quot;: &quot;Run&quot;,
-    &quot;Cargo.Run axum-echo.executor&quot;: &quot;Run&quot;,
-    &quot;Cargo.Run basic-crud-application.executor&quot;: &quot;Run&quot;,
-    &quot;Cargo.Run socketio-chat.executor&quot;: &quot;Run&quot;,
-    &quot;Cargo.Test packet::test::packet_decode_connect.executor&quot;: &quot;Run&quot;,
-    &quot;Cargo.Test socketioxide.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;ShowUsagesActions.previewPropertyKey&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;ft-custom-parser&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/fabian/Documents/Projects/Rust/socketioxide/socketioxide/src&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
-    &quot;ts.external.directory.path&quot;: &quot;/Users/fabian/Applications/RustRover.app/Contents/plugins/javascript-impl/jsLanguageServicesImpl/external&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_ADD_EXTERNAL_FILES": "true",
+    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "Cargo.Build `Run socketio-chat`.executor": "Run",
+    "Cargo.Build `Test socketioxide`.executor": "Run",
+    "Cargo.Run angular-todomvc.executor": "Run",
+    "Cargo.Run axum-echo.executor": "Run",
+    "Cargo.Run basic-crud-application.executor": "Run",
+    "Cargo.Run socketio-chat.executor": "Run",
+    "Cargo.Test packet::test::packet_decode_connect.executor": "Run",
+    "Cargo.Test parser::test.executor": "Run",
+    "Cargo.Test parser::test::packet_decode_connect.executor": "Run",
+    "Cargo.Test parser::test::packet_size_hint.executor": "Run",
+    "Cargo.Test socketioxide.executor": "Run",
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "ShowUsagesActions.previewPropertyKey": "true",
+    "git-widget-placeholder": "ft-custom-parser",
+    "last_opened_file_path": "/Users/fabian/Documents/Projects/Rust/socketioxide/socketioxide/src",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "ts.external.directory.path": "/Users/fabian/Applications/RustRover.app/Contents/plugins/javascript-impl/jsLanguageServicesImpl/external",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/socketioxide/src" />
@@ -339,6 +334,57 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
+    <configuration name="Test parser::test" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package socketioxide --lib parser::test" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test parser::test::packet_decode_connect" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package socketioxide --lib parser::test::packet_decode_connect -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test parser::test::packet_size_hint" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package socketioxide --lib parser::test::packet_size_hint -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="Test socketioxide" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="test --workspace" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
@@ -358,6 +404,9 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Test parser::test" />
+        <item itemvalue="Cargo.Test parser::test::packet_decode_connect" />
+        <item itemvalue="Cargo.Test parser::test::packet_size_hint" />
         <item itemvalue="Cargo.Test packet::test::packet_decode_connect" />
       </list>
     </recent_temporary>
@@ -393,7 +442,7 @@
       <workItem from="1705243356330" duration="175000" />
       <workItem from="1705243532947" duration="17196000" />
       <workItem from="1705327965285" duration="7000" />
-      <workItem from="1705349638716" duration="900000" />
+      <workItem from="1705349638716" duration="9544000" />
     </task>
     <servers />
   </component>
