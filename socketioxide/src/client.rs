@@ -18,6 +18,7 @@ use crate::{
     packet::{Packet, PacketData},
     SocketIoConfig,
 };
+use crate::parser::Emittable;
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
@@ -64,11 +65,25 @@ impl<A: Adapter> Client<A> {
             esocket.close(EIoDisconnectReason::TransportClose);
             Ok(())
         } else {
-            let packet = Packet::invalid_namespace(ns_path).into();
-            if let Err(_e) = esocket.emit(packet) {
-                #[cfg(feature = "tracing")]
-                tracing::error!("error while sending invalid namespace packet: {}", _e);
+            let packets = self.config.parser.encode(Packet::invalid_namespace(ns_path).into());
+
+            for packet in packets {
+                match packet {
+                    Emittable::String(msg) => {
+                        if let Err(_e) = esocket.emit(msg) {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("error while sending invalid namespace string packet: {}", _e);
+                        }
+                    }
+                    Emittable::Binary(bin) => {
+                        if let Err(_e) = esocket.emit_binary(bin) {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("error while sending invalid namespace binary packet: {}", _e);
+                        }
+                    }
+                }
             }
+
             Ok(())
         }
     }

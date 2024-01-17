@@ -4,10 +4,8 @@
 use std::borrow::Cow;
 
 use crate::ProtocolVersion;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-
-use crate::errors::Error;
 use engineioxide::sid::Sid;
 
 /// The socket.io packet type.
@@ -237,14 +235,6 @@ impl BinaryPacket {
     /// Check if the binary packet is complete, it means that all payloads have been received
     pub fn is_complete(&self) -> bool {
         self.payload_count == self.bin.len()
-    }
-}
-
-impl<'a> From<Packet<'a>> for String {
-    fn from(mut packet: Packet<'a>) -> String {
-        use PacketData::*;
-
-        "".to_string()
     }
 }
 

@@ -18,7 +18,8 @@ use crate::{
     service::SocketIoService,
     BroadcastError, DisconnectError,
 };
-use crate::parser::{DefaultParser, Parser};
+use crate::parser::default::DefaultParser;
+use crate::parser::Parser;
 
 /// Configuration for Socket.IO & Engine.IO
 #[derive(Debug, Clone)]

@@ -580,8 +580,12 @@ impl<A: Adapter> Socket<A> {
 
         for packet in packets {
             match packet {
-                Emittable::String(msg) => { self.esocket.emit(msg); }
-                Emittable::Binary(bin) => { self.esocket.emit_binary(bin); }
+                Emittable::String(msg) => {
+                    self.esocket.emit(msg);
+                }
+                Emittable::Binary(bin) => {
+                    self.esocket.emit_binary(bin);
+                }
             }
         }
 
