@@ -18,7 +18,7 @@ use crate::{
 /// A trait for types that can be used as a room parameter.
 ///
 /// [`String`], [`Vec<String>`], [`Vec<&str>`], [`&'static str`](str) and const arrays are implemented by default.
-pub trait RoomParam: 'static {
+pub trait RoomParam: Send + 'static {
     /// The type of the iterator returned by `into_room_iter`.
     type IntoIter: Iterator<Item = Room>;
 

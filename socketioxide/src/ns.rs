@@ -60,14 +60,6 @@ impl<A: Adapter> Namespace<A> {
         Ok(())
     }
 
-    /// Removes a socket from a namespace and propagate the event to the adapter
-    pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
-        self.sockets.write().unwrap().remove(&sid);
-        self.adapter
-            .del_all(sid)
-            .map_err(|err| AdapterError(Box::new(err)))
-    }
-
     pub fn has(&self, sid: Sid) -> bool {
         self.sockets.read().unwrap().values().any(|s| s.id == sid)
     }
@@ -98,7 +90,11 @@ impl<A: Adapter> Namespace<A> {
     /// * Closes all the sockets and their underlying connections
     /// * Removes all the sockets from the namespace
     pub async fn close(&self) {
+        #[cfg(feature = "async-adapter")]
+        self.adapter.close().await.ok();
+        #[cfg(not(feature = "async-adapter"))]
         self.adapter.close().ok();
+
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all sockets in namespace {}", self.path);
         let sockets = self.sockets.read().unwrap().clone();
@@ -106,6 +102,28 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.write().unwrap().shrink_to_fit();
         #[cfg(feature = "tracing")]
         tracing::debug!("all sockets in namespace {} closed", self.path);
+    }
+}
+
+#[cfg(not(feature = "async-adapter"))]
+impl<A: Adapter> Namespace<A> {
+    /// Removes a socket from a namespace and propagate the event to the adapter
+    pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
+        self.sockets.write().unwrap().remove(&sid);
+        self.adapter
+            .del_all(sid)
+            .map_err(|err| AdapterError(Box::new(err)))
+    }
+}
+#[cfg(feature = "async-adapter")]
+impl<A: Adapter> Namespace<A> {
+    /// Removes a socket from a namespace and propagate the event to the adapter
+    pub async fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
+        self.sockets.write().unwrap().remove(&sid);
+        self.adapter
+            .del_all(sid)
+            .await
+            .map_err(|err| AdapterError(Box::new(err)))
     }
 }
 

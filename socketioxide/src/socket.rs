@@ -339,45 +339,6 @@ impl<A: Adapter> Socket<A> {
         Ok(AckStream::<V>::from(stream))
     }
 
-    // Room actions
-
-    /// Joins the given rooms.
-    ///
-    /// If the room does not exist, it will be created.
-    ///
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_all(self.id, rooms)
-    }
-
-    /// Leaves the given rooms.
-    ///
-    /// If the room does not exist, it will do nothing
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del(self.id, rooms)
-    }
-
-    /// Leaves all rooms where the socket is connected.
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave_all(&self) -> Result<(), A::Error> {
-        self.ns.adapter.del_all(self.id)
-    }
-
-    /// Gets all rooms where the socket is connected.
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.socket_rooms(self.id)
-    }
-
     // Socket operators
 
     /// Selects all clients in the given rooms except the current socket.
@@ -709,6 +670,89 @@ impl<A: Adapter> Socket<A> {
     }
 }
 
+#[cfg(not(feature = "async-adapter"))]
+impl<A: Adapter> Socket<A> {
+    // Room actions
+
+    /// Joins the given rooms.
+    ///
+    /// If the room does not exist, it will be created.
+    ///
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.add_all(self.id, rooms)
+    }
+
+    /// Leaves the given rooms.
+    ///
+    /// If the room does not exist, it will do nothing
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.del(self.id, rooms)
+    }
+
+    /// Leaves all rooms where the socket is connected.
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub fn leave_all(&self) -> Result<(), A::Error> {
+        self.ns.adapter.del_all(self.id)
+    }
+
+    /// Gets all rooms where the socket is connected.
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.ns.adapter.socket_rooms(self.id)
+    }
+}
+
+#[cfg(feature = "async-adapter")]
+impl<A: Adapter> Socket<A> {
+    // Room actions
+
+    /// Joins the given rooms.
+    ///
+    /// If the room does not exist, it will be created.
+    ///
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.add_all(self.id, rooms).await
+    }
+
+    /// Leaves the given rooms.
+    ///
+    /// If the room does not exist, it will do nothing
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.del(self.id, rooms).await
+    }
+
+    /// Leaves all rooms where the socket is connected.
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub async fn leave_all(&self) -> Result<(), A::Error> {
+        self.ns.adapter.del_all(self.id).await
+    }
+
+    /// Gets all rooms where the socket is connected.
+    /// ## Errors
+    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.ns.adapter.socket_rooms(self.id).await
+    }
+}
 impl<A: Adapter> Debug for Socket<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Socket")
