@@ -44,10 +44,10 @@ jobs:
       max-parallel: 1
       matrix:
         package:
-          - crate: socketioxide
-            path: socketioxide
-          - crate: engineioxide
-            path: engineioxide
+            - crate: engineioxide
+              path: engineioxide
+            - crate: socketioxide
+              path: socketioxide
     steps:
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -82,4 +82,4 @@ jobs:
         run: |
           echo "Cargo Publishing..."
           cargo publish --no-verify
-          echo "New version $NEXT_VERSION has been published"
+          echo "New version of $NEXT_VERSION has been published"
