@@ -249,8 +249,10 @@ impl<A: Adapter> Socket<A> {
     ///
     /// ## Errors
     /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
-    /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`].
-    /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`].
+    /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
+    /// will be returned.
+    /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
+    /// will be returned.
     /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
     ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
