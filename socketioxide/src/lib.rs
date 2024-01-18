@@ -148,12 +148,12 @@
 //! * [`Data`](extract::Data): extracts and deserialize to json any data, if a deserialize error occurs the handler won't be called
 //!     - for [`ConnectHandler`](handler::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](handler::MessageHandler): extracts and deserialize to json the message data
-//! * [`TryData`](extract::Data): extracts and deserialize to json any data but with a `Result` type in case of error
+//! * [`TryData`](extract::TryData): extracts and deserialize to json any data but with a `Result` type in case of error
 //!     - for [`ConnectHandler`](handler::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](handler::MessageHandler): extracts and deserialize to json the message data
-//! * [`SocketRef`](extract::Data): extracts a reference to the [`Socket`](socket::Socket)
-//! * [`Bin`](extract::Data): extract a binary payload for a given message. Because it consumes the event it should be the last argument
-//! * [`AckSender`](extract::Data): Can be used to send an ack response to the current message event
+//! * [`SocketRef`](extract::SocketRef): extracts a reference to the [`Socket`](socket::Socket)
+//! * [`Bin`](extract::Bin): extract a binary payload for a given message. Because it consumes the event it should be the last argument
+//! * [`AckSender`](extract::AckSender): Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`]: extracts the protocol version of the socket
 //! * [`TransportType`]: extracts the transport type of the socket
 //! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
