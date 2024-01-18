@@ -253,7 +253,7 @@ impl Extensions {
         self.map.is_empty()
     }
 
-    /// Get the numer of extensions available.
+    /// Get the number of extensions available.
     ///
     /// # Example
     ///
