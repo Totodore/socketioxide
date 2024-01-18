@@ -183,6 +183,10 @@
 //!
 //! Moreover the [`io`](SocketIo) handle can emit to any namespace while the [`SocketRef`](extract::SocketRef) can only emit to the namespace of the socket.
 //!
+//! When using any `emit` fn, if you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+//! Therefore if you want to send an array as the _first_ argument of the payload,
+//! you need to wrap it in an array or a tuple.
+//!
 //! #### Emit errors
 //! If the data can't be serialized to json, an [`serde_json::Error`] will be returned.
 //! If the socket is disconnected or the internal channel is full, a tracing log will be emitted if the `tracing` feature is enabled and the message will be dropped.
