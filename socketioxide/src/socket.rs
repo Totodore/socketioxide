@@ -242,6 +242,11 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Emits a message to the client
+    ///
+    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// Therefore if you want to send an array as the _first_ argument of the payload,
+    /// you need to wrap it in an array or a tuple.
+    ///
     /// ## Errors
     /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
     /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`].
@@ -259,6 +264,13 @@ impl<A: Adapter> Socket<A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message to the client
     ///         socket.emit("test", data).ok();
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         socket.emit("test", ("world", "hello", 1)).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = [1, 2, 3, 4];
+    ///         socket.emit("test", [arr]).ok();
     ///     });
     /// });
     /// ```
