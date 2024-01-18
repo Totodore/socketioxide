@@ -1,0 +1,85 @@
+name: release
+on:
+  push:
+    branches:
+      - release
+    paths:
+      - "**/Cargo.toml"
+      - ".github/workflows/release.yml"
+
+jobs:
+  git-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get releasing version
+        working-directory: .
+        run: echo NEXT_VERSION=$(sed -nE 's/^\s*version = "(.*?)"/\1/p' Cargo.toml) >> $GITHUB_ENV
+
+      - name: Check published version
+        run: echo PREV_VERSION=$(cargo search salvo --limit 1 | sed -nE 's/^[^"]*"//; s/".*//1p' -) >> $GITHUB_ENV
+
+      - name: Auto tag latest version
+        uses: bullrich/commit-autotag@main
+        if: env.NEXT_VERSION != env.PREV_VERSION
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        with:
+          strategy: regex
+          root: Cargo.toml
+          regex_pattern: "version\\s*=\\s*\"([0-9\\.]+)\""
+          tag_prefix: "v"
+          # version: "${{ env.NEXT_VERSION }}"
+
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        package:
+          - crate: socketioxide
+            path: socketioxide
+          - crate: engineioxide
+            path: engineioxide
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get releasing version
+        working-directory: ${{ matrix.package.path }}
+        run: echo NEXT_VERSION=$(sed -nE 's/^\s*version = "(.*?)"/\1/p' Cargo.toml) >> $GITHUB_ENV
+
+      - name: Check published version
+        run: echo PREV_VERSION=$(cargo search ${{ matrix.package.crate }} --limit 1 | sed -nE 's/^[^"]*"//; s/".*//1p' -) >> $GITHUB_ENV
+
+      - name: Cargo login
+        if: env.NEXT_VERSION != env.PREV_VERSION
+        run: cargo login ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Cargo package
+        if: env.NEXT_VERSION != env.PREV_VERSION
+        working-directory: ${{ matrix.package.path }}
+        run: |
+          echo "Releasing version: $NEXT_VERSION"
+          echo "Published version: $PREV_VERSION"
+          echo "Cargo Packaging..."
+          cargo package
+
+      - name: Publish ${{ matrix.package.name }}
+        if: env.NEXT_VERSION != env.PREV_VERSION
+        working-directory: ${{ matrix.package.path }}
+        run: |
+          echo "Cargo Publishing..."
+          cargo publish --no-verify
+          echo "New version $NEXT_VERSION has been published"
