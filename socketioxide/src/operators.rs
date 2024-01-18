@@ -279,6 +279,21 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Emits a message to all sockets selected with the previous operators.
+    ///
+    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// Therefore if you want to send an array as the _first_ argument of the payload,
+    /// you need to wrap it in an array or a tuple.
+    ///
+    /// ## Errors
+    /// * When encoding the data into JSON a [`BroadcastError::Serialize`] may be returned.
+    /// * If the underlying engine.io connection is closed for a given socket a [`BroadcastError::Socket(SocketError::Closed)`]
+    /// will be returned.
+    /// * If the packet buffer is full for a given socket, a [`BroadcastError::Socket(SocketError::InternalChannelFull)`]
+    /// will be retured.
+    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    ///
     /// #### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -288,6 +303,13 @@ impl<A: Adapter> Operators<A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         socket.to("room1").emit("test", ("world", "hello", 1)).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = [1, 2, 3, 4];
+    ///         socket.to("room2").emit("test", [arr]).ok();
     ///     });
     /// });
     pub fn emit(
