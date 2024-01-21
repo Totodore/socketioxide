@@ -116,6 +116,9 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// Disconnects the sockets that match the [`BroadcastOptions`].
     fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>>;
 
+    /// Returns all the rooms for this adapter.
+    fn rooms(&self) -> Result<Vec<Room>, Self::Error>;
+
     //TODO: implement
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
     // fn persist_session(&self, sid: i64);
@@ -277,6 +280,10 @@ impl Adapter for LocalAdapter {
         } else {
             Err(errors)
         }
+    }
+
+    fn rooms(&self) -> Result<Vec<Room>, Self::Error> {
+        Ok(self.rooms.read().unwrap().keys().cloned().collect())
     }
 }
 

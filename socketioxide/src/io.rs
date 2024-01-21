@@ -9,7 +9,7 @@ use engineioxide::{
 
 use crate::{
     ack::AckStream,
-    adapter::{Adapter, LocalAdapter},
+    adapter::{Adapter, LocalAdapter, Room},
     client::Client,
     extract::SocketRef,
     handler::ConnectHandler,
@@ -732,6 +732,27 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.get_default_op().join(rooms)
+    }
+
+    /// Gets all room names on the current namespace.
+    ///
+    /// Alias for `io.of("/").unwrap().rooms()`
+    ///
+    /// ## Panics
+    /// If the **default namespace "/" is not found** this fn will panic!
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// let io2 = io.clone();
+    /// io.ns("/", move |socket: SocketRef| async move {
+    ///     println!("Socket connected on /test namespace with id: {}", socket.id);
+    ///     let rooms = io2.rooms().unwrap();
+    ///     println!("All rooms on / namespace: {:?}", rooms);
+    /// });
+    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.get_default_op().rooms()
     }
 
     /// Makes all sockets selected with the previous operators leave the given room(s).

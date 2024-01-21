@@ -467,6 +467,11 @@ impl<A: Adapter> Operators<A> {
         self.ns.adapter.del_sockets(self.opts, rooms)
     }
 
+    /// Gets all room names for a given namespace
+    pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
+        self.ns.adapter.rooms()
+    }
+
     /// Creates a packet with the given event and data.
     fn get_packet(
         &mut self,
