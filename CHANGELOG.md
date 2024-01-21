@@ -1,3 +1,12 @@
+# 0.10.2
+## socketioxide
+* New [`rooms`](https://docs.rs/socketioxide/latest/socketioxide/struct.SocketIo.html#method.rooms) fn to get all the rooms of a namespace.
+
+# 0.10.1
+## socketioxide
+* New [`as_str`](https://docs.rs/socketioxide/latest/socketioxide/socket/struct.Sid.html#method.as_str) fn for `Sid`.
+* Http request is now cloned for the websocket transport (it was not possible before http v1). Therefore it is possible to get headers/extensions of the initial request.
+
 # 0.10.0
 ## socketioxide
 * Rework for `emit_with_ack` fns. It now returns an `AckStream` that can be used either as a future when expecting one ack or as a stream when expecting multiple acks. When expecting multiple acks the `AckStream` will yield `AckResult`s as well as their corresponding socket `id`.
