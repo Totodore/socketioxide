@@ -2,7 +2,7 @@ name: release
 on:
   push:
     branches:
-      - release
+      - main
     paths:
       - "**/Cargo.toml"
       - ".github/workflows/release.yml"
@@ -35,7 +35,7 @@ jobs:
           root: Cargo.toml
           regex_pattern: "version\\s*=\\s*\"([0-9\\.]+)\""
           tag_prefix: "v"
-          # version: "${{ env.NEXT_VERSION }}"
+          version: "${{ env.NEXT_VERSION }}"
 
   publish:
     runs-on: ubuntu-latest
