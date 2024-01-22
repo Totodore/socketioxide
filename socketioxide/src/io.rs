@@ -18,6 +18,8 @@ use crate::{
     service::SocketIoService,
     BroadcastError, DisconnectError,
 };
+use crate::parser::default::DefaultParser;
+use crate::parser::Parser;
 
 /// Configuration for Socket.IO & Engine.IO
 #[derive(Debug, Clone)]
@@ -34,6 +36,9 @@ pub struct SocketIoConfig {
     ///
     /// Defaults to 45 seconds.
     pub connect_timeout: Duration,
+
+    /// A custom parser that encodes and decodes packets
+    pub parser: Box<dyn Parser>
 }
 
 impl Default for SocketIoConfig {
@@ -45,6 +50,7 @@ impl Default for SocketIoConfig {
             },
             ack_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(45),
+            parser: Box::new(DefaultParser::default())
         }
     }
 }
@@ -149,6 +155,13 @@ impl<A: Adapter> SocketIoBuilder<A> {
     #[inline]
     pub fn with_config(mut self, config: SocketIoConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    /// Sets a custom [`Parser`] for encoding and decoding packets for this [`SocketIoBuilder`].
+    /// Can be used to implement a custom protocol.
+    pub fn with_parser<P : Parser + Send + Sync + 'static>(mut self, parser: P) -> Self {
+        self.config.parser = Box::new(parser);
         self
     }
 
