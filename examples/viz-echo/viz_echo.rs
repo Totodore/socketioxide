@@ -1,12 +1,11 @@
-use hyper::Server;
 use serde_json::Value;
 use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},
     SocketIo,
 };
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
-use warp::Filter;
+use viz::{handler::ServiceHandler, serve, Result, Router};
 
 fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
@@ -33,19 +32,22 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(FmtSubscriber::default())?;
 
-    let filter = warp::any().map(|| "Hello From Warp!");
-    let warp_svc = warp::service(filter);
-
-    let (service, io) = SocketIo::new_inner_svc(warp_svc);
+    let (svc, io) = SocketIo::new_svc();
 
     io.ns("/", on_connect);
     io.ns("/custom", on_connect);
 
+    let app = Router::new()
+        .get("/", |_| async { Ok("Hello, World!") })
+        .any("/*", ServiceHandler::new(svc));
+
     info!("Starting server");
 
-    Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(service.into_make_service())
-        .await?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+
+    if let Err(e) = serve(listener, app).await {
+        error!("{}", e);
+    }
 
     Ok(())
 }

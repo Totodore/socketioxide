@@ -16,8 +16,8 @@ today! As a contributor, here are the guidelines we would like you to follow:
 
 ## <a name="question"></a> Got a Question or Problem?
 
-For now, you can open an issue with the `question` label. We will try to answer it as soon as possible.
-We may later create a separate forum for this purpose and convert all questions to it.
+Please open a discussion on the [Q&A discussions](https://github.com/totodore/socketioxide/discussions) page. 
+We want to keep GitHub Issues for bugs and feature requests. If you open an issue it will be moved to Discussions.
 
 ## <a name="issue"></a> Found a Bug?
 
@@ -234,8 +234,8 @@ The scope should have the name of the cargo package affected (as perceived by pe
 
 The following is the list of supported scopes:
 
-- **socketioxide**: for changes made on `socketioxide` directory
-- **engineioxide**: for changes made on `engineioxide` directory
+- **socketio**: for changes made on `socketioxide` directory
+- **engineio**: for changes made on `engineioxide` directory
 - **examples**: for changes made on `examples` directory
 - **e2e**: for changes made on `e2e` directory
 
@@ -258,11 +258,3 @@ The subject contains succinct description of the change:
 
 Just as in the **subject**, use the imperative, present tense: "change" not "changed" nor "changes".
 The body should include the motivation for the change and contrast this with previous behavior.
-
-### Footer
-
-The footer should contain any information about **Breaking Changes** and is also the place to
-reference GitHub issues that this commit **Closes**.
-
-**Breaking Changes** should start with the word `BREAKING CHANGE:` with a space or two newlines. The rest of the commit message is then used for this.
-

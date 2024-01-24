@@ -8,7 +8,7 @@ edition.workspace = true
 socketioxide = { path = "../../socketioxide" }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tower-http = { version = "0.4.4", features = ["cors", "fs"] }
+tower-http = { version = "0.5.0", features = ["cors", "fs"] }
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true

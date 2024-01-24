@@ -4,17 +4,13 @@ use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
-use futures::stream::BoxStream;
-use serde::de::DeserializeOwned;
 
+use crate::ack::AckStream;
 use crate::adapter::LocalAdapter;
-use crate::errors::BroadcastError;
+use crate::errors::{BroadcastError, DisconnectError};
 use crate::extract::SocketRef;
-use crate::socket::{AckResponse, Socket};
-use crate::SendError;
 use crate::{
     adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
-    errors::AckError,
     ns::Namespace,
     packet::Packet,
 };
@@ -227,7 +223,13 @@ impl<A: Adapter> Operators<A> {
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
     ///
-    /// #### Example
+    /// See [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder) for the default timeout.
+    ///
+    /// See [`emit_with_ack()`] for more details on acknowledgements.
+    ///
+    /// [`emit_with_ack()`]: #method.emit_with_ack
+    ///
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -236,16 +238,19 @@ impl<A: Adapter> Operators<A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
+    ///       // Emit a test message in the room1 and room3 rooms, except for the room2
+    ///       // room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
+    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .unwrap()
+    ///             .for_each(|(id, ack)| async move {
     ///                match ack {
-    ///                    Ok(ack) => println!("Ack received {:?}", ack),
-    ///                    Err(err) => println!("Ack error {:?}", err),
+    ///                    Ok(ack) => println!("Ack received, socket {} {:?}", id, ack),
+    ///                    Err(err) => println!("Ack error, socket {} {:?}", id, err),
     ///                }
     ///             }).await;
     ///    });
@@ -274,6 +279,21 @@ impl<A: Adapter> Operators<A> {
     }
 
     /// Emits a message to all sockets selected with the previous operators.
+    ///
+    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// Therefore if you want to send an array as the _first_ argument of the payload,
+    /// you need to wrap it in an array or a tuple.
+    ///
+    /// ## Errors
+    /// * When encoding the data into JSON a [`BroadcastError::Serialize`] may be returned.
+    /// * If the underlying engine.io connection is closed for a given socket a [`BroadcastError::Socket(SocketError::Closed)`]
+    /// will be returned.
+    /// * If the packet buffer is full for a given socket, a [`BroadcastError::Socket(SocketError::InternalChannelFull)`]
+    /// will be retured.
+    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    ///
     /// #### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -283,6 +303,13 @@ impl<A: Adapter> Operators<A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
     ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         socket.to("room1").emit("test", ("world", "hello", 1)).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = [1, 2, 3, 4];
+    ///         socket.to("room2").emit("test", [arr]).ok();
     ///     });
     /// });
     pub fn emit<T: serde::Serialize>(
@@ -295,46 +322,71 @@ impl<A: Adapter> Operators<A> {
         Ok(())
     }
 
-    /// Emits a message to all sockets selected with the previous operators and return a stream of acknowledgements.
+    /// Emits a message to all sockets selected with the previous operators and
+    /// waits for the acknowledgement(s).
     ///
-    /// Each acknowledgement has a timeout specified in the config (5s by default) or with the `timeout()` operator.
-    /// #### Example
+    /// The acknowledgement has a timeout specified in the config (5s by default)
+    /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the [`timeout()`] operator.
+    ///
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
+    ///
+    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
+    ///
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`AckError::Socket`] will be yielded.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
+    ///
+    /// [`timeout()`]: #method.timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
+    ///
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use futures::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
-    ///       socket.to("room1")
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // Emit a test message in the room1 and room3 rooms,
+    ///         // except for the room2 room with the binary payload received
+    ///         let ack_stream = socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
     ///             .bin(bin)
-    ///             .emit_with_ack::<Value>("message-back", data).unwrap().for_each(|ack| async move {
-    ///                match ack {
-    ///                    Ok(ack) => println!("Ack received {:?}", ack),
-    ///                    Err(err) => println!("Ack error {:?}", err),
-    ///                }
-    ///             }).await;
-    ///    });
+    ///             .emit_with_ack::<String>("message-back", data)
+    ///             .unwrap();
+    ///
+    ///         ack_stream.for_each(|(id, ack)| async move {
+    ///             match ack {
+    ///                 Ok(ack) => println!("Ack received, socket {} {:?}", id, ack),
+    ///                 Err(err) => println!("Ack error, socket {} {:?}", id, err),
+    ///             }
+    ///         }).await;
+    ///     });
     /// });
-    pub fn emit_with_ack<V, T>(
+    pub fn emit_with_ack<V>(
         mut self,
         event: impl Into<Cow<'static, str>>,
-        data: T,
-    ) -> Result<BoxStream<'static, Result<AckResponse<V>, AckError<()>>>, BroadcastError<T>>
-    where
-        V: DeserializeOwned + Send,
-        T: serde::Serialize + serde::de::DeserializeOwned + Send,
-    {
+        data: impl serde::Serialize,
+    ) -> Result<AckStream<V>, serde_json::Error> {
         let packet = self.get_packet(event, data)?;
-        self.ns.adapter.broadcast_with_ack(packet, self.opts).map_err(|e| {
-            match e {
-                BroadcastError::SocketError(v) => BroadcastError::SocketError(v.),
-                e => e,
-            }
-        })
+        Ok(self.ns.adapter.broadcast_with_ack(packet, self.opts).into())
     }
 
     /// Gets all sockets selected with the previous operators.
@@ -370,8 +422,13 @@ impl<A: Adapter> Operators<A> {
     ///     socket.within("room1").within("room3").except("room2").disconnect().unwrap();
     ///   });
     /// });
-    pub fn disconnect(self) -> Result<(), BroadcastError<()>> {
+    pub fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
         self.ns.adapter.disconnect_socket(self.opts)
+    }
+
+    /// Gets a [`SocketRef`] by the specified [`Sid`].
+    pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
+        self.ns.get_socket(sid).map(SocketRef::from).ok()
     }
 
     /// Makes all sockets selected with the previous operators join the given room(s).
@@ -404,6 +461,11 @@ impl<A: Adapter> Operators<A> {
     /// });
     pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.ns.adapter.del_sockets(self.opts, rooms)
+    }
+
+    /// Gets all room names for a given namespace
+    pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
+        self.ns.adapter.rooms()
     }
 
     /// Creates a packet with the given event and data.

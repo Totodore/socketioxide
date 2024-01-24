@@ -1,6 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use engineioxide::sid::Sid;
-use socketioxide::{Packet, PacketData, ProtocolVersion};
+use socketioxide::{
+    packet::{Packet, PacketData},
+    ProtocolVersion,
+};
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Encode packet connect on /", |b| {
         let packet = Packet::connect(black_box("/"), black_box(Sid::ZERO), ProtocolVersion::V5);

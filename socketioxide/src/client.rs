@@ -27,6 +27,9 @@ pub struct Client<A: Adapter> {
 
 impl<A: Adapter> Client<A> {
     pub fn new(config: Arc<SocketIoConfig>) -> Self {
+        #[cfg(feature = "state")]
+        crate::state::freeze_state();
+
         Self {
             config,
             ns: RwLock::new(HashMap::new()),
@@ -49,7 +52,7 @@ impl<A: Adapter> Client<A> {
 
             // cancel the connect timeout task for v5
             if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                tx.send(()).unwrap();
+                tx.send(()).ok();
             }
 
             Ok(())
@@ -61,7 +64,7 @@ impl<A: Adapter> Client<A> {
             esocket.close(EIoDisconnectReason::TransportClose);
             Ok(())
         } else {
-            let packet = Packet::invalid_namespace(ns_path).try_into().unwrap();
+            let packet = Packet::invalid_namespace(ns_path).into();
             if let Err(_e) = esocket.emit(packet) {
                 #[cfg(feature = "tracing")]
                 tracing::error!("error while sending invalid namespace packet: {}", _e);
@@ -276,5 +279,50 @@ fn apply_payload_on_packet(data: Vec<u8>, socket: &EIoSocket<SocketData>) -> boo
         #[cfg(feature = "tracing")]
         tracing::debug!("[sid={}] socket received unexpected bin data", socket.id);
         false
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use tokio::sync::mpsc;
+
+    use crate::adapter::LocalAdapter;
+    const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
+
+    fn create_client() -> super::Client<LocalAdapter> {
+        let config = crate::SocketIoConfig {
+            connect_timeout: CONNECT_TIMEOUT,
+            ..Default::default()
+        };
+        let client = Client::<LocalAdapter>::new(std::sync::Arc::new(config));
+        client.add_ns("/".into(), || {});
+        client
+    }
+
+    use super::*;
+    #[tokio::test]
+    async fn connect_timeout_fail() {
+        let client = create_client();
+        let (tx, mut rx) = mpsc::channel(1);
+        let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
+        let sock = Arc::new(EIoSocket::new_dummy(Sid::new(), close_fn));
+        client.on_connect(sock.clone());
+        tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn connect_timeout() {
+        let client = create_client();
+        let (tx, mut rx) = mpsc::channel(1);
+        let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
+        let sock = Arc::new(EIoSocket::new_dummy(Sid::new(), close_fn));
+        client.on_connect(sock.clone());
+        client.on_message("0".into(), sock.clone());
+        tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
+            .await
+            .unwrap_err();
     }
 }

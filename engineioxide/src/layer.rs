@@ -25,31 +25,6 @@
 //!     .layer(layer);
 //! // Spawn the axum server
 //! ```
-//!
-//! #### Example with salvo (with the `hyper-v1` feature flag) :
-//! ```rust
-//! # use engineioxide::layer::EngineIoLayer;
-//! # use engineioxide::handler::EngineIoHandler;
-//! # use engineioxide::{Socket, DisconnectReason};
-//! # use std::sync::Arc;
-//! #[derive(Debug, Clone)]
-//! struct MyHandler;
-//!
-//! impl EngineIoHandler for MyHandler {
-//!     type Data = ();
-//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
-//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
-//! }
-//! // Create a new engineio layer
-//! let layer = EngineIoLayer::new(MyHandler)
-//!     .with_hyper_v1();     // Enable the hyper-v1 compatibility layer for salvo
-//!     // .compat();         // Enable the salvo compatibility layer
-
-//! // Spawn the salvo server
-//! ```
-
 use tower::Layer;
 
 use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
@@ -76,14 +51,6 @@ impl<H: EngineIoHandler> EngineIoLayer<H> {
     pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
         Self { config, handler }
     }
-
-    /// Create a `hyper-v1` compatible [`Layer`]
-    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-    #[cfg(feature = "hyper-v1")]
-    #[inline(always)]
-    pub fn with_hyper_v1(self) -> EngineIoHyperLayer<H> {
-        EngineIoHyperLayer(self)
-    }
 }
 
 impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
@@ -91,24 +58,5 @@ impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoLayer<H> {
 
     fn layer(&self, inner: S) -> Self::Service {
         EngineIoService::with_config_inner(inner, self.handler.clone(), self.config.clone())
-    }
-}
-
-/// Wrapper [`Layer`] for [`EngineIoLayer`] so it works with `hyper-v1`
-///
-/// It is only available through the feature flag `hyper-v1`
-#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-#[cfg(feature = "hyper-v1")]
-#[derive(Debug, Clone)]
-pub struct EngineIoHyperLayer<H: EngineIoHandler>(EngineIoLayer<H>);
-
-#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-#[cfg(feature = "hyper-v1")]
-impl<S: Clone, H: EngineIoHandler + Clone> Layer<S> for EngineIoHyperLayer<H> {
-    type Service = crate::service::hyper_v1::EngineIoHyperService<H, S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        EngineIoService::with_config_inner(inner, self.0.handler.clone(), self.0.config.clone())
-            .with_hyper_v1()
     }
 }

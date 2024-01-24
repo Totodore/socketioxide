@@ -1,4 +1,5 @@
-//! ### Extractors for [`ConnectHandler`](super::ConnectHandler) and [`MessageHandler`](super::MessageHandler).
+//! ### Extractors for [`ConnectHandler`](super::ConnectHandler), [`MessageHandler`](super::MessageHandler)
+//! and [`DisconnectHandler`](super::DisconnectHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
 //! * [`Data`]: extracts and deserialize to json any data, if a deserialization error occurs the handler won't be called:
@@ -10,8 +11,12 @@
 //! * [`SocketRef`]: extracts a reference to the [`Socket`]
 //! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
+//! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
+//! * [`TransportType`](crate::TransportType): extracts the transport type
+//! * [`DisconnectReason`]: extracts the reason of the disconnection
+//! * [`State`]: extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 //!
-//! ### You can also implement your own Extractor with the [`FromConnectParts`]and [`FromMessageParts`] traits
+//! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits
 //! When implementing these traits, if you clone the [`Arc<Socket>`] make sure that it is dropped at least when the socket is disconnected.
 //! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning the socket for common usage.
 //!
@@ -81,15 +86,21 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use super::message::FromMessageParts;
+use super::FromDisconnectParts;
 use super::{connect::FromConnectParts, message::FromMessage};
+use crate::errors::{DisconnectError, SendError};
+use crate::socket::DisconnectReason;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     packet::Packet,
     socket::Socket,
-    SendError,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
+
+#[cfg(feature = "state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "state")))]
+pub use state_extract::*;
 
 /// Utility function to unwrap an array with a single element
 fn upwrap_array(v: &mut Value) {
@@ -169,6 +180,7 @@ where
     }
 }
 /// An Extractor that returns a reference to a [`Socket`].
+#[derive(Debug)]
 pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
@@ -188,6 +200,12 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
         Ok(SocketRef(s.clone()))
     }
 }
+impl<A: Adapter> FromDisconnectParts<A> for SocketRef<A> {
+    type Error = Infallible;
+    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+        Ok(SocketRef(s.clone()))
+    }
+}
 
 impl<A: Adapter> std::ops::Deref for SocketRef<A> {
     type Target = Socket<A>;
@@ -196,13 +214,20 @@ impl<A: Adapter> std::ops::Deref for SocketRef<A> {
         &self.0
     }
 }
-
-impl<A: Adapter> SocketRef<A> {
+impl<A: Adapter> PartialEq for SocketRef<A> {
     #[inline(always)]
-    pub(crate) fn new(socket: Arc<Socket<A>>) -> Self {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id == other.0.id
+    }
+}
+impl<A: Adapter> From<Arc<Socket<A>>> for SocketRef<A> {
+    #[inline(always)]
+    fn from(socket: Arc<Socket<A>>) -> Self {
         Self(socket)
     }
+}
 
+impl<A: Adapter> SocketRef<A> {
     /// Disconnect the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
@@ -298,6 +323,12 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
         Ok(s.protocol())
     }
 }
+impl<A: Adapter> FromDisconnectParts<A> for crate::ProtocolVersion {
+    type Error = Infallible;
+    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+        Ok(s.protocol())
+    }
+}
 
 impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     type Error = Infallible;
@@ -314,5 +345,101 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
+    }
+}
+impl<A: Adapter> FromDisconnectParts<A> for crate::TransportType {
+    type Error = Infallible;
+    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+        Ok(s.transport_type())
+    }
+}
+
+impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
+    type Error = Infallible;
+    fn from_disconnect_parts(
+        _: &Arc<Socket<A>>,
+        reason: DisconnectReason,
+    ) -> Result<Self, Infallible> {
+        Ok(reason)
+    }
+}
+
+#[cfg(feature = "state")]
+mod state_extract {
+    use super::*;
+    use crate::state::get_state;
+
+    /// An Extractor that contains a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+    /// It implements [`std::ops::Deref`] to access the inner type so you can use it as a normal reference.
+    ///  
+    /// The specified state type must be the same as the one set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+    /// If it is not the case, the handler won't be called and an error log will be print if the `tracing` feature is enabled.
+    ///
+    /// The state is shared between the entire socket.io app context.
+    ///
+    /// ### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::{SocketRef, State}};
+    /// # use serde::{Serialize, Deserialize};
+    /// # use std::sync::atomic::AtomicUsize;
+    /// # use std::sync::atomic::Ordering;
+    /// #[derive(Default)]
+    /// struct MyAppData {
+    ///     user_cnt: AtomicUsize,
+    /// }
+    /// impl MyAppData {
+    ///     fn add_user(&self) {
+    ///         self.user_cnt.fetch_add(1, Ordering::SeqCst);
+    ///     }
+    ///     fn rm_user(&self) {
+    ///         self.user_cnt.fetch_sub(1, Ordering::SeqCst);
+    ///     }
+    /// }
+    /// let (_, io) = SocketIo::builder().with_state(MyAppData::default()).build_svc();
+    /// io.ns("/", |socket: SocketRef, state: State<MyAppData>| {
+    ///     state.add_user();
+    ///     println!("User count: {}", state.user_cnt.load(Ordering::SeqCst));
+    /// });
+    pub struct State<T: 'static>(pub &'static T);
+    /// It was impossible to find the given state and therefore the handler won't be called.
+    #[derive(Debug, thiserror::Error)]
+    #[error("State not found")]
+    pub struct StateNotFound;
+
+    impl<T> std::ops::Deref for State<T> {
+        type Target = T;
+        fn deref(&self) -> &Self::Target {
+            self.0
+        }
+    }
+
+    impl<A: Adapter, T: Send + Sync + 'static> FromConnectParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_connect_parts(
+            _: &Arc<Socket<A>>,
+            _: &Option<String>,
+        ) -> Result<Self, StateNotFound> {
+            get_state::<T>().map(State).ok_or(StateNotFound)
+        }
+    }
+    impl<A: Adapter, T: Send + Sync + 'static> FromDisconnectParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_disconnect_parts(
+            _: &Arc<Socket<A>>,
+            _: DisconnectReason,
+        ) -> Result<Self, StateNotFound> {
+            get_state::<T>().map(State).ok_or(StateNotFound)
+        }
+    }
+    impl<A: Adapter, T: Send + Sync + 'static> FromMessageParts<A> for State<T> {
+        type Error = StateNotFound;
+        fn from_message_parts(
+            _: &Arc<Socket<A>>,
+            _: &mut serde_json::Value,
+            _: &mut Vec<Vec<u8>>,
+            _: &Option<i64>,
+        ) -> Result<Self, StateNotFound> {
+            get_state::<T>().map(State).ok_or(StateNotFound)
+        }
     }
 }

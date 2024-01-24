@@ -1,33 +1,8 @@
-//! ## A tower [`Service`] for engine.io so it can be used with frameworks supporting tower services
+//! ## A tower [`Service`](tower::Service) for engine.io so it can be used with frameworks supporting tower services
 //!
-//! #### Example with a `Warp` inner service :
-//! ```rust
-//! # use engineioxide::layer::EngineIoLayer;
-//! # use engineioxide::handler::EngineIoHandler;
-//! # use engineioxide::service::EngineIoService;
-//! # use engineioxide::{Socket, DisconnectReason};
-//! # use std::sync::Arc;
-//! # use warp::Filter;
-//!
-//! #[derive(Debug)]
-//! struct MyHandler;
-//!
-//! impl EngineIoHandler for MyHandler {
-//!     type Data = ();
-//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
-//!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
-//! }
-//! let filter = warp::any().map(|| "Hello From Warp!");
-//! let warp_svc = warp::service(filter);
-//!
-//! // Create a new engineio service by wrapping the warp service
-//! let service = EngineIoService::with_inner(warp_svc, MyHandler)
-//!     .into_make_service(); // Create a MakeService from the EngineIoService to give it to hyper
-//! ```
 //!
 //! #### Example with a `hyper` standalone service :
+//!
 //! ```rust
 //! # use engineioxide::layer::EngineIoLayer;
 //! # use engineioxide::handler::EngineIoHandler;
@@ -60,18 +35,13 @@ use ::futures::future::{self, Ready};
 use bytes::Bytes;
 use http::{Request, Response};
 use http_body::Body;
-use tower::Service;
+use http_body_util::Empty;
+use hyper::service::Service as HyperSvc;
+use tower::Service as TowerSvc;
 
 use crate::{
-    body::response::{Empty, ResponseBody},
-    config::EngineIoConfig,
-    engine::EngineIo,
-    handler::EngineIoHandler,
+    body::ResponseBody, config::EngineIoConfig, engine::EngineIo, handler::EngineIoHandler,
 };
-
-#[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-#[cfg(feature = "hyper-v1")]
-pub mod hyper_v1;
 
 mod futures;
 mod parser;
@@ -79,11 +49,11 @@ mod parser;
 pub use self::parser::{ProtocolVersion, TransportType};
 use self::{futures::ResponseFuture, parser::dispatch_req};
 
-/// A [`Service`] that handles engine.io requests as a middleware.
+/// A `Service` that handles engine.io requests as a middleware.
 /// If the request is not an engine.io request, it forwards it to the inner service.
 /// If it is an engine.io request it will forward it to the appropriate `transport`.
 ///
-/// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`].
+/// By default, it uses a [`NotFoundService`] as the inner service so it can be used as a standalone [`Service`](TowerSvc).
 pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
     inner: S,
     engine: Arc<EngineIo<H>>,
@@ -102,15 +72,6 @@ impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
 }
 
 impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
-    /// Create a new [`hyper_v1::EngineIoHyperService`] with this [`EngineIoService`] as the inner service.
-    ///
-    /// It can be used as a compatibility layer for hyper v1.
-    #[cfg_attr(docsrs, doc(cfg(feature = "hyper-v1")))]
-    #[cfg(feature = "hyper-v1")]
-    #[inline(always)]
-    pub fn with_hyper_v1(self) -> hyper_v1::EngineIoHyperService<H, S> {
-        hyper_v1::EngineIoHyperService::new(self)
-    }
     /// Create a new [`EngineIoService`] with a custom inner service.
     pub fn with_inner(inner: S, handler: H) -> Self {
         EngineIoService::with_config_inner(inner, handler, EngineIoConfig::default())
@@ -145,15 +106,15 @@ impl<H: EngineIoHandler, S> std::fmt::Debug for EngineIoService<H, S> {
     }
 }
 
-/// Tower [`Service`] implementation for [`EngineIoService`].
-impl<ReqBody, ResBody, S, H> Service<Request<ReqBody>> for EngineIoService<H, S>
+/// Tower Service implementation.
+impl<H, ReqBody, ResBody, S> TowerSvc<Request<ReqBody>> for EngineIoService<H, S>
 where
-    ResBody: Body + Send + 'static,
+    H: EngineIoHandler,
     ReqBody: Body + Send + Unpin + 'static + std::fmt::Debug,
     ReqBody::Error: std::fmt::Debug,
     ReqBody::Data: Send,
-    S: tower::Service<Request<ReqBody>, Response = Response<ResBody>>,
-    H: EngineIoHandler,
+    ResBody: Body + Send + 'static,
+    S: TowerSvc<Request<ReqBody>, Response = Response<ResBody>>,
 {
     type Response = Response<ResponseBody<ResBody>>;
     type Error = S::Error;
@@ -166,12 +127,31 @@ where
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         let path = self.engine.config.req_path.as_ref();
         if req.uri().path().starts_with(path) {
-            dispatch_req(
-                req,
-                self.engine.clone(),
-                #[cfg(feature = "hyper-v1")]
-                false, // hyper-v1 disabled
-            )
+            dispatch_req(req, self.engine.clone())
+        } else {
+            ResponseFuture::new(self.inner.call(req))
+        }
+    }
+}
+
+/// Hyper 1.0 Service implementation.
+impl<H, ReqBody, ResBody, S> HyperSvc<Request<ReqBody>> for EngineIoService<H, S>
+where
+    H: EngineIoHandler,
+    ReqBody: Body + Send + Unpin + 'static + std::fmt::Debug,
+    ReqBody::Error: std::fmt::Debug,
+    ReqBody::Data: Send,
+    ResBody: Body + Send + 'static,
+    S: HyperSvc<Request<ReqBody>, Response = Response<ResBody>>,
+{
+    type Response = Response<ResponseBody<ResBody>>;
+    type Error = S::Error;
+    type Future = ResponseFuture<S::Future, ResBody>;
+
+    fn call(&self, req: Request<ReqBody>) -> Self::Future {
+        let path = self.engine.config.req_path.as_ref();
+        if req.uri().path().starts_with(path) {
+            dispatch_req(req, self.engine.clone())
         } else {
             ResponseFuture::new(self.inner.call(req))
         }
@@ -190,7 +170,7 @@ impl<H: EngineIoHandler, S> MakeEngineIoService<H, S> {
     }
 }
 
-impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
+impl<H: EngineIoHandler, S: Clone, T> TowerSvc<T> for MakeEngineIoService<H, S> {
     type Response = EngineIoService<H, S>;
 
     type Error = Infallible;
@@ -206,12 +186,12 @@ impl<H: EngineIoHandler, S: Clone, T> Service<T> for MakeEngineIoService<H, S> {
     }
 }
 
-/// A [`Service`] that always returns a 404 response and that is compatible with [`EngineIoService`]
-/// *and* [`hyper_v1::EngineIoHyperService`].
+/// A `Service` that always returns a 404 response and that is compatible with [`EngineIoService`]
 #[derive(Debug, Clone)]
 pub struct NotFoundService;
 
-impl<ReqBody> Service<Request<ReqBody>> for NotFoundService {
+/// Implement a custom tower [`Service`](TowerSvc) for the [`NotFoundService`]
+impl<ReqBody> TowerSvc<Request<ReqBody>> for NotFoundService {
     type Response = Response<ResponseBody<Empty<Bytes>>>;
     type Error = Infallible;
     type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
@@ -221,6 +201,20 @@ impl<ReqBody> Service<Request<ReqBody>> for NotFoundService {
     }
 
     fn call(&mut self, _: Request<ReqBody>) -> Self::Future {
+        future::ready(Ok(Response::builder()
+            .status(404)
+            .body(ResponseBody::empty_response())
+            .unwrap()))
+    }
+}
+
+/// Implement a custom hyper [`Service`](HyperSvc) for the [`NotFoundService`]
+impl<ReqBody> HyperSvc<Request<ReqBody>> for NotFoundService {
+    type Response = Response<ResponseBody<Empty<Bytes>>>;
+    type Error = Infallible;
+    type Future = Ready<Result<Response<ResponseBody<Empty<Bytes>>>, Infallible>>;
+
+    fn call(&self, _: Request<ReqBody>) -> Self::Future {
         future::ready(Ok(Response::builder()
             .status(404)
             .body(ResponseBody::empty_response())

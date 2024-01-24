@@ -1,15 +1,29 @@
+#![allow(dead_code)]
+
 use std::{
+    collections::VecDeque,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
 
-use futures::SinkExt;
+use engineioxide::service::NotFoundService;
+use futures::{future::BoxFuture, SinkExt};
 use http::Request;
-use hyper::{body::Buf, Server};
+use http_body_util::{BodyExt, Either, Empty, Full};
+use hyper::server::conn::http1;
+use hyper_util::{
+    client::legacy::Client,
+    rt::{TokioExecutor, TokioIo},
+};
+use rust_socketio::{
+    asynchronous::{Client as SocketIoClient, ClientBuilder},
+    Payload,
+};
 use serde::{Deserialize, Serialize};
-use socketioxide::SocketIo;
-use tokio::net::TcpStream;
+use socketioxide::{adapter::LocalAdapter, service::SocketIoService, SocketIo};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+
 /// An OpenPacket is used to initiate a connection
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
@@ -28,9 +42,10 @@ pub async fn send_req(
     method: http::Method,
     body: Option<String>,
 ) -> String {
-    let body = body
-        .map(|b| hyper::Body::from(b))
-        .unwrap_or_else(hyper::Body::empty);
+    let body = match body {
+        Some(b) => Either::Left(Full::new(VecDeque::from(b.into_bytes()))),
+        None => Either::Right(Empty::<VecDeque<u8>>::new()),
+    };
     let req = Request::builder()
         .method(method)
         .uri(format!(
@@ -39,17 +54,21 @@ pub async fn send_req(
         ))
         .body(body)
         .unwrap();
-    let mut res = hyper::Client::new().request(req).await.unwrap();
+    let mut res = Client::builder(TokioExecutor::new())
+        .build_http()
+        .request(req)
+        .await
+        .unwrap();
     let is_json = res
         .headers()
         .get("Content-Type")
         .map(|v| v == "application/json")
         .unwrap_or_default();
-    let body = hyper::body::aggregate(res.body_mut()).await.unwrap();
+    let body = res.body_mut().collect().await.unwrap().to_bytes();
     if is_json {
-        String::from_utf8(body.chunk().to_vec()).unwrap()
+        String::from_utf8(body.to_vec()).unwrap()
     } else {
-        String::from_utf8(body.chunk().to_vec())
+        String::from_utf8(body.to_vec())
             .unwrap()
             .chars()
             .skip(1)
@@ -84,17 +103,77 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     ws
 }
 
-pub fn create_server(port: u16) -> SocketIo {
+pub async fn create_server_with_state<T: Send + Sync + 'static>(port: u16, state: T) -> SocketIo {
+    let (svc, io) = SocketIo::builder()
+        .ping_interval(Duration::from_millis(300))
+        .ping_timeout(Duration::from_millis(200))
+        .with_state(state)
+        .build_svc();
+
+    spawn_server(port, svc).await;
+
+    io
+}
+
+pub async fn create_server(port: u16) -> SocketIo {
     let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .build_svc();
 
-    let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-
-    let server = Server::bind(addr).serve(svc.into_make_service());
-
-    tokio::spawn(server);
-
+    spawn_server(port, svc).await;
     io
+}
+
+pub async fn socketio_client_with_handler<F>(
+    port: u16,
+    event: &str,
+    callback: F,
+    auth: impl Into<serde_json::Value>,
+) -> Result<SocketIoClient, rust_socketio::Error>
+where
+    F: FnMut(Payload, SocketIoClient) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+{
+    ClientBuilder::new(format!("http://127.0.0.1:{}", port))
+        .on(event, callback)
+        .auth(auth)
+        .connect()
+        .await
+}
+pub async fn socketio_client(
+    port: u16,
+    auth: impl Into<serde_json::Value>,
+) -> Result<SocketIoClient, rust_socketio::Error> {
+    ClientBuilder::new(format!("http://127.0.0.1:{}", port))
+        .auth(auth)
+        .connect()
+        .await
+}
+
+async fn spawn_server(port: u16, svc: SocketIoService<NotFoundService, LocalAdapter>) {
+    let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let listener = TcpListener::bind(&addr).await.unwrap();
+    tokio::spawn(async move {
+        // We start a loop to continuously accept incoming connections
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+
+            // Use an adapter to access something implementing `tokio::io` traits as if they implement
+            // `hyper::rt` IO traits.
+            let io = TokioIo::new(stream);
+            let svc = svc.clone();
+
+            // Spawn a tokio task to serve multiple connections concurrently
+            tokio::task::spawn(async move {
+                // Finally, we bind the incoming connection to our `hello` service
+                if let Err(err) = http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .with_upgrades()
+                    .await
+                {
+                    println!("Error serving connection: {:?}", err);
+                }
+            });
+        }
+    });
 }

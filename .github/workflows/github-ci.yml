@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - v*
   pull_request:
     branches:
       - main
@@ -117,7 +115,6 @@ jobs:
 
   doctest:
     runs-on: ubuntu-latest
-    needs: [engine_io, socket_io, test]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -181,7 +178,6 @@ jobs:
     strategy:
       matrix:
         engineio-version: [v3, v4]
-        hyper-version: [hyper-v04, hyper-v1]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -208,8 +204,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-${{ matrix.hyper-version }}-e2e --features ${{ matrix.engineio-version }} --release
-          cargo run --bin engineioxide-${{ matrix.hyper-version }}-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
+          cargo run --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt

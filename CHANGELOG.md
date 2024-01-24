@@ -1,3 +1,37 @@
+# 0.10.2
+## socketioxide
+* New [`rooms`](https://docs.rs/socketioxide/latest/socketioxide/struct.SocketIo.html#method.rooms) fn to get all the rooms of a namespace.
+
+# 0.10.1
+## socketioxide
+* New [`as_str`](https://docs.rs/socketioxide/latest/socketioxide/socket/struct.Sid.html#method.as_str) fn for `Sid`.
+* Http request is now cloned for the websocket transport (it was not possible before http v1). Therefore it is possible to get headers/extensions of the initial request.
+
+# 0.10.0
+## socketioxide
+* Rework for `emit_with_ack` fns. It now returns an `AckStream` that can be used either as a future when expecting one ack or as a stream when expecting multiple acks. When expecting multiple acks the `AckStream` will yield `AckResult`s as well as their corresponding socket `id`.
+
+# 0.9.1
+## socketioxide
+* Add `SocketIo::get_socket` and `Operators::get_socket` methods to get a socket ref from its id.
+* Switch to `pin-project-lite` instead of `pin-project`.
+
+# 0.9.0
+* Bump `hyper` to 1.0.1. Therefore it is now possible to use frameworks based on hyper v1.*. Check the [compatibility table](./README.md#compatibility) for more details.
+
+# 0.8.0
+## socketioxide
+* Add `transport_type` and `protocol` fn on the `Socket` struct. It allows to know the transport type and the protocol used by the socket.
+* Dynamic `DisconnectHandler`. Now the `on_disconnect` handler take a dynamic handler that maybe async and contain any type that implements `FromDisconnectParts`. It allows to extract data from the disconnection, like the socket, the reason of the disconnection, the state etc.
+* New `state` feature flag. It enables global state management. It is useful to share data between handlers. It is disabled by default.
+
+## engineioxide
+* Packet encoding/decoding optimizations.
+
+# 0.7.3
+## socketioxide
+* Fix [#189](https://github.com/Totodore/socketioxide/issues/189). Async message handlers were never called because the returned future was not spawned with `tokio::spawn`.
+
 # 0.7.2
 ## socketioxide
 * The `on_disconnect` callback now takes a `SocketRef` rather than an `Arc<Socket>` to match other handlers. It also avoids that the user clone the socket and create a memory leak.
@@ -6,7 +40,7 @@
 
 # 0.7.1
 ## socketioxide
-* Fix [#154](https://github.com/Totodore/socketioxide/issues/154), build was broken when using the `hyper-v1` feature flag because of `hyper-util` dependencie which is not published on crates.io.
+* Fix [#154](https://github.com/Totodore/socketioxide/issues/154), build was broken when using the `hyper-v1` feature flag because of `hyper-util` dependency which is not published on crates.io.
 
 # 0.7.0
 ## socketioxide

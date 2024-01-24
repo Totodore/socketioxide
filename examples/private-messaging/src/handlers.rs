@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
-use socketioxide::extract::{Data, SocketRef, TryData};
+use socketioxide::extract::{Data, SocketRef, State, TryData};
 use tracing::error;
 use uuid::Uuid;
 
-use crate::store::{get_sessions, Message, Session, MESSAGES};
+use crate::store::{Message, Messages, Session, Sessions};
 
 #[derive(Debug, Deserialize)]
 pub struct Auth {
@@ -38,8 +38,13 @@ struct PrivateMessageReq {
     content: String,
 }
 
-pub fn on_connection(s: SocketRef, TryData(auth): TryData<Auth>) {
-    if let Err(e) = session_connect(&s, auth) {
+pub fn on_connection(
+    s: SocketRef,
+    TryData(auth): TryData<Auth>,
+    sessions: State<Sessions>,
+    msgs: State<Messages>,
+) {
+    if let Err(e) = session_connect(&s, auth, sessions.0, msgs.0) {
         error!("Failed to connect: {:?}", e);
         s.disconnect().ok();
         return;
@@ -47,25 +52,25 @@ pub fn on_connection(s: SocketRef, TryData(auth): TryData<Auth>) {
 
     s.on(
         "private message",
-        |s: SocketRef, Data(PrivateMessageReq { to, content })| {
+        |s: SocketRef, Data(PrivateMessageReq { to, content }), State(Messages(msg))| {
             let user_id = s.extensions.get::<Session>().unwrap().user_id;
             let message = Message {
                 from: user_id,
                 to,
                 content,
             };
-            MESSAGES.write().unwrap().push(message.clone());
+            msg.write().unwrap().push(message.clone());
             s.within(to.to_string())
                 .emit("private message", message)
                 .ok();
         },
     );
 
-    s.on_disconnect(|s, _| async move {
+    s.on_disconnect(|s: SocketRef, State(Sessions(sessions))| {
         let mut session = s.extensions.get::<Session>().unwrap().clone();
         session.connected = false;
 
-        get_sessions()
+        sessions
             .write()
             .unwrap()
             .get_mut(&session.session_id)
@@ -88,9 +93,11 @@ enum ConnectError {
 fn session_connect(
     s: &SocketRef,
     auth: Result<Auth, serde_json::Error>,
+    Sessions(session_state): &Sessions,
+    Messages(msg_state): &Messages,
 ) -> Result<(), ConnectError> {
     let auth = auth.map_err(ConnectError::EncodeError)?;
-    let mut sessions = get_sessions().write().unwrap();
+    let mut sessions = session_state.write().unwrap();
     if let Some(session) = auth.session_id.and_then(|id| sessions.get_mut(&id)) {
         session.connected = true;
         s.extensions.insert(session.clone());
@@ -109,13 +116,13 @@ fn session_connect(
     s.emit("session", session.clone())
         .map_err(ConnectError::SocketError)?;
 
-    let users = get_sessions()
+    let users = session_state
         .read()
         .unwrap()
         .iter()
         .filter(|(id, _)| id != &&session.session_id)
         .map(|(_, session)| {
-            let messages = MESSAGES
+            let messages = msg_state
                 .read()
                 .unwrap()
                 .iter()

@@ -5,6 +5,8 @@ use socketioxide::{
     SocketIo,
 };
 
+use tower::ServiceBuilder;
+use tower_http::cors::CorsLayer;
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
@@ -41,10 +43,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
+    // This code is used to integrates other tower layers before or after Socket.IO such as CORS
+    // Beware that classic salvo request won't pass through these layers
+    let layer = ServiceBuilder::new()
+        .layer(CorsLayer::permissive()) // Enable CORS policy
+        .layer(layer); // Mount Socket.IO
+
     io.ns("/", on_connect);
     io.ns("/custom", on_connect);
 
-    let layer = layer.with_hyper_v1().compat();
+    let layer = layer.compat();
     let router = Router::with_path("/socket.io").hoop(layer).goal(hello);
     let acceptor = TcpListener::new("127.0.0.1:3000").bind().await;
     Server::new(acceptor).serve(router).await;

@@ -8,8 +8,8 @@ use engineioxide::{
     service::EngineIoService,
     socket::{DisconnectReason, Socket},
 };
+use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
-use hyper_v1::server::conn::http1;
 use tokio::net::TcpListener;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
 
-    let svc = EngineIoService::with_config(MyHandler, config).with_hyper_v1();
+    let svc = EngineIoService::with_config(MyHandler, config);
 
     let listener = TcpListener::bind("127.0.0.1:3000").await?;
 

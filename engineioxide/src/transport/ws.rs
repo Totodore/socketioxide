@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use futures::{
-    future::Either,
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
 };
@@ -22,7 +21,7 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    body::response::ResponseBody,
+    body::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
     errors::Error,
@@ -33,9 +32,6 @@ use crate::{
     sid::Sid,
     DisconnectReason, Socket,
 };
-
-#[cfg(feature = "hyper-v1")]
-mod tokio_io;
 
 /// Create a response for websocket upgrade
 fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
@@ -54,27 +50,17 @@ fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, htt
 
 /// Upgrade a websocket request to create a websocket connection.
 ///
-/// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request. In this case
-/// the http polling request is closed and the SID is kept for the websocket
-///
-/// It can be used with hyper-v1 by setting the `hyper_v1` parameter to true
+/// If a sid is provided in the query it means that is is upgraded from an existing HTTP polling request.
+/// In this case the http polling request is closed and the SID is kept for the websocket
 pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Option<Sid>,
     req: Request<R>,
-    #[cfg(feature = "hyper-v1")] hyper_v1: bool,
 ) -> Result<Response<ResponseBody<B>>, Error> {
-    let mut parts = Request::builder()
-        .method(req.method().clone())
-        .uri(req.uri().clone())
-        .version(req.version())
-        .body(())
-        .unwrap()
-        .into_parts()
-        .0;
+    let (parts, body) = req.into_parts();
+    let req = Request::from_parts(parts.clone(), body);
 
-    parts.headers.extend(req.headers().clone());
     let ws_key = parts
         .headers
         .get("Sec-WebSocket-Key")
@@ -82,27 +68,12 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         .clone();
 
     tokio::spawn(async move {
-        #[cfg(feature = "hyper-v1")]
-        let res = if hyper_v1 {
-            // Wraps the hyper-v1 upgrade so it implement `AsyncRead` and `AsyncWrite`
-            Either::Left(hyper_v1::upgrade::on(req).await.map(tokio_io::TokioIo::new))
-        } else {
-            Either::Right(hyper::upgrade::on(req).await)
-        };
-        #[cfg(not(feature = "hyper-v1"))]
-        let res = {
-            type Res = Result<hyper::upgrade::Upgraded, hyper::Error>;
-            Either::Right(hyper::upgrade::on(req).await) as Either<Res, Res>
-        };
-        let res = match res {
-            Either::Left(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
-            Either::Right(Ok(conn)) => on_init(engine, conn, protocol, sid, parts).await,
-            Either::Left(Err(_e)) => {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("ws upgrade error: {}", _e);
-                return;
-            }
-            Either::Right(Err(_e)) => {
+        let conn = hyper::upgrade::on(req)
+            .await
+            .map(hyper_util::rt::TokioIo::new);
+        let res = match conn {
+            Ok(conn) => on_init(engine, conn, protocol, sid, parts).await,
+            Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
                 return;
@@ -143,7 +114,7 @@ where
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {
             None => return Err(Error::UnknownSessionID(sid)),
-            Some(socket) if socket.is_ws() => return Err(Error::UpgradeError),
+            Some(socket) if socket.is_ws() => return Err(Error::Upgrade),
             Some(socket) => {
                 let mut ws = ws_init().await;
                 upgrade_handshake::<H, S>(&socket, &mut ws).await?;
@@ -331,7 +302,7 @@ where
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
         Some(Ok(Message::Text(d))) => d,
-        _ => Err(Error::UpgradeError)?,
+        _ => Err(Error::Upgrade)?,
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
@@ -351,12 +322,12 @@ where
         Some(Ok(Message::Close(_))) => {
             #[cfg(feature = "tracing")]
             tracing::debug!("ws stream closed before upgrade");
-            Err(Error::UpgradeError)?
+            Err(Error::Upgrade)?
         }
         _ => {
             #[cfg(feature = "tracing")]
             tracing::debug!("unexpected ws message before upgrade");
-            Err(Error::UpgradeError)?
+            Err(Error::Upgrade)?
         }
     };
     match Packet::try_from(msg)? {
