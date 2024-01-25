@@ -59,10 +59,10 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-nightly
       - name: Check unused dependencies on default features
-        run: cargo udeps
+        run: cargo udeps --workspace
 
       - name: Check unused dependencies on all features
-        run: cargo udeps --all-features
+        run: cargo udeps --all-features --workspace
 
   msrv:
     runs-on: ubuntu-latest
@@ -86,7 +86,7 @@ jobs:
             components: rustfmt, clippy
 
       - name: check crates
-        run: cargo check -p socketioxide -p engineioxide -p socketioxide-e2e -p engineioxide-e2e --all-features
+        run: cargo check -p socketioxide -p engineioxide -p socketioxide-e2e -p engineioxide-e2e --all-features --workspace
 
   feature_set:
     runs-on: ubuntu-latest
@@ -204,8 +204,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
-          cargo run --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release --workspace
+          cargo run --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release --workspace > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -244,8 +244,8 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release
-          cargo run --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release --workspace
+          cargo run --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release  --workspace > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
