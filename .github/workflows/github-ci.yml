@@ -245,7 +245,7 @@ jobs:
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
           cargo build --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release --workspace
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release  --workspace > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
