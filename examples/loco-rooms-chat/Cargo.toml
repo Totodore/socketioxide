@@ -1,5 +1,3 @@
-[workspace]
-
 [package]
 name = "loco_chat_rooms"
 version = "0.1.0"
@@ -10,8 +8,8 @@ edition = "2021"
 [dependencies]
 
 loco-rs = { version = "0.2.3", default-features = false, features = [
-  "cli",
-  "channels",
+    "cli",
+    "channels",
 ] }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
