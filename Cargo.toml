@@ -15,6 +15,7 @@ license = "MIT"
 
 [workspace]
 members = ["engineioxide", "socketioxide", "e2e/*", "examples/*"]
+default-members = ["engineioxide", "socketioxide"]
 resolver = "2"
 
 [workspace.dependencies]
