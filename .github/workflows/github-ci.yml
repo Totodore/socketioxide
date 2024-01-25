@@ -204,7 +204,7 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release --workspace
+          cargo build -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
           cargo run -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
@@ -244,7 +244,7 @@ jobs:
       - name: Install deps & run tests 
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release --workspace
+          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release
           cargo run -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
