@@ -36,7 +36,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo test --tests --all-features
+      - run: cargo test --tests --all-features --workspace
 
   udeps:
     runs-on: ubuntu-latest
