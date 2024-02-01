@@ -227,6 +227,13 @@ impl<A: Adapter> From<Arc<Socket<A>>> for SocketRef<A> {
     }
 }
 
+impl<A: Adapter> Clone for SocketRef<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+
 impl<A: Adapter> SocketRef<A> {
     /// Disconnect the socket from the current namespace,
     ///
@@ -368,7 +375,7 @@ mod state_extract {
 
     /// An Extractor that contains a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
     /// It implements [`std::ops::Deref`] to access the inner type so you can use it as a normal reference.
-    ///  
+    ///
     /// The specified state type must be the same as the one set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
     /// If it is not the case, the handler won't be called and an error log will be print if the `tracing` feature is enabled.
     ///
