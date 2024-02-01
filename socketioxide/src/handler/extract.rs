@@ -233,7 +233,6 @@ impl<A: Adapter> Clone for SocketRef<A> {
     }
 }
 
-
 impl<A: Adapter> SocketRef<A> {
     /// Disconnect the socket from the current namespace,
     ///
