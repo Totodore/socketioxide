@@ -312,11 +312,11 @@ impl<A: Adapter> Operators<A> {
     ///         socket.to("room2").emit("test", [arr]).ok();
     ///     });
     /// });
-    pub fn emit(
+    pub fn emit<T: serde::Serialize>(
         mut self,
         event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<(), BroadcastError> {
+        data: T,
+    ) -> Result<(), BroadcastError<()>> {
         let packet = self.get_packet(event, data)?;
         if let Err(e) = self.ns.adapter.broadcast(packet, self.opts) {
             #[cfg(feature = "tracing")]

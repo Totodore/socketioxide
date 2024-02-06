@@ -26,7 +26,7 @@ pub enum Error {
 
 /// Error type for ack operations.
 #[derive(thiserror::Error, Debug)]
-pub enum AckError {
+pub enum AckError<T> {
     /// The ack response cannot be parsed
     #[error("cannot deserialize json packet from ack response: {0:?}")]
     Serde(#[from] serde_json::Error),
@@ -41,15 +41,15 @@ pub enum AckError {
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(#[from] SocketError),
+    Socket(#[from] SocketError<T>),
 }
 
 /// Error type for broadcast operations.
-#[derive(Debug, thiserror::Error)]
-pub enum BroadcastError {
+#[derive(thiserror::Error)]
+pub enum BroadcastError<T> {
     /// An error occurred while sending packets.
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(Vec<SocketError>),
+    Socket(Vec<SocketError<T>>),
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
@@ -59,32 +59,53 @@ pub enum BroadcastError {
     #[error("Adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }
+impl Debug for BroadcastError<()> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Socket(errs) => {
+                f.write_str("BroadcastError::Socket(")?;
+                Debug::fmt(errs, f)?;
+                f.write_str(")")
+            }
+            Self::Serialize(err) => {
+                f.write_str("BroadcastError::Serialize(")?;
+                Debug::fmt(err, f)?;
+                f.write_str(")")
+            }
+            Self::Adapter(err) => {
+                f.write_str("BroadcastError::Adapter(")?;
+                Debug::fmt(err, f)?;
+                f.write_str(")")
+            }
+        }
+    }
+}
 
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
-pub enum SendError {
+pub enum SendError<T> {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
     Serialize(#[from] serde_json::Error),
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(#[from] SocketError),
+    Socket(#[from] SocketError<T>),
 }
 
 /// Error type when using the underlying engine.io socket
 #[derive(thiserror::Error, Debug)]
-pub enum SocketError {
+pub enum SocketError<T> {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
     ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     #[error("internal channel full error")]
-    InternalChannelFull,
+    InternalChannelFull(T),
 
     /// The socket is already closed
     #[error("socket closed")]
-    Closed,
+    Closed(T),
 }
 
 /// Error type for sending operations.
@@ -111,16 +132,16 @@ impl Display for AdapterError {
     }
 }
 
-impl<T> From<TrySendError<T>> for SocketError {
+impl<T> From<TrySendError<T>> for SocketError<()> {
     fn from(value: TrySendError<T>) -> Self {
         match value {
-            TrySendError::Full(_) => Self::InternalChannelFull,
-            TrySendError::Closed(_) => Self::Closed,
+            TrySendError::Full(_) => Self::InternalChannelFull(()),
+            TrySendError::Closed(_) => Self::Closed(()),
         }
     }
 }
 
-impl From<Vec<SocketError>> for BroadcastError {
+impl<T> From<Vec<SocketError<T>>> for BroadcastError<T> {
     /// Converts a vector of `SendError` into a `BroadcastError`.
     ///
     /// # Arguments
@@ -130,12 +151,12 @@ impl From<Vec<SocketError>> for BroadcastError {
     /// # Returns
     ///
     /// A `BroadcastError` containing the sending errors.
-    fn from(value: Vec<SocketError>) -> Self {
+    fn from(value: Vec<SocketError<T>>) -> Self {
         Self::Socket(value)
     }
 }
 
-impl From<Elapsed> for AckError {
+impl<T> From<Elapsed> for AckError<T> {
     fn from(_: Elapsed) -> Self {
         Self::Timeout
     }

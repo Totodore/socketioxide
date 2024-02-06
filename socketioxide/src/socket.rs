@@ -12,10 +12,13 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::socket::DisconnectReason as EIoDisconnectReason;
+use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, PermitIterator};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::oneshot::{self, Receiver};
+use tokio::sync::{
+    mpsc::error::TrySendError,
+    oneshot::{self, Receiver},
+};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
@@ -276,11 +279,11 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn emit(
+    pub fn emit<T: Serialize>(
         &self,
         event: impl Into<Cow<'static, str>>,
-        data: impl Serialize,
-    ) -> Result<(), SendError> {
+        data: T,
+    ) -> Result<(), SendError<()>> {
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
         if let Err(e) = self.send(Packet::event(ns, event.into(), data)) {
@@ -562,7 +565,7 @@ impl<A: Adapter> Socket<A> {
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
         let res = self.send(Packet::disconnect(&self.ns.path));
-        if let Err(SocketError::InternalChannelFull) = res {
+        if let Err(SocketError::InternalChannelFull(_)) = res {
             return Err(DisconnectError::InternalChannelFull);
         }
 
@@ -586,7 +589,7 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError> {
+    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError<()>> {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 Some(std::mem::take(&mut bin.bin))
@@ -643,6 +646,10 @@ impl<A: Adapter> Socket<A> {
                 .map_err(Error::from),
             _ => unreachable!(),
         }
+    }
+
+    pub(crate) fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, TrySendError<()>> {
+        self.esocket.reserve(n)
     }
 
     /// Gets the request info made by the client to connect
@@ -775,7 +782,7 @@ mod test {
             .await;
         assert!(matches!(
             ack,
-            Err(AckError::Socket(SocketError::InternalChannelFull))
+            Err(AckError::Socket(SocketError::InternalChannelFull(_)))
         ));
     }
 }

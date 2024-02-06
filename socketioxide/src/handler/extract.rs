@@ -287,10 +287,10 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Send the ack response to the client.
-    pub fn send(self, data: impl Serialize) -> Result<(), SendError> {
+    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<()>> {
         if let Some(ack_id) = self.ack_id {
             let ns = self.socket.ns();
-            let data = serde_json::to_value(&data)?;
+            let data = serde_json::to_value(data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {

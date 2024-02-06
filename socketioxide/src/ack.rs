@@ -34,7 +34,7 @@ pub struct AckResponse<T> {
     pub binary: Vec<Vec<u8>>,
 }
 
-pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError>;
+pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError<()>>;
 
 pin_project_lite::pin_project! {
     /// A [`Future`] of [`AckResponse`] received from the client with its corresponding [`Sid`].
@@ -56,7 +56,7 @@ impl<T> Future for AckResultWithId<T> {
                 let v = match v {
                     Ok(Ok(Ok(v))) => Ok(v),
                     Ok(Ok(Err(e))) => Err(e),
-                    Ok(Err(_)) => Err(AckError::Socket(SocketError::Closed)),
+                    Ok(Err(_)) => Err(AckError::Socket(SocketError::Closed(()))),
                     Err(_) => Err(AckError::Timeout),
                 };
                 Poll::Ready((*project.id, v))
@@ -466,7 +466,7 @@ mod test {
         socket2.disconnect().unwrap();
         let (id, ack) = stream.next().await.unwrap();
         assert_eq!(id, sid);
-        assert!(matches!(ack, Err(AckError::Socket(SocketError::Closed))));
+        assert!(matches!(ack, Err(AckError::Socket(SocketError::Closed(_)))));
         assert!(stream.next().await.is_none());
     }
     #[tokio::test]
@@ -481,7 +481,7 @@ mod test {
 
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
-            AckError::Socket(SocketError::Closed)
+            AckError::Socket(SocketError::Closed(_))
         ));
     }
 
@@ -495,7 +495,7 @@ mod test {
 
         assert!(matches!(
             stream.await.unwrap_err(),
-            AckError::Socket(SocketError::Closed)
+            AckError::Socket(SocketError::Closed(_))
         ));
     }
 
