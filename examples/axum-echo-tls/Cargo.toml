@@ -1,16 +1,17 @@
 [package]
-name = "angular-todomvc"
+name = "axum-echo-tls"
 version = "0.1.0"
 edition = "2021"
 
-
 [dependencies]
-socketioxide = { path = "../../socketioxide", features = ["state"] }
+socketioxide = { path = "../../socketioxide" }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tower-http = { version = "0.5.0", features = ["cors", "fs"] }
-tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-serde.workspace = true
 serde_json.workspace = true
+axum-server = { version = "0.6", features = ["tls-rustls"] }
+
+[[bin]]
+name = "axum-echo-tls"
+path = "axum_echo-tls.rs"
