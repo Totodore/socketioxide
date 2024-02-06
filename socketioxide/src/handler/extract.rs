@@ -287,8 +287,16 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Send the ack response to the client.
-    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<()>> {
+    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
         if let Some(ack_id) = self.ack_id {
+            let permits = match self.socket.reserve(self.binary.len() + 1) {
+                Ok(permits) => permits,
+                Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("sending error during emit message: {e:?}");
+                    return Err(e.with_value(data).into());
+                }
+            };
             let ns = self.socket.ns();
             let data = serde_json::to_value(data)?;
             let packet = if self.binary.is_empty() {
@@ -296,7 +304,8 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            Ok(self.socket.send(packet)?)
+            self.socket.permit_send(packet, permits);
+            Ok(())
         } else {
             Ok(())
         }

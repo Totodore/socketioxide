@@ -132,6 +132,14 @@ impl Display for AdapterError {
     }
 }
 
+impl SocketError<()> {
+    pub(crate) fn with_value<T>(self, value: T) -> SocketError<T> {
+        match self {
+            Self::InternalChannelFull(_) => SocketError::InternalChannelFull(value),
+            Self::Closed(_) => SocketError::Closed(value),
+        }
+    }
+}
 impl<T> From<TrySendError<T>> for SocketError<()> {
     fn from(value: TrySendError<T>) -> Self {
         match value {

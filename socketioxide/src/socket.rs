@@ -15,10 +15,7 @@ use std::{
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, PermitIterator};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::{
-    mpsc::error::TrySendError,
-    oneshot::{self, Receiver},
-};
+use tokio::sync::oneshot::{self, Receiver};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
@@ -283,14 +280,19 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<(), SendError<()>> {
+    ) -> Result<(), SendError<T>> {
+        let permits = match self.reserve(1) {
+            Ok(permits) => permits,
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("sending error during emit message: {e:?}");
+                return Err(e.with_value(data).into());
+            }
+        };
+
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        if let Err(e) = self.send(Packet::event(ns, event.into(), data)) {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("sending error during emit message: {e:?}");
-            return Err(e)?;
-        }
+        self.permit_send(Packet::event(ns, event.into(), data), permits);
         Ok(())
     }
 
@@ -589,6 +591,10 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
+    pub(crate) fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, SocketError<()>> {
+        Ok(self.esocket.reserve(n)?)
+    }
+
     pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError<()>> {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
@@ -606,6 +612,27 @@ impl<A: Adapter> Socket<A> {
         }
 
         Ok(())
+    }
+    pub(crate) fn permit_send(&self, mut packet: Packet<'_>, mut permits: PermitIterator<'_>) {
+        debug_assert!(
+            permits.len() > 0,
+            "No permits available to send the message"
+        );
+
+        let bin_payloads = match packet.inner {
+            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
+                Some(std::mem::take(&mut bin.bin))
+            }
+            _ => None,
+        };
+
+        let msg = packet.into();
+        permits.next().unwrap().emit(msg);
+        if let Some(bin_payloads) = bin_payloads {
+            for bin in bin_payloads {
+                permits.next().unwrap().emit_binary(bin);
+            }
+        }
     }
 
     pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {
@@ -646,10 +673,6 @@ impl<A: Adapter> Socket<A> {
                 .map_err(Error::from),
             _ => unreachable!(),
         }
-    }
-
-    pub(crate) fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, TrySendError<()>> {
-        self.esocket.reserve(n)
     }
 
     /// Gets the request info made by the client to connect
