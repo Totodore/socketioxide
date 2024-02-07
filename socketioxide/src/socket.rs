@@ -624,7 +624,7 @@ impl<A: Adapter> Socket<A> {
         Ok(self.esocket.reserve(n)?)
     }
 
-    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError<()>> {
+    pub(crate) fn send(&self, packet: Packet<'_>) -> Result<(), SocketError<()>> {
         let permits = self.reserve(1 + packet.inner.payload_count())?;
         permits.emit(packet);
         Ok(())
