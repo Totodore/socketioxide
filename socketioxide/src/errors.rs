@@ -45,7 +45,7 @@ pub enum AckError<T> {
 }
 
 /// Error type for broadcast operations.
-#[derive(thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum BroadcastError<T> {
     /// An error occurred while sending packets.
     #[error("Error sending data through the engine.io socket: {0:?}")]
@@ -58,27 +58,6 @@ pub enum BroadcastError<T> {
     /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
     Adapter(#[from] AdapterError),
-}
-impl Debug for BroadcastError<()> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Socket(errs) => {
-                f.write_str("BroadcastError::Socket(")?;
-                Debug::fmt(errs, f)?;
-                f.write_str(")")
-            }
-            Self::Serialize(err) => {
-                f.write_str("BroadcastError::Serialize(")?;
-                Debug::fmt(err, f)?;
-                f.write_str(")")
-            }
-            Self::Adapter(err) => {
-                f.write_str("BroadcastError::Adapter(")?;
-                Debug::fmt(err, f)?;
-                f.write_str(")")
-            }
-        }
-    }
 }
 
 /// Error type for sending operations.
