@@ -290,7 +290,7 @@ impl<A: Adapter> AckSender<A> {
     pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
         use crate::socket::PermitIteratorExt;
         if let Some(ack_id) = self.ack_id {
-            let permits = match self.socket.reserve(self.binary.len() + 1) {
+            let permits = match self.socket.reserve(1 + self.binary.len()) {
                 Ok(permits) => permits,
                 Err(e) => {
                     #[cfg(feature = "tracing")]

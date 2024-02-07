@@ -625,21 +625,8 @@ impl<A: Adapter> Socket<A> {
     }
 
     pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError<()>> {
-        let bin_payloads = match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                Some(std::mem::take(&mut bin.bin))
-            }
-            _ => None,
-        };
-
-        let msg = packet.into();
-        self.esocket.emit(msg)?;
-        if let Some(bin_payloads) = bin_payloads {
-            for bin in bin_payloads {
-                self.esocket.emit_binary(bin)?;
-            }
-        }
-
+        let permits = self.reserve(1 + packet.inner.payload_count())?;
+        permits.emit(packet);
         Ok(())
     }
 
