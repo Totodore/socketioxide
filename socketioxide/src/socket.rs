@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, PermitIterator};
+use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit, PermitIterator};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
@@ -100,6 +100,35 @@ impl From<EIoDisconnectReason> for DisconnectReason {
         }
     }
 }
+
+pub(crate) trait PermitIteratorExt<'a>:
+    ExactSizeIterator<Item = Permit<'a>> + Sized
+{
+    fn emit(mut self, mut packet: Packet<'_>) {
+        debug_assert!(self.len() > 0, "No permits available to send the message");
+
+        let bin_payloads = match packet.inner {
+            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
+                Some(std::mem::take(&mut bin.bin))
+            }
+            _ => None,
+        };
+
+        let msg = packet.into();
+        self.next().unwrap().emit(msg);
+
+        if let Some(bin_payloads) = bin_payloads {
+            debug_assert!(
+                self.len() >= bin_payloads.len(),
+                "Not enough permits available to send the message with the binary payload"
+            );
+            for bin in bin_payloads {
+                self.next().unwrap().emit_binary(bin);
+            }
+        }
+    }
+}
+impl<'a> PermitIteratorExt<'a> for PermitIterator<'a> {}
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
@@ -292,7 +321,7 @@ impl<A: Adapter> Socket<A> {
 
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        self.permit_send(Packet::event(ns, event.into(), data), permits);
+        permits.emit(Packet::event(ns, event.into(), data));
         Ok(())
     }
 
@@ -612,27 +641,6 @@ impl<A: Adapter> Socket<A> {
         }
 
         Ok(())
-    }
-    pub(crate) fn permit_send(&self, mut packet: Packet<'_>, mut permits: PermitIterator<'_>) {
-        debug_assert!(
-            permits.len() > 0,
-            "No permits available to send the message"
-        );
-
-        let bin_payloads = match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                Some(std::mem::take(&mut bin.bin))
-            }
-            _ => None,
-        };
-
-        let msg = packet.into();
-        permits.next().unwrap().emit(msg);
-        if let Some(bin_payloads) = bin_payloads {
-            for bin in bin_payloads {
-                permits.next().unwrap().emit_binary(bin);
-            }
-        }
     }
 
     pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {

@@ -288,6 +288,7 @@ impl<A: Adapter> AckSender<A> {
 
     /// Send the ack response to the client.
     pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
+        use crate::socket::PermitIteratorExt;
         if let Some(ack_id) = self.ack_id {
             let permits = match self.socket.reserve(self.binary.len() + 1) {
                 Ok(permits) => permits,
@@ -304,7 +305,7 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            self.socket.permit_send(packet, permits);
+            permits.emit(packet);
             Ok(())
         } else {
             Ok(())
