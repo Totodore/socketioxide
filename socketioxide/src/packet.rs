@@ -238,7 +238,7 @@ impl<'a> PacketData<'a> {
         )
     }
 
-	/// Get the number of binary payloads or 0 if it is not a binary packet
+    /// Get the number of binary payloads or 0 if it is not a binary packet
     pub(crate) fn payload_count(&self) -> usize {
         match self {
             PacketData::BinaryEvent(_, bin, _) | PacketData::BinaryAck(bin, _) => bin.payload_count,
