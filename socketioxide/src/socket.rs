@@ -29,7 +29,7 @@ use crate::{
         MessageHandler,
     },
     ns::Namespace,
-    operators::{Operators, RoomParam},
+    operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
     SocketIoConfig,
 };
@@ -135,7 +135,7 @@ impl<'a> PermitIteratorExt<'a> for PermitIterator<'a> {}
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket<A: Adapter = LocalAdapter> {
     pub(crate) config: Arc<SocketIoConfig>,
-    ns: Arc<Namespace<A>>,
+    pub(crate) ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
@@ -347,7 +347,7 @@ impl<A: Adapter> Socket<A> {
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
     /// an [`AckError::Serde`] will be yielded.
     ///
-    /// [`timeout()`]: crate::operators::Operators#method.timeout
+    /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
     /// [`Stream`]: futures::stream::Stream
     /// [`Future`]: futures::future::Future
@@ -448,8 +448,8 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).to(rooms)
+    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).to(rooms)
     }
 
     /// Selects all clients in the given rooms.
@@ -472,8 +472,8 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).within(rooms)
+    pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).within(rooms)
     }
 
     /// Filters out all clients selected with the previous operators which are in the given rooms.
@@ -496,8 +496,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().except("room1").emit("test", data);
     ///     });
     /// });
-    pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).except(rooms)
+    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).except(rooms)
     }
 
     /// Broadcasts to all clients only connected on this node (when using multiple nodes).
@@ -514,8 +514,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.local().emit("test", data);
     ///     });
     /// });
-    pub fn local(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).local()
+    pub fn local(&self) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).local()
     }
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
@@ -553,8 +553,8 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     ///
-    pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).timeout(timeout)
+    pub fn timeout(self: Arc<Self>, timeout: Duration) -> ConfOperators<A> {
+        ConfOperators::new(self.clone()).timeout(timeout)
     }
 
     /// Adds a binary payload to the message.
@@ -570,8 +570,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).bin(binary)
+    pub fn bin(self: Arc<Self>, binary: Vec<Vec<u8>>) -> ConfOperators<A> {
+        ConfOperators::new(self.clone()).bin(binary)
     }
 
     /// Broadcasts to all clients without any filtering (except the current socket).
@@ -587,8 +587,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
-    pub fn broadcast(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).broadcast()
+    pub fn broadcast(&self) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
     }
 
     /// Disconnects the socket from the current namespace,
@@ -616,10 +616,12 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Gets the current namespace path.
+    #[inline]
     pub fn ns(&self) -> &str {
         &self.ns.path
     }
 
+    #[inline]
     pub(crate) fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, SocketError<()>> {
         Ok(self.esocket.reserve(n)?)
     }

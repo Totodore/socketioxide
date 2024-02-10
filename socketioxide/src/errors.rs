@@ -45,11 +45,11 @@ pub enum AckError<T> {
 }
 
 /// Error type for broadcast operations.
-#[derive(Debug, thiserror::Error)]
-pub enum BroadcastError<T> {
+#[derive(thiserror::Error, Debug)]
+pub enum BroadcastError {
     /// An error occurred while sending packets.
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(Vec<SocketError<T>>),
+    Socket(Vec<SocketError<()>>),
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
@@ -59,7 +59,6 @@ pub enum BroadcastError<T> {
     #[error("Adapter error: {0}")]
     Adapter(#[from] AdapterError),
 }
-
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
 pub enum SendError<T> {
@@ -73,7 +72,7 @@ pub enum SendError<T> {
 }
 
 /// Error type when using the underlying engine.io socket
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error)]
 pub enum SocketError<T> {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
@@ -85,6 +84,14 @@ pub enum SocketError<T> {
     /// The socket is already closed
     #[error("socket closed")]
     Closed(T),
+}
+impl<T> Debug for SocketError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InternalChannelFull(_) => f.debug_tuple("InternalChannelFull").finish(),
+            Self::Closed(_) => f.debug_tuple("Closed").finish(),
+        }
+    }
 }
 
 /// Error type for sending operations.
@@ -128,7 +135,7 @@ impl<T> From<TrySendError<T>> for SocketError<()> {
     }
 }
 
-impl<T> From<Vec<SocketError<T>>> for BroadcastError<T> {
+impl From<Vec<SocketError<()>>> for BroadcastError {
     /// Converts a vector of `SendError` into a `BroadcastError`.
     ///
     /// # Arguments
@@ -138,7 +145,7 @@ impl<T> From<Vec<SocketError<T>>> for BroadcastError<T> {
     /// # Returns
     ///
     /// A `BroadcastError` containing the sending errors.
-    fn from(value: Vec<SocketError<T>>) -> Self {
+    fn from(value: Vec<SocketError<()>>) -> Self {
         Self::Socket(value)
     }
 }
