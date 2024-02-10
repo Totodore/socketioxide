@@ -96,10 +96,10 @@ impl RoomParam for Sid {
 }
 
 /// Chainable operators to configure the message to be sent.
-pub struct ConfOperators<A: Adapter = LocalAdapter> {
+pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
     binary: Vec<Vec<u8>>,
     timeout: Option<Duration>,
-    sender: Arc<Socket<A>>,
+    socket: &'a Socket<A>,
 }
 /// Chainable operators to select sockets to send a message to and to configure the message to be sent.
 pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
@@ -109,26 +109,26 @@ pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
     opts: BroadcastOptions,
 }
 
-impl<A: Adapter> From<ConfOperators<A>> for BroadcastOperators<A> {
-    fn from(conf: ConfOperators<A>) -> Self {
+impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
+    fn from(conf: ConfOperators<'_, A>) -> Self {
         let mut opts = BroadcastOptions::default();
-        opts.sid = Some(conf.sender.id);
+        opts.sid = Some(conf.socket.id);
         Self {
             binary: conf.binary,
             timeout: conf.timeout,
-            ns: conf.sender.ns.clone(),
+            ns: conf.socket.ns.clone(),
             opts,
         }
     }
 }
 
 // ==== impl ConfOperators operations ====
-impl<A: Adapter> ConfOperators<A> {
-    pub(crate) fn new(sender: Arc<Socket<A>>) -> Self {
+impl<'a, A: Adapter> ConfOperators<'a, A> {
+    pub(crate) fn new(sender: &'a Socket<A>) -> Self {
         Self {
             binary: vec![],
             timeout: None,
-            sender,
+            socket: sender,
         }
     }
 
@@ -295,7 +295,7 @@ impl<A: Adapter> ConfOperators<A> {
 }
 
 // ==== impl ConfOperators consume fns ====
-impl<A: Adapter> ConfOperators<A> {
+impl<A: Adapter> ConfOperators<'_, A> {
     /// Emits a message to all sockets selected with the previous operators.
     ///
     /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
@@ -336,8 +336,7 @@ impl<A: Adapter> ConfOperators<A> {
         data: T,
     ) -> Result<(), SendError<T>> {
         use crate::socket::PermitIteratorExt;
-        let sock = self.sender.clone();
-        let permits = match sock.reserve(1 + self.binary.len()) {
+        let permits = match self.socket.reserve(1 + self.binary.len()) {
             Ok(permits) => permits,
             Err(e) => {
                 #[cfg(feature = "tracing")]
@@ -405,28 +404,12 @@ impl<A: Adapter> ConfOperators<A> {
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<AckStream<V>, serde_json::Error> {
-        let timeout = self.timeout.unwrap_or(self.sender.config.ack_timeout);
+        let timeout = self.timeout.unwrap_or(self.socket.config.ack_timeout);
         let data = serde_json::to_value(data)?;
         let packet = self.get_packet(event, data)?;
-        let rx = self.sender.send_with_ack(packet);
-        let stream = AckInnerStream::send(rx, timeout, self.sender.id);
+        let rx = self.socket.send_with_ack(packet);
+        let stream = AckInnerStream::send(rx, timeout, self.socket.id);
         Ok(AckStream::<V>::from(stream))
-    }
-
-    /// Disconnects the current socket.
-    ///
-    /// ### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///   socket.on("test", |socket: SocketRef| async move {
-    ///     // Disconnect all sockets in the room1 and room3 rooms, except for the room2
-    ///     socket.disconnect().unwrap();
-    ///   });
-    /// });
-    pub fn disconnect(self) -> Result<(), DisconnectError> {
-        self.sender.disconnect()
     }
 
     /// Makes all sockets selected with the previous operators join the given room(s).
@@ -442,7 +425,7 @@ impl<A: Adapter> ConfOperators<A> {
     ///   });
     /// });
     pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.sender.join(rooms)
+        self.socket.join(rooms)
     }
 
     /// Makes all sockets selected with the previous operators leave the given room(s).
@@ -458,12 +441,12 @@ impl<A: Adapter> ConfOperators<A> {
     ///   });
     /// });
     pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.sender.leave(rooms)
+        self.socket.leave(rooms)
     }
 
     /// Gets all room names for a given namespace
     pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
-        self.sender.rooms()
+        self.socket.rooms()
     }
 
     /// Creates a packet with the given event and data.
@@ -472,7 +455,7 @@ impl<A: Adapter> ConfOperators<A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
-        let ns = self.sender.ns.path.clone();
+        let ns = self.socket.ns.path.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)

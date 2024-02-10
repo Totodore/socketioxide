@@ -553,8 +553,8 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     ///
-    pub fn timeout(self: Arc<Self>, timeout: Duration) -> ConfOperators<A> {
-        ConfOperators::new(self.clone()).timeout(timeout)
+    pub fn timeout(&self, timeout: Duration) -> ConfOperators<'_, A> {
+        ConfOperators::new(self).timeout(timeout)
     }
 
     /// Adds a binary payload to the message.
@@ -570,8 +570,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(self: Arc<Self>, binary: Vec<Vec<u8>>) -> ConfOperators<A> {
-        ConfOperators::new(self.clone()).bin(binary)
+    pub fn bin(&self, binary: Vec<Vec<u8>>) -> ConfOperators<'_, A> {
+        ConfOperators::new(self).bin(binary)
     }
 
     /// Broadcasts to all clients without any filtering (except the current socket).
