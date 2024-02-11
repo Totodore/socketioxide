@@ -112,9 +112,9 @@ pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
 impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
     fn from(conf: ConfOperators<'_, A>) -> Self {
         let opts = BroadcastOptions {
-			sid: Some(conf.socket.id),
-			..Default::default()
-		};
+            sid: Some(conf.socket.id),
+            ..Default::default()
+        };
         Self {
             binary: conf.binary,
             timeout: conf.timeout,
@@ -405,11 +405,18 @@ impl<A: Adapter> ConfOperators<'_, A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<AckStream<V>, serde_json::Error> {
+    ) -> Result<AckStream<V>, SendError<T>> {
+        let permits = match self.socket.reserve(1 + self.binary.len()) {
+            Ok(permits) => permits,
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("sending error during emit message: {e:?}");
+                return Err(e.with_value(data).into());
+            }
+        };
         let timeout = self.timeout.unwrap_or(self.socket.config.ack_timeout);
-        let data = serde_json::to_value(data)?;
         let packet = self.get_packet(event, data)?;
-        let rx = self.socket.send_with_ack(packet);
+        let rx = self.socket.send_with_ack_permit(packet, permits);
         let stream = AckInnerStream::send(rx, timeout, self.socket.id);
         Ok(AckStream::<V>::from(stream))
     }

@@ -13,7 +13,7 @@ use std::{
 };
 
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit, PermitIterator};
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
 
@@ -31,7 +31,7 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    SocketIoConfig,
+    AckError, SocketIoConfig,
 };
 use crate::{
     client::SocketData,
@@ -374,15 +374,22 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     /// ```
-    pub fn emit_with_ack<V>(
+    pub fn emit_with_ack<T: Serialize, V: DeserializeOwned>(
         &self,
         event: impl Into<Cow<'static, str>>,
-        data: impl Serialize,
-    ) -> Result<AckStream<V>, serde_json::Error> {
-        let ns = self.ns();
+        data: T,
+    ) -> Result<AckStream<V>, SendError<T>> {
+        let permits = match self.reserve(1) {
+            Ok(permits) => permits,
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("sending error during emit message: {e:?}");
+                return Err(e.with_value(data).into());
+            }
+        };
         let data = serde_json::to_value(data)?;
-        let packet = Packet::event(ns, event.into(), data);
-        let rx = self.send_with_ack(packet);
+        let packet = Packet::event(self.ns(), event.into(), data);
+        let rx = self.send_with_ack_permit(packet, permits);
         let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
         Ok(AckStream::<V>::from(stream))
     }
@@ -632,6 +639,20 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
+    pub(crate) fn send_with_ack_permit(
+        &self,
+        mut packet: Packet<'_>,
+        permits: PermitIterator<'_>,
+    ) -> Receiver<AckResult<Value>> {
+        let (tx, rx) = oneshot::channel();
+
+        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        packet.inner.set_ack_id(ack);
+        permits.emit(packet);
+        self.ack_message.lock().unwrap().insert(ack, tx);
+        rx
+    }
+
     pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {
         let (tx, rx) = oneshot::channel();
 
@@ -641,7 +662,9 @@ impl<A: Adapter> Socket<A> {
             Ok(()) => {
                 self.ack_message.lock().unwrap().insert(ack, tx);
             }
-            Err(e) => tx.send(Err(e.into())).unwrap(),
+            Err(e) => {
+                tx.send(Err(AckError::Socket(e.into()))).ok();
+            }
         }
         rx
     }
@@ -797,7 +820,7 @@ mod test {
         }
 
         let ack = socket
-            .emit_with_ack::<Value>("test", Value::Null)
+            .emit_with_ack::<_, Value>("test", Value::Null)
             .unwrap()
             .await;
         assert!(matches!(
