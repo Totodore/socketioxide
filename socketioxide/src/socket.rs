@@ -663,7 +663,7 @@ impl<A: Adapter> Socket<A> {
                 self.ack_message.lock().unwrap().insert(ack, tx);
             }
             Err(e) => {
-                tx.send(Err(AckError::Socket(e.into()))).ok();
+                tx.send(Err(AckError::Socket(e))).ok();
             }
         }
         rx
