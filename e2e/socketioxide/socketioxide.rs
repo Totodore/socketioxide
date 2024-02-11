@@ -39,7 +39,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
         |s: SocketRef, Data::<Value>(data), Bin(bin)| async move {
             let ack = s
                 .bin(bin)
-                .emit_with_ack::<Value>("emit-with-ack", data)
+                .emit_with_ack::<_, Value>("emit-with-ack", data)
                 .unwrap()
                 .await
                 .unwrap();

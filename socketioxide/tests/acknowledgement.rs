@@ -26,7 +26,7 @@ pub async fn emit_with_ack() {
 
         let res = s
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<[String; 1]>("test", "foo");
+            .emit_with_ack::<_, [String; 1]>("test", "foo");
         let res = assert_ok!(res).await;
         let ack = assert_ok!(res);
         assert_ok!(tx.try_send(ack.data));
