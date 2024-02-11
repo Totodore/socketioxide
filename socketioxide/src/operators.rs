@@ -111,8 +111,10 @@ pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
 
 impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
     fn from(conf: ConfOperators<'_, A>) -> Self {
-        let mut opts = BroadcastOptions::default();
-        opts.sid = Some(conf.socket.id);
+        let opts = BroadcastOptions {
+			sid: Some(conf.socket.id),
+			..Default::default()
+		};
         Self {
             binary: conf.binary,
             timeout: conf.timeout,
