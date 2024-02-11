@@ -53,7 +53,7 @@ pub struct BroadcastOptions {
 /// The default adapter is the [`LocalAdapter`], which stores the state in memory.
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// An error that can occur when using the adapter. The default [`LocalAdapter`] has an [`Infallible`] error.
-    type Error: std::error::Error + Into<AdapterError> + Send + 'static;
+    type Error: std::error::Error + Into<AdapterError> + Send + Sync + 'static;
 
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
