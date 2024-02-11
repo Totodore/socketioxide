@@ -102,7 +102,7 @@ pin_project_lite::pin_project! {
     /// let (svc, io) = SocketIo::new_svc();
     /// io.ns("/test", move |socket: SocketRef| async move {
     ///     // We wait for the acknowledgement of the first emit (only one in this case)
-    ///     let ack = socket.emit_with_ack::<String>("test", "test").unwrap().await;
+    ///     let ack = socket.emit_with_ack::<_, String>("test", "test").unwrap().await;
     ///     println!("Ack: {:?}", ack);
     ///
     ///     // We apply the `for_each` StreamExt fn to the AckStream

@@ -367,7 +367,7 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.emit_with_ack::<Value>("test", data).unwrap().await {
+    ///         match socket.emit_with_ack::<_, Value>("test", data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -805,7 +805,6 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::AckError;
 
     #[tokio::test]
     async fn send_with_ack_error() {
@@ -819,13 +818,10 @@ mod test {
                 .unwrap();
         }
 
-        let ack = socket
-            .emit_with_ack::<_, Value>("test", Value::Null)
-            .unwrap()
-            .await;
+        let ack = socket.emit_with_ack::<_, Value>("test", Value::Null);
         assert!(matches!(
             ack,
-            Err(AckError::Socket(SocketError::InternalChannelFull(_)))
+            Err(SendError::Socket(SocketError::InternalChannelFull(_)))
         ));
     }
 }
