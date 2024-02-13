@@ -633,7 +633,6 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    #[inline]
     pub(crate) fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, SocketError<()>> {
         Ok(self.esocket.reserve(n)?)
     }

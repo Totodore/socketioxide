@@ -122,10 +122,12 @@ pub struct Permit<'a> {
 }
 impl Permit<'_> {
     /// Consume the permit and emit a message to the client.
+    #[inline]
     pub fn emit(self, msg: String) {
         self.inner.send(Packet::Message(msg));
     }
     /// Consume the permit and emit a binary message to the client.
+    #[inline]
     pub fn emit_binary(self, data: Vec<u8>) {
         self.inner.send(Packet::Binary(data));
     }
@@ -140,12 +142,14 @@ pub struct PermitIterator<'a> {
 impl<'a> Iterator for PermitIterator<'a> {
     type Item = Permit<'a>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let inner = self.inner.next()?;
         Some(Permit { inner })
     }
 }
 impl ExactSizeIterator for PermitIterator<'_> {
+    #[inline]
     fn len(&self) -> usize {
         self.inner.len()
     }
@@ -390,6 +394,7 @@ where
     ///
     /// If the internal chan is full, the function will return a [`TrySendError::Full`] error.
     /// If the socket is closed, the function will return a [`TrySendError::Closed`] error.
+    #[inline]
     pub fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, TrySendError<()>> {
         let inner = self.internal_tx.try_reserve_many(n)?;
         Ok(PermitIterator { inner })
