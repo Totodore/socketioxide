@@ -12,8 +12,8 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::socket::DisconnectReason as EIoDisconnectReason;
-use serde::Serialize;
+use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit, PermitIterator};
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
 
@@ -29,9 +29,9 @@ use crate::{
         MessageHandler,
     },
     ns::Namespace,
-    operators::{Operators, RoomParam},
+    operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    SocketIoConfig,
+    AckError, SocketIoConfig,
 };
 use crate::{
     client::SocketData,
@@ -101,12 +101,41 @@ impl From<EIoDisconnectReason> for DisconnectReason {
     }
 }
 
+pub(crate) trait PermitIteratorExt<'a>:
+    ExactSizeIterator<Item = Permit<'a>> + Sized
+{
+    fn emit(mut self, mut packet: Packet<'_>) {
+        debug_assert!(self.len() > 0, "No permits available to send the message");
+
+        let bin_payloads = match packet.inner {
+            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
+                Some(std::mem::take(&mut bin.bin))
+            }
+            _ => None,
+        };
+
+        let msg = packet.into();
+        self.next().unwrap().emit(msg);
+
+        if let Some(bin_payloads) = bin_payloads {
+            debug_assert!(
+                self.len() >= bin_payloads.len(),
+                "Not enough permits available to send the message with the binary payload"
+            );
+            for bin in bin_payloads {
+                self.next().unwrap().emit_binary(bin);
+            }
+        }
+    }
+}
+impl<'a> PermitIteratorExt<'a> for PermitIterator<'a> {}
+
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket<A: Adapter = LocalAdapter> {
     pub(crate) config: Arc<SocketIoConfig>,
-    ns: Arc<Namespace<A>>,
+    pub(crate) ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
@@ -250,12 +279,15 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
     /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
-    /// will be returned.
+    /// will be returned and the provided data to be send will be given back in the error.
     /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
-    /// will be returned.
+    /// will be returned and the provided data to be send will be given back in the error.
     /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
     ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`SendError::Serialize`]: crate::SendError::Serialize
+    /// [`SendError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`SendError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
     /// ## Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -276,18 +308,23 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn emit(
+    pub fn emit<T: Serialize>(
         &self,
         event: impl Into<Cow<'static, str>>,
-        data: impl Serialize,
-    ) -> Result<(), SendError> {
+        data: T,
+    ) -> Result<(), SendError<T>> {
+        let permits = match self.reserve(1) {
+            Ok(permits) => permits,
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("sending error during emit message: {e:?}");
+                return Err(e.with_value(data).into());
+            }
+        };
+
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        if let Err(e) = self.send(Packet::event(ns, event.into(), data)) {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("sending error during emit message: {e:?}");
-            return Err(e)?;
-        }
+        permits.emit(Packet::event(ns, event.into(), data));
         Ok(())
     }
 
@@ -304,16 +341,18 @@ impl<A: Adapter> Socket<A> {
     /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
     /// Useful when expecting only one acknowledgement.
     ///
+    /// # Errors
+    ///
     /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
     ///
     /// If the socket is full or if it has been closed before receiving the acknowledgement,
-    /// an [`AckError::Socket`] will be yielded.
+    /// an [`SendError::Socket`] will be **immediately returned** and the value to send will be given back.
     ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
     /// an [`AckError::Serde`] will be yielded.
     ///
-    /// [`timeout()`]: crate::operators::Operators#method.timeout
+    /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
     /// [`Stream`]: futures::stream::Stream
     /// [`Future`]: futures::future::Future
@@ -333,22 +372,29 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.emit_with_ack::<Value>("test", data).unwrap().await {
+    ///         match socket.emit_with_ack::<_, Value>("test", data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
     ///    });
     /// });
     /// ```
-    pub fn emit_with_ack<V>(
+    pub fn emit_with_ack<T: Serialize, V: DeserializeOwned>(
         &self,
         event: impl Into<Cow<'static, str>>,
-        data: impl Serialize,
-    ) -> Result<AckStream<V>, serde_json::Error> {
-        let ns = self.ns();
+        data: T,
+    ) -> Result<AckStream<V>, SendError<T>> {
+        let permits = match self.reserve(1) {
+            Ok(permits) => permits,
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("sending error during emit message: {e:?}");
+                return Err(e.with_value(data).into());
+            }
+        };
         let data = serde_json::to_value(data)?;
-        let packet = Packet::event(ns, event.into(), data);
-        let rx = self.send_with_ack(packet);
+        let packet = Packet::event(self.ns(), event.into(), data);
+        let rx = self.send_with_ack_permit(packet, permits);
         let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
         Ok(AckStream::<V>::from(stream))
     }
@@ -414,8 +460,8 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn to(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).to(rooms)
+    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).to(rooms)
     }
 
     /// Selects all clients in the given rooms.
@@ -438,8 +484,8 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn within(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).within(rooms)
+    pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).within(rooms)
     }
 
     /// Filters out all clients selected with the previous operators which are in the given rooms.
@@ -462,8 +508,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().except("room1").emit("test", data);
     ///     });
     /// });
-    pub fn except(&self, rooms: impl RoomParam) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).except(rooms)
+    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).except(rooms)
     }
 
     /// Broadcasts to all clients only connected on this node (when using multiple nodes).
@@ -480,8 +526,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.local().emit("test", data);
     ///     });
     /// });
-    pub fn local(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).local()
+    pub fn local(&self) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).local()
     }
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
@@ -519,8 +565,8 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     ///
-    pub fn timeout(&self, timeout: Duration) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).timeout(timeout)
+    pub fn timeout(&self, timeout: Duration) -> ConfOperators<'_, A> {
+        ConfOperators::new(self).timeout(timeout)
     }
 
     /// Adds a binary payload to the message.
@@ -536,8 +582,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).bin(binary)
+    pub fn bin(&self, binary: Vec<Vec<u8>>) -> ConfOperators<'_, A> {
+        ConfOperators::new(self).bin(binary)
     }
 
     /// Broadcasts to all clients without any filtering (except the current socket).
@@ -553,8 +599,8 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
-    pub fn broadcast(&self) -> Operators<A> {
-        Operators::new(self.ns.clone(), Some(self.id)).broadcast()
+    pub fn broadcast(&self) -> BroadcastOperators<A> {
+        BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
     }
 
     /// Disconnects the socket from the current namespace,
@@ -562,7 +608,7 @@ impl<A: Adapter> Socket<A> {
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
         let res = self.send(Packet::disconnect(&self.ns.path));
-        if let Err(SocketError::InternalChannelFull) = res {
+        if let Err(SocketError::InternalChannelFull(_)) = res {
             return Err(DisconnectError::InternalChannelFull);
         }
 
@@ -582,27 +628,33 @@ impl<A: Adapter> Socket<A> {
     }
 
     /// Gets the current namespace path.
+    #[inline]
     pub fn ns(&self) -> &str {
         &self.ns.path
     }
 
-    pub(crate) fn send(&self, mut packet: Packet<'_>) -> Result<(), SocketError> {
-        let bin_payloads = match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                Some(std::mem::take(&mut bin.bin))
-            }
-            _ => None,
-        };
+    pub(crate) fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, SocketError<()>> {
+        Ok(self.esocket.reserve(n)?)
+    }
 
-        let msg = packet.into();
-        self.esocket.emit(msg)?;
-        if let Some(bin_payloads) = bin_payloads {
-            for bin in bin_payloads {
-                self.esocket.emit_binary(bin)?;
-            }
-        }
-
+    pub(crate) fn send(&self, packet: Packet<'_>) -> Result<(), SocketError<()>> {
+        let permits = self.reserve(1 + packet.inner.payload_count())?;
+        permits.emit(packet);
         Ok(())
+    }
+
+    pub(crate) fn send_with_ack_permit(
+        &self,
+        mut packet: Packet<'_>,
+        permits: PermitIterator<'_>,
+    ) -> Receiver<AckResult<Value>> {
+        let (tx, rx) = oneshot::channel();
+
+        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        packet.inner.set_ack_id(ack);
+        permits.emit(packet);
+        self.ack_message.lock().unwrap().insert(ack, tx);
+        rx
     }
 
     pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {
@@ -614,7 +666,9 @@ impl<A: Adapter> Socket<A> {
             Ok(()) => {
                 self.ack_message.lock().unwrap().insert(ack, tx);
             }
-            Err(e) => tx.send(Err(e.into())).unwrap(),
+            Err(e) => {
+                tx.send(Err(AckError::Socket(e))).ok();
+            }
         }
         rx
     }
@@ -647,7 +701,7 @@ impl<A: Adapter> Socket<A> {
 
     /// Gets the request info made by the client to connect
     ///
-    /// It might be used to retrieve the [`http::request::Extensions`]
+    /// It might be used to retrieve the [`http::Extensions`]
     pub fn req_parts(&self) -> &http::request::Parts {
         &self.esocket.req_parts
     }
@@ -755,7 +809,6 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::AckError;
 
     #[tokio::test]
     async fn send_with_ack_error() {
@@ -769,13 +822,10 @@ mod test {
                 .unwrap();
         }
 
-        let ack = socket
-            .emit_with_ack::<Value>("test", Value::Null)
-            .unwrap()
-            .await;
+        let ack = socket.emit_with_ack::<_, Value>("test", Value::Null);
         assert!(matches!(
             ack,
-            Err(AckError::Socket(SocketError::InternalChannelFull))
+            Err(SendError::Socket(SocketError::InternalChannelFull(_)))
         ));
     }
 }

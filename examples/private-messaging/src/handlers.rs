@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use socketioxide::extract::{Data, SocketRef, State, TryData};
 use tracing::error;
@@ -81,28 +82,20 @@ pub fn on_connection(
     });
 }
 
-#[derive(Debug)]
-enum ConnectError {
-    InvalidUsername,
-    EncodeError(serde_json::Error),
-    SocketError(socketioxide::SendError),
-    BroadcastError(socketioxide::BroadcastError),
-}
-
 /// Handles the connection of a new user
 fn session_connect(
     s: &SocketRef,
     auth: Result<Auth, serde_json::Error>,
     Sessions(session_state): &Sessions,
     Messages(msg_state): &Messages,
-) -> Result<(), ConnectError> {
-    let auth = auth.map_err(ConnectError::EncodeError)?;
+) -> Result<(), anyhow::Error> {
+    let auth = auth?;
     let mut sessions = session_state.write().unwrap();
     if let Some(session) = auth.session_id.and_then(|id| sessions.get_mut(&id)) {
         session.connected = true;
         s.extensions.insert(session.clone());
     } else {
-        let username = auth.username.ok_or(ConnectError::InvalidUsername)?;
+        let username = auth.username.ok_or(anyhow!("invalid username"))?;
         let session = Session::new(username);
         s.extensions.insert(session.clone());
 
@@ -113,8 +106,7 @@ fn session_connect(
     let session = s.extensions.get::<Session>().unwrap();
 
     s.join(session.user_id.to_string()).ok();
-    s.emit("session", session.clone())
-        .map_err(ConnectError::SocketError)?;
+    s.emit("session", session.clone())?;
 
     let users = session_state
         .read()
@@ -134,13 +126,10 @@ fn session_connect(
         })
         .collect::<Vec<_>>();
 
-    s.emit("users", [users])
-        .map_err(ConnectError::SocketError)?;
+    s.emit("users", [users])?;
 
     let res = UserConnectedRes::new(&session, vec![]);
 
-    s.broadcast()
-        .emit("user connected", res)
-        .map_err(ConnectError::BroadcastError)?;
+    s.broadcast().emit("user connected", res)?;
     Ok(())
 }

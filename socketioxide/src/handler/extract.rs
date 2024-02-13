@@ -287,16 +287,26 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Send the ack response to the client.
-    pub fn send(self, data: impl Serialize) -> Result<(), SendError> {
+    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
+        use crate::socket::PermitIteratorExt;
         if let Some(ack_id) = self.ack_id {
+            let permits = match self.socket.reserve(1 + self.binary.len()) {
+                Ok(permits) => permits,
+                Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("sending error during emit message: {e:?}");
+                    return Err(e.with_value(data).into());
+                }
+            };
             let ns = self.socket.ns();
-            let data = serde_json::to_value(&data)?;
+            let data = serde_json::to_value(data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            Ok(self.socket.send(packet)?)
+            permits.emit(packet);
+            Ok(())
         } else {
             Ok(())
         }

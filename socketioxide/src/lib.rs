@@ -189,18 +189,20 @@
 //!
 //! #### Emit errors
 //! If the data can't be serialized to json, an [`serde_json::Error`] will be returned.
-//! If the socket is disconnected or the internal channel is full, a tracing log will be emitted if the `tracing` feature is enabled and the message will be dropped.
-//! This solution is not ideal and will be improved in the future (see [socketioxide/172](https://github.com/Totodore/socketioxide/issues/172)).
+//!
+//! If the socket is disconnected or the internal channel is full,
+//! a [`SendError`] will be returned and the provided data will be given back.
+//! Moreover, a tracing log will be emitted if the `tracing` feature is enabled.
 //!
 //! #### Emitting with operators
-//! To configure the emit, you can chain [`Operators`](operators::Operators) methods to the emit call. With that you can easily configure the following options:
+//! To configure the emit, you can chain [`Operators`](operators) methods to the emit call. With that you can easily configure the following options:
 //! * rooms: emit, join, leave to specific rooms
 //! * namespace: emit to a specific namespace (only from the [`SocketIo`] handle)
 //! * timeout: set a custom timeout when waiting for an ack
 //! * binary: emit a binary payload with the message
 //! * local: broadcast only to the current node (in case of a cluster)
 //!
-//! Check the [`operators::Operators`] doc for more details on the operators.
+//! Check the [`operators`] module doc for more details on operators.
 //!
 //! ## Acknowledgements
 //! You can ensure that a message has been received by the client/server with acknowledgements.
@@ -213,11 +215,11 @@
 //! #### Client acknowledgements
 //! If you want to emit/broadcast a message and await for a/many client(s) acknowledgment(s) you can use:
 //! * [`SocketRef::emit_with_ack`] for a single client
-//! * [`Operators::emit_with_ack`] for broadcasting or [emit configuration](#emiting-data).
+//! * [`BroadcastOperators::emit_with_ack`] for broadcasting or [emit configuration](#emiting-data).
 //! * [`SocketIo::emit_with_ack`] for broadcasting.
 //!
 //! [`SocketRef::emit_with_ack`]: crate::extract::SocketRef#method.emit_with_ack
-//! [`Operators::emit_with_ack`]: crate::operators::Operators#method.emit_with_ack
+//! [`BroadcastOperators::emit_with_ack`]: crate::operators::BroadcastOperators#method.emit_with_ack
 //! [`SocketIo::emit_with_ack`]: SocketIo#method.emit_with_ack
 //! [`AckStream`]: crate::ack::AckStream
 //! [`AckResponse`]: crate::ack::AckResponse
