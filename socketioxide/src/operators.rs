@@ -330,10 +330,10 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///          // Emit a test message to the client
-    ///         socket.bin(bin).emit("test", data).ok();
+    ///         socket.bin(bin.clone()).emit("test", data).ok();
     ///
     ///         // Emit a test message with multiple arguments to the client
-    ///         socket.bin(bin).emit("test", ("world", "hello", 1)).ok();
+    ///         socket.bin(bin.clone()).emit("test", ("world", "hello", 1)).ok();
     ///
     ///         // Emit a test message with an array as the first argument
     ///         let arr = [1, 2, 3, 4];
