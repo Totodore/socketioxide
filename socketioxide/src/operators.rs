@@ -1,5 +1,11 @@
-//! [`Operators`] are used to select sockets to send a packet to, or to configure the packet that will be emitted.
-//! It uses the builder pattern to chain operators.
+//! Operators are used to select sockets to send a packet to,
+//! or to configure the packet that will be emitted.
+//!
+//! They use the builder pattern to chain operators.
+//!
+//! There is two types of operators:
+//! * [`ConfOperators`]: Chainable operators to configure the message to be sent.
+//! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
 use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
@@ -298,21 +304,23 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
 
 // ==== impl ConfOperators consume fns ====
 impl<A: Adapter> ConfOperators<'_, A> {
-    /// Emits a message to all sockets selected with the previous operators.
+    /// Emits a message to the client and apply the previous operators on the message.
     ///
     /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
     /// Therefore if you want to send an array as the _first_ argument of the payload,
     /// you need to wrap it in an array or a tuple.
     ///
     /// ## Errors
-    /// * When encoding the data into JSON a [`BroadcastError::Serialize`] may be returned.
-    /// * If the underlying engine.io connection is closed for a given socket a [`BroadcastError::Socket(SocketError::Closed)`]
-    /// will be returned.
-    /// * If the packet buffer is full for a given socket, a [`BroadcastError::Socket(SocketError::InternalChannelFull)`]
-    /// will be retured.
+    /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
+    /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
+    /// will be returned and the provided data to be send will be given back in the error.
+    /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
+    /// will be returned and the provided data to be send will be given back in the error.
     /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
     ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`SendError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`SendError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
     ///
     /// #### Example
     /// ```
@@ -321,15 +329,15 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
-    ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
+    ///          // Emit a test message to the client
+    ///         socket.bin(bin).emit("test", data).ok();
     ///
     ///         // Emit a test message with multiple arguments to the client
-    ///         socket.to("room1").emit("test", ("world", "hello", 1)).ok();
+    ///         socket.bin(bin).emit("test", ("world", "hello", 1)).ok();
     ///
     ///         // Emit a test message with an array as the first argument
     ///         let arr = [1, 2, 3, 4];
-    ///         socket.to("room2").emit("test", [arr]).ok();
+    ///         socket.bin(bin).emit("test", [arr]).ok();
     ///     });
     /// });
     pub fn emit<T: serde::Serialize>(
@@ -368,16 +376,17 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
     ///
     /// If the socket is full or if it has been closed before receiving the acknowledgement,
-    /// an [`AckError::Socket`] will be yielded.
+    /// an [`SendError::Socket`] will be **immediately returned** and the value to send will be given back.
     ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
     /// an [`AckError::Serde`] will be yielded.
     ///
-    /// [`timeout()`]: crate::operators::Operators#method.timeout
+    /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
     /// [`Stream`]: futures::stream::Stream
     /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
     /// [`AckError`]: crate::AckError
     /// [`AckError::Serde`]: crate::AckError::Serde
     /// [`AckError::Timeout`]: crate::AckError::Timeout
@@ -390,11 +399,12 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
     /// # use std::sync::Arc;
+    /// # use tokio::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.emit_with_ack::<_, Value>("test", data).unwrap().await {
+    ///         match socket.bin(bin).timeout(Duration::from_millis(2)).emit_with_ack::<_, Value>("test", data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -680,7 +690,11 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// will be retured.
     /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
     ///
+    /// > **Note**: If a error is returned because of a specific socket, the message will still be sent to all other sockets.
+    ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`BroadcastError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`BroadcastError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
     ///
     /// #### Example
     /// ```

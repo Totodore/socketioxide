@@ -279,12 +279,15 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
     /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
-    /// will be returned.
+    /// will be returned and the provided data to be send will be given back in the error.
     /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
-    /// will be returned.
+    /// will be returned and the provided data to be send will be given back in the error.
     /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
     ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`SendError::Serialize`]: crate::SendError::Serialize
+    /// [`SendError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`SendError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
     /// ## Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -338,10 +341,12 @@ impl<A: Adapter> Socket<A> {
     /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
     /// Useful when expecting only one acknowledgement.
     ///
+    /// # Errors
+    ///
     /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
     ///
     /// If the socket is full or if it has been closed before receiving the acknowledgement,
-    /// an [`AckError::Socket`] will be yielded.
+    /// an [`SendError::Socket`] will be **immediately returned** and the value to send will be given back.
     ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
@@ -697,7 +702,7 @@ impl<A: Adapter> Socket<A> {
 
     /// Gets the request info made by the client to connect
     ///
-    /// It might be used to retrieve the [`http::request::Extensions`]
+    /// It might be used to retrieve the [`http::Extensions`]
     pub fn req_parts(&self) -> &http::request::Parts {
         &self.esocket.req_parts
     }
