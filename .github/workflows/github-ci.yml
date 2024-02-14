@@ -252,3 +252,36 @@ jobs:
       - name: Client output
         if: always()
         run:  cat client.txt
+
+  heaptrack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install heaptrack
+        run: sudo apt-get install -y heaptrack
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+      - name: Install client deps
+        run: cd e2e/heaptrack/client && npm install && cd ../../..
+      - name: Build server
+        run: cargo build -r -p heaptrack
+      - name: Run memory benchmark
+        run: heaptrack target/release/heaptrack & npm --prefix e2e/heaptrack/client start
+      - name: Publish memory benchmark
+        uses: actions/upload-artifact@v2
+        with:
+          name: heaptrack-${{ github.head_ref }}.${{ github.sha }}
+          path: heaptrack.heaptrack.*.gz

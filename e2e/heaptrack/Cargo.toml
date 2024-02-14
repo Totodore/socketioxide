@@ -1,0 +1,18 @@
+[package]
+name = "heaptrack"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+socketioxide = { path = "../../socketioxide" }
+hyper = { workspace = true, features = ["server", "http1", "http2"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tracing-subscriber = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+charts-rs = { version = "0.3.3", optional = true }
+
+[features]
+custom-report = ["socketioxide/tracing", "tracing", "tracing-subscriber"]

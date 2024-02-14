@@ -1,0 +1,3 @@
+*.gz
+client/node_modules
+memory_usage.svg

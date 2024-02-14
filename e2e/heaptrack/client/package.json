@@ -1,0 +1,16 @@
+{
+	"name": "hyper-memory-usage",
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"start": "node main.js"
+	},
+	"author": {
+		"name": "Théodore Prévot",
+		"email": "prevottheodore@gmail.com",
+		"url": "http://github.com/totodore"
+	},
+	"dependencies": {
+		"socket.io-client": "latest"
+	}
+}
