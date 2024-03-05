@@ -279,4 +279,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: heaptrack-${{ github.head_ref }}.${{ github.sha }}
-          path: heaptrack.heaptrack.*.gz
+          path: heaptrack.heaptrack.*
