@@ -1,3 +1,13 @@
+# 0.11.0
+## socketioxide
+* fix: a panic was raised sometimes under heavy traffic with socketio v5 when the connect timeout handler is destroyed but that the chan sender is still alive.
+* **(Breaking)**: Emit errors now contains the provided data if there is an issue with the internal channel (for example if it is full) or if the socket closed.
+* **(Breaking)**: Operators are now splitted between `Operators` and `BroadcastOperators` in order to split logic and fn signatures between broadcast and non-broadcast operators.
+
+## engineioxide
+* fix #277: with engine.io v3, the message byte prefix `0x4` was not added to the binary payload with `ws` transport.
+* bump dependency `base64` to 0.22.0.
+
 # 0.10.2
 ## socketioxide
 * New [`rooms`](https://docs.rs/socketioxide/latest/socketioxide/struct.SocketIo.html#method.rooms) fn to get all the rooms of a namespace.
