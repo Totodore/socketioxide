@@ -14,7 +14,7 @@ readme = "../README.md"
 
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.10.2" }
+engineioxide = { path = "../engineioxide", version = "0.11.0" }
 futures.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 serde.workspace = true
@@ -45,18 +45,18 @@ state = ["dep:state"]
 
 [dev-dependencies]
 engineioxide = { path = "../engineioxide", features = [
-    "v3",
-    "tracing",
-    "test-utils",
+	"v3",
+	"tracing",
+	"test-utils",
 ] }
 tokio-tungstenite.workspace = true
 rust_socketio.workspace = true
 axum.workspace = true
 salvo.workspace = true
 tokio = { workspace = true, features = [
-    "macros",
-    "parking_lot",
-    "rt-multi-thread",
+	"macros",
+	"parking_lot",
+	"rt-multi-thread",
 ] }
 tracing-subscriber.workspace = true
 criterion.workspace = true
