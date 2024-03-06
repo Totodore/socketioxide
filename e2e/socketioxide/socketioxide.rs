@@ -7,6 +7,7 @@ use hyper_util::rt::TokioIo;
 use serde_json::Value;
 use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},
+    handler::ConnectHandler,
     SocketIo,
 };
 use tokio::net::TcpListener;
@@ -64,7 +65,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build_svc();
 
-    io.ns("/", on_connect);
+    io.ns(
+        "/",
+        on_connect.with(|s: SocketRef| {
+            info!("Socket.IO connected: {:?} {:?}", s.ns(), s.id);
+        }),
+    );
     io.ns("/custom", on_connect);
 
     #[cfg(feature = "v5")]

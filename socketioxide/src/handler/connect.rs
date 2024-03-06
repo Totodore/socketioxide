@@ -66,6 +66,17 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 }
 
+/// A `connect` handler that is layered with a middleware.
+/// It is used to add a middleware to a handler with the [`with`](ConnectHandler::with) method.
+/// You can chain multiple middlewares with this method.
+pub struct LayeredConnectHandler<H, M, A, T, T1> {
+    handler: H,
+    middleware: M,
+    adapter: std::marker::PhantomData<A>,
+    type_: std::marker::PhantomData<T>,
+    type1_: std::marker::PhantomData<T1>,
+}
+
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
@@ -111,6 +122,23 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 
+    /// Test
+    fn with<M, T1>(self, middleware: M) -> LayeredConnectHandler<Self, M, A, T, T1>
+    where
+        Self: Sized,
+        M: ConnectHandler<A, T1>,
+        T1: Send + Sync + 'static,
+        T: Send + Sync + 'static,
+    {
+        LayeredConnectHandler {
+            handler: self,
+            middleware,
+            adapter: std::marker::PhantomData,
+            type_: std::marker::PhantomData,
+            type1_: std::marker::PhantomData,
+        }
+    }
+
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
         std::marker::PhantomData
@@ -122,6 +150,21 @@ mod private {
     pub enum Sync {}
     #[derive(Debug, Copy, Clone)]
     pub enum Async {}
+}
+
+impl<H, A, M, T, T1> ConnectHandler<A, T1> for LayeredConnectHandler<H, M, A, T, T1>
+where
+    H: ConnectHandler<A, T>,
+    M: ConnectHandler<A, T1>,
+    A: Adapter,
+    T: Send + Sync + 'static,
+    T1: Send + Sync + 'static,
+{
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+        //TODO: auth by ref
+        self.middleware.call(s.clone(), auth.clone());
+        self.handler.call(s, auth);
+    }
 }
 
 macro_rules! impl_handler_async {
