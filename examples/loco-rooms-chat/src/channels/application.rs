@@ -18,7 +18,7 @@ pub async fn on_connect(socket: SocketRef) {
 
     socket.on(
         "join",
-        |socket: SocketRef, Data::<String>(room), store: State<state::MessageStore>| async move {
+        |socket: SocketRef, store: State<state::MessageStore>, Data::<String>(room)| async move {
             tracing::info!("Received join: {:?}", room);
             let _ = socket.leave_all();
             let _ = socket.join(room.clone());
@@ -29,7 +29,7 @@ pub async fn on_connect(socket: SocketRef) {
 
     socket.on(
         "message",
-        |socket: SocketRef, Data::<MessageIn>(data), store: State<state::MessageStore>| async move {
+        |socket: SocketRef, store: State<state::MessageStore>, Data::<MessageIn>(data)| async move {
             tracing::info!("Received message: {:?}", data);
 
             let response = state::Message {

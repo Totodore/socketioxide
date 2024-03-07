@@ -20,7 +20,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<PayloadValue>) {
 
     socket.on(
         "message-with-ack",
-        |Data::<PayloadValue>(data), ack: AckSender| {
+        |ack: AckSender, Data::<PayloadValue>(data)| {
             info!("Received event: {:?}", data);
             ack.send(data).ok();
         },

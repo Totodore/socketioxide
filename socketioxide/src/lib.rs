@@ -152,7 +152,6 @@
 //!     - for [`ConnectHandler`](handler::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](handler::MessageHandler): extracts and deserialize to json the message data
 //! * [`SocketRef`](extract::SocketRef): extracts a reference to the [`Socket`](socket::Socket)
-//! * [`Bin`](extract::Bin): extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`](extract::AckSender): Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`]: extracts the protocol version of the socket
 //! * [`TransportType`]: extracts the transport type of the socket
@@ -161,7 +160,7 @@
 //! ### Extractor order
 //! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
 //!
-//! For the [`MessageHandler`](handler::MessageHandler), some extractors require to _consume_ the event and therefore only implement the [`FromMessage`](handler::FromMessage) trait, like the [`Bin`](extract::Bin) extractor, therefore they should be the last argument.
+//! For the [`MessageHandler`](handler::MessageHandler), some extractors require to _consume_ the event and therefore only implement the [`FromMessage`](handler::FromMessage) trait, like the [`Data`](extract::Data) extractor, therefore they should be the last argument.
 //!
 //! Note that any extractors that implement the [`FromMessageParts`](handler::FromMessageParts) also implement by default the [`FromMessage`](handler::FromMessage) trait.
 //!

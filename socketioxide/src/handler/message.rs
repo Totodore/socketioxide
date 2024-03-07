@@ -29,9 +29,8 @@
 //!       ack.send("ack data").ok();
 //!     });
 //!
-//!     // `Bin` extractor must be the last argument because it consumes the rest of the packet
-//!     s.on("binary_event", |s: SocketRef, TryData::<String>(data), Bin(bin)| {
-//!       println!("Socket received event with data: {:?} and binary data: {:?}", data, bin);
+//!     s.on("binary_event", |s: SocketRef, TryData::<bytes::Bytes>(data)| {
+//!       println!("Socket received event with binary data: {:?}", data);
 //!     })
 //! });
 //! ```
@@ -47,9 +46,8 @@
 //!        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 //!        println!("Socket received event with data: {}", data);
 //!     });
-//!     // `Bin` extractor must be the last argument because it consumes the rest of the packet
-//!     s.on("/binary_event", move |s: SocketRef, TryData::<String>(data), Bin(bin)| async move {
-//!       println!("Socket received event with data: {:?} and binary data: {:?}", data, bin);
+//!     s.on("/binary_event", move |s: SocketRef, TryData::<bytes::Bytes>(data)| async move {
+//!       println!("Socket received event with binary data: {:?}", data);
 //!     })
 //! });
 //! ```
@@ -60,7 +58,7 @@
 //! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! // async named event handler
-//! async fn on_event(s: SocketRef, Data(data): Data<PayloadValue>, ack: AckSender) {
+//! async fn on_event(s: SocketRef, ack: AckSender, Data(data): Data<PayloadValue>) {
 //!     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 //!     ack.send("Here is my acknowledgment!").ok();   
 //! }

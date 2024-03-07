@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "add user",
-            |s: SocketRef, Data::<String>(username), user_cnt: State<UserCnt>| {
+            |s: SocketRef, user_cnt: State<UserCnt>, Data::<String>(username)| {
                 if s.extensions.get::<Username>().is_some() {
                     return;
                 }

@@ -293,9 +293,8 @@ impl<A: Adapter> SocketIo<A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
-    ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
-    ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
+    ///     // `Data` should be the last extractor because it consumes the request
+    ///     socket.on("test", |socket: SocketRef, ack: AckSender, Data::<MyData>(data)| async move {
     ///         println!("Received a test message {:?}", data);
     ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     ///         ack.send(data).ok(); // The data received is sent back to the client through the ack

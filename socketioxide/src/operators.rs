@@ -304,16 +304,16 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data), Bin(bin)| async move {
-    ///          // Emit a test message to the client
-    ///         socket.emit("test", data).ok();
-    ///
-    ///         let bins: Vec<_> = bin
-    ///             .clone()
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
+    ///         // Get all the binary payloads in the data
+    ///         let bins: Vec<_> = data.get_binary_payloads()
     ///             .into_iter()
     ///             .enumerate()
     ///             .map(|(i, bin)| PayloadValue::Binary(i, bin))
     ///             .collect();
+    ///
+    ///         // Emit a test message to the client
+    ///         socket.emit("test", data).ok();
     ///
     ///         // Emit a test message with multiple arguments to the client
     ///         let mut message: Vec<PayloadValue> = vec!["world".into(), "hello".into(), 1.into()];

@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "update-store",
-            |s: SocketRef, Data::<Vec<Todo>>(new_todos), State(Todos(todos))| {
+            |s: SocketRef, State(Todos(todos)), Data::<Vec<Todo>>(new_todos)| {
                 info!("Received update-store event: {:?}", new_todos);
 
                 let mut todos = todos.lock().unwrap();

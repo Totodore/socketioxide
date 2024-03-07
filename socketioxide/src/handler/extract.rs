@@ -2,14 +2,15 @@
 //! and [`DisconnectHandler`](super::DisconnectHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
-//! * [`Data`]: extracts and deserialize to json any data, if a deserialization error occurs the handler won't be called:
+//! * [`Data`]: extracts and deserialize to json any data. Because it consumes the event it should be the last argument. If a
+//! deserialization error occurs the handler won't be called:
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
-//! * [`TryData`]: extracts and deserialize to json any data but with a `Result` type in case of error:
+//! * [`TryData`]: extracts and deserialize to json any data. Because it consumes the event it should be the last argument. In case of
+//! error, a `Result` type is returned;
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
 //! * [`SocketRef`]: extracts a reference to the [`Socket`]
-//! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
 //! * [`TransportType`](crate::TransportType): extracts the transport type
@@ -129,19 +130,19 @@ where
             .map(Data)
     }
 }
-impl<T, A> FromMessageParts<A> for Data<T>
+impl<T, A> FromMessage<A> for Data<T>
 where
     T: DeserializeOwned,
     A: Adapter,
 {
     type Error = serde_json::Error;
-    fn from_message_parts(
-        _: &Arc<Socket<A>>,
-        v: &mut PayloadValue,
-        _: &Option<i64>,
+    fn from_message(
+        _: Arc<Socket<A>>,
+        mut v: PayloadValue,
+        _: Option<i64>,
     ) -> Result<Self, Self::Error> {
-        upwrap_array(v);
-        v.clone().into_data::<T>().map(Data)
+        upwrap_array(&mut v);
+        v.into_data::<T>().map(Data)
     }
 }
 
@@ -231,20 +232,6 @@ impl<A: Adapter> SocketRef<A> {
     #[inline(always)]
     pub fn disconnect(self) -> Result<(), DisconnectError> {
         self.0.disconnect()
-    }
-}
-
-/// An Extractor that returns the binary data of the message.
-/// If there is no binary data, it will contain an empty vec.
-pub struct Bin(pub Vec<Vec<u8>>);
-impl<A: Adapter> FromMessage<A> for Bin {
-    type Error = Infallible;
-    fn from_message(
-        _: Arc<Socket<A>>,
-        mut v: PayloadValue,
-        _: Option<i64>,
-    ) -> Result<Self, Infallible> {
-        Ok(Bin(v.extract_binary_payloads()))
     }
 }
 

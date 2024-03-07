@@ -53,7 +53,7 @@ pub fn on_connection(
 
     s.on(
         "private message",
-        |s: SocketRef, Data(PrivateMessageReq { to, content }), State(Messages(msg))| {
+        |s: SocketRef, State(Messages(msg)), Data(PrivateMessageReq { to, content })| {
             let user_id = s.extensions.get::<Session>().unwrap().user_id;
             let message = Message {
                 from: user_id,
