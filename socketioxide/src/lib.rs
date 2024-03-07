@@ -275,11 +275,13 @@ pub use engineioxide::TransportType;
 pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};
 pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
+pub use payload_value::PayloadValue;
 
 mod client;
 mod errors;
 mod io;
 mod ns;
+mod payload_value;
 
 /// Socket.IO protocol version.
 /// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor

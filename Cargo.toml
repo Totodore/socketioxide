@@ -19,6 +19,7 @@ default-members = ["engineioxide", "socketioxide"]
 resolver = "2"
 
 [workspace.dependencies]
+bytes = { version = "1.4.0", features = ["serde"] }
 futures = "0.3.27"
 tokio = "1.35.0"
 tokio-tungstenite = "0.21.0"
