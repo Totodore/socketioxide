@@ -1,7 +1,6 @@
-use serde_json::Value;
 use socketioxide::{
     extract::{Data, SocketRef},
-    SocketIo,
+    PayloadValue, SocketIo,
 };
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
@@ -19,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (layer, io) = SocketIo::new_layer();
 
     io.ns("/", |s: SocketRef| {
-        s.on("drawing", |s: SocketRef, Data::<Value>(data)| {
+        s.on("drawing", |s: SocketRef, Data::<PayloadValue>(data)| {
             s.broadcast().emit("drawing", data).unwrap();
         });
     });

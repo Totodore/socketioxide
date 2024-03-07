@@ -1,7 +1,6 @@
-use serde_json::Value;
 use socketioxide::{
     extract::{Data, SocketRef},
-    SocketIo,
+    PayloadValue, SocketIo,
 };
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
@@ -31,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", |s: SocketRef, Data::<Value>(data)| {
+    io.ns("/", |s: SocketRef, Data::<PayloadValue>(data)| {
         info!("Received: {:?}", data);
         s.emit("welcome", data).ok();
     });

@@ -1,29 +1,28 @@
-use serde_json::Value;
 use socketioxide::{
-    extract::{AckSender, Bin, Data, SocketRef},
-    SocketIo,
+    extract::{AckSender, Data, SocketRef},
+    PayloadValue, SocketIo,
 };
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
 use viz::{handler::ServiceHandler, serve, Result, Router};
 
-fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
+fn on_connect(socket: SocketRef, Data(data): Data<PayloadValue>) {
     info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
     socket.emit("auth", data).ok();
 
     socket.on(
         "message",
-        |socket: SocketRef, Data::<Value>(data), Bin(bin)| {
-            info!("Received event: {:?} {:?}", data, bin);
-            socket.bin(bin).emit("message-back", data).ok();
+        |socket: SocketRef, Data::<PayloadValue>(data)| {
+            info!("Received event: {:?}", data);
+            socket.emit("message-back", data).ok();
         },
     );
 
     socket.on(
         "message-with-ack",
-        |Data::<Value>(data), ack: AckSender, Bin(bin)| {
-            info!("Received event: {:?} {:?}", data, bin);
-            ack.bin(bin).send(data).ok();
+        |Data::<PayloadValue>(data), ack: AckSender| {
+            info!("Received event: {:?}", data);
+            ack.send(data).ok();
         },
     );
 }
