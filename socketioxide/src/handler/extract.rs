@@ -25,6 +25,7 @@
 //! # use socketioxide::handler::{FromConnectParts, FromMessageParts};
 //! # use socketioxide::adapter::Adapter;
 //! # use socketioxide::socket::Socket;
+//! # use socketioxide::PayloadValue;
 //! # use std::sync::Arc;
 //! # use std::convert::Infallible;
 //! # use socketioxide::SocketIo;
@@ -61,8 +62,7 @@
 //!
 //!     fn from_message_parts(
 //!         s: &Arc<Socket<A>>,
-//!         _: &mut serde_json::Value,
-//!         _: &mut Vec<Vec<u8>>,
+//!         _: &mut PayloadValue,
 //!         _: &Option<i64>,
 //!     ) -> Result<Self, UserIdNotFound> {
 //!         // In a real app it would be better to parse the query params with a crate like `url`
@@ -89,6 +89,7 @@ use super::message::FromMessageParts;
 use super::FromDisconnectParts;
 use super::{connect::FromConnectParts, message::FromMessage};
 use crate::errors::{DisconnectError, SendError};
+use crate::payload_value::PayloadValue;
 use crate::socket::DisconnectReason;
 use crate::{
     adapter::{Adapter, LocalAdapter},
@@ -96,16 +97,15 @@ use crate::{
     socket::Socket,
 };
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
 
 #[cfg(feature = "state")]
 #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
 pub use state_extract::*;
 
 /// Utility function to unwrap an array with a single element
-fn upwrap_array(v: &mut Value) {
+fn upwrap_array(v: &mut PayloadValue) {
     match v {
-        Value::Array(vec) if vec.len() == 1 => {
+        PayloadValue::Array(vec) if vec.len() == 1 => {
             *v = vec.pop().unwrap();
         }
         _ => (),
@@ -137,12 +137,11 @@ where
     type Error = serde_json::Error;
     fn from_message_parts(
         _: &Arc<Socket<A>>,
-        v: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        v: &mut PayloadValue,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
         upwrap_array(v);
-        serde_json::from_value(v.clone()).map(Data)
+        v.clone().into_data::<T>().map(Data)
     }
 }
 
@@ -171,12 +170,11 @@ where
     type Error = Infallible;
     fn from_message_parts(
         _: &Arc<Socket<A>>,
-        v: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        v: &mut PayloadValue,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         upwrap_array(v);
-        Ok(TryData(serde_json::from_value(v.clone())))
+        Ok(TryData(v.clone().into_data::<T>()))
     }
 }
 /// An Extractor that returns a reference to a [`Socket`].
@@ -193,8 +191,7 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut PayloadValue,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
@@ -244,11 +241,10 @@ impl<A: Adapter> FromMessage<A> for Bin {
     type Error = Infallible;
     fn from_message(
         _: Arc<Socket<A>>,
-        _: serde_json::Value,
-        bin: Vec<Vec<u8>>,
+        mut v: PayloadValue,
         _: Option<i64>,
     ) -> Result<Self, Infallible> {
-        Ok(Bin(bin))
+        Ok(Bin(v.extract_binary_payloads()))
     }
 }
 
@@ -256,7 +252,6 @@ impl<A: Adapter> FromMessage<A> for Bin {
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 #[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
-    binary: Vec<Vec<u8>>,
     socket: Arc<Socket<A>>,
     ack_id: Option<i64>,
 }
@@ -264,8 +259,7 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut PayloadValue,
         ack_id: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(Self::new(s.clone(), *ack_id))
@@ -273,24 +267,16 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
 }
 impl<A: Adapter> AckSender<A> {
     pub(crate) fn new(socket: Arc<Socket<A>>, ack_id: Option<i64>) -> Self {
-        Self {
-            binary: vec![],
-            socket,
-            ack_id,
-        }
-    }
-
-    /// Add binary data to the ack response.
-    pub fn bin(mut self, bin: Vec<Vec<u8>>) -> Self {
-        self.binary = bin;
-        self
+        Self { socket, ack_id }
     }
 
     /// Send the ack response to the client.
-    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
+    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<PayloadValue>> {
         use crate::socket::PermitIteratorExt;
         if let Some(ack_id) = self.ack_id {
-            let permits = match self.socket.reserve(1 + self.binary.len()) {
+            let data = PayloadValue::from_data(data)?;
+            let payload_count = data.count_payloads();
+            let permits = match self.socket.reserve(1 + payload_count) {
                 Ok(permits) => permits,
                 Err(e) => {
                     #[cfg(feature = "tracing")]
@@ -299,11 +285,10 @@ impl<A: Adapter> AckSender<A> {
                 }
             };
             let ns = self.socket.ns();
-            let data = serde_json::to_value(data)?;
-            let packet = if self.binary.is_empty() {
+            let packet = if payload_count == 0 {
                 Packet::ack(ns, data, ack_id)
             } else {
-                Packet::bin_ack(ns, data, self.binary, ack_id)
+                Packet::bin_ack(ns, data, ack_id)
             };
             permits.emit(packet);
             Ok(())
@@ -323,8 +308,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut PayloadValue,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
@@ -347,8 +331,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut PayloadValue,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
@@ -442,8 +425,7 @@ mod state_extract {
         type Error = StateNotFound;
         fn from_message_parts(
             _: &Arc<Socket<A>>,
-            _: &mut serde_json::Value,
-            _: &mut Vec<Vec<u8>>,
+            _: &mut PayloadValue,
             _: &Option<i64>,
         ) -> Result<Self, StateNotFound> {
             get_state::<T>().map(State).ok_or(StateNotFound)

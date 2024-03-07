@@ -15,6 +15,7 @@ use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
 use crate::errors::{BroadcastError, DisconnectError};
 use crate::extract::SocketRef;
+use crate::payload_value::PayloadValue;
 use crate::socket::Socket;
 use crate::SendError;
 use crate::{
@@ -103,13 +104,11 @@ impl RoomParam for Sid {
 
 /// Chainable operators to configure the message to be sent.
 pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
-    binary: Vec<Vec<u8>>,
     timeout: Option<Duration>,
     socket: &'a Socket<A>,
 }
 /// Chainable operators to select sockets to send a message to and to configure the message to be sent.
 pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
-    binary: Vec<Vec<u8>>,
     timeout: Option<Duration>,
     ns: Arc<Namespace<A>>,
     opts: BroadcastOptions,
@@ -122,7 +121,6 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
             ..Default::default()
         };
         Self {
-            binary: conf.binary,
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
             opts,
@@ -134,7 +132,6 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
 impl<'a, A: Adapter> ConfOperators<'a, A> {
     pub(crate) fn new(sender: &'a Socket<A>) -> Self {
         Self {
-            binary: vec![],
             timeout: None,
             socket: sender,
         }
@@ -283,23 +280,6 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
         self.timeout = Some(timeout);
         self
     }
-
-    /// Adds a binary payload to the message.
-    /// #### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // This will send the binary payload received to all sockets in this namespace with the test message
-    ///         socket.bin(bin).emit("test", data);
-    ///     });
-    /// });
-    pub fn bin(mut self, binary: Vec<Vec<u8>>) -> Self {
-        self.binary = binary;
-        self
-    }
 }
 
 // ==== impl ConfOperators consume fns ====
@@ -344,9 +324,10 @@ impl<A: Adapter> ConfOperators<'_, A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<(), SendError<T>> {
+    ) -> Result<(), SendError<PayloadValue>> {
         use crate::socket::PermitIteratorExt;
-        let permits = match self.socket.reserve(1 + self.binary.len()) {
+        let data = PayloadValue::from_data(data)?;
+        let permits = match self.socket.reserve(1 + data.count_payloads()) {
             Ok(permits) => permits,
             Err(e) => {
                 #[cfg(feature = "tracing")]
@@ -415,8 +396,10 @@ impl<A: Adapter> ConfOperators<'_, A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<AckStream<V>, SendError<T>> {
-        let permits = match self.socket.reserve(1 + self.binary.len()) {
+    ) -> Result<AckStream<V>, SendError<PayloadValue>> {
+        let data = PayloadValue::from_data(data)?;
+        let payload_count = data.count_payloads();
+        let permits = match self.socket.reserve(1 + payload_count) {
             Ok(permits) => permits,
             Err(e) => {
                 #[cfg(feature = "tracing")]
@@ -475,12 +458,11 @@ impl<A: Adapter> ConfOperators<'_, A> {
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
         let ns = self.socket.ns.path.clone();
-        let data = serde_json::to_value(data)?;
-        let packet = if self.binary.is_empty() {
+        let data = PayloadValue::from_data(data)?;
+        let packet = if !data.has_binary() {
             Packet::event(ns, event.into(), data)
         } else {
-            let binary = std::mem::take(&mut self.binary);
-            Packet::bin_event(ns, event.into(), data, binary)
+            Packet::bin_event(ns, event.into(), data)
         };
         Ok(packet)
     }
@@ -489,7 +471,6 @@ impl<A: Adapter> ConfOperators<'_, A> {
 impl<A: Adapter> BroadcastOperators<A> {
     pub(crate) fn new(ns: Arc<Namespace<A>>) -> Self {
         Self {
-            binary: vec![],
             timeout: None,
             ns,
             opts: BroadcastOptions::default(),
@@ -497,7 +478,6 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
     pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
         Self {
-            binary: vec![],
             timeout: None,
             ns,
             opts: BroadcastOptions {
@@ -653,23 +633,6 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
-        self
-    }
-
-    /// Adds a binary payload to the message.
-    /// #### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // This will send the binary payload received to all sockets in this namespace with the test message
-    ///         socket.bin(bin).emit("test", data);
-    ///     });
-    /// });
-    pub fn bin(mut self, binary: Vec<Vec<u8>>) -> Self {
-        self.binary = binary;
         self
     }
 }
@@ -886,12 +849,11 @@ impl<A: Adapter> BroadcastOperators<A> {
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
         let ns = self.ns.path.clone();
-        let data = serde_json::to_value(data)?;
-        let packet = if self.binary.is_empty() {
+        let data = PayloadValue::from_data(data)?;
+        let packet = if !data.has_binary() {
             Packet::event(ns, event.into(), data)
         } else {
-            let binary = std::mem::take(&mut self.binary);
-            Packet::bin_event(ns, event.into(), data, binary)
+            Packet::bin_event(ns, event.into(), data)
         };
         Ok(packet)
     }

@@ -14,7 +14,6 @@ use std::{
 
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit, PermitIterator};
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
 
 #[cfg(feature = "extensions")]
@@ -31,6 +30,7 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
+    payload_value::PayloadValue,
     AckError, SocketIoConfig,
 };
 use crate::{
@@ -107,9 +107,9 @@ pub(crate) trait PermitIteratorExt<'a>:
     fn emit(mut self, mut packet: Packet<'_>) {
         debug_assert!(self.len() > 0, "No permits available to send the message");
 
-        let bin_payloads = match packet.inner {
+        let bin_payloads = match &mut packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                Some(std::mem::take(&mut bin.bin))
+                Some(bin.extract_payloads())
             }
             _ => None,
         };
@@ -123,7 +123,7 @@ pub(crate) trait PermitIteratorExt<'a>:
                 "Not enough permits available to send the message with the binary payload"
             );
             for bin in bin_payloads {
-                self.next().unwrap().emit_binary(bin);
+                self.next().unwrap().emit_binary(bin.into());
             }
         }
     }
@@ -138,7 +138,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     pub(crate) ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
-    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<PayloadValue>>>>,
     ack_counter: AtomicI64,
     /// The socket id
     pub id: Sid,
@@ -312,8 +312,11 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<(), SendError<T>> {
-        let permits = match self.reserve(1) {
+    ) -> Result<(), SendError<PayloadValue>> {
+        let data = PayloadValue::from_data(data)?;
+        let payload_count = data.count_payloads();
+
+        let permits = match self.reserve(1 + payload_count) {
             Ok(permits) => permits,
             Err(e) => {
                 #[cfg(feature = "tracing")]
@@ -323,8 +326,12 @@ impl<A: Adapter> Socket<A> {
         };
 
         let ns = self.ns();
-        let data = serde_json::to_value(data)?;
-        permits.emit(Packet::event(ns, event.into(), data));
+        let packet = if payload_count > 0 {
+            Packet::bin_event(ns, event.into(), data)
+        } else {
+            Packet::event(ns, event.into(), data)
+        };
+        permits.emit(packet);
         Ok(())
     }
 
@@ -383,8 +390,11 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<AckStream<V>, SendError<T>> {
-        let permits = match self.reserve(1) {
+    ) -> Result<AckStream<V>, SendError<PayloadValue>> {
+        let data = PayloadValue::from_data(data)?;
+        let payload_count = data.count_payloads();
+
+        let permits = match self.reserve(1 + payload_count) {
             Ok(permits) => permits,
             Err(e) => {
                 #[cfg(feature = "tracing")]
@@ -392,8 +402,13 @@ impl<A: Adapter> Socket<A> {
                 return Err(e.with_value(data).into());
             }
         };
-        let data = serde_json::to_value(data)?;
-        let packet = Packet::event(self.ns(), event.into(), data);
+
+        let ns = self.ns();
+        let packet = if payload_count > 0 {
+            Packet::bin_event(ns, event.into(), data)
+        } else {
+            Packet::event(ns, event.into(), data)
+        };
         let rx = self.send_with_ack_permit(packet, permits);
         let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
         Ok(AckStream::<V>::from(stream))
@@ -569,23 +584,6 @@ impl<A: Adapter> Socket<A> {
         ConfOperators::new(self).timeout(timeout)
     }
 
-    /// Adds a binary payload to the message.
-    /// # Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// # use std::sync::Arc;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // This will send the binary payload received to all clients in this namespace with the test message
-    ///         socket.bin(bin).emit("test", data);
-    ///     });
-    /// });
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> ConfOperators<'_, A> {
-        ConfOperators::new(self).bin(binary)
-    }
-
     /// Broadcasts to all clients without any filtering (except the current socket).
     /// # Example
     /// ```
@@ -647,7 +645,7 @@ impl<A: Adapter> Socket<A> {
         &self,
         mut packet: Packet<'_>,
         permits: PermitIterator<'_>,
-    ) -> Receiver<AckResult<Value>> {
+    ) -> Receiver<AckResult<PayloadValue>> {
         let (tx, rx) = oneshot::channel();
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -657,7 +655,10 @@ impl<A: Adapter> Socket<A> {
         rx
     }
 
-    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {
+    pub(crate) fn send_with_ack(
+        &self,
+        mut packet: Packet<'_>,
+    ) -> Receiver<AckResult<PayloadValue>> {
         let (tx, rx) = oneshot::channel();
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -735,9 +736,14 @@ impl<A: Adapter> Socket<A> {
         self.esocket.protocol.into()
     }
 
-    fn recv_event(self: Arc<Self>, e: &str, data: Value, ack: Option<i64>) -> Result<(), Error> {
+    fn recv_event(
+        self: Arc<Self>,
+        e: &str,
+        data: PayloadValue,
+        ack: Option<i64>,
+    ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(self.clone(), data, vec![], ack);
+            handler.call(self.clone(), data, ack);
         }
         Ok(())
     }
@@ -749,17 +755,14 @@ impl<A: Adapter> Socket<A> {
         ack: Option<i64>,
     ) -> Result<(), Error> {
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(self.clone(), packet.data, packet.bin, ack);
+            handler.call(self.clone(), packet.data, ack);
         }
         Ok(())
     }
 
-    fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
+    fn recv_ack(self: Arc<Self>, data: PayloadValue, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            let res = AckResponse {
-                data,
-                binary: vec![],
-            };
+            let res = AckResponse { data };
             tx.send(Ok(res)).ok();
         }
         Ok(())
@@ -767,10 +770,7 @@ impl<A: Adapter> Socket<A> {
 
     fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            let res = AckResponse {
-                data: packet.data,
-                binary: packet.bin,
-            };
+            let res = AckResponse { data: packet.data };
             tx.send(Ok(res)).ok();
         }
         Ok(())
@@ -818,11 +818,11 @@ mod test {
         // Saturate the channel
         for _ in 0..200 {
             socket
-                .send(Packet::event("test", "test", Value::Null))
+                .send(Packet::event("test", "test", PayloadValue::Null))
                 .unwrap();
         }
 
-        let ack = socket.emit_with_ack::<_, Value>("test", Value::Null);
+        let ack = socket.emit_with_ack::<_, PayloadValue>("test", PayloadValue::Null);
         assert!(matches!(
             ack,
             Err(SendError::Socket(SocketError::InternalChannelFull(_)))

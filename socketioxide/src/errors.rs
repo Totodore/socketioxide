@@ -11,6 +11,9 @@ pub enum Error {
     #[error("invalid packet type")]
     InvalidPacketType,
 
+    #[error("invalid binary payload count")]
+    InvalidPayloadCount,
+
     #[error("invalid event name")]
     InvalidEventName,
 
@@ -165,9 +168,10 @@ impl From<&Error> for Option<EIoDisconnectReason> {
         use EIoDisconnectReason::*;
         match value {
             Error::SocketGone(_) => Some(TransportClose),
-            Error::Serialize(_) | Error::InvalidPacketType | Error::InvalidEventName => {
-                Some(PacketParsingError)
-            }
+            Error::Serialize(_)
+            | Error::InvalidPacketType
+            | Error::InvalidEventName
+            | Error::InvalidPayloadCount => Some(PacketParsingError),
             Error::Adapter(_) | Error::InvalidNamespace => None,
         }
     }

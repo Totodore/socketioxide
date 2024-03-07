@@ -535,34 +535,6 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().timeout(timeout)
     }
 
-    /// Adds a binary payload to the message.
-    ///
-    /// Alias for `io.of("/").unwrap().bin(binary_payload)`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
-    /// // except for the room2 with a binary payload
-    /// io.to("room1")
-    ///   .to("room3")
-    ///   .except("room2")
-    ///   .bin(vec![vec![1, 2, 3, 4]])
-    ///   .emit("test", ());
-    #[inline]
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> BroadcastOperators<A> {
-        self.get_default_op().bin(binary)
-    }
-
     /// Emits a message to all sockets selected with the previous operators.
     ///
     /// Alias for `io.of("/").unwrap().emit(event, data)`

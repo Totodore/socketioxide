@@ -199,7 +199,6 @@
 //! * rooms: emit, join, leave to specific rooms
 //! * namespace: emit to a specific namespace (only from the [`SocketIo`] handle)
 //! * timeout: set a custom timeout when waiting for an ack
-//! * binary: emit a binary payload with the message
 //! * local: broadcast only to the current node (in case of a cluster)
 //!
 //! Check the [`operators`] module doc for more details on operators.
@@ -271,6 +270,7 @@ pub mod packet;
 pub mod service;
 pub mod socket;
 
+pub use bytes::Bytes;
 pub use engineioxide::TransportType;
 pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};
 pub use handler::extract;

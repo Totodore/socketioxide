@@ -18,10 +18,12 @@ use futures::{
     Future, Stream,
 };
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
-use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet, SocketError};
+use crate::{
+    adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet,
+    payload_value::PayloadValue, SocketError,
+};
 
 /// An acknowledgement sent by the client.
 /// It contains the data sent by the client and the binary payloads if there are any.
@@ -29,12 +31,9 @@ use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Pack
 pub struct AckResponse<T> {
     /// The data returned by the client
     pub data: T,
-    /// Optional binary payloads.
-    /// If there is no binary payload, the `Vec` will be empty
-    pub binary: Vec<Vec<u8>>,
 }
 
-pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError<()>>;
+pub(crate) type AckResult<T = PayloadValue> = Result<AckResponse<T>, AckError<()>>;
 
 pin_project_lite::pin_project! {
     /// A [`Future`] of [`AckResponse`] received from the client with its corresponding [`Sid`].
@@ -127,12 +126,12 @@ pin_project_lite::pin_project! {
     pub enum AckInnerStream {
         Stream {
             #[pin]
-            rxs: FuturesUnordered<AckResultWithId<Value>>,
+            rxs: FuturesUnordered<AckResultWithId<PayloadValue>>,
         },
 
         Fut {
             #[pin]
-            rx: AckResultWithId<Value>,
+            rx: AckResultWithId<PayloadValue>,
             polled: bool,
         },
     }
@@ -171,7 +170,7 @@ impl AckInnerStream {
 
     /// Creates a new [`AckInnerStream`] from a [`oneshot::Receiver`](tokio) corresponding to the acknowledgement
     /// of a single socket.
-    pub fn send(rx: Receiver<AckResult<Value>>, duration: Duration, id: Sid) -> Self {
+    pub fn send(rx: Receiver<AckResult<PayloadValue>>, duration: Duration, id: Sid) -> Self {
         AckInnerStream::Fut {
             polled: false,
             rx: AckResultWithId {
@@ -183,7 +182,7 @@ impl AckInnerStream {
 }
 
 impl Stream for AckInnerStream {
-    type Item = (Sid, AckResult<Value>);
+    type Item = (Sid, AckResult<PayloadValue>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use InnerProj::*;
@@ -221,7 +220,7 @@ impl FusedStream for AckInnerStream {
 }
 
 impl Future for AckInnerStream {
-    type Output = AckResult<Value>;
+    type Output = AckResult<PayloadValue>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.as_mut().poll_next(cx) {
@@ -295,13 +294,11 @@ impl<T> From<AckInnerStream> for AckStream<T> {
     }
 }
 
-fn map_ack_response<T: DeserializeOwned>(ack: AckResult<Value>) -> AckResult<T> {
+fn map_ack_response<T: DeserializeOwned>(ack: AckResult<PayloadValue>) -> AckResult<T> {
     ack.and_then(|v| {
-        serde_json::from_value(v.data)
-            .map(|data| AckResponse {
-                data,
-                binary: v.binary,
-            })
+        v.data
+            .into_data::<T>()
+            .map(|data| AckResponse { data })
             .map_err(|e| e.into())
     })
 }
@@ -328,12 +325,12 @@ mod test {
     async fn broadcast_ack() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/", "test", PayloadValue::from_data("test").unwrap());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
-        let res_packet = Packet::ack("test", "test".into(), 1);
+        let res_packet = Packet::ack("test", PayloadValue::from_data("test").unwrap(), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
         socket2.recv(res_packet.inner).unwrap();
 
@@ -351,8 +348,7 @@ mod test {
         let stream: AckStream<String> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
-            data: Value::String("test".into()),
-            binary: vec![],
+            data: PayloadValue::String("test".into()),
         }))
         .unwrap();
 
@@ -372,8 +368,7 @@ mod test {
         let stream: AckStream<String> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
-            data: Value::String("test".into()),
-            binary: vec![],
+            data: PayloadValue::String("test".into()),
         }))
         .unwrap();
 
@@ -384,12 +379,12 @@ mod test {
     async fn broadcast_ack_with_deserialize_error() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/", "test", PayloadValue::from_data("test").unwrap());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
-        let res_packet = Packet::ack("test", 132.into(), 1);
+        let res_packet = Packet::ack("test", PayloadValue::from_data(132).unwrap(), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
         socket2.recv(res_packet.inner).unwrap();
 
@@ -413,8 +408,7 @@ mod test {
         let stream: AckStream<String> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
-            data: Value::Bool(true),
-            binary: vec![],
+            data: PayloadValue::Bool(true),
         }))
         .unwrap();
         assert_eq!(stream.size_hint().0, 1);
@@ -436,8 +430,7 @@ mod test {
         let stream: AckStream<String> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(AckResponse {
-            data: Value::Bool(true),
-            binary: vec![],
+            data: PayloadValue::Bool(true),
         }))
         .unwrap();
 
@@ -448,12 +441,12 @@ mod test {
     async fn broadcast_ack_with_closed_socket() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/", "test", PayloadValue::from_data("test").unwrap());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
-        let res_packet = Packet::ack("test", "test".into(), 1);
+        let res_packet = Packet::ack("test", PayloadValue::from_data("test").unwrap(), 1);
         socket.clone().recv(res_packet.inner.clone()).unwrap();
 
         futures::pin_mut!(stream);
@@ -503,14 +496,14 @@ mod test {
     async fn broadcast_ack_with_timeout() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/", "test", PayloadValue::from_data("test").unwrap());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> =
             AckInnerStream::broadcast(packet, socks, Some(Duration::from_millis(10))).into();
 
         socket
-            .recv(Packet::ack("test", "test".into(), 1).inner)
+            .recv(Packet::ack("test", PayloadValue::from_data("test").unwrap(), 1).inner)
             .unwrap();
 
         futures::pin_mut!(stream);

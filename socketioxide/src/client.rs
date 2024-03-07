@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
+use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
 use futures::TryFutureExt;
@@ -242,7 +243,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     ///
     /// If the packet is complete, it is propagated to the namespace
     fn on_binary(&self, data: Vec<u8>, socket: Arc<EIoSocket<SocketData>>) {
-        if apply_payload_on_packet(data, &socket) {
+        if apply_payload_on_packet(data.into(), &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
                     #[cfg(feature = "tracing")]
@@ -264,7 +265,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 /// waiting to be filled with all the payloads
 ///
 /// Returns true if the packet is complete and should be processed
-fn apply_payload_on_packet(data: Vec<u8>, socket: &EIoSocket<SocketData>) -> bool {
+fn apply_payload_on_packet(data: Bytes, socket: &EIoSocket<SocketData>) -> bool {
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={}] applying payload on packet", socket.id);
     if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
