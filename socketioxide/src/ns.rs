@@ -25,7 +25,7 @@ pub struct Namespace<A: Adapter> {
 impl<A: Adapter> Namespace<A> {
     pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
-        C: ConnectHandler<A, T> + Send + Sync + 'static,
+        C: ConnectHandler<A, T> + Send + Sync + Clone + 'static,
         T: Send + Sync + 'static,
     {
         Arc::new_cyclic(|ns| Self {
@@ -75,7 +75,7 @@ impl<A: Adapter> Namespace<A> {
     pub fn recv(&self, sid: Sid, packet: PacketData<'_>) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
-            PacketData::ConnectError => Err(Error::InvalidPacketType),
+            PacketData::ConnectError(_) => Err(Error::InvalidPacketType),
             packet => self.get_socket(sid)?.recv(packet),
         }
     }

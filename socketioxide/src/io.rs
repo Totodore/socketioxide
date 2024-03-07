@@ -335,7 +335,7 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<A, T> + Clone,
         T: Send + Sync + 'static,
     {
         self.0.add_ns(path.into(), callback);
@@ -834,8 +834,8 @@ mod tests {
         assert!(io.get_op("test2").is_none());
     }
 
-    #[test]
-    fn get_socket_by_sid() {
+    #[tokio::test]
+    async fn get_socket_by_sid() {
         use engineioxide::Socket;
         let sid = Sid::new();
         let (_, io) = SocketIo::builder().build_svc();

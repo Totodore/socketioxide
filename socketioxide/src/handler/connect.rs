@@ -56,7 +56,7 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use crate::{adapter::Adapter, socket::Socket};
+use crate::{adapter::Adapter, packet::Packet, socket::Socket};
 
 use super::MakeErasedHandler;
 
@@ -69,9 +69,9 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
 /// A `connect` handler that is layered with a middleware.
 /// It is used to add a middleware to a handler with the [`with`](ConnectHandler::with) method.
 /// You can chain multiple middlewares with this method.
-pub struct LayeredConnectHandler<H, M, A, T, T1> {
+pub struct LayeredConnectHandler<H, N, A, T, T1> {
+    next: N,
     handler: H,
-    middleware: M,
     adapter: std::marker::PhantomData<A>,
     type_: std::marker::PhantomData<T>,
     type1_: std::marker::PhantomData<T1>,
@@ -80,7 +80,7 @@ pub struct LayeredConnectHandler<H, M, A, T, T1> {
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + Clone + 'static,
 {
     pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler<A>> {
         Box::new(MakeErasedHandler::new(inner))
@@ -89,12 +89,25 @@ where
 
 impl<A: Adapter, T, H> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T>
 where
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + Clone + 'static,
     T: Send + Sync + 'static,
 {
-    #[inline(always)]
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
-        self.handler.call(s, auth);
+        let handler = self.handler.clone();
+        tokio::spawn(async move {
+            if let Err(data) = handler.call(s.clone(), &auth).await {
+                let ns = s.ns();
+                let data = data.to_string();
+
+                #[cfg(feature = "tracing")]
+                tracing::trace!(ns, ?s.id, "emitting connect_error packet");
+
+                if let Err(e) = s.send(Packet::connect_error(ns, &data)) {
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!(?e, ns, ?s.id, data, "could not send connect_error packet");
+                }
+            }
+        });
     }
 }
 
@@ -119,20 +132,27 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
+    /// The error type returned by the handler
+    type Error: std::fmt::Display + 'static;
+
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(
+        &self,
+        s: Arc<Socket<A>>,
+        auth: &Option<String>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Test
-    fn with<M, T1>(self, middleware: M) -> LayeredConnectHandler<Self, M, A, T, T1>
+    fn with<H, T1>(self, handler: H) -> LayeredConnectHandler<H, Self, A, T, T1>
     where
         Self: Sized,
-        M: ConnectHandler<A, T1>,
+        H: ConnectHandler<A, T1>,
         T1: Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         LayeredConnectHandler {
-            handler: self,
-            middleware,
+            next: self,
+            handler,
             adapter: std::marker::PhantomData,
             type_: std::marker::PhantomData,
             type1_: std::marker::PhantomData,
@@ -150,20 +170,52 @@ mod private {
     pub enum Sync {}
     #[derive(Debug, Copy, Clone)]
     pub enum Async {}
+
+    #[derive(Debug, Copy, Clone)]
+    pub enum Handler {}
+    #[derive(Debug, Copy, Clone)]
+    pub enum Middleware {}
 }
 
-impl<H, A, M, T, T1> ConnectHandler<A, T1> for LayeredConnectHandler<H, M, A, T, T1>
+impl<H, N, A, T, T1> ConnectHandler<A, T1> for LayeredConnectHandler<H, N, A, T, T1>
 where
-    H: ConnectHandler<A, T>,
-    M: ConnectHandler<A, T1>,
+    H: ConnectHandler<A, T1>,
+    N: ConnectHandler<A, T>,
+    A: Adapter,
+    T: Send + Sync + 'static,
+    T1: Send + Sync + 'static,
+    H::Error: From<N::Error>,
+{
+    type Error = H::Error;
+    fn call(
+        &self,
+        s: Arc<Socket<A>>,
+        auth: &Option<String>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        async move {
+            self.handler.call(s.clone(), auth).await?;
+            self.next.call(s, auth).await?;
+            Ok(())
+        }
+    }
+}
+
+impl<H, N, A, T, T1> Clone for LayeredConnectHandler<H, N, A, T, T1>
+where
+    H: ConnectHandler<A, T1> + Clone,
+    N: ConnectHandler<A, T> + Clone,
     A: Adapter,
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
-        //TODO: auth by ref
-        self.middleware.call(s.clone(), auth.clone());
-        self.handler.call(s, auth);
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
+            next: self.next.clone(),
+            adapter: std::marker::PhantomData,
+            type_: std::marker::PhantomData,
+            type1_: std::marker::PhantomData,
+        }
     }
 }
 
@@ -172,28 +224,28 @@ macro_rules! impl_handler_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, (private::Async, $($ty,)*)> for F
+        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, (private::Handler, private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+			type Error = std::convert::Infallible;
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
                             tracing::error!("Error while extracting data: {}", _e);
-                            return;
+                            return Ok(());
                         },
                     };
                 )*
 
-                let fut = (self.clone())($($ty,)*);
-                tokio::spawn(fut);
-
+				(self.clone())($($ty,)*).await;
+				Ok(())
             }
         }
     };
@@ -204,29 +256,95 @@ macro_rules! impl_handler {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)*> ConnectHandler<A, (private::Sync, $($ty,)*)> for F
+        impl<A, F, $($ty,)*> ConnectHandler<A, (private::Handler, private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+			type Error = std::convert::Infallible;
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
                             tracing::error!("Error while extracting data: {}", _e);
-                            return;
+                            return Ok(());
                         },
                     };
                 )*
 
                 (self.clone())($($ty,)*);
+				Ok(())
             }
         }
     };
 }
+
+macro_rules! impl_middleware {
+    (
+        [$($ty:ident),*]
+    ) => {
+        #[allow(non_snake_case, unused)]
+        impl<A, F, E, $($ty,)*> ConnectHandler<A, (private::Middleware, private::Sync, $($ty,)*)> for F
+        where
+            F: FnOnce($($ty,)*) -> Result<(), E> + Send + Sync + Clone + 'static,
+            A: Adapter,
+			E: std::fmt::Display + 'static,
+            $( $ty: FromConnectParts<A> + Send, )*
+        {
+			type Error = E;
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+                $(
+                    let $ty = match $ty::from_connect_parts(&s, auth) {
+                        Ok(v) => v,
+                        Err(_e) => {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("Error while extracting data: {}", _e);
+                            return Ok(());
+                        },
+                    };
+                )*
+
+                (self.clone())($($ty,)*)
+            }
+        }
+    };
+}
+
+macro_rules! impl_async_middleware {
+    (
+        [$($ty:ident),*]
+    ) => {
+        #[allow(non_snake_case, unused)]
+        impl<A, F, Fut, E, $($ty,)*> ConnectHandler<A, (private::Middleware, private::Async, $($ty,)*)> for F
+        where
+			F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
+			Fut: Future<Output = Result<(), E>> + Send + 'static,
+            A: Adapter,
+			E: std::fmt::Display + Send + 'static,
+            $( $ty: FromConnectParts<A> + Send, )*
+        {
+			type Error = E;
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+                $(
+                    let $ty = match $ty::from_connect_parts(&s, auth) {
+                        Ok(v) => v,
+                        Err(_e) => {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("Error while extracting data: {}", _e);
+                            return Ok(());
+                        },
+                    };
+                )*
+
+				(self.clone())($($ty,)*).await
+            }
+        }
+    };
+}
+
 #[rustfmt::skip]
 macro_rules! all_the_tuples {
     ($name:ident) => {
@@ -252,3 +370,5 @@ macro_rules! all_the_tuples {
 
 all_the_tuples!(impl_handler_async);
 all_the_tuples!(impl_handler);
+all_the_tuples!(impl_middleware);
+all_the_tuples!(impl_async_middleware);
