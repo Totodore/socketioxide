@@ -206,7 +206,6 @@ impl<A: Adapter> Socket<A> {
     /// #### Example with a closure and an acknowledgement + binary data:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
     /// # use serde::{Serialize, Deserialize};
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
@@ -219,10 +218,10 @@ impl<A: Adapter> Socket<A> {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
     ///         println!("Received a test message {:?}", data);
     ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
+    ///         ack.send(data).ok(); // The data received is sent back to the client through the ack
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
@@ -555,21 +554,19 @@ impl<A: Adapter> Socket<A> {
     ///
     /// # Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///    socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .emit_with_ack::<PayloadValue>("message-back", data)
     ///             .unwrap()
     ///             .for_each(|(sid, ack)| async move {
     ///                match ack {
@@ -587,12 +584,11 @@ impl<A: Adapter> Socket<A> {
     /// Broadcasts to all clients without any filtering (except the current socket).
     /// # Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         // This message will be broadcast to all clients in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });

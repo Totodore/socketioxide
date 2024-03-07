@@ -283,7 +283,6 @@ impl<A: Adapter> SocketIo<A> {
     /// #### Example with a closure and an acknowledgement + binary data:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
     /// # use serde::{Serialize, Deserialize};
     /// #[derive(Debug, Serialize, Deserialize)]
     /// struct MyData {
@@ -296,10 +295,10 @@ impl<A: Adapter> SocketIo<A> {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
     ///         println!("Received a test message {:?}", data);
     ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
+    ///         ack.send(data).ok(); // The data received is sent back to the client through the ack
     ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
@@ -601,18 +600,16 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// # Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// # use futures::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         // Emit a test message in the room1 and room3 rooms,
     ///         // except for the room2 room with the binary payload received
     ///         let ack_stream = socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .emit_with_ack::<String>("message-back", data)
     ///             .unwrap();
     ///

@@ -123,31 +123,31 @@ io.ns("/", |s: SocketRef| {
 
 ```rust
 use axum::routing::get;
-use serde_json::Value;
 use socketioxide::{
-    extract::{AckSender, Bin, Data, SocketRef},
+    extract::{AckSender, Data, SocketRef},
+    PayloadValue,
     SocketIo,
 };
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
-fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
+fn on_connect(socket: SocketRef, Data(data): Data<PayloadValue>) {
     info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
     socket.emit("auth", data).ok();
 
     socket.on(
         "message",
-        |socket: SocketRef, Data::<Value>(data), Bin(bin)| {
+        |socket: SocketRef, Data::<PayloadValue>(data)| {
             info!("Received event: {:?} {:?}", data, bin);
-            socket.bin(bin).emit("message-back", data).ok();
+            socket.emit("message-back", data).ok();
         },
     );
 
     socket.on(
         "message-with-ack",
-        |Data::<Value>(data), ack: AckSender, Bin(bin)| {
+        |ack: AckSender, Data::<PayloadValue>(data)| {
             info!("Received event: {:?} {:?}", data, bin);
-            ack.bin(bin).send(data).ok();
+            ack.send(data).ok();
         },
     );
 }

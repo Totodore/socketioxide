@@ -228,11 +228,10 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     /// Broadcasts to all sockets without any filtering (except the current socket).
     /// #### Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         // This message will be broadcast to all sockets in this namespace
     ///         socket.broadcast().emit("test", data);
     ///     });
@@ -251,21 +250,19 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///
     /// # Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///    socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2
     ///       // room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .emit_with_ack::<PayloadValue>("message-back", data)
     ///             .unwrap()
     ///             .for_each(|(id, ack)| async move {
     ///                match ack {
@@ -304,20 +301,30 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///
     /// #### Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data), Bin(bin)| async move {
     ///          // Emit a test message to the client
-    ///         socket.bin(bin.clone()).emit("test", data).ok();
+    ///         socket.emit("test", data).ok();
+    ///
+    ///         let bins: Vec<_> = bin
+    ///             .clone()
+    ///             .into_iter()
+    ///             .enumerate()
+    ///             .map(|(i, bin)| PayloadValue::Binary(i, bin))
+    ///             .collect();
     ///
     ///         // Emit a test message with multiple arguments to the client
-    ///         socket.bin(bin.clone()).emit("test", ("world", "hello", 1)).ok();
+    ///         let mut message: Vec<PayloadValue> = vec!["world".into(), "hello".into(), 1.into()];
+    ///         message.extend(bins.clone());
+    ///         socket.emit("test", message).ok();
     ///
     ///         // Emit a test message with an array as the first argument
-    ///         let arr = [1, 2, 3, 4];
-    ///         socket.bin(bin).emit("test", [arr]).ok();
+    ///         let arr: PayloadValue = [1, 2, 3, 4].into();
+    ///         let mut message = vec![arr];
+    ///         message.extend(bins);
+    ///         socket.emit("test", message).ok();
     ///     });
     /// });
     pub fn emit<T: serde::Serialize>(
@@ -377,15 +384,14 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///
     /// # Basic example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// # use std::sync::Arc;
     /// # use tokio::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.bin(bin).timeout(Duration::from_millis(2)).emit_with_ack::<_, Value>("test", data).unwrap().await {
+    ///         match socket.timeout(Duration::from_millis(2)).emit_with_ack::<_, PayloadValue>("test", data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -540,17 +546,16 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// Filters out all sockets selected with the previous operators which are in the given rooms.
     /// #### Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("register1", |socket: SocketRef, Data::<Value>(data)| async move {
+    ///     socket.on("register1", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         socket.join("room1");
     ///     });
-    ///     socket.on("register2", |socket: SocketRef, Data::<Value>(data)| async move {
+    ///     socket.on("register2", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         socket.join("room2");
     ///     });
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         // This message will be broadcast to all sockets in the Namespace
     ///         // except for ones in room1 and the current socket
     ///         socket.broadcast().except("room1").emit("test", data);
@@ -606,21 +611,19 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///
     /// # Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// # use futures::stream::StreamExt;
     /// # use std::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///    socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2
     ///       // room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .emit_with_ack::<PayloadValue>("message-back", data)
     ///             .unwrap()
     ///             .for_each(|(id, ack)| async move {
     ///                match ack {
@@ -661,13 +664,12 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///
     /// #### Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
-    ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
+    ///         socket.to("room1").to("room3").except("room2").emit("test", data);
     ///
     ///         // Emit a test message with multiple arguments to the client
     ///         socket.to("room1").emit("test", ("world", "hello", 1)).ok();
@@ -726,18 +728,16 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///
     /// # Example
     /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
+    /// # use socketioxide::{PayloadValue, SocketIo, extract::*};
     /// # use futures::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<PayloadValue>(data)| async move {
     ///         // Emit a test message in the room1 and room3 rooms,
     ///         // except for the room2 room with the binary payload received
     ///         let ack_stream = socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .emit_with_ack::<String>("message-back", data)
     ///             .unwrap();
     ///

@@ -56,11 +56,11 @@
 //!
 //! ## Example with async non anonymous handler
 //! ```rust
-//! # use socketioxide::SocketIo;
+//! # use socketioxide::{PayloadValue, SocketIo};
 //! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! // async named event handler
-//! async fn on_event(s: SocketRef, Data(data): Data<serde_json::PayloadValue>, ack: AckSender) {
+//! async fn on_event(s: SocketRef, Data(data): Data<PayloadValue>, ack: AckSender) {
 //!     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 //!     ack.send("Here is my acknowledgment!").ok();   
 //! }
