@@ -188,9 +188,9 @@ where
 {
     type Error = H::Error;
     async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
-		self.handler.call(s.clone(), auth).await?;
-		self.next.call(s, auth).await?;
-		Ok(())
+        self.handler.call(s.clone(), auth).await?;
+        self.next.call(s, auth).await?;
+        Ok(())
     }
 }
 
