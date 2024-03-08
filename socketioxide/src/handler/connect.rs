@@ -104,7 +104,7 @@ where
 
                 if let Err(e) = s.send(Packet::connect_error(ns, &data)) {
                     #[cfg(feature = "tracing")]
-                    tracing::trace!(?e, ns, ?s.id, data, "could not send connect_error packet");
+                    tracing::warn!(?e, ns, ?s.id, data, "could not send connect_error packet");
                 }
             }
         });
@@ -187,16 +187,10 @@ where
     H::Error: From<N::Error>,
 {
     type Error = H::Error;
-    fn call(
-        &self,
-        s: Arc<Socket<A>>,
-        auth: &Option<String>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            self.handler.call(s.clone(), auth).await?;
-            self.next.call(s, auth).await?;
-            Ok(())
-        }
+    async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+		self.handler.call(s.clone(), auth).await?;
+		self.next.call(s, auth).await?;
+		Ok(())
     }
 }
 
