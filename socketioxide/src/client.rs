@@ -50,7 +50,11 @@ impl<A: Adapter> Client<A> {
             let esocket = esocket.clone();
             let config = self.config.clone();
             tokio::spawn(async move {
-                if let Ok(_) = ns.connect(esocket.id, esocket.clone(), auth, config).await {
+                if ns
+                    .connect(esocket.id, esocket.clone(), auth, config)
+                    .await
+                    .is_ok()
+                {
                     // cancel the connect timeout task for v5
                     if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                         tx.send(()).ok();
