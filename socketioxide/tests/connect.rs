@@ -26,7 +26,7 @@ pub async fn connect_middleware() {
     assert_ok!(srx.next().await.unwrap());
     assert_ok!(srx.next().await.unwrap());
 
-	assert_eq!(rx.recv().await.unwrap(), 3);
+    assert_eq!(rx.recv().await.unwrap(), 3);
     assert_eq!(rx.recv().await.unwrap(), 2);
     assert_eq!(rx.recv().await.unwrap(), 1);
     rx.try_recv().unwrap_err();
