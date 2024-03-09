@@ -24,9 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     io.ns(
         "/",
-        handlers::on_connection
-            .with(|| {})
-            .with(handlers::authenticate_middleware),
+        handlers::on_connection.with(handlers::authenticate_middleware),
     );
 
     let app = axum::Router::new()

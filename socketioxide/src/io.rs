@@ -846,7 +846,7 @@ mod tests {
         io.0.get_ns("/")
             .unwrap()
             .connect(sid, socket, None, config)
-            .unwrap();
+            .await;
 
         assert!(io.get_socket(sid).is_some());
         assert!(io.get_socket(Sid::new()).is_none());

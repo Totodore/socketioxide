@@ -46,15 +46,17 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
 
-        let sid = esocket.id;
         if let Some(ns) = self.get_ns(ns_path) {
-            ns.connect(sid, esocket.clone(), auth, self.config.clone())?;
-
-            // cancel the connect timeout task for v5
-            if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                tx.send(()).ok();
-            }
-
+            let esocket = esocket.clone();
+            let config = self.config.clone();
+            tokio::spawn(async move {
+                if let Ok(_) = ns.connect(esocket.id, esocket.clone(), auth, config).await {
+                    // cancel the connect timeout task for v5
+                    if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                        tx.send(()).ok();
+                    }
+                }
+            });
             Ok(())
         } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]

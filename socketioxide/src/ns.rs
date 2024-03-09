@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     adapter::Adapter,
-    errors::Error,
+    errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::Socket,
@@ -37,26 +37,42 @@ impl<A: Adapter> Namespace<A> {
     }
 
     /// Connects a socket to a namespace
-    pub fn connect(
+    /// A handler is first called to check if the connection is allowed
+    /// If the handler returns an error, a connect_error packet is sent to the client
+    /// If the handler returns Ok, a connect packet is sent to the client
+    ///
+    /// if an error occured the function returns false
+    pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData>>,
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
-    ) -> Result<(), serde_json::Error> {
+    ) -> Result<(), ConnectFail> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
 
-        self.sockets.write().unwrap().insert(sid, socket.clone());
+        if let Err(e) = self.handler.call(socket.clone(), auth).await {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(ns = self.path.as_ref(), ?socket.id, "emitting connect_error packet");
 
+            let data = e.to_string();
+            if let Err(_e) = socket.send(Packet::connect_error(&self.path, &data)) {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("error sending connect_error packet: {:?}, closing conn", _e);
+                esocket.close(engineioxide::DisconnectReason::PacketParsingError);
+            }
+            return Err(ConnectFail);
+        }
+
+        self.sockets.write().unwrap().insert(sid, socket.clone());
         let protocol = esocket.protocol.into();
+
         if let Err(_e) = socket.send(Packet::connect(&self.path, socket.id, protocol)) {
             #[cfg(feature = "tracing")]
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);
-            return Ok(());
         }
 
-        self.handler.call(socket, auth);
         Ok(())
     }
 

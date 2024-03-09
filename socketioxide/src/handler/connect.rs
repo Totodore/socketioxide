@@ -52,18 +52,22 @@
 //! io.ns("/", handler);
 //! io.ns("/admin", handler);
 //! ```
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
-use futures::Future;
+use futures::{future::BoxFuture, Future};
 
-use crate::{adapter::Adapter, packet::Packet, socket::Socket};
+use crate::{adapter::Adapter, socket::Socket};
 
 use super::MakeErasedHandler;
 
 /// A Type Erased [`ConnectHandler`] so it can be stored in a HashMap
 pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(
+        &self,
+        s: Arc<Socket<A>>,
+        auth: Option<String>,
+    ) -> BoxFuture<'static, Result<(), Box<dyn Display>>>;
 }
 
 /// A `connect` handler that is layered with a middleware.
@@ -92,22 +96,14 @@ where
     H: ConnectHandler<A, T> + Send + Sync + Clone + 'static,
     T: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+    fn call(
+        &self,
+        s: Arc<Socket<A>>,
+        auth: Option<String>,
+    ) -> BoxFuture<'static, Result<(), Box<dyn Display>>> {
+        use futures::FutureExt;
         let handler = self.handler.clone();
-        tokio::spawn(async move {
-            if let Err(data) = handler.call(s.clone(), &auth).await {
-                let ns = s.ns();
-                let data = data.to_string();
-
-                #[cfg(feature = "tracing")]
-                tracing::trace!(ns, ?s.id, "emitting connect_error packet");
-
-                if let Err(e) = s.send(Packet::connect_error(ns, &data)) {
-                    #[cfg(feature = "tracing")]
-                    tracing::warn!(?e, ns, ?s.id, data, "could not send connect_error packet");
-                }
-            }
-        });
+        async move { handler.call(s, &auth).await }.boxed()
     }
 }
 
@@ -132,15 +128,12 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
-    /// The error type returned by the handler
-    type Error: std::fmt::Display + 'static;
-
     /// Call the handler with the given arguments.
     fn call(
         &self,
         s: Arc<Socket<A>>,
         auth: &Option<String>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Box<dyn Display>>> + Send;
 
     /// Test
     fn with<H, T1>(self, handler: H) -> LayeredConnectHandler<H, Self, A, T, T1>
@@ -184,10 +177,8 @@ where
     A: Adapter,
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
-    H::Error: From<N::Error>,
 {
-    type Error = H::Error;
-    async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+    async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Box<dyn Display>> {
         self.handler.call(s.clone(), auth).await?;
         self.next.call(s, auth).await?;
         Ok(())
@@ -225,8 +216,7 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-			type Error = std::convert::Infallible;
-            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Box<dyn Display>> {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
@@ -256,8 +246,7 @@ macro_rules! impl_handler {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-			type Error = std::convert::Infallible;
-            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Box<dyn Display>> {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
@@ -288,8 +277,7 @@ macro_rules! impl_middleware {
 			E: std::fmt::Display + 'static,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-			type Error = E;
-            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Box<dyn Display>> {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, auth) {
                         Ok(v) => v,
@@ -301,7 +289,7 @@ macro_rules! impl_middleware {
                     };
                 )*
 
-                (self.clone())($($ty,)*)
+                (self.clone())($($ty,)*).map_err(|e| Box::new(e) as Box<dyn Display>)
             }
         }
     };
@@ -317,11 +305,10 @@ macro_rules! impl_async_middleware {
 			F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
 			Fut: Future<Output = Result<(), E>> + Send + 'static,
             A: Adapter,
-			E: std::fmt::Display + Send + 'static,
+			E: std::fmt::Display + 'static,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-			type Error = E;
-            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Self::Error> {
+            async fn call(&self, s: Arc<Socket<A>>, auth: &Option<String>) -> Result<(), Box<dyn Display>> {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, auth) {
                         Ok(v) => v,
@@ -333,7 +320,7 @@ macro_rules! impl_async_middleware {
                     };
                 )*
 
-				(self.clone())($($ty,)*).await
+				(self.clone())($($ty,)*).await.map_err(|e| Box::new(e) as Box<dyn Display>)
             }
         }
     };
