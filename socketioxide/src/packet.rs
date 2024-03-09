@@ -102,6 +102,23 @@ impl<'a> Packet<'a> {
         }
     }
 
+    /// Create a binary event packet for the given namespace, with binary payloads
+    pub fn bin_event_with_payloads(
+        ns: impl Into<Cow<'a, str>>,
+        e: impl Into<Cow<'a, str>>,
+        data: PayloadValue,
+        bins: Vec<Bytes>,
+    ) -> Self {
+        let mut packet = BinaryPacket::outgoing(data);
+        for bin in bins {
+            packet.add_payload(bin);
+        }
+        Self {
+            inner: PacketData::BinaryEvent(e.into(), packet, None),
+            ns: ns.into(),
+        }
+    }
+
     /// Create an ack packet for the given namespace
     pub fn ack(ns: &'a str, data: PayloadValue, ack: i64) -> Self {
         Self {
@@ -113,6 +130,23 @@ impl<'a> Packet<'a> {
     /// Create a binary ack packet for the given namespace
     pub fn bin_ack(ns: &'a str, data: PayloadValue, ack: i64) -> Self {
         let packet = BinaryPacket::outgoing(data);
+        Self {
+            inner: PacketData::BinaryAck(packet, ack),
+            ns: Cow::Borrowed(ns),
+        }
+    }
+
+    /// Create a binary ack packet for the given namespace, with binary payloads
+    pub fn bin_ack_with_payloads(
+        ns: &'a str,
+        data: PayloadValue,
+        ack: i64,
+        bins: Vec<Bytes>,
+    ) -> Self {
+        let mut packet = BinaryPacket::outgoing(data);
+        for bin in bins {
+            packet.add_payload(bin);
+        }
         Self {
             inner: PacketData::BinaryAck(packet, ack),
             ns: Cow::Borrowed(ns),

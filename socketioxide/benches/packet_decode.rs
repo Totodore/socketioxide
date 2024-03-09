@@ -1,8 +1,9 @@
+use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use engineioxide::sid::Sid;
 use socketioxide::{
     packet::{Packet, PacketData},
-    ProtocolVersion,
+    PayloadValue, ProtocolVersion,
 };
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("Decode packet connect on /", |b| {
@@ -26,7 +27,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     const DATA: &str = r#"{"_placeholder":true,"num":0}"#;
     const BINARY: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     c.bench_function("Decode packet event on /", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
+        let data = PayloadValue::from_data(DATA).unwrap();
         let packet: String =
             Packet::event(black_box("/"), black_box("event"), black_box(data.clone()))
                 .try_into()
@@ -35,7 +36,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet event on /custom_nsp", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
+        let data = PayloadValue::from_data(DATA).unwrap();
         let packet: String = Packet::event(
             black_box("custom_nsp"),
             black_box("event"),
@@ -47,7 +48,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet event with ack on /", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
+        let data = PayloadValue::from_data(DATA).unwrap();
         let packet: Packet =
             Packet::event(black_box("/"), black_box("event"), black_box(data.clone()));
         match packet.inner {
@@ -59,7 +60,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet event with ack on /custom_nsp", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
+        let data = PayloadValue::from_data(DATA).unwrap();
         let packet = Packet::event(
             black_box("/custom_nsp"),
             black_box("event"),
@@ -75,7 +76,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet ack on /", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
+        let data = PayloadValue::from_data(DATA).unwrap();
         let packet: String = Packet::ack(black_box("/"), black_box(data.clone()), black_box(0))
             .try_into()
             .unwrap();
@@ -83,7 +84,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet ack on /custom_nsp", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
+        let data = PayloadValue::from_data(DATA).unwrap();
         let packet: String = Packet::ack(
             black_box("/custom_nsp"),
             black_box(data.clone()),
@@ -95,12 +96,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet binary event (b64) on /", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
-        let packet: String = Packet::bin_event(
+        let data = PayloadValue::from_data(DATA).unwrap();
+        let packet: String = Packet::bin_event_with_payloads(
             black_box("/"),
             black_box("event"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
+            black_box(vec![Bytes::from_static(&BINARY)]),
         )
         .try_into()
         .unwrap();
@@ -108,12 +109,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet binary event (b64) on /custom_nsp", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
-        let packet: String = Packet::bin_event(
+        let data = PayloadValue::from_data(DATA).unwrap();
+        let packet: String = Packet::bin_event_with_payloads(
             black_box("/custom_nsp"),
             black_box("event"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
+            black_box(vec![Bytes::from_static(&BINARY)]),
         )
         .try_into()
         .unwrap();
@@ -121,12 +122,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet binary ack (b64) on /", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
-        let packet: String = Packet::bin_ack(
+        let data = PayloadValue::from_data(DATA).unwrap();
+        let packet: String = Packet::bin_ack_with_payloads(
             black_box("/"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
             black_box(0),
+            black_box(vec![Bytes::from_static(&BINARY)]),
         )
         .try_into()
         .unwrap();
@@ -134,12 +135,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("Decode packet binary ack (b64) on /custom_nsp", |b| {
-        let data = serde_json::to_value(DATA).unwrap();
-        let packet: String = Packet::bin_ack(
+        let data = PayloadValue::from_data(DATA).unwrap();
+        let packet: String = Packet::bin_ack_with_payloads(
             black_box("/custom_nsp"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
             black_box(0),
+            black_box(vec![Bytes::from_static(&BINARY)]),
         )
         .try_into()
         .unwrap();
