@@ -22,6 +22,7 @@
 //!
 //! #### Example that extracts a user id from the query params
 //! ```rust
+//! # use bytes::Bytes;
 //! # use socketioxide::handler::{FromConnectParts, FromMessageParts};
 //! # use socketioxide::adapter::Adapter;
 //! # use socketioxide::socket::Socket;
@@ -62,7 +63,7 @@
 //!     fn from_message_parts(
 //!         s: &Arc<Socket<A>>,
 //!         _: &mut serde_json::Value,
-//!         _: &mut Vec<Vec<u8>>,
+//!         _: &mut Vec<Bytes>,
 //!         _: &Option<i64>,
 //!     ) -> Result<Self, UserIdNotFound> {
 //!         // In a real app it would be better to parse the query params with a crate like `url`
@@ -95,6 +96,7 @@ use crate::{
     packet::Packet,
     socket::Socket,
 };
+use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
@@ -138,7 +140,7 @@ where
     fn from_message_parts(
         _: &Arc<Socket<A>>,
         v: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
         upwrap_array(v);
@@ -172,7 +174,7 @@ where
     fn from_message_parts(
         _: &Arc<Socket<A>>,
         v: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         upwrap_array(v);
@@ -194,7 +196,7 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
@@ -245,13 +247,13 @@ impl<A: Adapter> SocketRef<A> {
 
 /// An Extractor that returns the binary data of the message.
 /// If there is no binary data, it will contain an empty vec.
-pub struct Bin(pub Vec<Vec<u8>>);
+pub struct Bin(pub Vec<Bytes>);
 impl<A: Adapter> FromMessage<A> for Bin {
     type Error = Infallible;
     fn from_message(
         _: Arc<Socket<A>>,
         _: serde_json::Value,
-        bin: Vec<Vec<u8>>,
+        bin: Vec<Bytes>,
         _: Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(Bin(bin))
@@ -262,7 +264,7 @@ impl<A: Adapter> FromMessage<A> for Bin {
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 #[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
-    binary: Vec<Vec<u8>>,
+    binary: Vec<Bytes>,
     socket: Arc<Socket<A>>,
     ack_id: Option<i64>,
 }
@@ -271,7 +273,7 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut Vec<Bytes>,
         ack_id: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(Self::new(s.clone(), *ack_id))
@@ -287,7 +289,7 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Add binary data to the ack response.
-    pub fn bin(mut self, bin: Vec<Vec<u8>>) -> Self {
+    pub fn bin(mut self, bin: Vec<Bytes>) -> Self {
         self.binary = bin;
         self
     }
@@ -330,7 +332,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
@@ -354,7 +356,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut serde_json::Value,
-        _: &mut Vec<Vec<u8>>,
+        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
@@ -449,7 +451,7 @@ mod state_extract {
         fn from_message_parts(
             _: &Arc<Socket<A>>,
             _: &mut serde_json::Value,
-            _: &mut Vec<Vec<u8>>,
+            _: &mut Vec<Bytes>,
             _: &Option<i64>,
         ) -> Result<Self, StateNotFound> {
             get_state::<T>().map(State).ok_or(StateNotFound)
