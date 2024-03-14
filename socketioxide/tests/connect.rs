@@ -24,7 +24,7 @@ pub async fn connect_middleware() {
     };
     io.ns(
         "/",
-        { || {} }.with(handler(1)).with(handler(2)).with(handler(3)),
+        { || {} }.with(handler(3)).with(handler(2)).with(handler(1)),
     );
 
     let (_, mut srx) = create_ws_connection(PORT).await.split();
@@ -70,9 +70,9 @@ pub async fn connect_middleware_error() {
     io.ns(
         "/",
         { || {} }
-            .with(handler(1, false))
+            .with(handler(3, false))
             .with(handler(2, true))
-            .with(handler(3, false)),
+            .with(handler(1, false)),
     );
 
     let (_, mut srx) = create_ws_connection(PORT).await.split();

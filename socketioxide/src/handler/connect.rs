@@ -6,6 +6,19 @@
 //!
 //! Handlers can be _optionally_ async.
 //!
+//! # Middlewares
+//! [`ConnectHandlers`](ConnectHandler) can have middlewares, they are called before the connection
+//! of the socket to the namespace and therefore before the handler.
+//! > Because the socket is not yet connected to the namespace, you can't send messages to it.
+//!
+//! Middlewares can be sync or async and can be chained.
+//! They are defined with the [`ConnectMiddleware`] trait which is automatically implemented for any
+//! closure with up to 16 arguments with the following signature:
+//! * `FnOnce(*args) -> Result<(), E> where E: Display`
+//! * `async FnOnce(*args) -> Result<(), E> where E: Display`
+//!
+//! Arguments must implement the [`FromConnectParts`] trait in the exact same way than handlers.
+//!
 //! ## Example with sync closures
 //! ```rust
 //! # use socketioxide::SocketIo;
@@ -52,6 +65,48 @@
 //! io.ns("/", handler);
 //! io.ns("/admin", handler);
 //! ```
+//!
+//! ## Example with middlewares
+//!
+//! ```rust
+//! # use socketioxide::handler::ConnectHandler;
+//! # use socketioxide::extract::*;
+//! # use socketioxide::SocketIo;
+//! fn handler(s: SocketRef) {
+//! 	println!("socket connected on / namespace with id: {}", s.id);
+//! }
+//!
+//! #[derive(Debug)]
+//! struct AuthError;
+//! impl std::fmt::Display for AuthError {
+//! 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//! 		write!(f, "AuthError")
+//! 	}
+//! }
+//! impl std::error::Error for AuthError {}
+//!
+//! fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
+//! 	println!("second middleware called");
+//! 	if token != "secret" {
+//! 		Err(AuthError)
+//! 	} else {
+//! 		Ok(())
+//! 	}
+//! }
+//!
+//! // Middlewares can be sync or async
+//! async fn other_middleware(s: SocketRef) -> Result<(), AuthError> {
+//! 	println!("first middleware called");
+//! 	if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
+//! 		Err(AuthError)
+//! 	} else {
+//! 		Ok(())
+//! 	}
+//! }
+//!
+//! let (_, io) = SocketIo::new_layer();
+//! io.ns("/", handler.with(middleware).with(other_middleware));
+//! ```
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -93,8 +148,13 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 }
 
 /// Define a middleware for the connect event.
+/// It is implemented for closures with up to 16 arguments.
+/// They must implement the [`FromConnectParts`] trait and return `Result<(), E> where E: Display`.
+///
+/// * See the [`connect`](super::connect) module doc for more details on connect handler.
+/// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
-    #[doc(hidden)]
+    /// Call the middleware with the given arguments.
     fn call<'a>(
         &'a self,
         s: Arc<Socket<A>>,
@@ -125,8 +185,51 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
         Box::pin(async move { Ok(()) })
     }
 
-    /// Compose this handler with a middleware
-    fn with<M, T1>(self, middleware: M) -> LayeredConnectHandler<A, Self, M, T, T1>
+    /// Wraps this [`ConnectHandler`] with a new [`ConnectMiddleware`].
+    /// The new provided middleware will be called before the current one.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use socketioxide::handler::ConnectHandler;
+    /// # use socketioxide::extract::*;
+    /// # use socketioxide::SocketIo;
+    /// fn handler(s: SocketRef) {
+    /// 	println!("socket connected on / namespace with id: {}", s.id);
+    /// }
+    ///
+    /// #[derive(Debug)]
+    /// struct AuthError;
+    /// impl std::fmt::Display for AuthError {
+    /// 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    /// 		write!(f, "AuthError")
+    /// 	}
+    /// }
+    /// impl std::error::Error for AuthError {}
+    ///
+    /// fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
+    /// 	println!("second middleware called");
+    /// 	if token != "secret" {
+    /// 		Err(AuthError)
+    /// 	} else {
+    /// 		Ok(())
+    /// 	}
+    /// }
+    ///
+    /// // Middlewares can be sync or async
+    /// async fn other_middleware(s: SocketRef) -> Result<(), AuthError> {
+    /// 	println!("first middleware called");
+    /// 	if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
+    /// 		Err(AuthError)
+    /// 	} else {
+    /// 		Ok(())
+    /// 	}
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_layer();
+    /// io.ns("/", handler.with(middleware).with(other_middleware));
+    /// ```
+    fn with<M, T1>(self, middleware: M) -> impl ConnectHandler<A, T>
     where
         Self: Sized,
         M: ConnectMiddleware<A, T1> + Send + Sync + 'static,
@@ -145,14 +248,11 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
         std::marker::PhantomData
     }
 }
-
-/// A layered handler, used to compose a [`ConnectHandler`] with a [`ConnectMiddleware`]
-pub struct LayeredConnectHandler<A, H, M, T, T1> {
+struct LayeredConnectHandler<A, H, M, T, T1> {
     handler: H,
     middleware: M,
     phantom: std::marker::PhantomData<(A, T, T1)>,
 }
-
 struct ConnectMiddlewareLayer<M, N, T, T1> {
     middleware: M,
     next: N,
@@ -174,47 +274,16 @@ where
     H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    #[inline(always)]
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
         self.handler.call(s, auth);
     }
 
-    #[inline(always)]
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
     ) -> MiddlewareResFut<'a> {
         self.handler.call_middleware(s, auth)
-    }
-}
-
-impl<A, H, M, T, T1> LayeredConnectHandler<A, H, M, T, T1>
-where
-    A: Adapter,
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
-    M: ConnectMiddleware<A, T1> + Send + Sync + 'static,
-    T: Send + Sync + 'static,
-    T1: Send + Sync + 'static,
-{
-    /// Wraps the current handler with a new middleware
-    pub fn with<N, T2>(
-        self,
-        next: N,
-    ) -> LayeredConnectHandler<A, H, impl ConnectMiddleware<A, T1>, T, T2>
-    where
-        N: ConnectMiddleware<A, T2> + Send + Sync + 'static,
-        T2: Send + Sync + 'static,
-    {
-        LayeredConnectHandler {
-            handler: self.handler,
-            middleware: ConnectMiddlewareLayer {
-                middleware: self.middleware,
-                next,
-                phantom: std::marker::PhantomData,
-            },
-            phantom: std::marker::PhantomData,
-        }
     }
 }
 
@@ -235,7 +304,23 @@ where
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
     ) -> MiddlewareResFut<'a> {
-        Box::pin(async move { self.middleware.call(s.clone(), auth).await })
+        Box::pin(async move { self.middleware.call(s, auth).await })
+    }
+
+    fn with<M2, T2>(self, next: M2) -> impl ConnectHandler<A, T>
+    where
+        M2: ConnectMiddleware<A, T2> + Send + Sync + 'static,
+        T2: Send + Sync + 'static,
+    {
+        LayeredConnectHandler {
+            handler: self.handler,
+            middleware: ConnectMiddlewareLayer {
+                middleware: next,
+                next: self.middleware,
+                phantom: std::marker::PhantomData,
+            },
+            phantom: std::marker::PhantomData,
+        }
     }
 }
 impl<A, H, N, T, T1> ConnectMiddleware<A, T1> for LayeredConnectHandler<A, H, N, T, T1>
@@ -247,7 +332,7 @@ where
     T1: Send + Sync + 'static,
 {
     async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
-        self.middleware.call(s.clone(), auth).await
+        self.middleware.call(s, auth).await
     }
 }
 
