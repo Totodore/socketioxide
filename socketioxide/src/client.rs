@@ -110,7 +110,7 @@ impl<A: Adapter> Client<A> {
     /// Adds a new namespace handler
     pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: ConnectHandler<A, T> + Clone,
+        C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]

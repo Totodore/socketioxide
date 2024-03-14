@@ -25,7 +25,7 @@ pub struct Namespace<A: Adapter> {
 impl<A: Adapter> Namespace<A> {
     pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
     where
-        C: ConnectHandler<A, T> + Send + Sync + Clone + 'static,
+        C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         Arc::new_cyclic(|ns| Self {
@@ -51,7 +51,7 @@ impl<A: Adapter> Namespace<A> {
     ) -> Result<(), ConnectFail> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
 
-        if let Err(e) = self.handler.call(socket.clone(), auth).await {
+        if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {
             #[cfg(feature = "tracing")]
             tracing::trace!(ns = self.path.as_ref(), ?socket.id, "emitting connect_error packet");
 
@@ -72,6 +72,8 @@ impl<A: Adapter> Namespace<A> {
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);
         }
+
+        self.handler.call(socket.clone(), auth);
 
         Ok(())
     }

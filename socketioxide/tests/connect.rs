@@ -5,12 +5,14 @@ use fixture::create_server;
 use futures::StreamExt;
 use socketioxide::handler::ConnectHandler;
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::fixture::create_ws_connection;
 
 #[tokio::test]
 pub async fn connect_middleware() {
     const PORT: u16 = 2420;
+    use tokio_tungstenite::tungstenite::Message::*;
     let io = create_server(PORT).await;
     let (tx, mut rx) = mpsc::channel::<usize>(100);
 
@@ -18,9 +20,13 @@ pub async fn connect_middleware() {
         let tx1 = tx.clone();
         move || {
             tx1.try_send(i).unwrap();
+            Ok::<_, std::convert::Infallible>(())
         }
     };
-    io.ns("/", handler(1).with(handler(2)).with(handler(3)));
+    io.ns(
+        "/",
+        { || {} }.with(handler(3)).with(handler(2)).with(handler(1)),
+    );
 
     let (_, mut srx) = create_ws_connection(PORT).await.split();
     assert_ok!(srx.next().await.unwrap());
@@ -30,6 +36,8 @@ pub async fn connect_middleware() {
     assert_eq!(rx.recv().await.unwrap(), 2);
     assert_eq!(rx.recv().await.unwrap(), 1);
     rx.try_recv().unwrap_err();
+    let p = assert_ok!(srx.next().await.unwrap());
+    assert_eq!(p, Text("40".to_string()));
 }
 
 #[tokio::test]
@@ -62,7 +70,8 @@ pub async fn connect_middleware_error() {
 
     io.ns(
         "/",
-        handler(1, false)
+        { || {} }
+            .with(handler(1, false))
             .with(handler(2, true))
             .with(handler(3, false)),
     );
