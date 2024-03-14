@@ -52,6 +52,7 @@
 //! io.ns("/", handler);
 //! io.ns("/admin", handler);
 //! ```
+
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -66,6 +67,7 @@ pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
 
 type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
+
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
     fn call_middleware<'a>(
@@ -100,7 +102,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
     ) -> impl Future<Output = MiddlewareRes> + Send;
 
     #[doc(hidden)]
-    fn phantom(&self) -> std::marker::PhantomData<T> {
+    fn phantom(&self) -> std::marker::PhantomData<(A, T)> {
         std::marker::PhantomData
     }
 }
@@ -144,6 +146,19 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     }
 }
 
+/// A layered handler, used to compose a [`ConnectHandler`] with a [`ConnectMiddleware`]
+pub struct LayeredConnectHandler<A, H, M, T, T1> {
+    handler: H,
+    middleware: M,
+    phantom: std::marker::PhantomData<(A, T, T1)>,
+}
+
+struct ConnectMiddlewareLayer<M, N, T, T1> {
+    middleware: M,
+    next: N,
+    phantom: std::marker::PhantomData<(T, T1)>,
+}
+
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
 where
     H: ConnectHandler<A, T> + Send + Sync + 'static,
@@ -174,12 +189,6 @@ where
     }
 }
 
-pub struct LayeredConnectHandler<A, H, M, T, T1> {
-    handler: H,
-    middleware: M,
-    phantom: std::marker::PhantomData<(A, T, T1)>,
-}
-
 impl<A, H, M, T, T1> LayeredConnectHandler<A, H, M, T, T1>
 where
     A: Adapter,
@@ -192,7 +201,7 @@ where
     pub fn with<N, T2>(
         self,
         next: N,
-    ) -> LayeredConnectHandler<A, H, ConnectMiddlewareLayer<A, M, N, T1, T2>, T, T2>
+    ) -> LayeredConnectHandler<A, H, impl ConnectMiddleware<A, T1>, T, T2>
     where
         N: ConnectMiddleware<A, T2> + Send + Sync + 'static,
         T2: Send + Sync + 'static,
@@ -208,11 +217,7 @@ where
         }
     }
 }
-pub struct ConnectMiddlewareLayer<A, M, N, T, T1> {
-    middleware: M,
-    next: N,
-    phantom: std::marker::PhantomData<(A, T, T1)>,
-}
+
 impl<A, H, M, T, T1> ConnectHandler<A, T> for LayeredConnectHandler<A, H, M, T, T1>
 where
     A: Adapter,
@@ -246,7 +251,7 @@ where
     }
 }
 
-impl<A, M, N, T, T1> ConnectMiddleware<A, T> for ConnectMiddlewareLayer<A, M, N, T, T1>
+impl<A, M, N, T, T1> ConnectMiddleware<A, T> for ConnectMiddlewareLayer<M, N, T, T1>
 where
     A: Adapter,
     M: ConnectMiddleware<A, T> + Send + Sync + 'static,
@@ -348,7 +353,6 @@ macro_rules! impl_middleware_async {
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
                             tracing::error!("Error while extracting data: {}", _e);
-                            //TODO: handle error
 							return Ok(());
                         },
                     };

@@ -36,12 +36,12 @@ impl<A: Adapter> Namespace<A> {
         })
     }
 
-    /// Connects a socket to a namespace
-    /// A handler is first called to check if the connection is allowed
-    /// If the handler returns an error, a connect_error packet is sent to the client
-    /// If the handler returns Ok, a connect packet is sent to the client
+    /// Connects a socket to a namespace.
     ///
-    /// if an error occured the function returns false
+    /// Middlewares are first called to check if the connection is allowed.
+    /// * If the handler returns an error, a connect_error packet is sent to the client.
+    /// * If the handler returns Ok, a connect packet is sent to the client
+    /// and the handler is called.
     pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,
