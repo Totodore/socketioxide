@@ -3,7 +3,7 @@ mod utils;
 
 use fixture::create_server;
 use futures::StreamExt;
-use socketioxide::handler::ConnectHandler;
+use socketioxide::{extract::SocketRef, handler::ConnectHandler, SendError, SocketError};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message::*;
 
@@ -17,7 +17,29 @@ pub async fn connect_middleware() {
 
     let handler = |i: usize| {
         let tx1 = tx.clone();
-        move || {
+        move |s: SocketRef| {
+            // Socket should be closed for all emit methods on it
+
+            assert!(matches!(
+                s.emit("test", ()),
+                Err(SendError::Socket(SocketError::Closed(())))
+            ));
+
+            assert!(matches!(
+                s.emit_with_ack::<(), ()>("test", ()),
+                Err(SendError::Socket(SocketError::Closed(())))
+            ));
+
+            assert!(matches!(
+                s.bin(vec![vec![0, 1, 2, 3]]).emit("test", ()),
+                Err(SendError::Socket(SocketError::Closed(())))
+            ));
+            assert!(matches!(
+                s.bin(vec![vec![0, 1, 2, 3]])
+                    .emit_with_ack::<(), ()>("test", ()),
+                Err(SendError::Socket(SocketError::Closed(())))
+            ));
+
             tx1.try_send(i).unwrap();
             Ok::<_, std::convert::Infallible>(())
         }
