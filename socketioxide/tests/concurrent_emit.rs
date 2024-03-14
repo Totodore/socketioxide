@@ -4,6 +4,7 @@
 //! Under high load, if the atomicity of the emit is not guaranteed, binary packets may be out of order.
 mod utils;
 
+use bytes::Bytes;
 use engineioxide::Packet::*;
 use socketioxide::{extract::SocketRef, SocketIo};
 
@@ -16,9 +17,12 @@ pub async fn emit() {
             let s = socket.clone();
             tokio::task::spawn_blocking(move || {
                 for _ in 0..100 {
-                    s.bin(vec![vec![1, 2, 3], vec![4, 5, 6]])
-                        .emit("test", "bin")
-                        .unwrap();
+                    s.bin(vec![
+                        Bytes::from_static(&[1, 2, 3]),
+                        Bytes::from_static(&[4, 5, 6]),
+                    ])
+                    .emit("test", "bin")
+                    .unwrap();
                 }
             });
         }
@@ -39,11 +43,11 @@ pub async fn emit() {
                 total += 1;
             }
             Binary(bin) if count == 1 => {
-                assert_eq!(bin, vec![1, 2, 3]);
+                assert_eq!(bin, Bytes::from_static(&[1, 2, 3]));
                 count = (count + 1) % 3;
             }
             Binary(bin) if count == 2 => {
-                assert_eq!(bin, vec![4, 5, 6]);
+                assert_eq!(bin, Bytes::from_static(&[4, 5, 6]));
                 count = (count + 1) % 3;
             }
             Ping | Pong | Message(_) | Close => (),

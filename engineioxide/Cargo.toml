@@ -19,6 +19,7 @@ features = ["v3"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+bytes.workspace = true
 futures.workspace = true
 http.workspace = true
 http-body.workspace = true
@@ -34,7 +35,6 @@ pin-project-lite.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
 base64 = "0.22.0"
-bytes = "1.4.0"
 rand = "0.8.5"
 smallvec = { version = "1.13.1", features = ["union"] }
 

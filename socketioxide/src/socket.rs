@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
@@ -116,7 +117,7 @@ impl<'a> PermitExt<'a> for Permit<'a> {
         let msg = packet.into();
 
         if let Some(bin_payloads) = bin_payloads {
-            self.emit_many(msg, bin_payloads);
+            self.emit_many(msg, bin_payloads.into_iter().map(Into::into).collect());
         } else {
             self.emit(msg);
         }
@@ -212,7 +213,7 @@ impl<A: Adapter> Socket<A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
-    ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
+    ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
     ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
     ///         println!("Received a test message {:?}", data);
@@ -592,7 +593,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> ConfOperators<'_, A> {
+    pub fn bin(&self, binary: Vec<Bytes>) -> ConfOperators<'_, A> {
         ConfOperators::new(self).bin(binary)
     }
 
