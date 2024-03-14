@@ -24,15 +24,15 @@ pub async fn connect_middleware() {
     };
     io.ns(
         "/",
-        { || {} }.with(handler(3)).with(handler(2)).with(handler(1)),
+        { || {} }.with(handler(1)).with(handler(2)).with(handler(3)),
     );
 
     let (_, mut srx) = create_ws_connection(PORT).await.split();
     assert_ok!(srx.next().await.unwrap());
 
-    assert_eq!(rx.recv().await.unwrap(), 3);
-    assert_eq!(rx.recv().await.unwrap(), 2);
     assert_eq!(rx.recv().await.unwrap(), 1);
+    assert_eq!(rx.recv().await.unwrap(), 2);
+    assert_eq!(rx.recv().await.unwrap(), 3);
 
     let p = assert_ok!(srx.next().await.unwrap());
     assert!(matches!(p, Text(s) if s.starts_with("40")));
