@@ -73,35 +73,35 @@
 //! # use socketioxide::extract::*;
 //! # use socketioxide::SocketIo;
 //! fn handler(s: SocketRef) {
-//! 	println!("socket connected on / namespace with id: {}", s.id);
+//!     println!("socket connected on / namespace with id: {}", s.id);
 //! }
 //!
 //! #[derive(Debug)]
 //! struct AuthError;
 //! impl std::fmt::Display for AuthError {
-//! 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//! 		write!(f, "AuthError")
-//! 	}
+//!     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//!         write!(f, "AuthError")
+//!     }
 //! }
 //! impl std::error::Error for AuthError {}
 //!
 //! fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
-//! 	println!("second middleware called");
-//! 	if token != "secret" {
-//! 		Err(AuthError)
-//! 	} else {
-//! 		Ok(())
-//! 	}
+//!     println!("second middleware called");
+//!     if token != "secret" {
+//!         Err(AuthError)
+//!     } else {
+//!         Ok(())
+//!     }
 //! }
 //!
 //! // Middlewares can be sync or async
 //! async fn other_middleware(s: SocketRef) -> Result<(), AuthError> {
-//! 	println!("first middleware called");
-//! 	if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
-//! 		Err(AuthError)
-//! 	} else {
-//! 		Ok(())
-//! 	}
+//!     println!("first middleware called");
+//!     if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
+//!         Err(AuthError)
+//!     } else {
+//!         Ok(())
+//!     }
 //! }
 //!
 //! let (_, io) = SocketIo::new_layer();
@@ -195,35 +195,35 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// # use socketioxide::extract::*;
     /// # use socketioxide::SocketIo;
     /// fn handler(s: SocketRef) {
-    /// 	println!("socket connected on / namespace with id: {}", s.id);
+    ///     println!("socket connected on / namespace with id: {}", s.id);
     /// }
     ///
     /// #[derive(Debug)]
     /// struct AuthError;
     /// impl std::fmt::Display for AuthError {
-    /// 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    /// 		write!(f, "AuthError")
-    /// 	}
+    ///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    ///         write!(f, "AuthError")
+    ///     }
     /// }
     /// impl std::error::Error for AuthError {}
     ///
     /// fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
-    /// 	println!("second middleware called");
-    /// 	if token != "secret" {
-    /// 		Err(AuthError)
-    /// 	} else {
-    /// 		Ok(())
-    /// 	}
+    ///     println!("second middleware called");
+    ///     if token != "secret" {
+    ///         Err(AuthError)
+    ///     } else {
+    ///         Ok(())
+    ///     }
     /// }
     ///
     /// // Middlewares can be sync or async
     /// async fn other_middleware(s: SocketRef) -> Result<(), AuthError> {
-    /// 	println!("first middleware called");
-    /// 	if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
-    /// 		Err(AuthError)
-    /// 	} else {
-    /// 		Ok(())
-    /// 	}
+    ///     println!("first middleware called");
+    ///     if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
+    ///         Err(AuthError)
+    ///     } else {
+    ///         Ok(())
+    ///     }
     /// }
     ///
     /// let (_, io) = SocketIo::new_layer();
@@ -428,7 +428,7 @@ macro_rules! impl_middleware_async {
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = Result<(), E>> + Send + 'static,
             A: Adapter,
-			E: std::fmt::Display + Send + 'static,
+            E: std::fmt::Display + Send + 'static,
             $( $ty: FromConnectParts<A> + Send, )*
         {
             async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
@@ -438,19 +438,19 @@ macro_rules! impl_middleware_async {
                         Err(e) => {
                             #[cfg(feature = "tracing")]
                             tracing::error!("Error while extracting data: {}", e);
-							return Err(Box::new(e) as _);
+                            return Err(Box::new(e) as _);
                         },
                     };
                 )*
 
                 let res = (self.clone())($($ty,)*).await;
-				if let Err(e) = res {
-					#[cfg(feature = "tracing")]
-					tracing::trace!("middleware returned error: {}", e);
-					Err(Box::new(e) as _)
-				} else {
-					Ok(())
-				}
+                if let Err(e) = res {
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!("middleware returned error: {}", e);
+                    Err(Box::new(e) as _)
+                } else {
+                    Ok(())
+                }
             }
         }
     };
@@ -465,7 +465,7 @@ macro_rules! impl_middleware {
         where
             F: FnOnce($($ty,)*) -> Result<(), E> + Send + Sync + Clone + 'static,
             A: Adapter,
-			E: std::fmt::Display + Send + 'static,
+            E: std::fmt::Display + Send + 'static,
             $( $ty: FromConnectParts<A> + Send, )*
         {
             async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
@@ -475,19 +475,19 @@ macro_rules! impl_middleware {
                         Err(e) => {
                             #[cfg(feature = "tracing")]
                             tracing::error!("Error while extracting data: {}", e);
-							return Err(Box::new(e) as _);
+                            return Err(Box::new(e) as _);
                         },
                     };
                 )*
 
                 let res = (self.clone())($($ty,)*);
-				if let Err(e) = res {
-					#[cfg(feature = "tracing")]
-					tracing::trace!("middleware returned error: {}", e);
-					Err(Box::new(e) as _)
-				} else {
-					Ok(())
-				}
+                if let Err(e) = res {
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!("middleware returned error: {}", e);
+                    Err(Box::new(e) as _)
+                } else {
+                    Ok(())
+                }
             }
         }
     };
