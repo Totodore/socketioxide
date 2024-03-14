@@ -133,7 +133,7 @@
 //!
 //! If they are async, a new task will be spawned for each incoming connection/message so it doesn't block the event management task.
 //!
-//! * Check the [`handler::connect`] module doc for more details on the connect handler
+//! * Check the [`handler::connect`] module doc for more details on the connect handler and connect middlewares.
 //! * Check the [`handler::message`] module doc for more details on the message handler.
 //! * Check the [`handler::disconnect`] module doc for more details on the disconnect handler.
 //! * Check the [`handler::extract`] module doc for more details on the extractors.

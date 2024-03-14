@@ -9,7 +9,11 @@
 //! # Middlewares
 //! [`ConnectHandlers`](ConnectHandler) can have middlewares, they are called before the connection
 //! of the socket to the namespace and therefore before the handler.
-//! > Because the socket is not yet connected to the namespace, you can't send messages to it.
+//!
+//! <div class="warning">
+//!     Because the socket is not yet connected to the namespace,
+//!     you can't send messages to it from the middleware.
+//! </div>
 //!
 //! Middlewares can be sync or async and can be chained.
 //! They are defined with the [`ConnectMiddleware`] trait which is automatically implemented for any
