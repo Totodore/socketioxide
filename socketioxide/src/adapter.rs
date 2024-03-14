@@ -31,14 +31,12 @@ pub type Room = Cow<'static, str>;
 pub enum BroadcastFlags {
     /// Broadcast only to the current server
     Local,
-    /// Broadcast to all servers
+    /// Broadcast to all clients except the sender
     Broadcast,
-    /// Add a custom timeout to the ack callback
-    Timeout(Duration),
 }
 
 /// Options that can be used to modify the behavior of the broadcast methods.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct BroadcastOptions {
     /// The flags to apply to the broadcast.
     pub flags: HashSet<BroadcastFlags>,
@@ -49,24 +47,13 @@ pub struct BroadcastOptions {
     /// The socket id of the sender.
     pub sid: Option<Sid>,
 }
-impl BroadcastOptions {
-    pub(crate) fn new(sid: Option<Sid>) -> Self {
-        Self {
-            flags: HashSet::new(),
-            rooms: HashSet::new(),
-            except: HashSet::new(),
-            sid,
-        }
-    }
-}
-
 //TODO: Make an AsyncAdapter trait
 /// An adapter is responsible for managing the state of the server.
 /// This adapter can be implemented to share the state between multiple servers.
 /// The default adapter is the [`LocalAdapter`], which stores the state in memory.
 pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// An error that can occur when using the adapter. The default [`LocalAdapter`] has an [`Infallible`] error.
-    type Error: std::error::Error + Into<AdapterError> + Send + 'static;
+    type Error: std::error::Error + Into<AdapterError> + Send + Sync + 'static;
 
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
@@ -92,8 +79,12 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
-    fn broadcast_with_ack(&self, packet: Packet<'static>, opts: BroadcastOptions)
-        -> AckInnerStream;
+    fn broadcast_with_ack(
+        &self,
+        packet: Packet<'static>,
+        opts: BroadcastOptions,
+        timeout: Option<Duration>,
+    ) -> AckInnerStream;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Self::Error>;
@@ -211,11 +202,8 @@ impl Adapter for LocalAdapter {
         &self,
         packet: Packet<'static>,
         opts: BroadcastOptions,
+        timeout: Option<Duration>,
     ) -> AckInnerStream {
-        let duration = opts.flags.iter().find_map(|flag| match flag {
-            BroadcastFlags::Timeout(duration) => Some(*duration),
-            _ => None,
-        });
         let sockets = self.apply_opts(opts);
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -223,11 +211,11 @@ impl Adapter for LocalAdapter {
             sockets.len(),
             sockets.iter().map(|s| s.id).collect::<Vec<_>>()
         );
-        AckInnerStream::broadcast(packet, sockets, duration)
+        AckInnerStream::broadcast(packet, sockets, timeout)
     }
 
     fn sockets(&self, rooms: impl RoomParam) -> Result<Vec<Sid>, Infallible> {
-        let mut opts = BroadcastOptions::new(None);
+        let mut opts = BroadcastOptions::default();
         opts.rooms.extend(rooms.into_room_iter());
         Ok(self
             .apply_opts(opts)
@@ -421,7 +409,10 @@ mod test {
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1"]).unwrap();
 
-        let mut opts = BroadcastOptions::new(Some(socket));
+        let mut opts = BroadcastOptions {
+            sid: Some(socket),
+            ..Default::default()
+        };
         opts.rooms = hash_set!["room1".into()];
         adapter.add_sockets(opts, "room2").unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
@@ -438,7 +429,10 @@ mod test {
         let adapter = LocalAdapter::new(Arc::downgrade(&ns));
         adapter.add_all(socket, ["room1"]).unwrap();
 
-        let mut opts = BroadcastOptions::new(Some(socket));
+        let mut opts = BroadcastOptions {
+            sid: Some(socket),
+            ..Default::default()
+        };
         opts.rooms = hash_set!["room1".into()];
         adapter.add_sockets(opts, "room2").unwrap();
 
@@ -450,7 +444,10 @@ mod test {
             assert!(rooms_map.get("room2").unwrap().contains(&socket));
         }
 
-        let mut opts = BroadcastOptions::new(Some(socket));
+        let mut opts = BroadcastOptions {
+            sid: Some(socket),
+            ..Default::default()
+        };
         opts.rooms = hash_set!["room1".into()];
         adapter.del_sockets(opts, "room2").unwrap();
 
@@ -507,7 +504,10 @@ mod test {
             .add_all(socket2, ["room2", "room3", "room6"])
             .unwrap();
 
-        let mut opts = BroadcastOptions::new(Some(socket0));
+        let mut opts = BroadcastOptions {
+            sid: Some(socket0),
+            ..Default::default()
+        };
         opts.rooms = hash_set!["room5".into()];
         adapter.disconnect_socket(opts).unwrap();
 
@@ -533,14 +533,20 @@ mod test {
             .unwrap();
 
         // socket 2 is the sender
-        let mut opts = BroadcastOptions::new(Some(socket2));
+        let mut opts = BroadcastOptions {
+            sid: Some(socket2),
+            ..Default::default()
+        };
         opts.rooms = hash_set!["room1".into()];
         opts.except = hash_set!["room2".into()];
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].id, socket1);
 
-        let mut opts = BroadcastOptions::new(Some(socket2));
+        let mut opts = BroadcastOptions {
+            sid: Some(socket2),
+            ..Default::default()
+        };
         opts.flags.insert(BroadcastFlags::Broadcast);
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 2);
@@ -548,18 +554,27 @@ mod test {
             assert!(s.id == socket0 || s.id == socket1);
         });
 
-        let mut opts = BroadcastOptions::new(Some(socket2));
+        let mut opts = BroadcastOptions {
+            sid: Some(socket2),
+            ..Default::default()
+        };
         opts.flags.insert(BroadcastFlags::Broadcast);
         opts.except = hash_set!["room2".into()];
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
 
-        let opts = BroadcastOptions::new(Some(socket2));
+        let opts = BroadcastOptions {
+            sid: Some(socket2),
+            ..Default::default()
+        };
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].id, socket2);
 
-        let opts = BroadcastOptions::new(Some(Sid::new()));
+        let opts = BroadcastOptions {
+            sid: Some(Sid::new()),
+            ..Default::default()
+        };
         let sockets = adapter.fetch_sockets(opts).unwrap();
         assert_eq!(sockets.len(), 0);
     }

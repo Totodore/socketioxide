@@ -33,7 +33,7 @@ http-body-util.workspace = true
 pin-project-lite.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
-base64 = "0.21.0"
+base64 = "0.22.0"
 bytes = "1.4.0"
 rand = "0.8.5"
 

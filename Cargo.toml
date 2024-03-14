@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.10.2"
+version = "0.11.0"
 edition = "2021"
 rust-version = "1.67.0"
 authors = ["Théodore Prévot <"]
@@ -7,9 +7,9 @@ repository = "https://github.com/totodore/socketioxide"
 homepage = "https://github.com/totodore/socketioxide"
 keywords = ["socketio", "tower", "axum", "hyper", "websocket"]
 categories = [
-    "asynchronous",
-    "network-programming",
-    "web-programming::websocket",
+	"asynchronous",
+	"network-programming",
+	"web-programming::websocket",
 ]
 license = "MIT"
 
@@ -39,5 +39,5 @@ pin-project-lite = "0.2.13"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 axum = "0.7.2"
-salvo = { version = "0.65.0", features = ["tower-compat"] }
+salvo = { version = "0.66.0", features = ["tower-compat"] }
 rust_socketio = { version = "0.4.2", features = ["async"] }

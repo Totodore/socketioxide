@@ -1,0 +1,46 @@
+name: Bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      heaptrack:
+        description: 'Run heaptrack memory benchmark'
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  heaptrack:
+    if: ${{ github.event.inputs.heaptrack == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-heaptrack
+      - name: Install heaptrack
+        run: sudo apt-get install -y heaptrack
+      - name: Build server && client
+        run: cargo build -r -p heaptrack && cargo build -r -p heaptrack --bin heaptrack-client
+      - name: Run memory benchmark
+        run: heaptrack target/release/heaptrack > server.txt & ./target/release/heaptrack-client > client.txt
+      - name: Server output
+        if: always()
+        run: cat server.txt
+      - name: Client output
+        if: always()
+        run:  cat client.txt
+      - name: Publish memory benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: heaptrack-${{ github.head_ref }}.${{ github.sha }}
+          path: heaptrack.heaptrack.*
