@@ -85,7 +85,7 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait FromConnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
-    type Error: std::error::Error + 'static;
+    type Error: std::error::Error + Send + 'static;
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
@@ -350,10 +350,10 @@ macro_rules! impl_middleware_async {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
-                        Err(_e) => {
+                        Err(e) => {
                             #[cfg(feature = "tracing")]
-                            tracing::error!("Error while extracting data: {}", _e);
-							return Ok(());
+                            tracing::error!("Error while extracting data: {}", e);
+							return Err(Box::new(e) as _);
                         },
                     };
                 )*
@@ -387,12 +387,10 @@ macro_rules! impl_middleware {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
-                        Err(_e) => {
+                        Err(e) => {
                             #[cfg(feature = "tracing")]
-                            tracing::error!("Error while extracting data: {}", _e);
-
-							//TODO: handle error
-                            return Ok(());
+                            tracing::error!("Error while extracting data: {}", e);
+							return Err(Box::new(e) as _);
                         },
                     };
                 )*
