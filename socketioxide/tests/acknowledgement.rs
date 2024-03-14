@@ -6,10 +6,8 @@ mod utils;
 
 use fixture::{create_server, create_ws_connection};
 use futures::{SinkExt, StreamExt};
-use socketioxide::ack::AckStream;
 use socketioxide::extract::SocketRef;
 use socketioxide::packet::{Packet, PacketData};
-use socketioxide::SocketIo;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
@@ -21,19 +19,17 @@ pub async fn emit_with_ack() {
     let io = create_server(PORT).await;
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(4);
 
-    io.ns("/", move |s: SocketRef| {
-        tokio::spawn(async move {
-            let res = assert_ok!(s.emit_with_ack::<_, [String; 1]>("test", "foo")).await;
-            let ack = assert_ok!(res);
-            assert_ok!(tx.try_send(ack.data));
+    io.ns("/", move |s: SocketRef| async move {
+        let res = assert_ok!(s.emit_with_ack::<_, [String; 1]>("test", "foo")).await;
+        let ack = assert_ok!(res);
+        assert_ok!(tx.try_send(ack.data));
 
-            let res = s
-                .timeout(Duration::from_millis(500))
-                .emit_with_ack::<_, [String; 1]>("test", "foo");
-            let res = assert_ok!(res).await;
-            let ack = assert_ok!(res);
-            assert_ok!(tx.try_send(ack.data));
-        });
+        let res = s
+            .timeout(Duration::from_millis(500))
+            .emit_with_ack::<_, [String; 1]>("test", "foo");
+        let res = assert_ok!(res).await;
+        let ack = assert_ok!(res);
+        assert_ok!(tx.try_send(ack.data));
     });
 
     let (mut stx, mut srx) = create_ws_connection(PORT).await.split();
@@ -61,46 +57,46 @@ pub async fn emit_with_ack() {
 pub async fn broadcast_with_ack() {
     const PORT: u16 = 2101;
     use Message::*;
-
-    async fn emit_ack_data(
-        io: SocketIo,
-        tx: mpsc::Sender<[String; 1]>,
-        stream: AckStream<[String; 1]>,
-    ) {
-        let sockets = io.sockets().unwrap();
-        stream
-            .for_each(|(id, res)| {
-                let ack = assert_ok!(res);
-                assert_ok!(tx.try_send(ack.data));
-                assert_some!(sockets.iter().find(|s| s.id == id));
-                async move {}
-            })
-            .await;
-    }
-
     let io = create_server(PORT).await;
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
 
     let io2 = io.clone();
-    io.ns("/", move |socket: SocketRef| {
-        tokio::spawn(async move {
-            let res = io2.emit_with_ack::<[String; 1]>("test", "foo");
-            let res = assert_ok!(res);
-            emit_ack_data(io2.clone(), tx.clone(), res).await;
+    io.ns("/", move |socket: SocketRef| async move {
+        let res = io2.emit_with_ack::<[String; 1]>("test", "foo");
+        let sockets = io2.sockets().unwrap();
+        let res = assert_ok!(res);
+        res.for_each(|(id, res)| {
+            let ack = assert_ok!(res);
+            assert_ok!(tx.try_send(ack.data));
+            assert_some!(sockets.iter().find(|s| s.id == id));
+            async move {}
+        })
+        .await;
 
-            let res = io2
-                .timeout(Duration::from_millis(500))
-                .emit_with_ack::<[String; 1]>("test", "foo");
-            let res = assert_ok!(res);
-            emit_ack_data(io2.clone(), tx.clone(), res).await;
+        let res = io2
+            .timeout(Duration::from_millis(500))
+            .emit_with_ack::<[String; 1]>("test", "foo");
+        let res = assert_ok!(res);
+        res.for_each(|(id, res)| {
+            let ack = assert_ok!(res);
+            assert_ok!(tx.try_send(ack.data));
+            assert_some!(sockets.iter().find(|s| s.id == id));
+            async move {}
+        })
+        .await;
 
-            let res = socket
-                .broadcast()
-                .timeout(Duration::from_millis(500))
-                .emit_with_ack::<[String; 1]>("test", "foo");
-            let res = assert_ok!(res);
-            emit_ack_data(io2.clone(), tx.clone(), res).await;
-        });
+        let res = socket
+            .broadcast()
+            .timeout(Duration::from_millis(500))
+            .emit_with_ack::<[String; 1]>("test", "foo");
+        let res = assert_ok!(res);
+        res.for_each(|(id, res)| {
+            let ack = assert_ok!(res);
+            assert_ok!(tx.try_send(ack.data));
+            assert_some!(sockets.iter().find(|s| s.id == id));
+            async move {}
+        })
+        .await;
     });
 
     // Spawn 5 clients and make them echo the ack
@@ -113,14 +109,8 @@ pub async fn broadcast_with_ack() {
             while let Some(msg) = srx.next().await {
                 let msg = match assert_ok!(msg) {
                     Text(msg) => msg,
-                    a => {
-                        dbg!(a);
-                        continue;
-                    }
+                    _ => panic!("Unexpected message"),
                 };
-                if msg == "2" {
-                    continue;
-                }
                 let ack = match assert_ok!(Packet::try_from(msg[1..].to_string())).inner {
                     PacketData::Event(_, _, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
