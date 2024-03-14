@@ -818,12 +818,14 @@ impl<A: Adapter> PartialEq for Socket<A> {
 impl<A: Adapter> Socket<A> {
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
         let close_fn = Box::new(move |_, _| ());
-        Socket::new(
+        let s = Socket::new(
             sid,
             ns,
             engineioxide::Socket::new_dummy(sid, close_fn).into(),
             Arc::new(SocketIoConfig::default()),
-        )
+        );
+        s.set_connected();
+        s
     }
 }
 
