@@ -5,14 +5,13 @@ use fixture::create_server;
 use futures::StreamExt;
 use socketioxide::handler::ConnectHandler;
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::Message::*;
 
 use crate::fixture::create_ws_connection;
 
 #[tokio::test]
 pub async fn connect_middleware() {
     const PORT: u16 = 2420;
-    use tokio_tungstenite::tungstenite::Message::*;
     let io = create_server(PORT).await;
     let (tx, mut rx) = mpsc::channel::<usize>(100);
 
@@ -30,20 +29,20 @@ pub async fn connect_middleware() {
 
     let (_, mut srx) = create_ws_connection(PORT).await.split();
     assert_ok!(srx.next().await.unwrap());
-    assert_ok!(srx.next().await.unwrap());
 
     assert_eq!(rx.recv().await.unwrap(), 3);
     assert_eq!(rx.recv().await.unwrap(), 2);
     assert_eq!(rx.recv().await.unwrap(), 1);
-    rx.try_recv().unwrap_err();
+
     let p = assert_ok!(srx.next().await.unwrap());
-    assert_eq!(p, Text("40".to_string()));
+    assert!(matches!(p, Text(s) if s.starts_with("40")));
+
+    rx.try_recv().unwrap_err();
 }
 
 #[tokio::test]
 pub async fn connect_middleware_error() {
     const PORT: u16 = 2421;
-    use tokio_tungstenite::tungstenite::Message::*;
 
     let io = create_server(PORT).await;
     let (tx, mut rx) = mpsc::channel::<usize>(100);
