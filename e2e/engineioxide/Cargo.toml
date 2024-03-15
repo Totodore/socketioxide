@@ -12,6 +12,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+bytes.workspace = true
 engineioxide = { path = "../../engineioxide", default-features = false, features = [
     "tracing",
 ] }

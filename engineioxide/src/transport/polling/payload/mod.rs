@@ -4,6 +4,7 @@ use crate::{
     errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion,
     socket::PacketBuf,
 };
+use bytes::Bytes;
 use futures::Stream;
 use http::Request;
 use tokio::sync::MutexGuard;
@@ -54,11 +55,11 @@ pub fn decoder(
 
 /// A payload to transmit to the client through http polling
 pub struct Payload {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub has_binary: bool,
 }
 impl Payload {
-    pub fn new(data: impl Into<Vec<u8>>, has_binary: bool) -> Self {
+    pub fn new(data: Bytes, has_binary: bool) -> Self {
         Self {
             data: data.into(),
             has_binary,

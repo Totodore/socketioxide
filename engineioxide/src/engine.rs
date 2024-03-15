@@ -95,6 +95,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
     use http::Request;
 
     use super::*;
@@ -118,7 +119,7 @@ mod tests {
             socket.emit(msg).ok();
         }
 
-        fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
+        fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>) {
             println!("Ping pong binary message {:?}", data);
             socket.emit_binary(data).ok();
         }

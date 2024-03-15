@@ -1,6 +1,7 @@
 //! ## An [`EngineIoHandler`] to get event calls for any engine.io socket
 //! #### Example :
 //! ```rust
+//! # use bytes::Bytes;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::{Socket, DisconnectReason};
@@ -32,13 +33,15 @@
 //!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) {
 //!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
 //!     }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+//!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 //! }
 //!
 //! // Create an engine io service with the given handler
 //! let svc = EngineIoService::new(MyHandler::default());
 //! ```
 use std::sync::Arc;
+
+use bytes::Bytes;
 
 use crate::socket::{DisconnectReason, Socket};
 
@@ -59,7 +62,7 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>);
 
     /// Called when a binary message is received from the client.
-    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>);
+    fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>);
 }
 
 impl<T: EngineIoHandler> EngineIoHandler for Arc<T> {
@@ -77,7 +80,7 @@ impl<T: EngineIoHandler> EngineIoHandler for Arc<T> {
         (**self).on_message(msg, socket)
     }
 
-    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
+    fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>) {
         (**self).on_binary(data, socket)
     }
 }

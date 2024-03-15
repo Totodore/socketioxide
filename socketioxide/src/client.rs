@@ -296,8 +296,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Vec<u8>, socket: Arc<EIoSocket<SocketData>>) {
-        if apply_payload_on_packet(Bytes::copy_from_slice(&data), &socket) {
+    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData>>) {
+        if apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
                     #[cfg(feature = "tracing")]

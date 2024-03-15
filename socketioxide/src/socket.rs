@@ -117,7 +117,7 @@ impl<'a> PermitExt<'a> for Permit<'a> {
         let msg = packet.into();
 
         if let Some(bin_payloads) = bin_payloads {
-            self.emit_many(msg, bin_payloads.into_iter().map(Into::into).collect());
+            self.emit_many(msg, bin_payloads);
         } else {
             self.emit(msg);
         }
