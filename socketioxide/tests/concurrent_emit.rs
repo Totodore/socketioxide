@@ -21,7 +21,7 @@ pub async fn emit() {
                         Bytes::from_static(&[1, 2, 3]),
                         Bytes::from_static(&[4, 5, 6]),
                     ])
-                    .emit("test", "bin")
+                    .emit("test", "bin".into())
                     .unwrap();
                 }
             });
