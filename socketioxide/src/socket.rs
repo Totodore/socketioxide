@@ -124,7 +124,7 @@ pub(crate) trait PermitIteratorExt<'a>:
                 "Not enough permits available to send the message with the binary payload"
             );
             for bin in bin_payloads {
-                self.next().unwrap().emit_binary(bin.to_vec());
+                self.next().unwrap().emit_binary(bin);
             }
         }
     }

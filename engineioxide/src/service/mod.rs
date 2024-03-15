@@ -4,6 +4,7 @@
 //! #### Example with a `hyper` standalone service :
 //!
 //! ```rust
+//! # use bytes::Bytes;
 //! # use engineioxide::layer::EngineIoLayer;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::service::EngineIoService;
@@ -17,7 +18,7 @@
 //!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
 //!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
 //!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
+//!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) { }
 //! }
 //!
 //! // Create a new engine.io service that will return a 404 not found response for other requests

@@ -7,6 +7,7 @@
 //!
 //! #### Example :
 //! ```rust
+//! # use bytes::Bytes;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::{Socket, DisconnectReason};
@@ -48,7 +49,7 @@
 //!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) {
 //!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
 //!     }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+//!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 //! }
 //!
 //! let svc = EngineIoService::new(MyHandler::default());
@@ -61,6 +62,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use http::request::Parts;
 use tokio::{
     sync::{
@@ -128,7 +130,7 @@ impl Permit<'_> {
     }
     /// Consume the permit and emit a binary message to the client.
     #[inline]
-    pub fn emit_binary(self, data: Vec<u8>) {
+    pub fn emit_binary(self, data: Bytes) {
         self.inner.send(Packet::Binary(data));
     }
 }
@@ -439,7 +441,7 @@ where
     /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
     ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned with the original data
-    pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), TrySendError<Vec<u8>>> {
+    pub fn emit_binary(&self, data: Bytes) -> Result<(), TrySendError<Bytes>> {
         if self.protocol == ProtocolVersion::V3 {
             self.send(Packet::BinaryV3(data))
         } else {

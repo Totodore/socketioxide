@@ -205,7 +205,7 @@ where
                     STRING_PACKET_IDENTIFIER_V3 => std::str::from_utf8(&packet_buf)
                         .map_err(|_| Error::InvalidPacketLength)
                         .and_then(Packet::try_from), // Convert the packet buffer to a Packet object
-                    BINARY_PACKET_IDENTIFIER_V3 => Ok(Packet::BinaryV3(packet_buf)),
+                    BINARY_PACKET_IDENTIFIER_V3 => Ok(Packet::BinaryV3(packet_buf.into())),
                     _ => Err(Error::InvalidPacketLength),
                 };
 
