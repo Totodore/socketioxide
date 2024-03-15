@@ -144,11 +144,11 @@ where
     fn from_message_parts(
         _: &Arc<Socket<A>>,
         v: &mut serde_json::Value,
-        _: &mut Vec<Bytes>,
+        b: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
         upwrap_array(v);
-        serde_json::from_value(v.clone()).map(Data)
+        crate::from_value::<T>(v.clone(), b).map(Data)
     }
 }
 
@@ -178,11 +178,11 @@ where
     fn from_message_parts(
         _: &Arc<Socket<A>>,
         v: &mut serde_json::Value,
-        _: &mut Vec<Bytes>,
+        b: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         upwrap_array(v);
-        Ok(TryData(serde_json::from_value(v.clone())))
+        Ok(TryData(crate::from_value::<T>(v.clone(), b)))
     }
 }
 /// An Extractor that returns a reference to a [`Socket`].

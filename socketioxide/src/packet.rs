@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use crate::ProtocolVersion;
 use bytes::Bytes;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::errors::Error;
 use engineioxide::sid::Sid;
@@ -243,27 +243,13 @@ impl<'a> PacketData<'a> {
 }
 
 impl BinaryPacket {
-    /// Create a binary packet from incoming data and remove all placeholders and get the payload count
-    pub fn incoming(mut data: Value) -> Self {
-        let payload_count = match &mut data {
-            Value::Array(ref mut v) => {
-                let count = v.len();
-                v.retain(|v| v.as_object().and_then(|o| o.get("_placeholder")).is_none());
-                count - v.len()
-            }
-            val => {
-                if val
-                    .as_object()
-                    .and_then(|o| o.get("_placeholder"))
-                    .is_some()
-                {
-                    data = Value::Array(vec![]);
-                    1
-                } else {
-                    0
-                }
-            }
+    /// Create a binary packet from incoming data and gets the payload count
+    pub fn incoming(data: Value) -> Self {
+        let data = match data {
+            v @ Value::Array(_) => v,
+            v => Value::Array(vec![v]),
         };
+        let payload_count = count_binary_payloads(&data);
 
         Self {
             data,
@@ -273,18 +259,38 @@ impl BinaryPacket {
     }
 
     /// Create a binary packet from outgoing data and a payload
+    ///
+    /// The outgoing data should include numbered placeholder objects for each binary, like so:
+    /// ```json
+    /// {
+    ///     "_placeholder": true,
+    ///     "num": 0
+    /// }
+    /// ```
+    ///The value of the "num" field should correspond to its index in the `bin` argument.
     pub fn outgoing(data: Value, bin: Vec<Bytes>) -> Self {
         let mut data = match data {
             Value::Array(v) => Value::Array(v),
             d => Value::Array(vec![d]),
         };
-        let payload_count = bin.len();
-        (0..payload_count).for_each(|i| {
-            data.as_array_mut().unwrap().push(json!({
-                "_placeholder": true,
-                "num": i
-            }))
-        });
+
+        let payload_count = count_binary_payloads(&data);
+        let bin_count = bin.len();
+
+        // TODO: if payload_count > bin_count, maybe should return an error here?  data has more
+        // placeholders than bin has payloads.  but maybe some payloads are reused and it's ok? at
+        // any rate, serialization will fail later if there are placeholders that reference
+        // payloads that don't exist.
+
+        if bin_count > payload_count {
+            (payload_count..bin_count).for_each(|i| {
+                data.as_array_mut().unwrap().push(json!({
+                    "_placeholder": true,
+                    "num": i
+                }))
+            });
+        }
+
         Self {
             data,
             bin,
@@ -300,6 +306,23 @@ impl BinaryPacket {
     /// Check if the binary packet is complete, it means that all payloads have been received
     pub fn is_complete(&self) -> bool {
         self.payload_count == self.bin.len()
+    }
+}
+
+fn is_placeholder(o: &Map<String, Value>) -> bool {
+    o.len() == 2
+        && o.get("_placeholder")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        && o.get("num").and_then(|v| v.as_u64()).is_some()
+}
+
+fn count_binary_payloads(data: &Value) -> usize {
+    match data {
+        Value::Array(a) => a.iter().map(count_binary_payloads).sum(),
+        Value::Object(o) if is_placeholder(o) => 1,
+        Value::Object(o) => o.values().map(count_binary_payloads).sum(),
+        _ => 0,
     }
 }
 
@@ -715,7 +738,7 @@ mod test {
         let packet: String = Packet::bin_event(
             "/",
             "event",
-            json!({ "data": "value™" }),
+            json!([{ "data": "value™" }, { "_placeholder": true, "num": 0 }]),
             vec![Bytes::from_static(&[1])],
         )
         .try_into()
@@ -728,7 +751,7 @@ mod test {
         let mut packet = Packet::bin_event(
             "/",
             "event",
-            json!({ "data": "value™" }),
+            json!([{ "data": "value™" }, { "_placeholder": true, "num": 0 }]),
             vec![Bytes::from_static(&[1])],
         );
         packet.inner.set_ack_id(254);
@@ -741,7 +764,7 @@ mod test {
         let packet: String = Packet::bin_event(
             "/admin™",
             "event",
-            json!([{"data": "value™"}]),
+            json!([{"data": "value™"}, { "_placeholder": true, "num": 0 }]),
             vec![Bytes::from_static(&[1])],
         )
         .try_into()
@@ -754,7 +777,7 @@ mod test {
         let mut packet = Packet::bin_event(
             "/admin™",
             "event",
-            json!([{"data": "value™"}]),
+            json!([{"data": "value™"}, { "_placeholder": true, "num": 0 }]),
             vec![Bytes::from_static(&[1])],
         );
         packet.inner.set_ack_id(254);
@@ -770,7 +793,7 @@ mod test {
                 "event".into(),
                 BinaryPacket {
                     bin: vec![Bytes::from_static(&[1])],
-                    data: json!([{"data": "value™"}]),
+                    data: json!([{"data": "value™"}, {"_placeholder": true, "num": 0}]),
                     payload_count: 1,
                 },
                 ack,
@@ -825,7 +848,7 @@ mod test {
         let payload = format!("61-54{}", json);
         let packet: String = Packet::bin_ack(
             "/",
-            json!({ "data": "value™" }),
+            json!([{ "data": "value™" }, { "_placeholder": true, "num": 0 }]),
             vec![Bytes::from_static(&[1])],
             54,
         )
@@ -838,7 +861,7 @@ mod test {
         let payload = format!("61-/admin™,54{}", json);
         let packet: String = Packet::bin_ack(
             "/admin™",
-            json!({ "data": "value™" }),
+            json!([{ "data": "value™" }, { "_placeholder": true, "num": 0 }]),
             vec![Bytes::from_static(&[1])],
             54,
         )
@@ -855,7 +878,7 @@ mod test {
             inner: PacketData::BinaryAck(
                 BinaryPacket {
                     bin: vec![Bytes::from_static(&[1])],
-                    data: json!([{"data": "value™"}]),
+                    data: json!([{"data": "value™"}, {"_placeholder": true, "num": 0}]),
                     payload_count: 1,
                 },
                 ack,
