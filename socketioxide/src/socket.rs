@@ -30,7 +30,10 @@ use crate::{
         MessageHandler,
     },
     ns::Namespace,
-    operators::{BroadcastOperators, ConfOperators, RoomParam},
+    operators::{
+        holding::{WithBinary, WithoutBinary},
+        BroadcastOperators, ConfOperators, RoomParam,
+    },
     packet::{BinaryPacket, Packet, PacketData},
     AckError, SocketIoConfig,
 };
@@ -313,20 +316,9 @@ impl<A: Adapter> Socket<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: T,
-    ) -> Result<(), SendError<T>> {
-        let permits = match self.reserve(1) {
-            Ok(permits) => permits,
-            Err(e) => {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("sending error during emit message: {e:?}");
-                return Err(e.with_value(data).into());
-            }
-        };
-
-        let ns = self.ns();
-        let data = serde_json::to_value(data)?;
-        permits.emit(Packet::event(ns, event.into(), data));
-        Ok(())
+    ) -> Result<(), SendError<Value>> {
+        let (data, bins) = crate::to_value(data)?;
+        self.bin(bins).emit(event, data)
     }
 
     /// Emits a message to the client and wait for acknowledgement.
@@ -461,7 +453,7 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<WithoutBinary, A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).to(rooms)
     }
 
@@ -485,7 +477,7 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<WithoutBinary, A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).within(rooms)
     }
 
@@ -509,7 +501,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().except("room1").emit("test", data);
     ///     });
     /// });
-    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<WithoutBinary, A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).except(rooms)
     }
 
@@ -527,7 +519,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.local().emit("test", data);
     ///     });
     /// });
-    pub fn local(&self) -> BroadcastOperators<A> {
+    pub fn local(&self) -> BroadcastOperators<WithoutBinary, A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).local()
     }
 
@@ -566,7 +558,7 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     ///
-    pub fn timeout(&self, timeout: Duration) -> ConfOperators<'_, A> {
+    pub fn timeout(&self, timeout: Duration) -> ConfOperators<'_, WithoutBinary, A> {
         ConfOperators::new(self).timeout(timeout)
     }
 
@@ -583,7 +575,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(&self, binary: Vec<Bytes>) -> ConfOperators<'_, A> {
+    pub fn bin(&self, binary: Vec<Bytes>) -> ConfOperators<'_, WithBinary, A> {
         ConfOperators::new(self).bin(binary)
     }
 
@@ -600,7 +592,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
-    pub fn broadcast(&self) -> BroadcastOperators<A> {
+    pub fn broadcast(&self) -> BroadcastOperators<WithoutBinary, A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
     }
 
