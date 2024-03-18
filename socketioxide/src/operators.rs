@@ -420,6 +420,10 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<AckStream<V>, SendError<T>> {
+        use crate::errors::SocketError;
+        if !self.socket.connected() {
+            return Err(SendError::Socket(SocketError::Closed(data)));
+        }
         let permits = match self.socket.reserve(1 + self.binary.len()) {
             Ok(permits) => permits,
             Err(e) => {
