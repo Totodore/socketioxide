@@ -108,14 +108,12 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Resu
     use crate::transport::polling::payload::BINARY_PACKET_SEPARATOR_V3;
     use bytes::BufMut;
 
+    let mut itoa_buf = itoa::Buffer::new();
+
     match packet {
         Packet::BinaryV3(bin) => {
-            let len = (bin.len() + 1).to_string();
-            let len_len = if let (_, Some(upper)) = len.chars().size_hint() {
-                upper
-            } else {
-                0
-            };
+            let len = itoa_buf.format(bin.len() + 1);
+            let len_len = len.len(); // len is garanteed to be ascii
 
             data.reserve(1 + len_len + 2 + bin.len());
 
@@ -129,12 +127,8 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Resu
         }
         packet => {
             let packet: String = packet.try_into()?;
-            let len = packet.len().to_string();
-            let len_len = if let (_, Some(upper)) = len.chars().size_hint() {
-                upper
-            } else {
-                0
-            };
+            let len = itoa_buf.format(packet.len());
+            let len_len = len.len(); // len is garanteed to be ascii
 
             data.reserve(1 + len_len + 1 + packet.as_bytes().len());
 
