@@ -2,6 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use bytes::Bytes;
 use engineioxide::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
@@ -32,7 +33,7 @@ impl EngineIoHandler for MyHandler {
         socket.emit(msg).ok();
     }
 
-    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<Self::Data>>) {
+    fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>) {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).ok();
     }

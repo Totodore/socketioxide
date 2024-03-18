@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose, Engine};
+use bytes::Bytes;
 use serde::Serialize;
 
 use crate::config::EngineIoConfig;
@@ -38,7 +39,7 @@ pub enum Packet {
     /// Or to a websocket binary frame when using websocket connection
     ///
     /// When receiving, it is only used with polling connection, websocket use binary frame
-    Binary(Vec<u8>), // Not part of the protocol, used internally
+    Binary(Bytes), // Not part of the protocol, used internally
 
     /// Binary packet used to send binary data to the client
     /// Converts to a String using base64 encoding when using polling connection
@@ -47,7 +48,7 @@ pub enum Packet {
     /// When receiving, it is only used with polling connection, websocket use binary frame
     ///
     /// This is a special packet, excepionally specific to the V3 protocol.
-    BinaryV3(Vec<u8>), // Not part of the protocol, used internally
+    BinaryV3(Bytes), // Not part of the protocol, used internally
 }
 
 impl Packet {
@@ -65,7 +66,7 @@ impl Packet {
     }
 
     /// If the packet is a binary packet, it returns the binary data
-    pub(crate) fn into_binary(self) -> Vec<u8> {
+    pub(crate) fn into_binary(self) -> Bytes {
         match self {
             Packet::Binary(data) => data,
             Packet::BinaryV3(data) => data,
@@ -159,10 +160,16 @@ impl TryFrom<&str> for Packet {
             b'4' => Packet::Message(value[1..].to_string()),
             b'5' => Packet::Upgrade,
             b'6' => Packet::Noop,
-            b'b' if value.as_bytes().get(1) == Some(&b'4') => {
-                Packet::BinaryV3(general_purpose::STANDARD.decode(value[2..].as_bytes())?)
-            }
-            b'b' => Packet::Binary(general_purpose::STANDARD.decode(value[1..].as_bytes())?),
+            b'b' if value.as_bytes().get(1) == Some(&b'4') => Packet::BinaryV3(
+                general_purpose::STANDARD
+                    .decode(value[2..].as_bytes())?
+                    .into(),
+            ),
+            b'b' => Packet::Binary(
+                general_purpose::STANDARD
+                    .decode(value[1..].as_bytes())?
+                    .into(),
+            ),
             c => Err(Error::InvalidPacketType(Some(*c as char)))?,
         };
         Ok(res)
@@ -241,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_binary_packet() {
-        let packet = Packet::Binary(vec![1, 2, 3]);
+        let packet = Packet::Binary(vec![1, 2, 3].into());
         let packet_str: String = packet.try_into().unwrap();
         assert_eq!(packet_str, "bAQID");
     }
@@ -250,12 +257,12 @@ mod tests {
     fn test_binary_packet_deserialize() {
         let packet_str = "bAQID".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
-        assert_eq!(packet, Packet::Binary(vec![1, 2, 3]));
+        assert_eq!(packet, Packet::Binary(vec![1, 2, 3].into()));
     }
 
     #[test]
     fn test_binary_packet_v3() {
-        let packet = Packet::BinaryV3(vec![1, 2, 3]);
+        let packet = Packet::BinaryV3(vec![1, 2, 3].into());
         let packet_str: String = packet.try_into().unwrap();
         assert_eq!(packet_str, "b4AQID");
     }
@@ -264,7 +271,7 @@ mod tests {
     fn test_binary_packet_v3_deserialize() {
         let packet_str = "b4AQID".to_string();
         let packet: Packet = packet_str.try_into().unwrap();
-        assert_eq!(packet, Packet::BinaryV3(vec![1, 2, 3]));
+        assert_eq!(packet, Packet::BinaryV3(vec![1, 2, 3].into()));
     }
 
     #[test]
@@ -310,11 +317,11 @@ mod tests {
         let packet = Packet::Noop;
         assert_eq!(packet.get_size_hint(false), 1);
 
-        let packet = Packet::Binary(vec![1, 2, 3]);
+        let packet = Packet::Binary(vec![1, 2, 3].into());
         assert_eq!(packet.get_size_hint(false), 4);
         assert_eq!(packet.get_size_hint(true), 5);
 
-        let packet = Packet::BinaryV3(vec![1, 2, 3]);
+        let packet = Packet::BinaryV3(vec![1, 2, 3].into());
         assert_eq!(packet.get_size_hint(false), 4);
         assert_eq!(packet.get_size_hint(true), 6);
     }
