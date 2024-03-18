@@ -22,6 +22,8 @@ impl<T> PeekableReceiver<T> {
     }
     pub async fn recv(&mut self) -> Option<T> {
         if self.next.is_none() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!("waiting for next packet");
             self.rx.recv().await
         } else {
             self.next.take()

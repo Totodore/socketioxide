@@ -210,6 +210,8 @@ where
     // Pipe between websocket and internal socket channel
     tokio::spawn(async move {
         let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+		#[cfg(feature = "tracing")]
+		tracing::trace!(?socket.id, "starting packet forwarding routine to ws");
 
         // map a packet to a websocket message
         // It is declared as a macro rather than a closure to avoid ownership issues
@@ -245,12 +247,17 @@ where
         }
 
         while let Some(item) = internal_rx.recv().await {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(?socket.id, packet = ?item, "new packet");
             map_fn!(item);
 
             // For every available packet we continue to send until the channel is drained
             while let Ok(item) = internal_rx.try_recv() {
                 map_fn!(item);
             }
+
+            #[cfg(feature = "tracing")]
+            tracing::trace!(?socket.id, "internal chan drained, flushing ws stream");
 
             tx.flush().await.ok();
         }

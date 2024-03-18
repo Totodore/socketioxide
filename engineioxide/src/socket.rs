@@ -124,6 +124,8 @@ impl Permit<'_> {
     /// Consume the permit and emit a message to the client.
     #[inline]
     pub fn emit(self, msg: String) {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?msg, "emitting 1 msg");
         self.inner.send(Packet::Message(msg));
     }
     /// Consume the permit and emit a binary message to the client.
