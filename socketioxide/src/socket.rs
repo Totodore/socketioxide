@@ -115,16 +115,11 @@ pub(crate) trait PermitIteratorExt<'a>:
         };
 
         let msg = packet.into();
-        self.next().unwrap().emit(msg);
 
         if let Some(bin_payloads) = bin_payloads {
-            debug_assert!(
-                self.len() >= bin_payloads.len(),
-                "Not enough permits available to send the message with the binary payload"
-            );
-            for bin in bin_payloads {
-                self.next().unwrap().emit_binary(bin);
-            }
+            self.next().unwrap().emit_many(msg, bin_payloads);
+        } else {
+            self.next().unwrap().emit(msg);
         }
     }
 }
@@ -659,7 +654,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     pub(crate) fn send(&self, packet: Packet<'_>) -> Result<(), SocketError<()>> {
-        let permits = self.reserve(1 + packet.inner.payload_count())?;
+        let permits = self.reserve(1)?;
         permits.emit(packet);
         Ok(())
     }

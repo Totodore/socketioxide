@@ -350,7 +350,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         if !self.socket.connected() {
             return Err(SendError::Socket(SocketError::Closed(data)));
         }
-        let permits = match self.socket.reserve(1 + self.binary.len()) {
+        let permits = match self.socket.reserve(1) {
             Ok(permits) => permits,
             Err(e) => {
                 #[cfg(feature = "tracing")]
@@ -424,7 +424,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         if !self.socket.connected() {
             return Err(SendError::Socket(SocketError::Closed(data)));
         }
-        let permits = match self.socket.reserve(1 + self.binary.len()) {
+        let permits = match self.socket.reserve(1) {
             Ok(permits) => permits,
             Err(e) => {
                 #[cfg(feature = "tracing")]
