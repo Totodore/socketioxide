@@ -155,7 +155,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// It is implemented for closures with up to 16 arguments.
 /// They must implement the [`FromConnectParts`] trait and return `Result<(), E> where E: Display`.
 ///
-/// * See the [`connect`](super::connect) module doc for more details on connect handler.
+/// * See the [`connect`](super::connect) module doc for more details on connect middlewares.
 /// * See the [`extract`](super::extract) module doc for more details on available extractors.
 pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
     /// Call the middleware with the given arguments.
