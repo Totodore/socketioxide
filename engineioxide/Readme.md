@@ -20,6 +20,7 @@ engineioxide = { version = "0.3.0", features = ["v3"] }
 
 ## Basic example with axum :
 ```rust
+use bytes::Bytes;
 use engineioxide::layer::EngineIoLayer;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{Socket, DisconnectReason};
@@ -52,7 +53,7 @@ impl EngineIoHandler for MyHandler {
     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
     }
-    fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+    fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 }
 
 // Create a new engineio layer

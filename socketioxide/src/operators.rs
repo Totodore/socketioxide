@@ -9,6 +9,7 @@
 use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
+use bytes::Bytes;
 use engineioxide::sid::Sid;
 
 use crate::ack::{AckInnerStream, AckStream};
@@ -103,13 +104,13 @@ impl RoomParam for Sid {
 
 /// Chainable operators to configure the message to be sent.
 pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
-    binary: Vec<Vec<u8>>,
+    binary: Vec<Bytes>,
     timeout: Option<Duration>,
     socket: &'a Socket<A>,
 }
 /// Chainable operators to select sockets to send a message to and to configure the message to be sent.
 pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
-    binary: Vec<Vec<u8>>,
+    binary: Vec<Bytes>,
     timeout: Option<Duration>,
     ns: Arc<Namespace<A>>,
     opts: BroadcastOptions,
@@ -296,7 +297,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(mut self, binary: Vec<Vec<u8>>) -> Self {
+    pub fn bin(mut self, binary: Vec<Bytes>) -> Self {
         self.binary = binary;
         self
     }
@@ -676,7 +677,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(mut self, binary: Vec<Vec<u8>>) -> Self {
+    pub fn bin(mut self, binary: Vec<Bytes>) -> Self {
         self.binary = binary;
         self
     }

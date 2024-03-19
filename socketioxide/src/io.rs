@@ -1,5 +1,6 @@
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
+use bytes::Bytes;
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
@@ -294,7 +295,7 @@ impl<A: Adapter> SocketIo<A> {
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
-    ///     // Extract the binary payload as a `Vec<Vec<u8>>` with the Bin extractor.
+    ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
     ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
     ///         println!("Received a test message {:?}", data);
@@ -544,6 +545,7 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example
     /// ```
+    /// # use bytes::Bytes;
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
@@ -556,10 +558,10 @@ impl<A: Adapter> SocketIo<A> {
     /// io.to("room1")
     ///   .to("room3")
     ///   .except("room2")
-    ///   .bin(vec![vec![1, 2, 3, 4]])
+    ///   .bin(vec![Bytes::from_static(&[1, 2, 3, 4])])
     ///   .emit("test", ());
     #[inline]
-    pub fn bin(&self, binary: Vec<Vec<u8>>) -> BroadcastOperators<A> {
+    pub fn bin(&self, binary: Vec<Bytes>) -> BroadcastOperators<A> {
         self.get_default_op().bin(binary)
     }
 

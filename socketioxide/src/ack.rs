@@ -11,6 +11,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use engineioxide::sid::Sid;
 use futures::{
     future::FusedFuture,
@@ -31,7 +32,7 @@ pub struct AckResponse<T> {
     pub data: T,
     /// Optional binary payloads.
     /// If there is no binary payload, the `Vec` will be empty
-    pub binary: Vec<Vec<u8>>,
+    pub binary: Vec<Bytes>,
 }
 
 pub(crate) type AckResult<T = Value> = Result<AckResponse<T>, AckError<()>>;

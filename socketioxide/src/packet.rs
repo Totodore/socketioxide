@@ -4,6 +4,7 @@
 use std::borrow::Cow;
 
 use crate::ProtocolVersion;
+use bytes::Bytes;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -92,7 +93,7 @@ impl<'a> Packet<'a> {
         ns: impl Into<Cow<'a, str>>,
         e: impl Into<Cow<'a, str>>,
         data: Value,
-        bin: Vec<Vec<u8>>,
+        bin: Vec<Bytes>,
     ) -> Self {
         debug_assert!(!bin.is_empty());
 
@@ -112,7 +113,7 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: &'a str, data: Value, bin: Vec<Vec<u8>>, ack: i64) -> Self {
+    pub fn bin_ack(ns: &'a str, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
         debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
@@ -203,7 +204,7 @@ pub struct BinaryPacket {
     /// Data related to the packet
     pub data: Value,
     /// Binary payload
-    pub bin: Vec<Vec<u8>>,
+    pub bin: Vec<Bytes>,
     /// The number of expected payloads (used when receiving data)
     payload_count: usize,
 }
@@ -280,7 +281,7 @@ impl BinaryPacket {
     }
 
     /// Create a binary packet from outgoing data and a payload
-    pub fn outgoing(data: Value, bin: Vec<Vec<u8>>) -> Self {
+    pub fn outgoing(data: Value, bin: Vec<Bytes>) -> Self {
         let mut data = match data {
             Value::Array(v) => Value::Array(v),
             d => Value::Array(vec![d]),
@@ -301,7 +302,7 @@ impl BinaryPacket {
 
     /// Add a payload to the binary packet, when all payloads are added,
     /// the packet is complete and can be further processed
-    pub fn add_payload(&mut self, payload: Vec<u8>) {
+    pub fn add_payload(&mut self, payload: Bytes) {
         self.bin.push(payload);
     }
     /// Check if the binary packet is complete, it means that all payloads have been received
@@ -719,17 +720,25 @@ mod test {
         let json = json!(["event", { "data": "value™" }, { "_placeholder": true, "num": 0}]);
 
         let payload = format!("51-{}", json);
-        let packet: String =
-            Packet::bin_event("/", "event", json!({ "data": "value™" }), vec![vec![1]])
-                .try_into()
-                .unwrap();
+        let packet: String = Packet::bin_event(
+            "/",
+            "event",
+            json!({ "data": "value™" }),
+            vec![Bytes::from_static(&[1])],
+        )
+        .try_into()
+        .unwrap();
 
         assert_eq!(packet, payload);
 
         // Encode with ack ID
         let payload = format!("51-254{}", json);
-        let mut packet =
-            Packet::bin_event("/", "event", json!({ "data": "value™" }), vec![vec![1]]);
+        let mut packet = Packet::bin_event(
+            "/",
+            "event",
+            json!({ "data": "value™" }),
+            vec![Bytes::from_static(&[1])],
+        );
         packet.inner.set_ack_id(254);
         let packet: String = packet.try_into().unwrap();
 
@@ -741,7 +750,7 @@ mod test {
             "/admin™",
             "event",
             json!([{"data": "value™"}]),
-            vec![vec![1]],
+            vec![Bytes::from_static(&[1])],
         )
         .try_into()
         .unwrap();
@@ -754,7 +763,7 @@ mod test {
             "/admin™",
             "event",
             json!([{"data": "value™"}]),
-            vec![vec![1]],
+            vec![Bytes::from_static(&[1])],
         );
         packet.inner.set_ack_id(254);
         let packet: String = packet.try_into().unwrap();
@@ -768,7 +777,7 @@ mod test {
             inner: PacketData::BinaryEvent(
                 "event".into(),
                 BinaryPacket {
-                    bin: vec![vec![1]],
+                    bin: vec![Bytes::from_static(&[1])],
                     data: json!([{"data": "value™"}]),
                     payload_count: 1,
                 },
@@ -780,7 +789,7 @@ mod test {
         let payload = format!("51-{}", json);
         let mut packet = Packet::try_from(payload).unwrap();
         match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(vec![1]),
+            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(Bytes::from_static(&[1])),
             _ => (),
         }
 
@@ -790,7 +799,7 @@ mod test {
         let payload = format!("51-254{}", json);
         let mut packet = Packet::try_from(payload).unwrap();
         match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(vec![1]),
+            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(Bytes::from_static(&[1])),
             _ => (),
         }
 
@@ -800,7 +809,7 @@ mod test {
         let payload = format!("51-/admin™,{}", json);
         let mut packet = Packet::try_from(payload).unwrap();
         match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(vec![1]),
+            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(Bytes::from_static(&[1])),
             _ => (),
         }
 
@@ -810,7 +819,7 @@ mod test {
         let payload = format!("51-/admin™,254{}", json);
         let mut packet = Packet::try_from(payload).unwrap();
         match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(vec![1]),
+            PacketData::BinaryEvent(_, ref mut bin, _) => bin.add_payload(Bytes::from_static(&[1])),
             _ => (),
         }
         assert_eq!(packet, comparison_packet(Some(254), "/admin™"));
@@ -822,18 +831,27 @@ mod test {
         let json = json!([{ "data": "value™" }, { "_placeholder": true, "num": 0}]);
 
         let payload = format!("61-54{}", json);
-        let packet: String = Packet::bin_ack("/", json!({ "data": "value™" }), vec![vec![1]], 54)
-            .try_into()
-            .unwrap();
+        let packet: String = Packet::bin_ack(
+            "/",
+            json!({ "data": "value™" }),
+            vec![Bytes::from_static(&[1])],
+            54,
+        )
+        .try_into()
+        .unwrap();
 
         assert_eq!(packet, payload);
 
         // Encode with NS
         let payload = format!("61-/admin™,54{}", json);
-        let packet: String =
-            Packet::bin_ack("/admin™", json!({ "data": "value™" }), vec![vec![1]], 54)
-                .try_into()
-                .unwrap();
+        let packet: String = Packet::bin_ack(
+            "/admin™",
+            json!({ "data": "value™" }),
+            vec![Bytes::from_static(&[1])],
+            54,
+        )
+        .try_into()
+        .unwrap();
 
         assert_eq!(packet, payload);
     }
@@ -844,7 +862,7 @@ mod test {
         let comparison_packet = |ack, ns: &'static str| Packet {
             inner: PacketData::BinaryAck(
                 BinaryPacket {
-                    bin: vec![vec![1]],
+                    bin: vec![Bytes::from_static(&[1])],
                     data: json!([{"data": "value™"}]),
                     payload_count: 1,
                 },
@@ -856,7 +874,7 @@ mod test {
         let payload = format!("61-54{}", json);
         let mut packet = Packet::try_from(payload).unwrap();
         match packet.inner {
-            PacketData::BinaryAck(ref mut bin, _) => bin.add_payload(vec![1]),
+            PacketData::BinaryAck(ref mut bin, _) => bin.add_payload(Bytes::from_static(&[1])),
             _ => (),
         }
 
@@ -866,7 +884,7 @@ mod test {
         let payload = format!("61-/admin™,54{}", json);
         let mut packet = Packet::try_from(payload).unwrap();
         match packet.inner {
-            PacketData::BinaryAck(ref mut bin, _) => bin.add_payload(vec![1]),
+            PacketData::BinaryAck(ref mut bin, _) => bin.add_payload(Bytes::from_static(&[1])),
             _ => (),
         }
 
@@ -904,18 +922,23 @@ mod test {
         let packet = Packet::ack("/admin", json!("data"), 54);
         assert_eq!(packet.get_size_hint(), 10);
 
-        let packet = Packet::bin_event("/", "event", json!({ "data": "value™" }), vec![vec![1]]);
+        let packet = Packet::bin_event(
+            "/",
+            "event",
+            json!({ "data": "value™" }),
+            vec![Bytes::from_static(&[1])],
+        );
         assert_eq!(packet.get_size_hint(), 3);
 
         let packet = Packet::bin_event(
             "/admin",
             "event",
             json!({ "data": "value™" }),
-            vec![vec![1]],
+            vec![Bytes::from_static(&[1])],
         );
         assert_eq!(packet.get_size_hint(), 10);
 
-        let packet = Packet::bin_ack("/", json!("data"), vec![vec![1]], 54);
+        let packet = Packet::bin_ack("/", json!("data"), vec![Bytes::from_static(&[1])], 54);
         assert_eq!(packet.get_size_hint(), 5);
     }
 }
