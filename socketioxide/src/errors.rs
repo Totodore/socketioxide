@@ -24,6 +24,8 @@ pub enum Error {
     Adapter(#[from] AdapterError),
 }
 
+pub(crate) struct ConnectFail;
+
 /// Error type for ack operations.
 #[derive(thiserror::Error, Debug)]
 pub enum AckError<T> {

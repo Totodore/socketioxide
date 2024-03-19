@@ -6,7 +6,7 @@ use std::{
     fmt::Debug,
     sync::Mutex,
     sync::{
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, RwLock,
     },
     time::Duration,
@@ -140,6 +140,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
     ack_counter: AtomicI64,
+    connected: AtomicBool,
     /// The socket id
     pub id: Sid,
 
@@ -167,6 +168,7 @@ impl<A: Adapter> Socket<A> {
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
+            connected: AtomicBool::new(false),
             id: sid,
             #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
@@ -313,6 +315,10 @@ impl<A: Adapter> Socket<A> {
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<(), SendError<T>> {
+        if !self.connected() {
+            return Err(SendError::Socket(SocketError::Closed(data)));
+        }
+
         let permits = match self.reserve(1) {
             Ok(permits) => permits,
             Err(e) => {
@@ -384,6 +390,9 @@ impl<A: Adapter> Socket<A> {
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<AckStream<V>, SendError<T>> {
+        if !self.connected() {
+            return Err(SendError::Socket(SocketError::Closed(data)));
+        }
         let permits = match self.reserve(1) {
             Ok(permits) => permits,
             Err(e) => {
@@ -436,6 +445,14 @@ impl<A: Adapter> Socket<A> {
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
         self.ns.adapter.socket_rooms(self.id)
+    }
+
+    /// Return true if the socket is connected to the namespace.
+    ///
+    /// A socket is considered connected when it has been successfully handshaked with the server
+    /// and that all [connect middlewares](crate::handler::connect#middlewares) have been executed.
+    pub fn connected(&self) -> bool {
+        self.connected.load(Ordering::SeqCst)
     }
 
     // Socket operators
@@ -627,6 +644,10 @@ impl<A: Adapter> Socket<A> {
         self.esocket.closed().await;
     }
 
+    pub(crate) fn set_connected(&self, connected: bool) {
+        self.connected.store(connected, Ordering::SeqCst);
+    }
+
     /// Gets the current namespace path.
     #[inline]
     pub fn ns(&self) -> &str {
@@ -677,6 +698,8 @@ impl<A: Adapter> Socket<A> {
     ///
     /// It maybe also close when the underlying transport is closed or failed.
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
+        self.set_connected(false);
+
         if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
             handler.call(self.clone(), reason);
         }
@@ -797,12 +820,14 @@ impl<A: Adapter> PartialEq for Socket<A> {
 impl<A: Adapter> Socket<A> {
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
         let close_fn = Box::new(move |_, _| ());
-        Socket::new(
+        let s = Socket::new(
             sid,
             ns,
             engineioxide::Socket::new_dummy(sid, close_fn).into(),
             Arc::new(SocketIoConfig::default()),
-        )
+        );
+        s.set_connected(true);
+        s
     }
 }
 

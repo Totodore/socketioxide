@@ -1,4 +1,4 @@
-use socketioxide::SocketIo;
+use socketioxide::{handler::ConnectHandler, SocketIo};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
@@ -22,7 +22,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(Messages::default())
         .build_layer();
 
-    io.ns("/", handlers::on_connection);
+    io.ns(
+        "/",
+        handlers::on_connection.with(handlers::authenticate_middleware),
+    );
 
     let app = axum::Router::new()
         .nest_service("/", ServeDir::new("dist"))

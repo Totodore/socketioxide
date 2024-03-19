@@ -69,10 +69,12 @@ impl<'a> Packet<'a> {
 }
 
 impl<'a> Packet<'a> {
-    /// Create a connect error packet for the given namespace
-    pub fn invalid_namespace(ns: &'a str) -> Self {
+    /// Create a connect error packet for the given namespace with a message
+    pub fn connect_error(ns: &'a str, message: &str) -> Self {
+        let message = serde_json::to_string(message).unwrap();
+        let packet = format!(r#"{{"message":{}}}"#, message);
         Self {
-            inner: PacketData::ConnectError,
+            inner: PacketData::ConnectError(packet),
             ns: Cow::Borrowed(ns),
         }
     }
@@ -154,7 +156,7 @@ impl<'a> Packet<'a> {
                     + ACK_PUNCTUATION_SIZE
                     + BINARY_PUNCTUATION_SIZE
             }
-            ConnectError => 31,
+            ConnectError(data) => data.len(),
         };
 
         let nsp_size = if self.ns == "/" {
@@ -188,7 +190,7 @@ pub enum PacketData<'a> {
     /// Event ack packet, to acknowledge an event
     EventAck(Value, i64),
     /// Connect error packet, sent when the namespace is invalid
-    ConnectError,
+    ConnectError(String),
     /// Binary event packet with optional ack id, to request an ack from the other side
     BinaryEvent(Cow<'a, str>, BinaryPacket, Option<i64>),
     /// Binary ack packet, to acknowledge an event with binary data
@@ -213,7 +215,7 @@ impl<'a> PacketData<'a> {
             PacketData::Disconnect => '1',
             PacketData::Event(_, _, _) => '2',
             PacketData::EventAck(_, _) => '3',
-            PacketData::ConnectError => '4',
+            PacketData::ConnectError(_) => '4',
             PacketData::BinaryEvent(_, _, _) => '5',
             PacketData::BinaryAck(_, _) => '6',
         }
@@ -377,7 +379,7 @@ impl<'a> From<Packet<'a>> for String {
                 res.push_str(itoa_buf.format(ack));
                 res.push_str(&data.unwrap())
             }
-            PacketData::ConnectError => res.push_str("{\"message\":\"Invalid namespace\"}"),
+            PacketData::ConnectError(data) => res.push_str(&data),
             PacketData::BinaryEvent(_, bin, ack) => {
                 res.push_str(itoa_buf.format(bin.payload_count));
                 res.push('-');
@@ -699,11 +701,15 @@ mod test {
     #[test]
     fn packet_encode_connect_error() {
         let payload = format!("4{}", json!({ "message": "Invalid namespace" }));
-        let packet: String = Packet::invalid_namespace("/").try_into().unwrap();
+        let packet: String = Packet::connect_error("/", "Invalid namespace")
+            .try_into()
+            .unwrap();
         assert_eq!(packet, payload);
 
         let payload = format!("4/admin™,{}", json!({ "message": "Invalid namespace" }));
-        let packet: String = Packet::invalid_namespace("/admin™").try_into().unwrap();
+        let packet: String = Packet::connect_error("/admin™", "Invalid namespace")
+            .try_into()
+            .unwrap();
         assert_eq!(packet, payload);
     }
 

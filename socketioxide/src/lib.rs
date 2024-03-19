@@ -41,6 +41,7 @@
 //! * [Handlers](#handlers)
 //! * [Extractors](#extractors)
 //! * [Events](#events)
+//! * [Middlewares](#middlewares)
 //! * [Emiting data](#emiting-data)
 //! * [Acknowledgements](#acknowledgements)
 //! * [State management](#state-management)
@@ -133,7 +134,7 @@
 //!
 //! If they are async, a new task will be spawned for each incoming connection/message so it doesn't block the event management task.
 //!
-//! * Check the [`handler::connect`] module doc for more details on the connect handler
+//! * Check the [`handler::connect`] module doc for more details on the connect handler and connect middlewares.
 //! * Check the [`handler::message`] module doc for more details on the message handler.
 //! * Check the [`handler::disconnect`] module doc for more details on the disconnect handler.
 //! * Check the [`handler::extract`] module doc for more details on the extractors.
@@ -172,6 +173,22 @@
 //! * The disconnect event is emitted when a socket is closed. It can be handled with the [`DisconnectHandler`](handler::DisconnectHandler) and the `socket.on_disconnect` method.
 //!
 //! Only one handler can exist for an event so registering a new handler for an event will replace the previous one.
+//!
+//! ## Middlewares
+//! When providing a [`ConnectHandler`](handler::ConnectHandler) for a namespace you can add any number of
+//! [`ConnectMiddleware`](handler::ConnectMiddleware) in front of it. It is useful to add authentication or logging middlewares.
+//!
+//! A middleware *must* return a `Result<(), E> where E: Display`.
+//! * If the result is `Ok(())`, the next middleware is called or if there is no more middleware,
+//! the socket is connected and the [`ConnectHandler`](handler::ConnectHandler) is called.
+//! * If the result is an error, the namespace connection will be refused and the error will be returned with a
+//! [`connect_error` event and a `message`](https://socket.io/docs/v4/middlewares/#handling-middleware-error) field with the error.
+//!
+//! <div class="warning">
+//!     Because the socket is not yet connected to the namespace,
+//!     you can't send messages to it from the middleware.
+//! </div>
+//! See the [`handler::connect`](handler::connect#middleware) module doc for more details on middlewares and examples.
 //!
 //! ## [Emiting data](#emiting-data)
 //! Data can be emitted to a socket with the [`Socket::emit`](socket::Socket) method. It takes an event name and a data argument.

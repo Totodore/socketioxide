@@ -834,8 +834,8 @@ mod tests {
         assert!(io.get_op("test2").is_none());
     }
 
-    #[test]
-    fn get_socket_by_sid() {
+    #[tokio::test]
+    async fn get_socket_by_sid() {
         use engineioxide::Socket;
         let sid = Sid::new();
         let (_, io) = SocketIo::builder().build_svc();
@@ -846,7 +846,8 @@ mod tests {
         io.0.get_ns("/")
             .unwrap()
             .connect(sid, socket, None, config)
-            .unwrap();
+            .await
+            .ok();
 
         assert!(io.get_socket(sid).is_some());
         assert!(io.get_socket(Sid::new()).is_none());

@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use socketioxide::extract::{Data, SocketRef, State, TryData};
-use tracing::error;
 use uuid::Uuid;
 
 use crate::store::{Message, Messages, Session, Sessions};
@@ -39,18 +38,7 @@ struct PrivateMessageReq {
     content: String,
 }
 
-pub fn on_connection(
-    s: SocketRef,
-    TryData(auth): TryData<Auth>,
-    sessions: State<Sessions>,
-    msgs: State<Messages>,
-) {
-    if let Err(e) = session_connect(&s, auth, sessions.0, msgs.0) {
-        error!("Failed to connect: {:?}", e);
-        s.disconnect().ok();
-        return;
-    }
-
+pub fn on_connection(s: SocketRef) {
     s.on(
         "private message",
         |s: SocketRef, Data(PrivateMessageReq { to, content }), State(Messages(msg))| {
@@ -83,11 +71,11 @@ pub fn on_connection(
 }
 
 /// Handles the connection of a new user
-fn session_connect(
-    s: &SocketRef,
-    auth: Result<Auth, serde_json::Error>,
-    Sessions(session_state): &Sessions,
-    Messages(msg_state): &Messages,
+pub fn authenticate_middleware(
+    s: SocketRef,
+    TryData(auth): TryData<Auth>,
+    State(Sessions(session_state)): State<Sessions>,
+    State(Messages(msg_state)): State<Messages>,
 ) -> Result<(), anyhow::Error> {
     let auth = auth?;
     let mut sessions = session_state.write().unwrap();
