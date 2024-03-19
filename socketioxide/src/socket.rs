@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit, PermitIterator};
+use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
@@ -101,12 +101,11 @@ impl From<EIoDisconnectReason> for DisconnectReason {
     }
 }
 
-pub(crate) trait PermitIteratorExt<'a>:
-    ExactSizeIterator<Item = Permit<'a>> + Sized
-{
-    fn emit(mut self, mut packet: Packet<'_>) {
-        debug_assert!(self.len() > 0, "No permits available to send the message");
-
+pub(crate) trait PermitExt<'a> {
+    fn send(self, packet: Packet<'_>);
+}
+impl<'a> PermitExt<'a> for Permit<'a> {
+    fn send(self, mut packet: Packet<'_>) {
         let bin_payloads = match packet.inner {
             PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
                 Some(std::mem::take(&mut bin.bin))
@@ -117,13 +116,12 @@ pub(crate) trait PermitIteratorExt<'a>:
         let msg = packet.into();
 
         if let Some(bin_payloads) = bin_payloads {
-            self.next().unwrap().emit_many(msg, bin_payloads);
+            self.emit_many(msg, bin_payloads);
         } else {
-            self.next().unwrap().emit(msg);
+            self.emit(msg);
         }
     }
 }
-impl<'a> PermitIteratorExt<'a> for PermitIterator<'a> {}
 
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
@@ -314,8 +312,8 @@ impl<A: Adapter> Socket<A> {
             return Err(SendError::Socket(SocketError::Closed(data)));
         }
 
-        let permits = match self.reserve(1) {
-            Ok(permits) => permits,
+        let permit = match self.reserve() {
+            Ok(permit) => permit,
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
@@ -325,7 +323,7 @@ impl<A: Adapter> Socket<A> {
 
         let ns = self.ns();
         let data = serde_json::to_value(data)?;
-        permits.emit(Packet::event(ns, event.into(), data));
+        permit.send(Packet::event(ns, event.into(), data));
         Ok(())
     }
 
@@ -388,8 +386,8 @@ impl<A: Adapter> Socket<A> {
         if !self.connected() {
             return Err(SendError::Socket(SocketError::Closed(data)));
         }
-        let permits = match self.reserve(1) {
-            Ok(permits) => permits,
+        let permit = match self.reserve() {
+            Ok(permit) => permit,
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
@@ -398,7 +396,7 @@ impl<A: Adapter> Socket<A> {
         };
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(self.ns(), event.into(), data);
-        let rx = self.send_with_ack_permit(packet, permits);
+        let rx = self.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
         Ok(AckStream::<V>::from(stream))
     }
@@ -649,26 +647,26 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
-    pub(crate) fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, SocketError<()>> {
-        Ok(self.esocket.reserve(n)?)
+    pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError<()>> {
+        Ok(self.esocket.reserve()?)
     }
 
     pub(crate) fn send(&self, packet: Packet<'_>) -> Result<(), SocketError<()>> {
-        let permits = self.reserve(1)?;
-        permits.emit(packet);
+        let permit = self.reserve()?;
+        permit.send(packet);
         Ok(())
     }
 
     pub(crate) fn send_with_ack_permit(
         &self,
         mut packet: Packet<'_>,
-        permits: PermitIterator<'_>,
+        permit: Permit<'_>,
     ) -> Receiver<AckResult<Value>> {
         let (tx, rx) = oneshot::channel();
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        permits.emit(packet);
+        permit.send(packet);
         self.ack_message.lock().unwrap().insert(ack, tx);
         rx
     }

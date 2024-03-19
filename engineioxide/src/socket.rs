@@ -146,29 +146,6 @@ impl Permit<'_> {
     }
 }
 
-/// An [`Iterator`] over the permits returned by the [`reserve`](Socket::reserve) function
-#[derive(Debug)]
-pub struct PermitIterator<'a> {
-    inner: mpsc::PermitIterator<'a, PacketBuf>,
-}
-
-impl<'a> Iterator for PermitIterator<'a> {
-    type Item = Permit<'a>;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        let inner = self.inner.next()?;
-        Some(Permit { inner })
-    }
-}
-impl ExactSizeIterator for PermitIterator<'_> {
-    #[inline]
-    fn len(&self) -> usize {
-        self.inner.len()
-    }
-}
-impl std::iter::FusedIterator for PermitIterator<'_> {}
-
 /// Buffered packets to send to the client
 pub(crate) type PacketBuf = SmallVec<[Packet; 10]>;
 /// A [`Socket`] represents a client connection to the server.
@@ -417,9 +394,9 @@ where
     /// If the internal chan is full, the function will return a [`TrySendError::Full`] error.
     /// If the socket is closed, the function will return a [`TrySendError::Closed`] error.
     #[inline]
-    pub fn reserve(&self, n: usize) -> Result<PermitIterator<'_>, TrySendError<()>> {
-        let inner = self.internal_tx.try_reserve_many(n)?;
-        Ok(PermitIterator { inner })
+    pub fn reserve(&self) -> Result<Permit<'_>, TrySendError<()>> {
+        let permit = self.internal_tx.try_reserve()?;
+        Ok(Permit { inner: permit })
     }
 
     /// Emits a message to the client.
