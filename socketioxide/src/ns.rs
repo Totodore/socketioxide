@@ -74,7 +74,7 @@ impl<A: Adapter> Namespace<A> {
             return Err(ConnectFail);
         }
 
-        socket.set_connected();
+        socket.set_connected(true);
         self.handler.call(socket, auth);
 
         Ok(())

@@ -644,8 +644,8 @@ impl<A: Adapter> Socket<A> {
         self.esocket.closed().await;
     }
 
-    pub(crate) fn set_connected(&self) {
-        self.connected.store(true, Ordering::SeqCst);
+    pub(crate) fn set_connected(&self, connected: bool) {
+        self.connected.store(connected, Ordering::SeqCst);
     }
 
     /// Gets the current namespace path.
@@ -698,6 +698,8 @@ impl<A: Adapter> Socket<A> {
     ///
     /// It maybe also close when the underlying transport is closed or failed.
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
+        self.set_connected(false);
+
         if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
             handler.call(self.clone(), reason);
         }
@@ -824,7 +826,7 @@ impl<A: Adapter> Socket<A> {
             engineioxide::Socket::new_dummy(sid, close_fn).into(),
             Arc::new(SocketIoConfig::default()),
         );
-        s.set_connected();
+        s.set_connected(true);
         s
     }
 }
