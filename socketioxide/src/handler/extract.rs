@@ -1,12 +1,16 @@
-//! ### Extractors for [`ConnectHandler`](super::ConnectHandler), [`MessageHandler`](super::MessageHandler)
+//! ### Extractors for [`ConnectHandler`](super::ConnectHandler), [`ConnectMiddleware`](super::ConnectMiddleware),
+//! [`MessageHandler`](super::MessageHandler)
 //! and [`DisconnectHandler`](super::DisconnectHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
 //! * [`Data`]: extracts and deserialize to json any data, if a deserialization error occurs the handler won't be called:
 //!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
+//! 	- for [`ConnectMiddleware`](super::ConnectMiddleware): extract and deserialize to json the auth data. 
+//! In case of error, the middleware chain stops and a `connect_error` event is sent. 
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
 //! * [`TryData`]: extracts and deserialize to json any data but with a `Result` type in case of error:
-//!     - for [`ConnectHandler`](super::ConnectHandler): extracts and deserialize to json the auth data
+//!     - for [`ConnectHandler`](super::ConnectHandler) and [`ConnectMiddleware`](super::ConnectMiddleware): 
+//! extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](super::MessageHandler): extracts and deserialize to json the message data
 //! * [`SocketRef`]: extracts a reference to the [`Socket`]
 //! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument
