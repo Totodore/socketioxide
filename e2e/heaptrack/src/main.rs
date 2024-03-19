@@ -1,6 +1,6 @@
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
-use socketioxide::{extract::SocketRef, handler::ConnectHandler, SocketIo};
+use socketioxide::{extract::SocketRef, SocketIo};
 use std::{net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 
@@ -10,15 +10,11 @@ fn on_connect(socket: SocketRef) {
     });
 }
 
-fn middleware() -> Result<(), std::convert::Infallible> {
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (svc, io) = SocketIo::new_svc();
 
-    io.ns("/", on_connect.with(middleware).with(middleware));
+    io.ns("/", on_connect);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await?;
