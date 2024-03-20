@@ -345,9 +345,9 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<(), SendError<T>> {
-        use crate::socket::PermitIteratorExt;
-        let permits = match self.socket.reserve(1 + self.binary.len()) {
-            Ok(permits) => permits,
+        use crate::socket::PermitExt;
+        let permit = match self.socket.reserve() {
+            Ok(permit) => permit,
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
@@ -355,7 +355,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
             }
         };
         let packet = self.get_packet(event, data)?;
-        permits.emit(packet);
+        permit.send(packet);
 
         Ok(())
     }
@@ -416,8 +416,8 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<AckStream<V>, SendError<T>> {
-        let permits = match self.socket.reserve(1 + self.binary.len()) {
-            Ok(permits) => permits,
+        let permit = match self.socket.reserve() {
+            Ok(permit) => permit,
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
@@ -426,7 +426,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         };
         let timeout = self.timeout.unwrap_or(self.socket.config.ack_timeout);
         let packet = self.get_packet(event, data)?;
-        let rx = self.socket.send_with_ack_permit(packet, permits);
+        let rx = self.socket.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, timeout, self.socket.id);
         Ok(AckStream::<V>::from(stream))
     }

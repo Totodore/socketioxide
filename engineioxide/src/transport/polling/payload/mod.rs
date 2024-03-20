@@ -1,6 +1,9 @@
 //! Payload encoder and decoder for polling transport.
 
-use crate::{errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion};
+use crate::{
+    errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion,
+    socket::PacketBuf,
+};
 use futures::Stream;
 use http::Request;
 use tokio::sync::MutexGuard;
@@ -64,7 +67,7 @@ impl Payload {
 }
 
 pub async fn encoder(
-    rx: MutexGuard<'_, PeekableReceiver<Packet>>,
+    rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
     max_payload: u64,
