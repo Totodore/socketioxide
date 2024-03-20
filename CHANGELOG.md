@@ -1,3 +1,7 @@
+# 0.11.1
+## socketioxide
+* fix(#232): under heavy traffic, the adjacent binary packet to the head packet requirement for engine.io was not respected. It was leading to a protocol error. 
+
 # 0.11.0
 ## socketioxide
 * fix: a panic was raised sometimes under heavy traffic with socketio v5 when the connect timeout handler is destroyed but that the chan sender is still alive.
