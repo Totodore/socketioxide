@@ -298,10 +298,10 @@ impl<A: Adapter> AckSender<A> {
 
     /// Send the ack response to the client.
     pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
-        use crate::socket::PermitIteratorExt;
+        use crate::socket::PermitExt;
         if let Some(ack_id) = self.ack_id {
-            let permits = match self.socket.reserve(1 + self.binary.len()) {
-                Ok(permits) => permits,
+            let permit = match self.socket.reserve() {
+                Ok(permit) => permit,
                 Err(e) => {
                     #[cfg(feature = "tracing")]
                     tracing::debug!("sending error during emit message: {e:?}");
@@ -315,7 +315,7 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            permits.emit(packet);
+            permit.send(packet);
             Ok(())
         } else {
             Ok(())

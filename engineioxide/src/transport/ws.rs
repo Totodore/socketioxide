@@ -244,12 +244,15 @@ where
             };
         }
 
-        while let Some(item) = internal_rx.recv().await {
-            map_fn!(item);
-
-            // For every available packet we continue to send until the channel is drained
-            while let Ok(item) = internal_rx.try_recv() {
+        while let Some(items) = internal_rx.recv().await {
+            for item in items {
                 map_fn!(item);
+            }
+            // For every available packet we continue to send until the channel is drained
+            while let Ok(items) = internal_rx.try_recv() {
+                for item in items {
+                    map_fn!(item);
+                }
             }
 
             tx.flush().await.ok();
