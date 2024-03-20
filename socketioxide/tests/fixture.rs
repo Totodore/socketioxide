@@ -119,6 +119,7 @@ pub async fn create_server(port: u16) -> SocketIo {
     let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
+		.max_buffer_size(100000)
         .build_svc();
 
     spawn_server(port, svc).await;
