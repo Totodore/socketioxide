@@ -1,11 +1,6 @@
 name: release
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "Cargo.toml"
-      - ".github/workflows/release.yml"
+  workflow_dispatch:
 
 jobs:
   git-tag:
