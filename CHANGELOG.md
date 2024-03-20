@@ -1,3 +1,14 @@
+# 0.12.0
+**MSRV**: Minimum supported Rust version is now 1.75.
+
+# socketioxide
+* **(Breaking)**: Introduction of [connect middlewares](https://docs.rs/socketioxide/latest/socketioxide/#middlewares). It allows to execute code before the connection to the namespace is established. It is useful to check the request, to authenticate the user, to log the connection etc. It is possible to add multiple middlewares and to chain them.
+* The `SocketRef` extractor is now `Clone`. Be careful to drop clones when the socket is disconnected to avoid any memory leak.
+
+# 0.11.1
+## socketioxide
+* fix(#232): under heavy traffic, the adjacent binary packet to the head packet requirement for engine.io was not respected. It was leading to a protocol error. 
+
 # 0.11.0
 ## socketioxide
 * fix: a panic was raised sometimes under heavy traffic with socketio v5 when the connect timeout handler is destroyed but that the chan sender is still alive.
