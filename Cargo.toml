@@ -40,4 +40,4 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 axum = "0.7.2"
 salvo = { version = "0.66.0", features = ["tower-compat"] }
-rust_socketio = { version = "0.4.2", features = ["async"] }
+rust_socketio = { version = "0.5.0", features = ["async"] }
