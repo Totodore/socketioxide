@@ -488,7 +488,7 @@ where
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     ) -> Arc<Socket<D>> {
-        self.new_dummy_piped(sid, close_fn).0
+        Socket::new_dummy_piped(sid, close_fn).0
     }
 
     /// Create a dummy socket for testing purpose with a

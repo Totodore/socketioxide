@@ -65,6 +65,9 @@ impl<A: Adapter> Namespace<A> {
         }
 
         self.sockets.write().unwrap().insert(sid, socket.clone());
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?socket.id, ?self.path, "socket added to namespace");
+
         let protocol = esocket.protocol.into();
 
         if let Err(_e) = socket.send(Packet::connect(&self.path, socket.id, protocol)) {
@@ -129,7 +132,7 @@ impl<A: Adapter> Namespace<A> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, socketioxide_test))]
 impl<A: Adapter> Namespace<A> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
         let ns = Namespace::new(Cow::Borrowed("/"), || {});

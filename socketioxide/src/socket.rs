@@ -811,6 +811,7 @@ impl<A: Adapter> PartialEq for Socket<A> {
 
 #[cfg(any(test, socketioxide_test))]
 impl<A: Adapter> Socket<A> {
+    /// Creates a dummy socket for testing purposes
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
         let close_fn = Box::new(move |_, _| ());
         let s = Socket::new(

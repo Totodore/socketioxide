@@ -7,7 +7,7 @@ use std::{
 };
 
 use engineioxide::service::NotFoundService;
-use futures::{future::BoxFuture, SinkExt};
+use futures::SinkExt;
 use http::Request;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::server::conn::http1;
@@ -15,10 +15,7 @@ use hyper_util::{
     client::legacy::Client,
     rt::{TokioExecutor, TokioIo},
 };
-use rust_socketio::{
-    asynchronous::{Client as SocketIoClient, ClientBuilder},
-    Payload,
-};
+
 use serde::{Deserialize, Serialize};
 use socketioxide::{adapter::LocalAdapter, service::SocketIoService, SocketIo};
 use tokio::net::{TcpListener, TcpStream};
@@ -103,18 +100,6 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     ws
 }
 
-pub async fn create_server_with_state<T: Send + Sync + 'static>(port: u16, state: T) -> SocketIo {
-    let (svc, io) = SocketIo::builder()
-        .ping_interval(Duration::from_millis(300))
-        .ping_timeout(Duration::from_millis(200))
-        .with_state(state)
-        .build_svc();
-
-    spawn_server(port, svc).await;
-
-    io
-}
-
 pub async fn create_server(port: u16) -> SocketIo {
     let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
@@ -124,31 +109,6 @@ pub async fn create_server(port: u16) -> SocketIo {
 
     spawn_server(port, svc).await;
     io
-}
-
-pub async fn socketio_client_with_handler<F>(
-    port: u16,
-    event: &str,
-    callback: F,
-    auth: impl Into<serde_json::Value>,
-) -> Result<SocketIoClient, rust_socketio::Error>
-where
-    F: FnMut(Payload, SocketIoClient) -> BoxFuture<'static, ()> + Send + Sync + 'static,
-{
-    ClientBuilder::new(format!("http://127.0.0.1:{}", port))
-        .on(event, callback)
-        .auth(auth)
-        .connect()
-        .await
-}
-pub async fn socketio_client(
-    port: u16,
-    auth: impl Into<serde_json::Value>,
-) -> Result<SocketIoClient, rust_socketio::Error> {
-    ClientBuilder::new(format!("http://127.0.0.1:{}", port))
-        .auth(auth)
-        .connect()
-        .await
 }
 
 async fn spawn_server(port: u16, svc: SocketIoService<NotFoundService, LocalAdapter>) {
