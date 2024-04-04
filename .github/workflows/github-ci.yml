@@ -118,6 +118,24 @@ jobs:
       - name: check --feature-powerset
         run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide
 
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            examples/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-examples
+      - run: cd examples && cargo check --all-features
+
   doctest:
     runs-on: ubuntu-latest
     steps:
