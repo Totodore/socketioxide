@@ -8,13 +8,13 @@ rust-version = "1.67" # required by salvo
 
 [dependencies]
 socketioxide = { path = "../../socketioxide", features = ["tracing"] }
-salvo.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
 tower.workspace = true
 tower-http = { version = "0.5.0", features = ["cors"] }
+salvo = { version = "0.66", features = ["tower-compat"] }
 
 [[bin]]
 name = "salvo-echo"

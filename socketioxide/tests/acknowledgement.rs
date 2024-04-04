@@ -1,22 +1,17 @@
 //! Tests for acknowledgements
-//!
-//! TODO: switch to `rust_socketio` when it will support ack responses
-mod fixture;
 mod utils;
 
-use fixture::{create_server, create_ws_connection};
-use futures::{SinkExt, StreamExt};
+use engineioxide::Packet::*;
+use futures::StreamExt;
 use socketioxide::extract::SocketRef;
 use socketioxide::packet::{Packet, PacketData};
+use socketioxide::SocketIo;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
-use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::test]
 pub async fn emit_with_ack() {
-    const PORT: u16 = 2100;
-    use Message::*;
-    let io = create_server(PORT).await;
+    let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(4);
 
     io.ns("/", move |s: SocketRef| async move {
@@ -32,32 +27,27 @@ pub async fn emit_with_ack() {
         assert_ok!(tx.try_send(ack.data));
     });
 
-    let (mut stx, mut srx) = create_ws_connection(PORT).await.split();
-    assert_ok!(srx.next().await.unwrap());
-    assert_ok!(srx.next().await.unwrap());
+    let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
+    assert_some!(srx.recv().await); // NS connect packet
 
-    let msg = assert_ok!(srx.next().await.unwrap());
-    assert_eq!(msg, Text("421[\"test\",\"foo\"]".to_string()));
-    assert_ok!(stx.send(Text("431[\"oof\"]".to_string())).await);
-
-    let ack = rx.recv().await.unwrap();
-    assert_eq!(ack[0], "oof");
-
-    let msg = assert_ok!(srx.next().await.unwrap());
-    assert_eq!(msg, Text("422[\"test\",\"foo\"]".to_string()));
-    assert_ok!(stx.send(Text("432[\"oof\"]".to_string())).await);
+    let msg = assert_some!(srx.recv().await);
+    assert_eq!(msg, Message("21[\"test\",\"foo\"]".to_string()));
+    assert_ok!(stx.send(Message("31[\"oof\"]".to_string())).await);
 
     let ack = rx.recv().await.unwrap();
     assert_eq!(ack[0], "oof");
 
-    assert_ok!(stx.close().await);
+    let msg = assert_some!(srx.recv().await);
+    assert_eq!(msg, Message("22[\"test\",\"foo\"]".to_string()));
+    assert_ok!(stx.send(Message("32[\"oof\"]".to_string())).await);
+
+    let ack = rx.recv().await.unwrap();
+    assert_eq!(ack[0], "oof");
 }
 
 #[tokio::test]
 pub async fn broadcast_with_ack() {
-    const PORT: u16 = 2101;
-    use Message::*;
-    let io = create_server(PORT).await;
+    let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
 
     let io2 = io.clone();
@@ -101,22 +91,23 @@ pub async fn broadcast_with_ack() {
 
     // Spawn 5 clients and make them echo the ack
     for _ in 0..5 {
+        let io = io.clone();
         tokio::spawn(async move {
-            let (mut stx, mut srx) = create_ws_connection(PORT).await.split();
-            assert_ok!(srx.next().await.unwrap());
-            assert_ok!(srx.next().await.unwrap());
+            let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
+            assert_some!(srx.recv().await);
+            assert_some!(srx.recv().await);
 
-            while let Some(msg) = srx.next().await {
-                let msg = match assert_ok!(msg) {
-                    Text(msg) => msg,
-                    _ => panic!("Unexpected message"),
+            while let Some(msg) = srx.recv().await {
+                let msg = match msg {
+                    Message(msg) => msg,
+                    msg => panic!("Unexpected message: {:?}", msg),
                 };
-                let ack = match assert_ok!(Packet::try_from(msg[1..].to_string())).inner {
+                let ack = match assert_ok!(Packet::try_from(msg)).inner {
                     PacketData::Event(_, _, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };
                 assert_ok!(
-                    stx.send(Text(format!("43{}[\"oof\"]", ack.to_string())))
+                    stx.send(Message(format!("3{}[\"oof\"]", ack.to_string())))
                         .await
                 );
             }

@@ -1,18 +1,12 @@
-mod fixture;
 mod utils;
 
-use fixture::create_server;
-use futures::StreamExt;
-use socketioxide::{extract::SocketRef, handler::ConnectHandler, SendError, SocketError};
+use engineioxide::Packet::*;
+use socketioxide::{extract::SocketRef, handler::ConnectHandler, SendError, SocketError, SocketIo};
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::Message::*;
-
-use crate::fixture::create_ws_connection;
 
 #[tokio::test]
 pub async fn connect_middleware() {
-    const PORT: u16 = 2420;
-    let io = create_server(PORT).await;
+    let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<usize>(100);
 
     let handler = |i: usize| {
@@ -49,24 +43,20 @@ pub async fn connect_middleware() {
         { || {} }.with(handler(3)).with(handler(2)).with(handler(1)),
     );
 
-    let (_, mut srx) = create_ws_connection(PORT).await.split();
-    assert_ok!(srx.next().await.unwrap());
-
+    let (_, mut srx) = io.new_dummy_sock("/", ()).await;
     assert_eq!(rx.recv().await.unwrap(), 1);
     assert_eq!(rx.recv().await.unwrap(), 2);
     assert_eq!(rx.recv().await.unwrap(), 3);
 
-    let p = assert_ok!(srx.next().await.unwrap());
-    assert!(matches!(p, Text(s) if s.starts_with("40")));
+    let p = assert_some!(srx.recv().await);
+    assert!(matches!(p, Message(s) if s.starts_with("0")));
 
-    rx.try_recv().unwrap_err();
+    assert_err!(rx.try_recv());
 }
 
 #[tokio::test]
 pub async fn connect_middleware_error() {
-    const PORT: u16 = 2421;
-
-    let io = create_server(PORT).await;
+    let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<usize>(100);
     #[derive(Debug)]
     struct MyError;
@@ -97,11 +87,11 @@ pub async fn connect_middleware_error() {
             .with(handler(1, false)),
     );
 
-    let (_, mut srx) = create_ws_connection(PORT).await.split();
-    assert_ok!(srx.next().await.unwrap());
-    let p = assert_ok!(srx.next().await.unwrap());
-    assert_eq!(p, Text("44{\"message\":\"MyError\"}".to_string()));
+    let (_, mut srx) = io.new_dummy_sock("/", ()).await;
+
+    let p = assert_some!(srx.recv().await);
+    assert_eq!(p, Message("4{\"message\":\"MyError\"}".to_string()));
     rx.recv().await.unwrap();
     rx.recv().await.unwrap();
-    rx.try_recv().unwrap_err();
+    assert_err!(rx.try_recv());
 }

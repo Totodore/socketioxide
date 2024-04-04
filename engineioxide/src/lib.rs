@@ -35,7 +35,7 @@
 pub use service::{ProtocolVersion, TransportType};
 pub use socket::{DisconnectReason, Socket};
 
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, socketioxide_test))]
 pub use packet::*;
 
 pub mod config;

@@ -140,6 +140,54 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("all namespaces closed");
     }
+
+    #[cfg(socketioxide_test)]
+    pub async fn new_dummy_sock(
+        self: Arc<Self>,
+        ns: &'static str,
+        auth: impl serde::Serialize,
+    ) -> (
+        tokio::sync::mpsc::Sender<engineioxide::Packet>,
+        tokio::sync::mpsc::Receiver<engineioxide::Packet>,
+    ) {
+        let buffer_size = self.config.engine_config.max_buffer_size;
+        let sid = Sid::new();
+        let (esock, rx) = EIoSocket::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
+
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
+        tokio::spawn({
+            let esock = esock.clone();
+            let client = self.clone();
+            async move {
+                while let Some(packet) = rx1.recv().await {
+                    match packet {
+                        engineioxide::Packet::Message(msg) => {
+                            client.on_message(msg, esock.clone());
+                        }
+                        engineioxide::Packet::Close => {
+                            client
+                                .on_disconnect(esock.clone(), EIoDisconnectReason::TransportClose);
+                        }
+                        engineioxide::Packet::Binary(bin) => {
+                            client.on_binary(bin, esock.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        let p = Packet {
+            ns: ns.into(),
+            inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
+        }
+        .into();
+        self.on_message(p, esock.clone());
+
+        // wait for the socket to be connected to the namespace
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        (tx1, rx)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -290,6 +338,7 @@ fn apply_payload_on_packet(data: Vec<u8>, socket: &EIoSocket<SocketData>) -> boo
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use tokio::sync::mpsc;
 
     use crate::adapter::LocalAdapter;
@@ -305,13 +354,12 @@ mod test {
         client
     }
 
-    use super::*;
     #[tokio::test]
     async fn connect_timeout_fail() {
         let client = create_client();
         let (tx, mut rx) = mpsc::channel(1);
         let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
-        let sock = Arc::new(EIoSocket::new_dummy(Sid::new(), close_fn));
+        let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
         client.on_connect(sock.clone());
         tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
             .await
@@ -324,7 +372,7 @@ mod test {
         let client = create_client();
         let (tx, mut rx) = mpsc::channel(1);
         let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
-        let sock = Arc::new(EIoSocket::new_dummy(Sid::new(), close_fn));
+        let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
         client.on_connect(sock.clone());
         client.on_message("0".into(), sock.clone());
         tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())

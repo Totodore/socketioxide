@@ -808,6 +808,22 @@ impl<A: Adapter> Clone for SocketIo<A> {
     }
 }
 
+#[cfg(any(test, socketioxide_test))]
+impl<A: Adapter> SocketIo<A> {
+    /// Create a dummy socket for testing purpose with a
+    /// receiver to get the packets sent to the client
+    pub async fn new_dummy_sock(
+        &self,
+        ns: &'static str,
+        auth: impl serde::Serialize,
+    ) -> (
+        tokio::sync::mpsc::Sender<engineioxide::Packet>,
+        tokio::sync::mpsc::Receiver<engineioxide::Packet>,
+    ) {
+        self.0.clone().new_dummy_sock(ns, auth).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -840,8 +856,7 @@ mod tests {
         let sid = Sid::new();
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
-
-        let socket = Socket::new_dummy(sid, Box::new(|_, _| {})).into();
+        let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
         let config = SocketIoConfig::default().into();
         io.0.get_ns("/")
             .unwrap()

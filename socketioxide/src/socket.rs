@@ -809,14 +809,15 @@ impl<A: Adapter> PartialEq for Socket<A> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, socketioxide_test))]
 impl<A: Adapter> Socket<A> {
+    /// Creates a dummy socket for testing purposes
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
         let close_fn = Box::new(move |_, _| ());
         let s = Socket::new(
             sid,
             ns,
-            engineioxide::Socket::new_dummy(sid, close_fn).into(),
+            engineioxide::Socket::new_dummy(sid, close_fn),
             Arc::new(SocketIoConfig::default()),
         );
         s.set_connected(true);
@@ -834,7 +835,7 @@ mod test {
         let ns = Namespace::<LocalAdapter>::new_dummy([sid]).into();
         let socket: Arc<Socket> = Socket::new_dummy(sid, ns).into();
         // Saturate the channel
-        for _ in 0..200 {
+        for _ in 0..1024 {
             socket
                 .send(Packet::event("test", "test", Value::Null))
                 .unwrap();

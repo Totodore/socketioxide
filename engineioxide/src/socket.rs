@@ -467,7 +467,7 @@ impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
     }
 }
 
-#[cfg(feature = "test-utils")]
+#[cfg(socketioxide_test)]
 impl<D> Drop for Socket<D>
 where
     D: Default + Send + Sync + 'static,
@@ -478,7 +478,7 @@ where
     }
 }
 
-#[cfg(feature = "test-utils")]
+#[cfg(any(socketioxide_test, test))]
 impl<D> Socket<D>
 where
     D: Default + Send + Sync + 'static,
@@ -487,11 +487,21 @@ where
     pub fn new_dummy(
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
-    ) -> Socket<D> {
-        let (internal_tx, internal_rx) = mpsc::channel(200);
+    ) -> Arc<Socket<D>> {
+        Socket::new_dummy_piped(sid, close_fn, 1024).0
+    }
+
+    /// Create a dummy socket for testing purpose with a
+    /// receiver to get the packets sent to the client
+    pub fn new_dummy_piped(
+        sid: Sid,
+        close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+        buffer_size: usize,
+    ) -> (Arc<Socket<D>>, tokio::sync::mpsc::Receiver<Packet>) {
+        let (internal_tx, internal_rx) = mpsc::channel(buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
-        Self {
+        let sock = Self {
             id: sid,
             protocol: ProtocolVersion::V4,
             transport: AtomicU8::new(TransportType::Websocket as u8),
@@ -509,6 +519,20 @@ where
 
             #[cfg(feature = "v3")]
             supports_binary: true,
-        }
+        };
+        let sock = Arc::new(sock);
+
+        let (tx, rx) = mpsc::channel(buffer_size);
+        let sock_clone = sock.clone();
+        tokio::spawn(async move {
+            let mut internal_rx = sock_clone.internal_rx.try_lock().unwrap();
+            while let Some(packets) = internal_rx.recv().await {
+                for packet in packets {
+                    tx.send(packet).await.unwrap();
+                }
+            }
+        });
+
+        (sock, rx)
     }
 }
