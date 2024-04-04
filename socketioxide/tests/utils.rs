@@ -44,10 +44,7 @@ macro_rules! assert_err {
 
 #[macro_export]
 macro_rules! assert_some {
-    ($e:expr) => {
-        assert_some!($e,);
-    };
-    ($e:expr,) => {{
+    ($e:expr) => {{
         use std::option::Option::*;
         match $e {
             Some(v) => v,
