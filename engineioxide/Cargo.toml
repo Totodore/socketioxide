@@ -54,7 +54,6 @@ hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
 
 [features]
 v3 = ["memchr", "unicode-segmentation"]
-test-utils = []
 tracing = ["dep:tracing"]
 
 [[bench]]

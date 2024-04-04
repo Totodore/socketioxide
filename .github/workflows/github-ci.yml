@@ -18,7 +18,9 @@ jobs:
             toolchain: stable
             components: rustfmt
         - run: cargo fmt --all -- --check
-  
+          env:
+            RUSTFLAGS: --cfg=socketioxide_test
+    
   test:
     runs-on: ubuntu-latest
     
@@ -37,7 +39,8 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo test --tests --all-features --workspace
-
+        env:
+          RUSTFLAGS: --cfg=socketioxide_test
   udeps:
     runs-on: ubuntu-latest
     steps:
@@ -87,6 +90,8 @@ jobs:
 
       - name: check crates
         run: cargo check -p socketioxide -p engineioxide --all-features
+        env:
+          RUSTFLAGS: --cfg=socketioxide_test
 
   feature_set:
     runs-on: ubuntu-latest
@@ -111,7 +116,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: check --feature-powerset
-        run: cargo hack check --feature-powerset --no-dev-deps --skip test-utils -p socketioxide -p engineioxide
+        run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide
 
   doctest:
     runs-on: ubuntu-latest
@@ -165,6 +170,8 @@ jobs:
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
+        env:
+          RUSTFLAGS: --cfg=socketioxide_test
 
       - name: Upload analysis results to GitHub
         uses: github/codeql-action/upload-sarif@v3
