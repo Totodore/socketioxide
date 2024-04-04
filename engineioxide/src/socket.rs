@@ -488,7 +488,7 @@ where
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     ) -> Arc<Socket<D>> {
-        Socket::new_dummy_piped(sid, close_fn).0
+        Socket::new_dummy_piped(sid, close_fn, 1024).0
     }
 
     /// Create a dummy socket for testing purpose with a
@@ -496,9 +496,9 @@ where
     pub fn new_dummy_piped(
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
+        buffer_size: usize,
     ) -> (Arc<Socket<D>>, tokio::sync::mpsc::Receiver<Packet>) {
-        const BUFFER_SIZE: usize = 1024;
-        let (internal_tx, internal_rx) = mpsc::channel(BUFFER_SIZE);
+        let (internal_tx, internal_rx) = mpsc::channel(buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
         let sock = Self {
@@ -522,7 +522,7 @@ where
         };
         let sock = Arc::new(sock);
 
-        let (tx, rx) = mpsc::channel(BUFFER_SIZE);
+        let (tx, rx) = mpsc::channel(buffer_size);
         let sock_clone = sock.clone();
         tokio::spawn(async move {
             let mut internal_rx = sock_clone.internal_rx.try_lock().unwrap();

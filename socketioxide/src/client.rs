@@ -150,10 +150,11 @@ impl<A: Adapter> Client<A> {
         tokio::sync::mpsc::Sender<engineioxide::Packet>,
         tokio::sync::mpsc::Receiver<engineioxide::Packet>,
     ) {
+        let buffer_size = self.config.engine_config.max_buffer_size;
         let sid = Sid::new();
-        let (esock, rx) = EIoSocket::new_dummy_piped(sid, Box::new(|_, _| {}));
+        let (esock, rx) = EIoSocket::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
 
-        let (tx1, mut rx1) = tokio::sync::mpsc::channel(1024);
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
         tokio::spawn({
             let esock = esock.clone();
             let client = self.clone();
