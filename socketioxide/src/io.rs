@@ -800,9 +800,18 @@ impl<A: Adapter> SocketIo<A> {
     fn get_default_op(&self) -> BroadcastOperators<A> {
         self.get_op("/").expect("default namespace not found")
     }
+}
 
-    #[cfg(any(test, socketioxide_test))]
-    #[doc(hidden)]
+impl<A: Adapter> Clone for SocketIo<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+#[cfg(any(test, socketioxide_test))]
+impl<A: Adapter> SocketIo<A> {
+    /// Create a dummy socket for testing purpose with a
+    /// receiver to get the packets sent to the client
     pub async fn new_dummy_sock(
         &self,
         ns: &'static str,
@@ -812,12 +821,6 @@ impl<A: Adapter> SocketIo<A> {
         tokio::sync::mpsc::Receiver<engineioxide::Packet>,
     ) {
         self.0.clone().new_dummy_sock(ns, auth).await
-    }
-}
-
-impl<A: Adapter> Clone for SocketIo<A> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
     }
 }
 
