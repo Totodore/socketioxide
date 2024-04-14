@@ -7,6 +7,7 @@
 //!
 //! #### Example :
 //! ```rust
+//! # use bytes::Bytes;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use engineioxide::{Socket, DisconnectReason};
@@ -48,7 +49,7 @@
 //!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) {
 //!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
 //!     }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<SocketState>>) { }
+//!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 //! }
 //!
 //! let svc = EngineIoService::new(MyHandler::default());
@@ -61,6 +62,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use http::request::Parts;
 use smallvec::{smallvec, SmallVec};
 use tokio::{
@@ -129,14 +131,14 @@ impl Permit<'_> {
     }
     /// Consume the permit and emit a binary message to the client.
     #[inline]
-    pub fn emit_binary(self, data: Vec<u8>) {
+    pub fn emit_binary(self, data: Bytes) {
         self.inner.send(smallvec![Packet::Binary(data)]);
     }
 
     /// Consume the permit and emit a message with multiple binary data to the client.
     ///
     /// It can be used to ensure atomicity when sending a string packet with adjacent binary packets.
-    pub fn emit_many(self, msg: String, data: Vec<Vec<u8>>) {
+    pub fn emit_many(self, msg: String, data: Vec<Bytes>) {
         let mut packets = SmallVec::with_capacity(data.len() + 1);
         packets.push(Packet::Message(msg));
         for d in data {
@@ -438,11 +440,11 @@ where
     /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
     ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned with the original data
-    pub fn emit_binary(&self, data: Vec<u8>) -> Result<(), TrySendError<Vec<u8>>> {
+    pub fn emit_binary<B: Into<Bytes>>(&self, data: B) -> Result<(), TrySendError<Bytes>> {
         if self.protocol == ProtocolVersion::V3 {
-            self.send(Packet::BinaryV3(data))
+            self.send(Packet::BinaryV3(data.into()))
         } else {
-            self.send(Packet::Binary(data))
+            self.send(Packet::Binary(data.into()))
         }
         .map_err(|e| match e {
             TrySendError::Full(p) => TrySendError::Full(p.into_binary()),

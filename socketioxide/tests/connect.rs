@@ -1,5 +1,6 @@
 mod utils;
 
+use bytes::Bytes;
 use engineioxide::Packet::*;
 use socketioxide::{extract::SocketRef, handler::ConnectHandler, SendError, SocketError, SocketIo};
 use tokio::sync::mpsc;
@@ -25,11 +26,12 @@ pub async fn connect_middleware() {
             ));
 
             assert!(matches!(
-                s.bin(vec![vec![0, 1, 2, 3]]).emit("test", ()),
+                s.bin(vec![Bytes::from_static(&[0, 1, 2, 3])])
+                    .emit("test", ()),
                 Err(SendError::Socket(SocketError::Closed(())))
             ));
             assert!(matches!(
-                s.bin(vec![vec![0, 1, 2, 3]])
+                s.bin(vec![Bytes::from_static(&[0, 1, 2, 3])])
                     .emit_with_ack::<(), ()>("test", ()),
                 Err(SendError::Socket(SocketError::Closed(())))
             ));

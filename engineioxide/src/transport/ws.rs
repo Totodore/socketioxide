@@ -187,7 +187,7 @@ where
                     // The first byte is the message type, which we don't need.
                     let _ = data.remove(0);
                 }
-                engine.handler.on_binary(data, socket.clone());
+                engine.handler.on_binary(data.into(), socket.clone());
                 Ok(())
             }
             Message::Close(_) => break,
@@ -216,7 +216,8 @@ where
         macro_rules! map_fn {
             ($item:ident) => {
                 let res = match $item {
-                    Packet::Binary(mut bin) | Packet::BinaryV3(mut bin) => {
+                    Packet::Binary(bin) | Packet::BinaryV3(bin) => {
+                        let mut bin: Vec<u8> = bin.into();
                         if socket.protocol == ProtocolVersion::V3 {
                             // v3 protocol requires packet type as the first byte
                             bin.insert(0, 0x04);

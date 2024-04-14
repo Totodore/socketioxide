@@ -1,6 +1,7 @@
 //! ## Configuration for the engine.io engine & transports
 //! #### Example :
 //! ```rust
+//! # use bytes::Bytes;
 //! # use engineioxide::config::EngineIoConfig;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
@@ -15,7 +16,7 @@
 //!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
 //!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
 //!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
-//!     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) { }
+//!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) { }
 //! }
 //!
 //! let config = EngineIoConfig::builder()
@@ -128,6 +129,7 @@ impl EngineIoConfigBuilder {
     ///
     /// If the buffer if full the `emit()` method will return an error
     /// ```
+    /// # use bytes::Bytes;
     /// # use engineioxide::{
     ///     layer::EngineIoLayer,
     ///     handler::EngineIoHandler,
@@ -152,7 +154,7 @@ impl EngineIoConfigBuilder {
     ///         socket.emit(msg).unwrap();
     ///     }
     ///
-    ///     fn on_binary(&self, data: Vec<u8>, socket: Arc<Socket<()>>) {
+    ///     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) {
     ///         println!("Ping pong binary message {:?}", data);
     ///         socket.emit_binary(data).unwrap();
     ///     }

@@ -73,6 +73,7 @@
 //! ```
 use std::sync::Arc;
 
+use bytes::Bytes;
 use futures::Future;
 use serde_json::Value;
 
@@ -85,7 +86,7 @@ use super::MakeErasedHandler;
 pub(crate) type BoxedMessageHandler<A> = Box<dyn ErasedMessageHandler<A>>;
 
 pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>);
+    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>);
 }
 
 /// Define a handler for the connect event.
@@ -101,7 +102,7 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 )]
 pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments
-    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>);
+    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>);
 
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -127,7 +128,7 @@ where
     A: Adapter,
 {
     #[inline(always)]
-    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Vec<u8>>, ack_id: Option<i64>) {
+    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>) {
         self.handler.call(s, v, p, ack_id);
     }
 }
@@ -165,7 +166,7 @@ pub trait FromMessageParts<A: Adapter>: Sized {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
-        p: &mut Vec<Vec<u8>>,
+        p: &mut Vec<Bytes>,
         ack_id: &Option<i64>,
     ) -> Result<Self, Self::Error>;
 }
@@ -190,7 +191,7 @@ pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
     fn from_message(
         s: Arc<Socket<A>>,
         v: Value,
-        p: Vec<Vec<u8>>,
+        p: Vec<Bytes>,
         ack_id: Option<i64>,
     ) -> Result<Self, Self::Error>;
 }
@@ -205,7 +206,7 @@ where
     fn from_message(
         s: Arc<Socket<A>>,
         mut v: Value,
-        mut p: Vec<Vec<u8>>,
+        mut p: Vec<Bytes>,
         ack_id: Option<i64>,
     ) -> Result<Self, Self::Error> {
         Self::from_message_parts(&s, &mut v, &mut p, &ack_id)
@@ -219,7 +220,7 @@ where
     Fut: Future<Output = ()> + Send + 'static,
     A: Adapter,
 {
-    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Vec<u8>>, _: Option<i64>) {
+    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Bytes>, _: Option<i64>) {
         let fut = (self.clone())();
         tokio::spawn(fut);
     }
@@ -231,7 +232,7 @@ where
     F: FnOnce() + Send + Sync + Clone + 'static,
     A: Adapter,
 {
-    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Vec<u8>>, _: Option<i64>) {
+    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Bytes>, _: Option<i64>) {
         (self.clone())();
     }
 }
@@ -249,7 +250,7 @@ macro_rules! impl_async_handler {
             $( $ty: FromMessageParts<A> + Send, )*
             $last: FromMessage<A, M> + Send,
         {
-            fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Vec<u8>>, ack_id: Option<i64>) {
+            fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Bytes>, ack_id: Option<i64>) {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id) {
                         Ok(v) => v,
@@ -287,7 +288,7 @@ macro_rules! impl_handler {
             $( $ty: FromMessageParts<A> + Send, )*
             $last: FromMessage<A, M> + Send,
         {
-            fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Vec<u8>>, ack_id: Option<i64>) {
+            fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Bytes>, ack_id: Option<i64>) {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id) {
                         Ok(v) => v,
