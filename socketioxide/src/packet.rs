@@ -89,11 +89,11 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a binary event packet for the given namespace
-    pub fn bin_event<B: Into<Bytes>>(
+    pub fn bin_event(
         ns: impl Into<Cow<'a, str>>,
         e: impl Into<Cow<'a, str>>,
         data: Value,
-        bin: Vec<B>,
+        bin: Vec<Bytes>,
     ) -> Self {
         debug_assert!(!bin.is_empty());
 
@@ -113,7 +113,7 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack<B: Into<Bytes>>(ns: &'a str, data: Value, bin: Vec<B>, ack: i64) -> Self {
+    pub fn bin_ack(ns: &'a str, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
         debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
@@ -273,7 +273,7 @@ impl BinaryPacket {
     }
 
     /// Create a binary packet from outgoing data and a payload
-    pub fn outgoing<B: Into<Bytes>>(data: Value, bin: Vec<B>) -> Self {
+    pub fn outgoing(data: Value, bin: Vec<Bytes>) -> Self {
         let mut data = match data {
             Value::Array(v) => Value::Array(v),
             d => Value::Array(vec![d]),
@@ -287,7 +287,7 @@ impl BinaryPacket {
         });
         Self {
             data,
-            bin: bin.into_iter().map(Into::into).collect(),
+            bin,
             payload_count,
         }
     }

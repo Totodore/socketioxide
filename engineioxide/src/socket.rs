@@ -131,18 +131,18 @@ impl Permit<'_> {
     }
     /// Consume the permit and emit a binary message to the client.
     #[inline]
-    pub fn emit_binary<B: Into<Bytes>>(self, data: B) {
-        self.inner.send(smallvec![Packet::Binary(data.into())]);
+    pub fn emit_binary(self, data: Bytes) {
+        self.inner.send(smallvec![Packet::Binary(data)]);
     }
 
     /// Consume the permit and emit a message with multiple binary data to the client.
     ///
     /// It can be used to ensure atomicity when sending a string packet with adjacent binary packets.
-    pub fn emit_many<B: Into<Bytes>>(self, msg: String, data: Vec<B>) {
+    pub fn emit_many(self, msg: String, data: Vec<Bytes>) {
         let mut packets = SmallVec::with_capacity(data.len() + 1);
         packets.push(Packet::Message(msg));
         for d in data {
-            packets.push(Packet::Binary(d.into()));
+            packets.push(Packet::Binary(d));
         }
         self.inner.send(packets);
     }
