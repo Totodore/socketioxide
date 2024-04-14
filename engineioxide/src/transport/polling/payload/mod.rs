@@ -60,10 +60,7 @@ pub struct Payload {
 }
 impl Payload {
     pub fn new(data: Bytes, has_binary: bool) -> Self {
-        Self {
-            data: data.into(),
-            has_binary,
-        }
+        Self { data, has_binary }
     }
 }
 
