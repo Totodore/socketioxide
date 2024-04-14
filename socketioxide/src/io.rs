@@ -561,7 +561,7 @@ impl<A: Adapter> SocketIo<A> {
     ///   .bin(vec![Bytes::from_static(&[1, 2, 3, 4])])
     ///   .emit("test", ());
     #[inline]
-    pub fn bin<B: Into<Bytes>>(&self, binary: Vec<B>) -> BroadcastOperators<A> {
+    pub fn bin(&self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> BroadcastOperators<A> {
         self.get_default_op().bin(binary)
     }
 

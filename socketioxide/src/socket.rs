@@ -593,7 +593,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin<B: Into<Bytes>>(&self, binary: Vec<B>) -> ConfOperators<'_, A> {
+    pub fn bin(&self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> ConfOperators<'_, A> {
         ConfOperators::new(self).bin(binary)
     }
 
