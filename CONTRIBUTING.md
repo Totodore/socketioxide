@@ -139,10 +139,10 @@ You will need [rustc and cargo](www.rust-lang.org/tools/install).
     ```shell
     git clone https://github.com/totodore/socketioxide
     ```
-2. To test socketioxide don't forget to enable the flag `socketioxide-test` through the `RUSTFLAGS` environment variable:
+2. To test socketioxide don't forget to enable the flag `socketioxide_test` through the `RUSTFLAGS` environment variable:
 
     ```shell
-    export RUSTFLAGS="--cfg socketioxide-test"
+    export RUSTFLAGS="--cfg socketioxide_test"
     ```
 2. Depending on what you want to change, clone the [socketio/engine.io-protocol](https://github.com/socketio/engine.io-protocol) repo or the [socketio/socket.io-protocol](https://github.com/socketio/socket.io-protocol) repo or both
     ```shell
