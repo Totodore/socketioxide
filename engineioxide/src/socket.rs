@@ -131,18 +131,18 @@ impl Permit<'_> {
     }
     /// Consume the permit and emit a binary message to the client.
     #[inline]
-    pub fn emit_binary(self, data: Bytes) {
-        self.inner.send(smallvec![Packet::Binary(data)]);
+    pub fn emit_binary<B: Into<Bytes>>(self, data: B) {
+        self.inner.send(smallvec![Packet::Binary(data.into())]);
     }
 
     /// Consume the permit and emit a message with multiple binary data to the client.
     ///
     /// It can be used to ensure atomicity when sending a string packet with adjacent binary packets.
-    pub fn emit_many(self, msg: String, data: Vec<Bytes>) {
+    pub fn emit_many<B: Into<Bytes>>(self, msg: String, data: Vec<B>) {
         let mut packets = SmallVec::with_capacity(data.len() + 1);
         packets.push(Packet::Message(msg));
         for d in data {
-            packets.push(Packet::Binary(d));
+            packets.push(Packet::Binary(d.into()));
         }
         self.inner.send(packets);
     }
@@ -440,11 +440,11 @@ where
     /// If the transport is in polling mode, the message is buffered and sent as a text frame **encoded in base64** to the next polling request.
     ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned with the original data
-    pub fn emit_binary(&self, data: Bytes) -> Result<(), TrySendError<Bytes>> {
+    pub fn emit_binary<B: Into<Bytes>>(&self, data: B) -> Result<(), TrySendError<Bytes>> {
         if self.protocol == ProtocolVersion::V3 {
-            self.send(Packet::BinaryV3(data))
+            self.send(Packet::BinaryV3(data.into()))
         } else {
-            self.send(Packet::Binary(data))
+            self.send(Packet::Binary(data.into()))
         }
         .map_err(|e| match e {
             TrySendError::Full(p) => TrySendError::Full(p.into_binary()),

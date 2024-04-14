@@ -297,8 +297,8 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(mut self, binary: Vec<Bytes>) -> Self {
-        self.binary = binary;
+    pub fn bin<B: Into<Bytes>>(mut self, binary: Vec<B>) -> Self {
+        self.binary = binary.into_iter().map(Into::into).collect();
         self
     }
 }
@@ -677,8 +677,8 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(mut self, binary: Vec<Bytes>) -> Self {
-        self.binary = binary;
+    pub fn bin<B: Into<Bytes>>(mut self, binary: Vec<B>) -> Self {
+        self.binary = binary.into_iter().map(Into::into).collect();
         self
     }
 }

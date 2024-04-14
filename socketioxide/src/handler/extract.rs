@@ -293,8 +293,8 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Add binary data to the ack response.
-    pub fn bin(mut self, bin: Vec<Bytes>) -> Self {
-        self.binary = bin;
+    pub fn bin<B: Into<Bytes>>(mut self, bin: Vec<B>) -> Self {
+        self.binary = bin.into_iter().map(Into::into).collect();
         self
     }
 

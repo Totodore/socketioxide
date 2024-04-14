@@ -89,11 +89,11 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a binary event packet for the given namespace
-    pub fn bin_event(
+    pub fn bin_event<B: Into<Bytes>>(
         ns: impl Into<Cow<'a, str>>,
         e: impl Into<Cow<'a, str>>,
         data: Value,
-        bin: Vec<Bytes>,
+        bin: Vec<B>,
     ) -> Self {
         debug_assert!(!bin.is_empty());
 
@@ -113,7 +113,7 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: &'a str, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
+    pub fn bin_ack<B: Into<Bytes>>(ns: &'a str, data: Value, bin: Vec<B>, ack: i64) -> Self {
         debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
@@ -273,7 +273,7 @@ impl BinaryPacket {
     }
 
     /// Create a binary packet from outgoing data and a payload
-    pub fn outgoing(data: Value, bin: Vec<Bytes>) -> Self {
+    pub fn outgoing<B: Into<Bytes>>(data: Value, bin: Vec<B>) -> Self {
         let mut data = match data {
             Value::Array(v) => Value::Array(v),
             d => Value::Array(vec![d]),
@@ -287,15 +287,15 @@ impl BinaryPacket {
         });
         Self {
             data,
-            bin,
+            bin: bin.into_iter().map(Into::into).collect(),
             payload_count,
         }
     }
 
     /// Add a payload to the binary packet, when all payloads are added,
     /// the packet is complete and can be further processed
-    pub fn add_payload(&mut self, payload: Bytes) {
-        self.bin.push(payload);
+    pub fn add_payload<B: Into<Bytes>>(&mut self, payload: B) {
+        self.bin.push(payload.into());
     }
     /// Check if the binary packet is complete, it means that all payloads have been received
     pub fn is_complete(&self) -> bool {
