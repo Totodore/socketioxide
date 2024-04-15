@@ -6,7 +6,7 @@ mod utils;
 
 use bytes::Bytes;
 use engineioxide::Packet::*;
-use socketioxide::{extract::SocketRef, SocketIo};
+use socketioxide::{extract::SocketRef, packet::create_binary_placeholder, SocketIo};
 
 #[tokio::test]
 pub async fn emit() {
@@ -21,7 +21,14 @@ pub async fn emit() {
                         Bytes::from_static(&[1, 2, 3]),
                         Bytes::from_static(&[4, 5, 6]),
                     ])
-                    .emit("test", "bin".into())
+                    .emit(
+                        "test",
+                        serde_json::Value::Array(vec![
+                            "bin".into(),
+                            create_binary_placeholder(0),
+                            create_binary_placeholder(1),
+                        ]),
+                    )
                     .unwrap();
                 }
             });

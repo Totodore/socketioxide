@@ -549,6 +549,43 @@ pub struct ConnectPacket {
     sid: Sid,
 }
 
+/// Creates a binary placeholder in the packet data
+///
+/// Packets that contain binary payloads need to have a "placeholder" object placed in the location
+/// of the payload where the binary blob logically resides.
+///
+/// # Arguments
+///
+/// * `num` - the index into the binary payloads `Vec`
+///
+/// # Example
+///
+/// ```
+/// # use bytes::Bytes;
+/// # use serde_json::Value;
+/// # use socketioxide::{SocketIo, extract::*, packet::create_binary_placeholder};
+///
+/// let (_, io) = SocketIo::new_svc();
+/// io.ns("/", |socket: SocketRef| {
+///     socket.on("test", |socket: SocketRef| async move {
+///         let data = Value::Array(vec![
+///             "my_data".into(),
+///             create_binary_placeholder(0),
+///         ]);
+///
+///         let binary_payloads = vec![Bytes::from_static(&[1, 2, 3])];
+///
+///         socket.bin(binary_payloads).emit("data", data).ok();
+///     });
+/// });
+/// ```
+pub fn create_binary_placeholder(num: usize) -> Value {
+    json!({
+        "_placeholder": true,
+        "num": num
+    })
+}
+
 #[cfg(test)]
 mod test {
     use serde_json::json;
