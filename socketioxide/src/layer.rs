@@ -16,25 +16,6 @@
 //! // Spawn axum server
 //!
 //! ```
-//!
-//! #### Example with salvo :
-//! ```no_run
-//! # use salvo::prelude::*;
-//! # use socketioxide::SocketIo;
-//!
-//! #[handler]
-//! async fn hello() -> &'static str {
-//!     "Hello World"
-//! }
-//!  // Create a socket.io layer
-//! let (layer, io) = SocketIo::new_layer();
-//!
-//! // Add io namespaces and events...
-//!
-//! let layer = layer.compat();
-//! let router = Router::with_path("/socket.io").hoop(layer).goal(hello);
-//! // Spawn salvo server
-//! ```
 use std::sync::Arc;
 
 use tower::Layer;

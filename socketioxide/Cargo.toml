@@ -47,7 +47,6 @@ state = ["dep:state"]
 engineioxide = { path = "../engineioxide", features = ["v3", "tracing"] }
 tokio-tungstenite.workspace = true
 axum.workspace = true
-salvo.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",
