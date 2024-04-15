@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 socketioxide = { path = "../../socketioxide" }
-hyper = { workspace = true, features = ["server", "http1", "http2"] }
+hyper = { workspace = true, features = ["server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 rust_socketio = { version = "0.4.2", features = ["async"] }

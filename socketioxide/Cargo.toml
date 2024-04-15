@@ -54,6 +54,7 @@ tokio = { workspace = true, features = [
 ] }
 tracing-subscriber.workspace = true
 criterion.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
 http-body-util.workspace = true
 
