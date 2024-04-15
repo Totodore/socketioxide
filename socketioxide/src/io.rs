@@ -509,7 +509,7 @@ impl<A: Adapter> SocketIo<A> {
     /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use futures::stream::StreamExt;
+    /// # use futures_util::stream::StreamExt;
     /// # use std::time::Duration;
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
@@ -617,8 +617,8 @@ impl<A: Adapter> SocketIo<A> {
     /// an [`AckError::Serde`] will be yielded.
     ///
     /// [`timeout()`]: #method.timeout
-    /// [`Stream`]: futures::stream::Stream
-    /// [`Future`]: futures::future::Future
+    /// [`Stream`]: futures_core::stream::Stream
+    /// [`Future`]: futures_core::future::Future
     /// [`AckResponse`]: crate::ack::AckResponse
     /// [`AckError::Serde`]: crate::AckError::Serde
     /// [`AckError::Timeout`]: crate::AckError::Timeout
@@ -633,7 +633,7 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
-    /// # use futures::stream::StreamExt;
+    /// # use futures_util::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {

@@ -12,7 +12,7 @@ use engineioxide::{
     handler::EngineIoHandler,
     socket::{DisconnectReason, Socket},
 };
-use futures::SinkExt;
+use futures_util::SinkExt;
 use tokio::sync::mpsc;
 
 mod fixture;
@@ -122,7 +122,7 @@ pub async fn multiple_http_polling() {
     create_server(MyHandler { disconnect_tx }, 1236).await;
     let sid = create_polling_connection(1236).await;
 
-    tokio::spawn(futures::future::join_all(vec![
+    tokio::spawn(futures_util::future::join_all(vec![
         send_req(
             1236,
             format!("transport=polling&sid={sid}"),

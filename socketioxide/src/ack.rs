@@ -13,11 +13,8 @@ use std::{
 
 use bytes::Bytes;
 use engineioxide::sid::Sid;
-use futures::{
-    future::FusedFuture,
-    stream::{FusedStream, FuturesUnordered},
-    Future, Stream,
-};
+use futures_core::{FusedFuture, FusedStream, Future, Stream};
+use futures_util::stream::FuturesUnordered;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
@@ -98,7 +95,7 @@ pin_project_lite::pin_project! {
     /// ```rust
     /// # use socketioxide::extract::SocketRef;
     /// # use socketioxide::ack::AckStream;
-    /// # use futures::StreamExt;
+    /// # use futures_util::StreamExt;
     /// # use socketioxide::SocketIo;
     /// let (svc, io) = SocketIo::new_svc();
     /// io.ns("/test", move |socket: SocketRef| async move {
@@ -312,7 +309,7 @@ mod test {
     use std::sync::Arc;
 
     use engineioxide::sid::Sid;
-    use futures::StreamExt;
+    use futures_util::StreamExt;
 
     use crate::{adapter::LocalAdapter, ns::Namespace, socket::Socket};
 
@@ -338,7 +335,7 @@ mod test {
         socket.recv(res_packet.inner.clone()).unwrap();
         socket2.recv(res_packet.inner).unwrap();
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
         assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
@@ -357,7 +354,7 @@ mod test {
         }))
         .unwrap();
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         assert_eq!(
             stream.next().await.unwrap().1.unwrap().data,
@@ -394,7 +391,7 @@ mod test {
         socket.recv(res_packet.inner.clone()).unwrap();
         socket2.recv(res_packet.inner).unwrap();
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
@@ -421,7 +418,7 @@ mod test {
         assert_eq!(stream.size_hint().0, 1);
         assert_eq!(stream.size_hint().1.unwrap(), 1);
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
@@ -457,7 +454,7 @@ mod test {
         let res_packet = Packet::ack("test", "test".into(), 1);
         socket.clone().recv(res_packet.inner.clone()).unwrap();
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         let (id, ack) = stream.next().await.unwrap();
         assert_eq!(id, socket.id);
@@ -478,7 +475,7 @@ mod test {
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         drop(tx);
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
@@ -514,7 +511,7 @@ mod test {
             .recv(Packet::ack("test", "test".into(), 1).inner)
             .unwrap();
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
         assert!(matches!(
@@ -531,7 +528,7 @@ mod test {
         let stream: AckStream<String> =
             AckInnerStream::send(rx, Duration::from_millis(10), sid).into();
 
-        futures::pin_mut!(stream);
+        futures_util::pin_mut!(stream);
 
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),

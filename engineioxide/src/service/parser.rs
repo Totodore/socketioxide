@@ -2,7 +2,7 @@
 
 use std::{str::FromStr, sync::Arc};
 
-use futures::Future;
+use futures_core::Future;
 use http::{Method, Request, Response};
 
 use crate::{

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use futures::{
+use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
 };

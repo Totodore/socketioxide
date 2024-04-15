@@ -20,7 +20,10 @@ resolver = "2"
 
 [workspace.dependencies]
 bytes = { version = "1.4.0", features = ["serde"] }
-futures = "0.3.27"
+futures-core = "0.3.30"
+futures-util = { version = "0.3.30", default-features = false, features = [
+    "std",
+] }
 tokio = "1.35.0"
 tokio-tungstenite = "0.21.0"
 serde = { version = "1.0.193", features = ["derive"] }

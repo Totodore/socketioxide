@@ -354,8 +354,8 @@ impl<A: Adapter> Socket<A> {
     ///
     /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
-    /// [`Stream`]: futures::stream::Stream
-    /// [`Future`]: futures::future::Future
+    /// [`Stream`]: futures_core::stream::Stream
+    /// [`Future`]: futures_core::future::Future
     /// [`AckError`]: crate::AckError
     /// [`AckError::Serde`]: crate::AckError::Serde
     /// [`AckError::Timeout`]: crate::AckError::Timeout
@@ -553,7 +553,7 @@ impl<A: Adapter> Socket<A> {
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
-    /// # use futures::stream::StreamExt;
+    /// # use futures_util::stream::StreamExt;
     /// # use std::time::Duration;
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();

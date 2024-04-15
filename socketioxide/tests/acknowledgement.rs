@@ -2,7 +2,7 @@
 mod utils;
 
 use engineioxide::Packet::*;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use socketioxide::extract::SocketRef;
 use socketioxide::packet::{Packet, PacketData};
 use socketioxide::SocketIo;
