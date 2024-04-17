@@ -10,7 +10,7 @@ socketioxide = { path = "../../socketioxide" }
 hyper = { workspace = true, features = ["server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
-rust_socketio = { version = "0.4.2", features = ["async"] }
+rust_socketio = { version = "0.6.0", features = ["async"] }
 serde_json = "1.0.68"
 rand = "0.8.4"
 
