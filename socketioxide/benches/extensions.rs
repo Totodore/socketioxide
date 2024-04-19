@@ -9,20 +9,18 @@ fn bench_extensions(c: &mut Criterion) {
             ext.insert(5i32);
         });
     });
-    // group.bench_function("concurrent_get", |b| {
-    //     b.iter(|| {
-    //         let mut ext = Extensions::new();
-    //         ext.insert(5i32);
-    //         ext.clear();
-    //     })
-    // });
-    // group.bench_function("concurrent_get_inserts", |b| {
-    //     b.iter(|| {
-    //         let mut ext = Extensions::new();
-    //         ext.insert(5i32);
-    //         ext.clear();
-    //     })
-    // });
+    group.bench_function("concurrent_get", |b| {
+        let ext = Extensions::new();
+        b.iter(|| {
+            ext.insert(5i32);
+        })
+    });
+    group.bench_function("concurrent_get_inserts", |b| {
+        b.iter(|| {
+            let mut ext = Extensions::new();
+            ext.insert(5i32);
+        })
+    });
     group.finish();
 }
 
