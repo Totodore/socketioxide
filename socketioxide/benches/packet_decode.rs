@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use engineioxide::sid::Sid;
 use socketioxide::{
@@ -24,7 +25,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     const DATA: &str = r#"{"_placeholder":true,"num":0}"#;
-    const BINARY: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const BINARY: Bytes = Bytes::from_static(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     c.bench_function("Decode packet event on /", |b| {
         let data = serde_json::to_value(DATA).unwrap();
         let packet: String =
@@ -100,7 +101,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box("/"),
             black_box("event"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
+            black_box(vec![BINARY.clone()]),
         )
         .try_into()
         .unwrap();
@@ -113,7 +114,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box("/custom_nsp"),
             black_box("event"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
+            black_box(vec![BINARY.clone()]),
         )
         .try_into()
         .unwrap();
@@ -125,7 +126,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet: String = Packet::bin_ack(
             black_box("/"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
+            black_box(vec![BINARY.clone()]),
             black_box(0),
         )
         .try_into()
@@ -138,7 +139,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet: String = Packet::bin_ack(
             black_box("/custom_nsp"),
             black_box(data.clone()),
-            black_box(vec![BINARY.to_vec().clone()]),
+            black_box(vec![BINARY.clone()]),
             black_box(0),
         )
         .try_into()
