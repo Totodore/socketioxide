@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use engineioxide::Packet;
 
@@ -21,9 +22,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| Packet::try_from(packet.as_str()).unwrap())
     });
     c.bench_function("Decode packet binary b64", |b| {
-        let packet: String = Packet::Binary(black_box(vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05]))
-            .try_into()
-            .unwrap();
+        const BYTES: Bytes = Bytes::from_static(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+        let packet: String = Packet::Binary(BYTES).try_into().unwrap();
         b.iter(|| Packet::try_from(packet.clone()).unwrap())
     });
 }

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use engineioxide::{config::EngineIoConfig, sid::Sid, OpenPacket, Packet, TransportType};
 
@@ -27,7 +28,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| TryInto::<String>::try_into(packet.clone()))
     });
     c.bench_function("Encode packet binary b64", |b| {
-        let packet = Packet::Binary(black_box(vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05]));
+        const BYTES: Bytes = Bytes::from_static(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+        let packet = Packet::Binary(BYTES);
         b.iter(|| TryInto::<String>::try_into(packet.clone()))
     });
 }
