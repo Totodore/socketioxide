@@ -10,9 +10,6 @@ jobs:
   benchmark_base:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package: [socketioxide, engineioxide]
     steps:
       - uses: actions/checkout@v4
       - uses: bencherdev/bencher@main
@@ -33,7 +30,7 @@ jobs:
           --err
         env:
           BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
-          BENCHER_CMD: cargo bench --all-features -p ${{ matrix.package }}
+          BENCHER_CMD: cargo bench --all-features
           BENCHER_PROJECT: socketioxide
           RUSTFLAGS: --cfg=socketioxide_test
 
@@ -41,9 +38,6 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       pull-requests: write
-    strategy:
-      matrix:
-        package: [socketioxide, engineioxide]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +62,6 @@ jobs:
           --github-actions '${{ secrets.GITHUB_TOKEN }}'
         env:
           BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
-          BENCHER_CMD: cargo bench --all-features -p ${{ matrix.package }}
+          BENCHER_CMD: cargo bench --all-features
           BENCHER_PROJECT: socketioxide
           RUSTFLAGS: --cfg=socketioxide_test
