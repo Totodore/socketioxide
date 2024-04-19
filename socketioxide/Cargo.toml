@@ -57,7 +57,7 @@ criterion.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
 http-body-util.workspace = true
-
+rand = { version = "0.8", default-features = false }
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
 features = ["v4", "extensions", "tracing", "state"]
@@ -72,11 +72,6 @@ harness = false
 [[bench]]
 name = "packet_decode"
 path = "benches/packet_decode.rs"
-harness = false
-
-[[bench]]
-name = "itoa_bench"
-path = "benches/itoa_bench.rs"
 harness = false
 
 [[bench]]
