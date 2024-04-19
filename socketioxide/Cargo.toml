@@ -78,3 +78,8 @@ harness = false
 name = "itoa_bench"
 path = "benches/itoa_bench.rs"
 harness = false
+
+[[bench]]
+name = "extensions"
+path = "benches/extensions.rs"
+harness = false

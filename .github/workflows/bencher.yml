@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: main
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+
+jobs:
+  benchmark_base:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [socketioxide, engineioxide]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bencherdev/bencher@main
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Base branch benchmarks
+        run: |
+          bencher run \
+          --branch main \
+          --testbed ubuntu-latest \
+          --err
+        env:
+          BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
+          BENCHER_CMD: cargo bench --all-features -p ${{ matrix.package }}
+          BENCHER_PROJECT: socketioxide
+
+  benchmark_pr:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      pull-requests: write
+    strategy:
+      matrix:
+        package: [socketioxide, engineioxide]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: bencherdev/bencher@main
+      - name: PR benchmarks
+        run: |
+          bencher run \
+          --branch '${{ github.head_ref }}' \
+          --branch-start-point '${{ github.base_ref }}' \
+          --branch-start-point-hash '${{ github.event.pull_request.base.sha }}' \
+          --testbed ubuntu-latest \
+          --err \
+          --github-actions '${{ secrets.GITHUB_TOKEN }}'
+        env:
+          BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
+          BENCHER_CMD: cargo bench --all-features -p ${{ matrix.package }}
+          BENCHER_PROJECT: socketioxide
