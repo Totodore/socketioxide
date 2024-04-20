@@ -8,6 +8,7 @@ edition = "2021"
 socketioxide = { path = "../../socketioxide", features = [
     "extensions",
     "state",
+    "tracing",
 ] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
