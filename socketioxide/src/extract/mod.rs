@@ -102,6 +102,7 @@ mod socket;
 mod state;
 
 pub use data::*;
+pub use extensions::*;
 pub use socket::*;
 #[cfg(feature = "state")]
 #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
