@@ -20,7 +20,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 bytes.workspace = true
-futures.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
 http.workspace = true
 http-body.workspace = true
 serde.workspace = true

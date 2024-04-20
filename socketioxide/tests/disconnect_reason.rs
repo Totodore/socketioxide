@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use futures::{SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use socketioxide::{extract::SocketRef, socket::DisconnectReason, SocketIo};
 use tokio::sync::mpsc;
 
@@ -117,7 +117,7 @@ pub async fn multiple_http_polling() {
     )
     .await;
 
-    tokio::spawn(futures::future::join_all(vec![
+    tokio::spawn(futures_util::future::join_all(vec![
         send_req(
             1236,
             format!("transport=polling&sid={sid}"),
@@ -234,8 +234,8 @@ pub async fn server_ws_closing() {
     let _rx = attach_handler(&io, 100);
 
     let mut streams =
-        futures::future::join_all((0..100).map(|_| create_ws_connection(12350))).await;
-    futures::future::join_all(streams.iter_mut().map(|s| async move {
+        futures_util::future::join_all((0..100).map(|_| create_ws_connection(12350))).await;
+    futures_util::future::join_all(streams.iter_mut().map(|s| async move {
         s.next().await; // engine.io open packet
         s.next().await; // socket.io open packet
     }))
@@ -244,7 +244,7 @@ pub async fn server_ws_closing() {
     tokio::time::timeout(Duration::from_millis(20), io.close())
         .await
         .expect("timeout waiting for server closing");
-    let packets = futures::future::join_all(streams.iter_mut().map(|s| async move {
+    let packets = futures_util::future::join_all(streams.iter_mut().map(|s| async move {
         (s.next().await, s.next().await) // Closing packet / None
     }))
     .await;
@@ -259,8 +259,8 @@ pub async fn server_http_closing() {
     let io = create_server(12351).await;
     let _rx = attach_handler(&io, 100);
     let mut sids =
-        futures::future::join_all((0..100).map(|_| create_polling_connection(12351))).await;
-    futures::future::join_all(sids.iter_mut().map(|s| {
+        futures_util::future::join_all((0..100).map(|_| create_polling_connection(12351))).await;
+    futures_util::future::join_all(sids.iter_mut().map(|s| {
         send_req(
             12351,
             format!("transport=polling&sid={s}"),
@@ -273,7 +273,7 @@ pub async fn server_http_closing() {
     tokio::time::timeout(Duration::from_millis(20), io.close())
         .await
         .expect("timeout waiting for server closing");
-    let packets = futures::future::join_all(sids.iter_mut().map(|s| {
+    let packets = futures_util::future::join_all(sids.iter_mut().map(|s| {
         send_req(
             12351,
             format!("transport=polling&sid={s}"),

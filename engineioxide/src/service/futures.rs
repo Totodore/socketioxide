@@ -1,6 +1,6 @@
 use crate::body::ResponseBody;
 use crate::errors::Error;
-use futures::ready;
+use futures_core::ready;
 use http::Response;
 use pin_project_lite::pin_project;
 use std::future::Future;

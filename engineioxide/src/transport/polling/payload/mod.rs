@@ -5,7 +5,7 @@ use crate::{
     socket::PacketBuf,
 };
 use bytes::Bytes;
-use futures::Stream;
+use futures_core::Stream;
 use http::Request;
 use tokio::sync::MutexGuard;
 
@@ -30,7 +30,7 @@ pub fn decoder(
 ) -> impl Stream<Item = Result<Packet, Error>> {
     #[cfg(feature = "v3")]
     {
-        use futures::future::Either;
+        use futures_util::future::Either;
         use http::header::CONTENT_TYPE;
         #[cfg(feature = "tracing")]
         tracing::debug!("decoding payload {:?}", body.headers().get(CONTENT_TYPE));

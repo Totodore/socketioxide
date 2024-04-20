@@ -7,7 +7,7 @@ use std::{
 };
 
 use engineioxide::service::NotFoundService;
-use futures::SinkExt;
+use futures_util::SinkExt;
 use http::Request;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::server::conn::http1;

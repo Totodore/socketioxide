@@ -5,7 +5,8 @@
 //! - v3_decoder: Decodes the payload stream according to the [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 //!
 
-use futures::{Stream, StreamExt};
+use futures_core::Stream;
+use futures_util::StreamExt;
 use http::StatusCode;
 
 use crate::{errors::Error, packet::Packet};
@@ -81,7 +82,7 @@ where
 
     let state = Payload::new(body);
 
-    futures::stream::unfold(state, move |mut state| async move {
+    futures_util::stream::unfold(state, move |mut state| async move {
         let mut packet_buf: Vec<u8> = Vec::new();
         loop {
             // Read data from the body stream into the buffer
@@ -139,7 +140,7 @@ where
     #[cfg(feature = "tracing")]
     tracing::debug!("decoding payload with v3 binary decoder");
 
-    futures::stream::unfold(state, move |mut state| async move {
+    futures_util::stream::unfold(state, move |mut state| async move {
         let mut packet_buf: Vec<u8> = Vec::new();
         let mut packet_type: Option<u8> = None;
         let mut packet_size: u64 = 0;
@@ -231,7 +232,7 @@ pub fn v3_string_decoder(
     tracing::debug!("decoding payload with v3 string decoder");
     let state = Payload::new(body);
 
-    futures::stream::unfold(state, move |mut state| async move {
+    futures_util::stream::unfold(state, move |mut state| async move {
         let mut packet_buf: Vec<u8> = Vec::new();
         let mut packet_graphemes_len: usize = 0;
         loop {
@@ -349,7 +350,7 @@ pub fn v3_string_decoder(
 mod tests {
 
     use bytes::Bytes;
-    use futures::StreamExt;
+    use futures_util::StreamExt;
     use http_body::Frame;
     use http_body_util::{Full, StreamBody};
 
@@ -363,7 +364,7 @@ mod tests {
     async fn payload_iterator_v4() {
         let data = Full::new(Bytes::from("4foo\x1e4€f\x1e4f"));
         let payload = v4_decoder(data, MAX_PAYLOAD);
-        futures::pin_mut!(payload);
+        futures_util::pin_mut!(payload);
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
             Packet::Message(msg) if msg == "foo"
@@ -384,13 +385,13 @@ mod tests {
         const DATA: &[u8] = "4foo\x1e4€f\x1e4fo".as_bytes();
         for i in 1..DATA.len() {
             println!("payload stream v4 chunk size: {i}");
-            let stream = StreamBody::new(futures::stream::iter(
+            let stream = StreamBody::new(futures_util::stream::iter(
                 DATA.chunks(i)
                     .map(Frame::data)
                     .map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v4_decoder(stream, MAX_PAYLOAD);
-            futures::pin_mut!(payload);
+            futures_util::pin_mut!(payload);
             assert!(matches!(
                 payload.next().await.unwrap().unwrap(),
                 Packet::Message(msg) if msg == "foo"
@@ -412,13 +413,13 @@ mod tests {
         const DATA: &[u8] = "4foo\x1e4€f\x1e4fo".as_bytes();
         const MAX_PAYLOAD: u64 = 3;
         for i in 1..DATA.len() {
-            let stream = StreamBody::new(futures::stream::iter(
+            let stream = StreamBody::new(futures_util::stream::iter(
                 DATA.chunks(i)
                     .map(Frame::data)
                     .map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v4_decoder(stream, MAX_PAYLOAD);
-            futures::pin_mut!(payload);
+            futures_util::pin_mut!(payload);
             let packet = payload.next().await.unwrap();
             assert!(matches!(packet, Err(Error::PayloadTooLarge)));
         }
@@ -431,7 +432,7 @@ mod tests {
 
         let data = Full::new(Bytes::from("4:4foo3:4€f11:4faaaaaaaaa"));
         let payload = v3_string_decoder(data, MAX_PAYLOAD);
-        futures::pin_mut!(payload);
+        futures_util::pin_mut!(payload);
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
             Packet::Message(msg) if msg == "foo"
@@ -458,7 +459,7 @@ mod tests {
         const BINARY_PAYLOAD: &[u8] = &[1, 2, 3, 4];
         let data = Full::new(Bytes::from(PAYLOAD));
         let payload = v3_binary_decoder(data, MAX_PAYLOAD);
-        futures::pin_mut!(payload);
+        futures_util::pin_mut!(payload);
         assert!(matches!(
             payload.next().await.unwrap().unwrap(),
             Packet::Message(msg) if msg == "hello€"
@@ -477,13 +478,13 @@ mod tests {
         const DATA: &[u8] = "4:4foo3:4€f11:4baaaaaaaar".as_bytes();
         for i in 1..DATA.len() {
             println!("payload stream v3 chunk size: {i}");
-            let stream = StreamBody::new(futures::stream::iter(
+            let stream = StreamBody::new(futures_util::stream::iter(
                 DATA.chunks(i)
                     .map(Frame::data)
                     .map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_string_decoder(stream, MAX_PAYLOAD);
-            futures::pin_mut!(payload);
+            futures_util::pin_mut!(payload);
             let packet = payload.next().await.unwrap().unwrap();
             assert!(matches!(
                 packet,
@@ -513,14 +514,14 @@ mod tests {
 
         for i in 1..PAYLOAD.len() {
             println!("payload stream v3 chunk size: {i}");
-            let stream = StreamBody::new(futures::stream::iter(
+            let stream = StreamBody::new(futures_util::stream::iter(
                 PAYLOAD
                     .chunks(i)
                     .map(Frame::data)
                     .map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_binary_decoder(stream, MAX_PAYLOAD);
-            futures::pin_mut!(payload);
+            futures_util::pin_mut!(payload);
             assert!(matches!(
                 payload.next().await.unwrap().unwrap(),
                 Packet::Message(msg) if msg == "hello€"
@@ -540,24 +541,24 @@ mod tests {
         const DATA: &[u8] = "4:4foo3:4€f11:4baaaaaaaar".as_bytes();
         const MAX_PAYLOAD: u64 = 3;
         for i in 1..DATA.len() {
-            let stream = StreamBody::new(futures::stream::iter(
+            let stream = StreamBody::new(futures_util::stream::iter(
                 DATA.chunks(i)
                     .map(Frame::data)
                     .map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_binary_decoder(stream, MAX_PAYLOAD);
-            futures::pin_mut!(payload);
+            futures_util::pin_mut!(payload);
             let packet = payload.next().await.unwrap();
             assert!(matches!(packet, Err(Error::PayloadTooLarge)));
         }
         for i in 1..DATA.len() {
-            let stream = StreamBody::new(futures::stream::iter(
+            let stream = StreamBody::new(futures_util::stream::iter(
                 DATA.chunks(i)
                     .map(Frame::data)
                     .map(Ok::<_, std::convert::Infallible>),
             ));
             let payload = v3_string_decoder(stream, MAX_PAYLOAD);
-            futures::pin_mut!(payload);
+            futures_util::pin_mut!(payload);
             let packet = payload.next().await.unwrap();
             assert!(matches!(packet, Err(Error::PayloadTooLarge)));
         }
