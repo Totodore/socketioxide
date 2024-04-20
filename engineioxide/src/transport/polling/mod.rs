@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use http::{Request, Response, StatusCode};
 use http_body::Body;
 use http_body_util::Full;
@@ -149,7 +149,7 @@ where
     }
 
     let packets = payload::decoder(body, protocol, engine.config.max_payload);
-    futures::pin_mut!(packets);
+    futures_util::pin_mut!(packets);
 
     while let Some(packet) = packets.next().await {
         match packet {

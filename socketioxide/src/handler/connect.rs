@@ -115,7 +115,7 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::Future;
+use futures_core::Future;
 
 use crate::{adapter::Adapter, socket::Socket};
 

@@ -32,8 +32,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use ::futures::future::{self, Ready};
 use bytes::Bytes;
+use futures_util::future::{self, Ready};
 use http::{Request, Response};
 use http_body::Body;
 use http_body_util::Empty;

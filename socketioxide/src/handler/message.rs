@@ -74,7 +74,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::Future;
+use futures_core::Future;
 use serde_json::Value;
 
 use crate::adapter::Adapter;

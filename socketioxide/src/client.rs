@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
-use futures::TryFutureExt;
+use futures_util::TryFutureExt;
 
 use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
@@ -137,7 +137,7 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all namespaces");
         let ns = self.ns.read().unwrap().clone();
-        futures::future::join_all(ns.values().map(|ns| ns.close())).await;
+        futures_util::future::join_all(ns.values().map(|ns| ns.close())).await;
         #[cfg(feature = "tracing")]
         tracing::debug!("all namespaces closed");
     }
