@@ -41,5 +41,7 @@ pin-project-lite = "0.2.13"
 
 # Dev deps
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-criterion = { version = "0.5.1", features = ["html_reports"] }
+criterion = { version = "0.5.1", features = [
+    "rayon",
+], default-features = false }
 axum = "0.7.2"
