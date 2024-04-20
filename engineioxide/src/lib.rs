@@ -32,6 +32,7 @@
 )]
 #![doc = include_str!("../Readme.md")]
 
+pub use crate::str::Str;
 pub use service::{ProtocolVersion, TransportType};
 pub use socket::{DisconnectReason, Socket};
 
@@ -50,4 +51,5 @@ mod engine;
 mod errors;
 mod packet;
 mod peekable;
+mod str;
 mod transport;

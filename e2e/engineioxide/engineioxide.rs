@@ -8,6 +8,7 @@ use engineioxide::{
     handler::EngineIoHandler,
     service::EngineIoService,
     socket::{DisconnectReason, Socket},
+    Str,
 };
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
@@ -28,7 +29,7 @@ impl EngineIoHandler for MyHandler {
         println!("socket disconnect {}: {:?}", socket.id, reason);
     }
 
-    fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
+    fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).ok();
     }

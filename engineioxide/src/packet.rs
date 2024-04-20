@@ -5,6 +5,7 @@ use serde::Serialize;
 use crate::config::EngineIoConfig;
 use crate::errors::Error;
 use crate::sid::Sid;
+use crate::str::Str;
 use crate::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
@@ -27,7 +28,7 @@ pub enum Packet {
     PongUpgrade,
 
     /// Message packet used to send a message to the client
-    Message(String),
+    Message(Str),
     /// Upgrade packet to upgrade the connection from polling to websocket
     Upgrade,
 
@@ -58,7 +59,7 @@ impl Packet {
     }
 
     /// If the packet is a message packet (text), it returns the message
-    pub(crate) fn into_message(self) -> String {
+    pub(crate) fn into_message(self) -> Str {
         match self {
             Packet::Message(msg) => msg,
             _ => panic!("Packet is not a message"),
@@ -143,9 +144,9 @@ impl TryInto<String> for Packet {
     }
 }
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
-impl TryFrom<&str> for Packet {
+impl TryFrom<Str> for Packet {
     type Error = Error;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn try_from(value: Str) -> Result<Self, Self::Error> {
         let packet_type = value
             .as_bytes()
             .first()
@@ -157,17 +158,17 @@ impl TryFrom<&str> for Packet {
             b'2' => Packet::Ping,
             b'3' if is_upgrade => Packet::PongUpgrade,
             b'3' => Packet::Pong,
-            b'4' => Packet::Message(value[1..].to_string()),
+            b'4' => Packet::Message(value.slice(1..)),
             b'5' => Packet::Upgrade,
             b'6' => Packet::Noop,
             b'b' if value.as_bytes().get(1) == Some(&b'4') => Packet::BinaryV3(
                 general_purpose::STANDARD
-                    .decode(value[2..].as_bytes())?
+                    .decode(value.slice(2..).as_bytes())?
                     .into(),
             ),
             b'b' => Packet::Binary(
                 general_purpose::STANDARD
-                    .decode(value[1..].as_bytes())?
+                    .decode(value.slice(1..).as_bytes())?
                     .into(),
             ),
             c => Err(Error::InvalidPacketType(Some(*c as char)))?,
@@ -179,7 +180,7 @@ impl TryFrom<&str> for Packet {
 impl TryFrom<String> for Packet {
     type Error = Error;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Packet::try_from(value.as_str())
+        Packet::try_from(Str::from(value))
     }
 }
 

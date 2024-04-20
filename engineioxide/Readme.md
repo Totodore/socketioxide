@@ -23,7 +23,7 @@ engineioxide = { version = "0.3.0", features = ["v3"] }
 use bytes::Bytes;
 use engineioxide::layer::EngineIoLayer;
 use engineioxide::handler::EngineIoHandler;
-use engineioxide::{Socket, DisconnectReason};
+use engineioxide::{Socket, DisconnectReason, Str};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use axum::routing::get;
@@ -50,8 +50,8 @@ impl EngineIoHandler for MyHandler {
         let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
         socket.emit(cnt.to_string()).ok();
     }
-    fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) { 
-        *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
+    fn on_message(&self, msg: Str, socket: Arc<Socket<SocketState>>) { 
+        *socket.data.id.lock().unwrap() = msg.into(); // bind a provided user id to a socket
     }
     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 }

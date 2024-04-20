@@ -31,15 +31,15 @@ pub async fn emit_with_ack() {
     assert_some!(srx.recv().await); // NS connect packet
 
     let msg = assert_some!(srx.recv().await);
-    assert_eq!(msg, Message("21[\"test\",\"foo\"]".to_string()));
-    assert_ok!(stx.send(Message("31[\"oof\"]".to_string())).await);
+    assert_eq!(msg, Message("21[\"test\",\"foo\"]".into()));
+    assert_ok!(stx.send(Message("31[\"oof\"]".into())).await);
 
     let ack = rx.recv().await.unwrap();
     assert_eq!(ack[0], "oof");
 
     let msg = assert_some!(srx.recv().await);
-    assert_eq!(msg, Message("22[\"test\",\"foo\"]".to_string()));
-    assert_ok!(stx.send(Message("32[\"oof\"]".to_string())).await);
+    assert_eq!(msg, Message("22[\"test\",\"foo\"]".into()));
+    assert_ok!(stx.send(Message("32[\"oof\"]".into())).await);
 
     let ack = rx.recv().await.unwrap();
     assert_eq!(ack[0], "oof");
@@ -107,7 +107,7 @@ pub async fn broadcast_with_ack() {
                     _ => panic!("Unexpected packet"),
                 };
                 assert_ok!(
-                    stx.send(Message(format!("3{}[\"oof\"]", ack.to_string())))
+                    stx.send(Message(format!("3{}[\"oof\"]", ack.to_string()).into()))
                         .await
                 );
             }

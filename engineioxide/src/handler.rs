@@ -4,7 +4,7 @@
 //! # use bytes::Bytes;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
-//! # use engineioxide::{Socket, DisconnectReason};
+//! # use engineioxide::{Socket, DisconnectReason, Str};
 //! # use std::sync::{Arc, Mutex};
 //! # use std::sync::atomic::{AtomicUsize, Ordering};
 //! // Global state
@@ -30,8 +30,8 @@
 //!         let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
 //!         socket.emit(cnt.to_string()).ok();
 //!     }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) {
-//!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
+//!     fn on_message(&self, msg: Str, socket: Arc<Socket<SocketState>>) {
+//!         *socket.data.id.lock().unwrap() = msg.into(); // bind a provided user id to a socket
 //!     }
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 //! }
@@ -44,6 +44,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 
 use crate::socket::{DisconnectReason, Socket};
+use crate::str::Str;
 
 /// The [`EngineIoHandler`] trait can be implemented on any struct to handle socket events
 ///
@@ -59,7 +60,7 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason);
 
     /// Called when a message is received from the client.
-    fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>);
+    fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>);
 
     /// Called when a binary message is received from the client.
     fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>);
@@ -76,7 +77,7 @@ impl<T: EngineIoHandler> EngineIoHandler for Arc<T> {
         (**self).on_disconnect(socket, reason)
     }
 
-    fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
+    fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>) {
         (**self).on_message(msg, socket)
     }
 

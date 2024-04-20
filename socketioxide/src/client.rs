@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
+use engineioxide::Str;
 use futures_util::TryFutureExt;
 
 use engineioxide::sid::Sid;
@@ -71,7 +72,7 @@ impl<A: Adapter> Client<A> {
             esocket.close(EIoDisconnectReason::TransportClose);
             Ok(())
         } else {
-            let packet = Packet::connect_error(ns_path, "Invalid namespace").into();
+            let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
             if let Err(_e) = esocket.emit(packet) {
                 #[cfg(feature = "tracing")]
                 tracing::error!("error while sending invalid namespace packet: {}", _e);
@@ -177,12 +178,12 @@ impl<A: Adapter> Client<A> {
                 }
             }
         });
-        let p = Packet {
+        let p: String = Packet {
             ns: ns.into(),
             inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
         }
         .into();
-        self.on_message(p, esock.clone());
+        self.on_message(p.into(), esock.clone());
 
         // wait for the socket to be connected to the namespace
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -249,9 +250,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(&self, msg: String, socket: Arc<EIoSocket<SocketData>>) {
+    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
+        let msg: String = msg.into();
         let packet = match Packet::try_from(msg) {
             Ok(packet) => packet,
             Err(_e) => {

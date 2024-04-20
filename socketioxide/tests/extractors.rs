@@ -18,6 +18,11 @@ async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T
         .unwrap()
 }
 
+fn create_msg(ns: &str, event: &str, data: impl Into<serde_json::Value>) -> EioPacket {
+    let packet: String = Packet::event(ns, event, data.into()).into();
+    EioPacket::Message(packet.into())
+}
+
 #[tokio::test]
 pub async fn state_extractor() {
     let state = 1112i32;
@@ -29,7 +34,7 @@ pub async fn state_extractor() {
             assert_ok!(socket.emit("state", state));
         });
     });
-    let res_packet = EioPacket::Message(Packet::event("/", "state", state.into()).into());
+    let res_packet = create_msg("/", "state", state);
 
     // Connect packet
     let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
@@ -38,8 +43,7 @@ pub async fn state_extractor() {
     // First echoed res packet from connect handler
     assert_eq!(timeout_rcv(&mut srx).await, res_packet);
 
-    let packet = EioPacket::Message(Packet::event("/", "test", json!("foo")).into());
-    assert_ok!(stx.try_send(packet));
+    assert_ok!(stx.try_send(create_msg("/", "test", "foo")));
 
     // second echoed res packet from test event handler
     assert_eq!(timeout_rcv(&mut srx).await, res_packet);
@@ -75,12 +79,10 @@ pub async fn data_extractor() {
     let (stx, _rtx) = io.new_dummy_sock("/", "foo").await;
     assert_eq!(timeout_rcv(&mut rx).await, "foo");
 
-    let packet = EioPacket::Message(Packet::event("/", "test", json!("oof")).into());
-    assert_ok!(stx.try_send(packet));
+    assert_ok!(stx.try_send(create_msg("/", "test", "oof")));
     assert_eq!(timeout_rcv(&mut rx).await, "oof");
 
-    let packet = EioPacket::Message(Packet::event("/", "test", json!({ "test": 132 })).into());
-    assert_ok!(stx.try_send(packet));
+    assert_ok!(stx.try_send(create_msg("/", "test", json!({ "test": 132 }))));
     // Capacity should be the same as the handler should not be called
     assert_eq!(tx1.capacity(), 4);
 }
@@ -108,13 +110,11 @@ pub async fn try_data_extractor() {
     let res = assert_ok!(timeout_rcv(&mut rx).await);
     assert_eq!(res, "foo");
 
-    let packet = EioPacket::Message(Packet::event("/", "test", json!("oof")).into());
-    assert_ok!(stx.try_send(packet));
+    assert_ok!(stx.try_send(create_msg("/", "test", "oof")));
     let res = assert_ok!(timeout_rcv(&mut rx).await);
     assert_eq!(res, "oof");
 
     // Non deserializable data
-    let packet = EioPacket::Message(Packet::event("/", "test", json!({ "test": 132 })).into());
-    assert_ok!(stx.try_send(packet));
+    assert_ok!(stx.try_send(create_msg("/", "test", json!({ "test": 132 }))));
     assert_err!(timeout_rcv(&mut rx).await);
 }

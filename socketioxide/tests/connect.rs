@@ -92,7 +92,7 @@ pub async fn connect_middleware_error() {
     let (_, mut srx) = io.new_dummy_sock("/", ()).await;
 
     let p = assert_some!(srx.recv().await);
-    assert_eq!(p, Message("4{\"message\":\"MyError\"}".to_string()));
+    assert_eq!(p, Message("4{\"message\":\"MyError\"}".into()));
     rx.recv().await.unwrap();
     rx.recv().await.unwrap();
     assert_err!(rx.try_recv());

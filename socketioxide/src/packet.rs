@@ -520,6 +520,15 @@ impl<'a> TryFrom<String> for Packet<'a> {
     }
 }
 
+impl<'a> TryFrom<engineioxide::Str> for Packet<'a> {
+    type Error = Error;
+
+    fn try_from(value: engineioxide::Str) -> Result<Self, Self::Error> {
+        let value: String = value.into();
+        Packet::try_from(value)
+    }
+}
+
 /// Connect packet sent by the client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectPacket {
