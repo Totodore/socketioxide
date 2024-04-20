@@ -7,10 +7,12 @@
 //! * [`ConfOperators`]: Chainable operators to configure the message to be sent.
 //! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
 use std::borrow::Cow;
+use std::marker::PhantomData;
 use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use engineioxide::sid::Sid;
+use serde_json::Value;
 
 use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
@@ -23,6 +25,18 @@ use crate::{
     ns::Namespace,
     packet::Packet,
 };
+
+use self::holding::{BinaryHolding, WithBinary, WithoutBinary};
+
+pub(crate) mod holding {
+    pub trait BinaryHolding {}
+
+    pub struct WithoutBinary;
+    impl BinaryHolding for WithoutBinary {}
+
+    pub struct WithBinary;
+    impl BinaryHolding for WithBinary {}
+}
 
 /// A trait for types that can be used as a room parameter.
 ///
@@ -103,21 +117,23 @@ impl RoomParam for Sid {
 }
 
 /// Chainable operators to configure the message to be sent.
-pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
+pub struct ConfOperators<'a, BH, A: Adapter = LocalAdapter> {
     binary: Vec<Bytes>,
     timeout: Option<Duration>,
     socket: &'a Socket<A>,
+    _phantom: PhantomData<BH>,
 }
 /// Chainable operators to select sockets to send a message to and to configure the message to be sent.
-pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
+pub struct BroadcastOperators<BH, A: Adapter = LocalAdapter> {
     binary: Vec<Bytes>,
     timeout: Option<Duration>,
     ns: Arc<Namespace<A>>,
     opts: BroadcastOptions,
+    _phantom: PhantomData<BH>,
 }
 
-impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
-    fn from(conf: ConfOperators<'_, A>) -> Self {
+impl<BH: BinaryHolding, A: Adapter> From<ConfOperators<'_, BH, A>> for BroadcastOperators<BH, A> {
+    fn from(conf: ConfOperators<'_, BH, A>) -> Self {
         let opts = BroadcastOptions {
             sid: Some(conf.socket.id),
             ..Default::default()
@@ -127,20 +143,24 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
             opts,
+            _phantom: PhantomData::<BH>,
         }
     }
 }
 
-// ==== impl ConfOperators operations ====
-impl<'a, A: Adapter> ConfOperators<'a, A> {
+impl<'a, A: Adapter> ConfOperators<'a, WithoutBinary, A> {
     pub(crate) fn new(sender: &'a Socket<A>) -> Self {
         Self {
             binary: vec![],
             timeout: None,
             socket: sender,
+            _phantom: PhantomData::<WithoutBinary>,
         }
     }
+}
 
+// ==== impl ConfOperators operations for any BinaryHolding state ====
+impl<'a, BH: BinaryHolding, A: Adapter> ConfOperators<'a, BH, A> {
     /// Selects all sockets in the given rooms except the current socket.
     /// If it is called from the `Namespace` level there will be no difference with the `within()` operator
     ///
@@ -161,7 +181,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn to(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn to(self, rooms: impl RoomParam) -> BroadcastOperators<BH, A> {
         BroadcastOperators::from(self).to(rooms)
     }
 
@@ -185,7 +205,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn within(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn within(self, rooms: impl RoomParam) -> BroadcastOperators<BH, A> {
         BroadcastOperators::from(self).within(rooms)
     }
 
@@ -208,7 +228,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.broadcast().except("room1").emit("test", data);
     ///     });
     /// });
-    pub fn except(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn except(self, rooms: impl RoomParam) -> BroadcastOperators<BH, A> {
         BroadcastOperators::from(self).except(rooms)
     }
 
@@ -225,7 +245,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.local().emit("test", data);
     ///     });
     /// });
-    pub fn local(self) -> BroadcastOperators<A> {
+    pub fn local(self) -> BroadcastOperators<BH, A> {
         BroadcastOperators::from(self).local()
     }
 
@@ -241,7 +261,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
-    pub fn broadcast(self) -> BroadcastOperators<A> {
+    pub fn broadcast(self) -> BroadcastOperators<BH, A> {
         BroadcastOperators::from(self).broadcast()
     }
 
@@ -284,162 +304,10 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
         self.timeout = Some(timeout);
         self
     }
-
-    /// Adds a binary payload to the message.
-    /// #### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // This will send the binary payload received to all sockets in this namespace with the test message
-    ///         socket.bin(bin).emit("test", data);
-    ///     });
-    /// });
-    pub fn bin(mut self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> Self {
-        self.binary = binary.into_iter().map(Into::into).collect();
-        self
-    }
 }
 
-// ==== impl ConfOperators consume fns ====
-impl<A: Adapter> ConfOperators<'_, A> {
-    /// Emits a message to the client and apply the previous operators on the message.
-    ///
-    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
-    /// Therefore if you want to send an array as the _first_ argument of the payload,
-    /// you need to wrap it in an array or a tuple.
-    ///
-    /// ## Errors
-    /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
-    /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
-    /// will be returned and the provided data to be send will be given back in the error.
-    /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
-    /// will be returned and the provided data to be send will be given back in the error.
-    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
-    ///
-    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
-    /// [`SendError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
-    /// [`SendError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
-    ///
-    /// #### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///          // Emit a test message to the client
-    ///         socket.bin(bin.clone()).emit("test", data).ok();
-    ///
-    ///         // Emit a test message with multiple arguments to the client
-    ///         socket.bin(bin.clone()).emit("test", ("world", "hello", 1)).ok();
-    ///
-    ///         // Emit a test message with an array as the first argument
-    ///         let arr = [1, 2, 3, 4];
-    ///         socket.bin(bin).emit("test", [arr]).ok();
-    ///     });
-    /// });
-    pub fn emit<T: serde::Serialize>(
-        mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
-    ) -> Result<(), SendError<T>> {
-        use crate::errors::SocketError;
-        use crate::socket::PermitExt;
-        if !self.socket.connected() {
-            return Err(SendError::Socket(SocketError::Closed(data)));
-        }
-        let permit = match self.socket.reserve() {
-            Ok(permit) => permit,
-            Err(e) => {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("sending error during emit message: {e:?}");
-                return Err(e.with_value(data).into());
-            }
-        };
-        let packet = self.get_packet(event, data)?;
-        permit.send(packet);
-
-        Ok(())
-    }
-
-    /// Emits a message to the client and wait for acknowledgement.
-    ///
-    /// The acknowledgement has a timeout specified in the config (5s by default)
-    /// (see [`SocketIoBuilder::ack_timeout`]) or with the [`timeout()`] operator.
-    ///
-    /// To get acknowledgements, an [`AckStream`] is returned.
-    /// It can be used in two ways:
-    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
-    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
-    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
-    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
-    /// Useful when expecting only one acknowledgement.
-    ///
-    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
-    ///
-    /// If the socket is full or if it has been closed before receiving the acknowledgement,
-    /// an [`SendError::Socket`] will be **immediately returned** and the value to send will be given back.
-    ///
-    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
-    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
-    /// an [`AckError::Serde`] will be yielded.
-    ///
-    /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
-    /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
-    /// [`Stream`]: futures::stream::Stream
-    /// [`Future`]: futures::future::Future
-    /// [`AckResponse`]: crate::ack::AckResponse
-    /// [`AckError`]: crate::AckError
-    /// [`AckError::Serde`]: crate::AckError::Serde
-    /// [`AckError::Timeout`]: crate::AckError::Timeout
-    /// [`AckError::Socket`]: crate::AckError::Socket
-    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
-    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
-    ///
-    /// # Basic example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// # use std::sync::Arc;
-    /// # use tokio::time::Duration;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.bin(bin).timeout(Duration::from_millis(2)).emit_with_ack::<_, Value>("test", data).unwrap().await {
-    ///             Ok(ack) => println!("Ack received {:?}", ack),
-    ///             Err(err) => println!("Ack error {:?}", err),
-    ///         }
-    ///    });
-    /// });
-    /// ```
-    pub fn emit_with_ack<T: serde::Serialize, V>(
-        mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
-    ) -> Result<AckStream<V>, SendError<T>> {
-        use crate::errors::SocketError;
-        if !self.socket.connected() {
-            return Err(SendError::Socket(SocketError::Closed(data)));
-        }
-        let permit = match self.socket.reserve() {
-            Ok(permit) => permit,
-            Err(e) => {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("sending error during emit message: {e:?}");
-                return Err(e.with_value(data).into());
-            }
-        };
-        let timeout = self.timeout.unwrap_or(self.socket.config.ack_timeout);
-        let packet = self.get_packet(event, data)?;
-        let rx = self.socket.send_with_ack_permit(packet, permit);
-        let stream = AckInnerStream::send(rx, timeout, self.socket.id);
-        Ok(AckStream::<V>::from(stream))
-    }
-
+// ==== impl ConfOperators consume fns for any BinaryHolding state ====
+impl<BH: BinaryHolding, A: Adapter> ConfOperators<'_, BH, A> {
     /// Makes all sockets selected with the previous operators join the given room(s).
     ///
     /// ### Example
@@ -476,15 +344,294 @@ impl<A: Adapter> ConfOperators<'_, A> {
     pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
         self.socket.rooms()
     }
+}
+
+// ==== impl ConfOperators consume fns for WithoutBinary ====
+impl<'a, A: Adapter> ConfOperators<'a, WithoutBinary, A> {
+    /// Adds a binary payload to the message.
+    /// #### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // This will send the binary payload received to all sockets in this namespace with the test message
+    ///         socket.bin(bin).emit("test", data);
+    ///     });
+    /// });
+    pub fn bin(
+        self,
+        binary: impl IntoIterator<Item = impl Into<Bytes>>,
+    ) -> ConfOperators<'a, WithBinary, A> {
+        ConfOperators {
+            binary: binary.into_iter().map(Into::into).collect(),
+            timeout: self.timeout,
+            socket: self.socket,
+            _phantom: PhantomData::<WithBinary>,
+        }
+    }
+}
+
+// ==== impl ConfOperators consume fns for WithoutBinary ====
+impl<A: Adapter> ConfOperators<'_, WithoutBinary, A> {
+    /// Emits a message to the client and apply the previous operators on the message.
+    ///
+    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// Therefore if you want to send an array as the _first_ argument of the payload,
+    /// you need to wrap it in an array or a tuple.
+    ///
+    /// If the provided data contains binary data (via members of type [`bytes::Bytes`], or of some
+    /// other type that will serialize to binary data), it will be extracted and added to the
+    /// outgoing event as if [`bin()`] was called first.
+    ///
+    /// ## Errors
+    /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
+    /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
+    /// will be returned and the provided data to be send will be given back in the error.
+    /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
+    /// will be returned and the provided data to be send will be given back in the error.
+    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`SendError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`SendError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
+    ///
+    /// #### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///          // Emit a test message to the client
+    ///         socket.bin(bin.clone()).emit("test", data).ok();
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         let msg = serde_json::to_value(&("world", "hello", 1)).unwrap();
+    ///         socket.bin(bin.clone()).emit("test", msg).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = serde_json::to_value(&[1, 2, 3, 4]).unwrap();
+    ///         socket.bin(bin).emit("test", arr).ok();
+    ///     });
+    /// });
+    pub fn emit<T: serde::Serialize>(
+        self,
+        event: impl Into<Cow<'static, str>>,
+        data: T,
+    ) -> Result<(), SendError<Value>> {
+        let (data, bins) = crate::to_value(data)?;
+        self.bin(bins).emit(event, data)
+    }
+
+    /// Emits a message to the client and wait for acknowledgement.
+    ///
+    /// The acknowledgement has a timeout specified in the config (5s by default)
+    /// (see [`SocketIoBuilder::ack_timeout`]) or with the [`timeout()`] operator.
+    ///
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
+    ///
+    /// If the provided data contains binary data (via members of type [`bytes::Bytes`], or of some
+    /// other type that will serialize to binary data), it will be extracted and added to the
+    /// outgoing event as if [`bin()`] was called first.
+    ///
+    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
+    ///
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`SendError::Socket`] will be **immediately returned** and the value to send will be given back.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
+    ///
+    /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
+    /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
+    /// [`AckError`]: crate::AckError
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
+    ///
+    /// # Basic example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use std::sync::Arc;
+    /// # use tokio::time::Duration;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
+    ///         match socket.bin(bin).timeout(Duration::from_millis(2)).emit_with_ack::<Value>("test", data).unwrap().await {
+    ///             Ok(ack) => println!("Ack received {:?}", ack),
+    ///             Err(err) => println!("Ack error {:?}", err),
+    ///         }
+    ///    });
+    /// });
+    /// ```
+    pub fn emit_with_ack<T: serde::Serialize, V>(
+        self,
+        event: impl Into<Cow<'static, str>>,
+        data: T,
+    ) -> Result<AckStream<V>, SendError<Value>> {
+        let (data, bins) = crate::to_value(data)?;
+        self.bin(bins).emit_with_ack(event, data)
+    }
+}
+
+// ==== impl ConfOperators consume fns for WithBinary ====
+impl<A: Adapter> ConfOperators<'_, WithBinary, A> {
+    /// Emits a message to the client and apply the previous operators on the message.
+    ///
+    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// Therefore if you want to send an array as the _first_ argument of the payload,
+    /// you need to wrap it in an array or a tuple.
+    ///
+    /// ## Errors
+    /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
+    /// will be returned and the provided data to be send will be given back in the error.
+    /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
+    /// will be returned and the provided data to be send will be given back in the error.
+    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`SendError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`SendError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
+    ///
+    /// #### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///          // Emit a test message to the client
+    ///         socket.bin(bin.clone()).emit("test", data).ok();
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         let msg = serde_json::to_value(&("world", "hello", 1)).unwrap();
+    ///         socket.bin(bin.clone()).emit("test", msg).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = serde_json::to_value(&[1, 2, 3, 4]).unwrap();
+    ///         socket.bin(bin).emit("test", arr).ok();
+    ///     });
+    /// });
+    pub fn emit(
+        mut self,
+        event: impl Into<Cow<'static, str>>,
+        data: Value,
+    ) -> Result<(), SendError<Value>> {
+        use crate::errors::SocketError;
+        use crate::socket::PermitExt;
+        if !self.socket.connected() {
+            return Err(SendError::Socket(SocketError::Closed(data)));
+        }
+        let permit = match self.socket.reserve() {
+            Ok(permit) => permit,
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("sending error during emit message: {e:?}");
+                return Err(e.with_value(data).into());
+            }
+        };
+        let packet = self.get_packet(event, data)?;
+        permit.send(packet);
+
+        Ok(())
+    }
+
+    /// Emits a message to the client and wait for acknowledgement.
+    ///
+    /// The acknowledgement has a timeout specified in the config (5s by default)
+    /// (see [`SocketIoBuilder::ack_timeout`]) or with the [`timeout()`] operator.
+    ///
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
+    ///
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`SendError::Socket`] will be **immediately returned** and the value to send will be given back.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
+    ///
+    /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
+    /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
+    /// [`AckError`]: crate::AckError
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
+    ///
+    /// # Basic example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use std::sync::Arc;
+    /// # use tokio::time::Duration;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
+    ///         match socket.bin(bin).timeout(Duration::from_millis(2)).emit_with_ack::<Value>("test", data).unwrap().await {
+    ///             Ok(ack) => println!("Ack received {:?}", ack),
+    ///             Err(err) => println!("Ack error {:?}", err),
+    ///         }
+    ///    });
+    /// });
+    /// ```
+    pub fn emit_with_ack<V>(
+        mut self,
+        event: impl Into<Cow<'static, str>>,
+        data: Value,
+    ) -> Result<AckStream<V>, SendError<Value>> {
+        use crate::errors::SocketError;
+        if !self.socket.connected() {
+            return Err(SendError::Socket(SocketError::Closed(data)));
+        }
+        let permit = match self.socket.reserve() {
+            Ok(permit) => permit,
+            Err(e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("sending error during emit message: {e:?}");
+                return Err(e.with_value(data).into());
+            }
+        };
+        let timeout = self.timeout.unwrap_or(self.socket.config.ack_timeout);
+        let packet = self.get_packet(event, data)?;
+        let rx = self.socket.send_with_ack_permit(packet, permit);
+        let stream = AckInnerStream::send(rx, timeout, self.socket.id);
+        Ok(AckStream::<V>::from(stream))
+    }
 
     /// Creates a packet with the given event and data.
     fn get_packet(
         &mut self,
         event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
+        data: Value,
     ) -> Result<Packet<'static>, serde_json::Error> {
         let ns = self.socket.ns.path.clone();
-        let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)
         } else {
@@ -495,13 +642,14 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 }
 
-impl<A: Adapter> BroadcastOperators<A> {
+impl<A: Adapter> BroadcastOperators<WithoutBinary, A> {
     pub(crate) fn new(ns: Arc<Namespace<A>>) -> Self {
         Self {
             binary: vec![],
             timeout: None,
             ns,
             opts: BroadcastOptions::default(),
+            _phantom: PhantomData::<WithoutBinary>,
         }
     }
     pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
@@ -513,9 +661,12 @@ impl<A: Adapter> BroadcastOperators<A> {
                 sid: Some(sid),
                 ..Default::default()
             },
+            _phantom: PhantomData::<WithoutBinary>,
         }
     }
+}
 
+impl<BH: BinaryHolding, A: Adapter> BroadcastOperators<BH, A> {
     /// Selects all sockets in the given rooms except the current socket.
     /// If it is called from the `Namespace` level there will be no difference with the `within()` operator
     ///
@@ -664,7 +815,10 @@ impl<A: Adapter> BroadcastOperators<A> {
         self.timeout = Some(timeout);
         self
     }
+}
 
+// ==== impl BroadcastOperators consume fns for WithoutBinary ====
+impl<A: Adapter> BroadcastOperators<WithoutBinary, A> {
     /// Adds a binary payload to the message.
     /// #### Example
     /// ```
@@ -677,19 +831,28 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(mut self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> Self {
-        self.binary = binary.into_iter().map(Into::into).collect();
-        self
+    pub fn bin(
+        self,
+        binary: impl IntoIterator<Item = impl Into<Bytes>>,
+    ) -> BroadcastOperators<WithBinary, A> {
+        BroadcastOperators {
+            binary: binary.into_iter().map(Into::into).collect(),
+            timeout: self.timeout,
+            ns: self.ns,
+            opts: self.opts,
+            _phantom: PhantomData::<WithBinary>,
+        }
     }
-}
 
-// ==== impl BroadcastOperators consume fns ====
-impl<A: Adapter> BroadcastOperators<A> {
     /// Emits a message to all sockets selected with the previous operators.
     ///
     /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
     /// Therefore if you want to send an array as the _first_ argument of the payload,
     /// you need to wrap it in an array or a tuple.
+    ///
+    /// If the provided data contains binary data (via members of type [`bytes::Bytes`], or of some
+    /// other type that will serialize to binary data), it will be extracted and added to the
+    /// outgoing event as if [`bin()`] was called first.
     ///
     /// ## Errors
     /// * When encoding the data into JSON a [`BroadcastError::Serialize`] may be returned.
@@ -724,17 +887,12 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///     });
     /// });
     pub fn emit<T: serde::Serialize>(
-        mut self,
+        self,
         event: impl Into<Cow<'static, str>>,
         data: T,
     ) -> Result<(), BroadcastError> {
-        let packet = self.get_packet(event, data)?;
-        if let Err(e) = self.ns.adapter.broadcast(packet, self.opts) {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("broadcast error: {e:?}");
-            return Err(e);
-        }
-        Ok(())
+        let (data, bins) = crate::to_value(data)?;
+        self.bin(bins).emit(event, data)
     }
 
     /// Emits a message to all sockets selected with the previous operators and
@@ -750,6 +908,10 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
     /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
     /// Useful when expecting only one acknowledgement.
+    ///
+    /// If the provided data contains binary data (via members of type [`bytes::Bytes`], or of some
+    /// other type that will serialize to binary data), it will be extracted and added to the
+    /// outgoing event as if [`bin()`] was called first.
     ///
     /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
     ///
@@ -796,9 +958,128 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///     });
     /// });
     pub fn emit_with_ack<V>(
-        mut self,
+        self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
+    ) -> Result<AckStream<V>, serde_json::Error> {
+        let (data, bins) = crate::to_value(data)?;
+        self.bin(bins).emit_with_ack(event, data)
+    }
+}
+
+// ==== impl BroadcastOperators consume fns for WithBinary ====
+impl<A: Adapter> BroadcastOperators<WithBinary, A> {
+    /// Emits a message to all sockets selected with the previous operators.
+    ///
+    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// Therefore if you want to send an array as the _first_ argument of the payload,
+    /// you need to wrap it in an array or a tuple.
+    ///
+    /// ## Errors
+    /// * If the underlying engine.io connection is closed for a given socket a [`BroadcastError::Socket(SocketError::Closed)`]
+    /// will be returned.
+    /// * If the packet buffer is full for a given socket, a [`BroadcastError::Socket(SocketError::InternalChannelFull)`]
+    /// will be retured.
+    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
+    ///
+    /// > **Note**: If a error is returned because of a specific socket, the message will still be sent to all other sockets.
+    ///
+    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`BroadcastError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`BroadcastError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
+    ///
+    /// #### Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
+    ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         socket.to("room1").emit("test", ("world", "hello", 1)).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = [1, 2, 3, 4];
+    ///         socket.to("room2").emit("test", [arr]).ok();
+    ///     });
+    /// });
+    pub fn emit(
+        mut self,
+        event: impl Into<Cow<'static, str>>,
+        data: Value,
+    ) -> Result<(), BroadcastError> {
+        let packet = self.get_packet(event, data)?;
+        if let Err(e) = self.ns.adapter.broadcast(packet, self.opts) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("broadcast error: {e:?}");
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// Emits a message to all sockets selected with the previous operators and
+    /// waits for the acknowledgement(s).
+    ///
+    /// The acknowledgement has a timeout specified in the config (5s by default)
+    /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the [`timeout()`] operator.
+    ///
+    /// To get acknowledgements, an [`AckStream`] is returned.
+    /// It can be used in two ways:
+    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// Useful when expecting only one acknowledgement.
+    ///
+    /// If the socket is full or if it has been closed before receiving the acknowledgement,
+    /// an [`AckError::Socket`] will be yielded.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
+    /// an [`AckError::Serde`] will be yielded.
+    ///
+    /// [`timeout()`]: #method.timeout
+    /// [`Stream`]: futures::stream::Stream
+    /// [`Future`]: futures::future::Future
+    /// [`AckResponse`]: crate::ack::AckResponse
+    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Timeout`]: crate::AckError::Timeout
+    /// [`AckError::Socket`]: crate::AckError::Socket
+    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
+    ///
+    /// # Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use futures::stream::StreamExt;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///         // Emit a test message in the room1 and room3 rooms,
+    ///         // except for the room2 room with the binary payload received
+    ///         let ack_stream = socket.to("room1")
+    ///             .to("room3")
+    ///             .except("room2")
+    ///             .bin(bin)
+    ///             .emit_with_ack::<String>("message-back", data)
+    ///             .unwrap();
+    ///
+    ///         ack_stream.for_each(|(id, ack)| async move {
+    ///             match ack {
+    ///                 Ok(ack) => println!("Ack received, socket {} {:?}", id, ack),
+    ///                 Err(err) => println!("Ack error, socket {} {:?}", id, err),
+    ///             }
+    ///         }).await;
+    ///     });
+    /// });
+    pub fn emit_with_ack<V>(
+        mut self,
+        event: impl Into<Cow<'static, str>>,
+        data: Value,
     ) -> Result<AckStream<V>, serde_json::Error> {
         let packet = self.get_packet(event, data)?;
         let stream = self
@@ -809,6 +1090,24 @@ impl<A: Adapter> BroadcastOperators<A> {
         Ok(stream)
     }
 
+    /// Creates a packet with the given event and data.
+    fn get_packet(
+        &mut self,
+        event: impl Into<Cow<'static, str>>,
+        data: Value,
+    ) -> Result<Packet<'static>, serde_json::Error> {
+        let ns = self.ns.path.clone();
+        let packet = if self.binary.is_empty() {
+            Packet::event(ns, event.into(), data)
+        } else {
+            let binary = std::mem::take(&mut self.binary);
+            Packet::bin_event(ns, event.into(), data, binary)
+        };
+        Ok(packet)
+    }
+}
+
+impl<BH: BinaryHolding, A: Adapter> BroadcastOperators<BH, A> {
     /// Gets all sockets selected with the previous operators.
     ///
     /// It can be used to retrieve any extension data (with the `extensions` feature enabled) from the sockets or to make some sockets join other rooms.
@@ -886,22 +1185,5 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// Gets a [`SocketRef`] by the specified [`Sid`].
     pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
         self.ns.get_socket(sid).map(SocketRef::from).ok()
-    }
-
-    /// Creates a packet with the given event and data.
-    fn get_packet(
-        &mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<Packet<'static>, serde_json::Error> {
-        let ns = self.ns.path.clone();
-        let data = serde_json::to_value(data)?;
-        let packet = if self.binary.is_empty() {
-            Packet::event(ns, event.into(), data)
-        } else {
-            let binary = std::mem::take(&mut self.binary);
-            Packet::bin_event(ns, event.into(), data, binary)
-        };
-        Ok(packet)
     }
 }
