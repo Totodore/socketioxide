@@ -281,6 +281,7 @@ pub mod extensions;
 mod state;
 
 pub mod ack;
+pub mod extract;
 pub mod handler;
 pub mod layer;
 pub mod operators;
@@ -290,7 +291,6 @@ pub mod socket;
 
 pub use engineioxide::TransportType;
 pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};
-pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 
 mod client;
