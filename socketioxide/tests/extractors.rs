@@ -1,8 +1,10 @@
 //! Tests for extractors
+use std::convert::Infallible;
 use std::time::Duration;
 
-use serde_json::json;
-use socketioxide::extract::{Data, SocketRef, State, TryData};
+use serde_json::{json, Value};
+use socketioxide::extract::{Data, Extension, MaybeExtension, SocketRef, State, TryData};
+use socketioxide::handler::ConnectHandler;
 use tokio::sync::mpsc;
 
 use engineioxide::Packet as EioPacket;
@@ -16,6 +18,11 @@ async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T
         .await
         .unwrap()
         .unwrap()
+}
+async fn timeout_rcv_err<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) {
+    tokio::time::timeout(Duration::from_millis(200), srx.recv())
+        .await
+        .unwrap_err();
 }
 
 #[tokio::test]
@@ -117,4 +124,98 @@ pub async fn try_data_extractor() {
     let packet = EioPacket::Message(Packet::event("/", "test", json!({ "test": 132 })).into());
     assert_ok!(stx.try_send(packet));
     assert_err!(timeout_rcv(&mut rx).await);
+}
+
+#[tokio::test]
+pub async fn extension_extractor() {
+    let (_, io) = SocketIo::new_svc();
+
+    fn on_test(s: SocketRef, Extension(i): Extension<usize>) {
+        s.emit("from_ev_test", i).unwrap();
+    }
+    fn ns_root(s: SocketRef, Extension(i): Extension<usize>) {
+        s.emit("from_ns", i).unwrap();
+        s.on("test", on_test);
+    }
+    fn set_ext(s: SocketRef) -> Result<(), Infallible> {
+        s.extensions.insert(123usize);
+        Ok(())
+    }
+
+    // Namespace without errors (the extension is set)
+    io.ns("/", ns_root.with(set_ext));
+    // Namespace with errors (the extension is not set)
+    io.ns("/test", ns_root);
+
+    // Extract extensions from the socket
+    let (tx, mut rx) = io.new_dummy_sock("/", ()).await;
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"from_ns\",123]".into())
+    );
+    let packet = Packet::event("/", "test", Value::Null).into();
+    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"from_ev_test\",123]".into())
+    );
+
+    // Extract unknown extensions from the socket
+    let (tx, mut rx) = io.new_dummy_sock("/test", ()).await;
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    timeout_rcv_err(&mut rx).await;
+    let packet = Packet::event("/test", "test", Value::Null).into();
+    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    timeout_rcv_err(&mut rx).await;
+}
+
+#[tokio::test]
+pub async fn maybe_extension_extractor() {
+    let (_, io) = SocketIo::new_svc();
+
+    fn on_test(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
+        s.emit("from_ev_test", i).unwrap();
+    }
+    fn ns_root(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
+        s.emit("from_ns", i).unwrap();
+        s.on("test", on_test);
+    }
+    fn set_ext(s: SocketRef) -> Result<(), Infallible> {
+        s.extensions.insert(123usize);
+        Ok(())
+    }
+
+    // Namespace without errors (the extension is set)
+    io.ns("/", ns_root.with(set_ext));
+    // Namespace with errors (the extension is not set)
+    io.ns("/test", ns_root);
+
+    // Extract extensions from the socket
+    let (tx, mut rx) = io.new_dummy_sock("/", ()).await;
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"from_ns\",123]".into())
+    );
+    let packet = Packet::event("/", "test", Value::Null).into();
+    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"from_ev_test\",123]".into())
+    );
+
+    // Extract unknown extensions from the socket
+    let (tx, mut rx) = io.new_dummy_sock("/test", ()).await;
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2/test,[\"from_ns\",null]".into())
+    );
+    let packet = Packet::event("/test", "test", Value::Null).into();
+    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2/test,[\"from_ev_test\",null]".into())
+    );
 }
