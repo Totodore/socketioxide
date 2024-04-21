@@ -6,7 +6,7 @@
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
 //! # use std::time::Duration;
-//! # use engineioxide::{Socket, DisconnectReason};
+//! # use engineioxide::{Socket, DisconnectReason, Str};
 //! # use std::sync::Arc;
 //! #[derive(Debug, Clone)]
 //! struct MyHandler;
@@ -15,7 +15,7 @@
 //!     type Data = ();
 //!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
 //!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
+//!     fn on_message(&self, msg: Str, socket: Arc<Socket<()>>) { }
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) { }
 //! }
 //!
@@ -131,6 +131,7 @@ impl EngineIoConfigBuilder {
     /// ```
     /// # use bytes::Bytes;
     /// # use engineioxide::{
+    ///     Str,
     ///     layer::EngineIoLayer,
     ///     handler::EngineIoHandler,
     ///     socket::{Socket, DisconnectReason},
@@ -149,7 +150,7 @@ impl EngineIoConfigBuilder {
     ///         println!("socket disconnect {}", socket.id);
     ///     }
     ///
-    ///     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) {
+    ///     fn on_message(&self, msg: Str, socket: Arc<Socket<()>>) {
     ///         println!("Ping pong message {:?}", msg);
     ///         socket.emit(msg).unwrap();
     ///     }
