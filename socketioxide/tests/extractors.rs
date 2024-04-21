@@ -154,8 +154,7 @@ pub async fn extension_extractor() {
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ns\",123]".into())
     );
-    let packet = Packet::event("/", "test", Value::Null).into();
-    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    assert_ok!(tx.try_send(create_msg("/", "test", Value::Null)));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ev_test\",123]".into())
@@ -165,8 +164,7 @@ pub async fn extension_extractor() {
     let (tx, mut rx) = io.new_dummy_sock("/test", ()).await;
     assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
     timeout_rcv_err(&mut rx).await;
-    let packet = Packet::event("/test", "test", Value::Null).into();
-    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    assert_ok!(tx.try_send(create_msg("/test", "test", Value::Null)));
     timeout_rcv_err(&mut rx).await;
 }
 
@@ -198,8 +196,7 @@ pub async fn maybe_extension_extractor() {
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ns\",123]".into())
     );
-    let packet = Packet::event("/", "test", Value::Null).into();
-    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    assert_ok!(tx.try_send(create_msg("/", "test", Value::Null)));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ev_test\",123]".into())
@@ -212,8 +209,7 @@ pub async fn maybe_extension_extractor() {
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2/test,[\"from_ns\",null]".into())
     );
-    let packet = Packet::event("/test", "test", Value::Null).into();
-    assert_ok!(tx.try_send(EioPacket::Message(packet)));
+    assert_ok!(tx.try_send(create_msg("/test", "test", Value::Null)));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2/test,[\"from_ev_test\",null]".into())
