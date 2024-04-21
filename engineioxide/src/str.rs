@@ -13,6 +13,10 @@ impl Str {
         // SAFETY: Str is always a valid utf8 string
         unsafe { std::str::from_utf8_unchecked(&self.0) }
     }
+    /// Return a &[u8] representation of the string
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
     /// Get the byte at the specified index
     pub fn get(&self, index: usize) -> Option<&u8> {
         self.0.get(index)

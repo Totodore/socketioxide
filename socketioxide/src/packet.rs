@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::errors::Error;
-use engineioxide::sid::Sid;
+use engineioxide::{sid::Sid, Str};
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
@@ -439,12 +439,12 @@ fn deserialize_packet<T: DeserializeOwned>(data: &str) -> Result<Option<T>, serd
 /// <packet type>[<# of binary attachments>-][<namespace>,][<acknowledgment id>][JSON-stringified payload without binary]
 /// + binary attachments extracted
 /// ```
-impl<'a> TryFrom<String> for Packet<'a> {
+impl<'a> TryFrom<Str> for Packet<'a> {
     type Error = Error;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        // It is possible to parse the packet from a byte slice because separators are only ASCII
+    fn try_from(value: Str) -> Result<Self, Self::Error> {
         let chars = value.as_bytes();
+        // It is possible to parse the packet from a byte slice because separators are only ASCII
         let mut i = 1;
         let index = (b'0'..=b'6')
             .contains(&chars[0])
@@ -520,12 +520,12 @@ impl<'a> TryFrom<String> for Packet<'a> {
     }
 }
 
-impl<'a> TryFrom<engineioxide::Str> for Packet<'a> {
+#[cfg(any(test, socketioxide_test))]
+impl<'a> TryFrom<String> for Packet<'a> {
     type Error = Error;
 
-    fn try_from(value: engineioxide::Str) -> Result<Self, Self::Error> {
-        let value: String = value.into();
-        Packet::try_from(value)
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Packet::try_from(Str::from(value))
     }
 }
 

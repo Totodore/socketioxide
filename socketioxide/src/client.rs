@@ -253,7 +253,6 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
-        let msg: String = msg.into();
         let packet = match Packet::try_from(msg) {
             Ok(packet) => packet,
             Err(_e) => {
