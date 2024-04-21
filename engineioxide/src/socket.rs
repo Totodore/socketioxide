@@ -10,7 +10,7 @@
 //! # use bytes::Bytes;
 //! # use engineioxide::service::EngineIoService;
 //! # use engineioxide::handler::EngineIoHandler;
-//! # use engineioxide::{Socket, DisconnectReason};
+//! # use engineioxide::{Socket, DisconnectReason, Str};
 //! # use std::sync::{Mutex, Arc};
 //! # use std::sync::atomic::{AtomicUsize, Ordering};
 //! // Global state
@@ -46,8 +46,8 @@
 //!     fn on_disconnect(&self, socket: Arc<Socket<SocketState>>, reason: DisconnectReason) {
 //!         let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
 //!     }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<SocketState>>) {
-//!         *socket.data.id.lock().unwrap() = msg; // bind a provided user id to a socket
+//!     fn on_message(&self, msg: Str, socket: Arc<Socket<SocketState>>) {
+//!         *socket.data.id.lock().unwrap() = msg.into(); // bind a provided user id to a socket
 //!     }
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 //! }
@@ -77,7 +77,7 @@ use tokio_tungstenite::tungstenite;
 
 use crate::{
     config::EngineIoConfig, errors::Error, packet::Packet, peekable::PeekableReceiver,
-    service::ProtocolVersion,
+    service::ProtocolVersion, Str,
 };
 use crate::{service::TransportType, sid::Sid};
 
@@ -127,7 +127,7 @@ impl Permit<'_> {
     /// Consume the permit and emit a message to the client.
     #[inline]
     pub fn emit(self, msg: String) {
-        self.inner.send(smallvec![Packet::Message(msg)]);
+        self.inner.send(smallvec![Packet::Message(msg.into())]);
     }
     /// Consume the permit and emit a binary message to the client.
     #[inline]
@@ -140,7 +140,7 @@ impl Permit<'_> {
     /// It can be used to ensure atomicity when sending a string packet with adjacent binary packets.
     pub fn emit_many(self, msg: String, data: Vec<Bytes>) {
         let mut packets = SmallVec::with_capacity(data.len() + 1);
-        packets.push(Packet::Message(msg));
+        packets.push(Packet::Message(msg.into()));
         for d in data {
             packets.push(Packet::Binary(d));
         }
@@ -408,8 +408,8 @@ where
     /// If the transport is in polling mode, the message is buffered and sent as a text frame to the next polling request.
     ///
     /// ⚠️ If the buffer is full or the socket is disconnected, an error will be returned with the original data
-    pub fn emit(&self, msg: String) -> Result<(), TrySendError<String>> {
-        self.send(Packet::Message(msg)).map_err(|e| match e {
+    pub fn emit(&self, msg: impl Into<Str>) -> Result<(), TrySendError<Str>> {
+        self.send(Packet::Message(msg.into())).map_err(|e| match e {
             TrySendError::Full(p) => TrySendError::Full(p.into_message()),
             TrySendError::Closed(p) => TrySendError::Closed(p.into_message()),
         })

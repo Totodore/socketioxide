@@ -95,6 +95,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
 #[cfg(test)]
 mod tests {
+    use crate::str::Str;
     use bytes::Bytes;
     use http::Request;
 
@@ -114,7 +115,7 @@ mod tests {
             println!("socket disconnect {} {:?}", socket.id, reason);
         }
 
-        fn on_message(&self, msg: String, socket: Arc<Socket<Self::Data>>) {
+        fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>) {
             println!("Ping pong message {:?}", msg);
             socket.emit(msg).ok();
         }

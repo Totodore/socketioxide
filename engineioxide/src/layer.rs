@@ -5,7 +5,7 @@
 //! # use bytes::Bytes;
 //! # use engineioxide::layer::EngineIoLayer;
 //! # use engineioxide::handler::EngineIoHandler;
-//! # use engineioxide::{Socket, DisconnectReason};
+//! # use engineioxide::{Socket, DisconnectReason, Str};
 //! # use std::sync::Arc;
 //! # use axum::routing::get;
 //! #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@
 //!     type Data = ();
 //!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
 //!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
-//!     fn on_message(&self, msg: String, socket: Arc<Socket<()>>) { }
+//!     fn on_message(&self, msg: Str, socket: Arc<Socket<()>>) { }
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) { }
 //! }
 //! // Create a new engineio layer

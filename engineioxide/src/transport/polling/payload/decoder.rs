@@ -110,7 +110,7 @@ where
             if separator_found
                 || (state.end_of_stream && state.buffer.remaining() == 0 && !packet_buf.is_empty())
             {
-                let packet = std::str::from_utf8(&packet_buf)
+                let packet = String::from_utf8(packet_buf)
                     .map_err(|_| Error::InvalidPacketLength)
                     .and_then(Packet::try_from); // Convert the packet buffer to a Packet object
                 break Some((packet, state)); // Emit the packet and the updated state
@@ -203,7 +203,7 @@ where
                 reader.read_to_end(&mut packet_buf).unwrap();
                 // Read the packet data
                 let packet = match packet_type.unwrap() {
-                    STRING_PACKET_IDENTIFIER_V3 => std::str::from_utf8(&packet_buf)
+                    STRING_PACKET_IDENTIFIER_V3 => String::from_utf8(packet_buf)
                         .map_err(|_| Error::InvalidPacketLength)
                         .and_then(Packet::try_from), // Convert the packet buffer to a Packet object
                     BINARY_PACKET_IDENTIFIER_V3 => Ok(Packet::BinaryV3(packet_buf.into())),
@@ -335,6 +335,8 @@ pub fn v3_string_decoder(
             // Check if the packet length matches the number of characters
             if let Ok(packet) = std::str::from_utf8(&packet_buf) {
                 if packet.graphemes(true).count() == packet_graphemes_len {
+                    // SAFETY: packet_buf is a valid utf8 string checkd above
+                    let packet = unsafe { String::from_utf8_unchecked(packet_buf) };
                     let packet = Packet::try_from(packet).map_err(|_| Error::InvalidPacketLength);
                     state.yield_packets += 1;
                     break Some((packet, state)); // Emit the packet and the updated state

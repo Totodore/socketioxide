@@ -11,6 +11,7 @@ use bytes::Bytes;
 use engineioxide::{
     handler::EngineIoHandler,
     socket::{DisconnectReason, Socket},
+    Str,
 };
 use futures_util::SinkExt;
 use tokio::sync::mpsc;
@@ -38,7 +39,7 @@ impl EngineIoHandler for MyHandler {
         self.disconnect_tx.try_send(reason).unwrap();
     }
 
-    fn on_message(&self, msg: String, socket: Arc<Socket<()>>) {
+    fn on_message(&self, msg: Str, socket: Arc<Socket<()>>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).ok();
     }
