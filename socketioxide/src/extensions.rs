@@ -2,7 +2,7 @@
 //!
 //! It is heavily inspired by the [`http::Extensions`] type from the `http` crate.
 //!
-//! The main difference is that the inner [`HashMap`](std::collections::HashMap) is wrapped with an [`RwLock`]
+//! The main difference is that the inner [`HashMap`] is wrapped with an [`RwLock`]
 //! to allow concurrent access. Moreover, any value extracted from the map is cloned before being returned.
 //!
 //! This is necessary because [`Extensions`] are shared between all the threads that handle the same socket.

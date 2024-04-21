@@ -2,7 +2,7 @@
 //! It has a flexible axum-like API, you can put any arguments as long as it implements the [`FromConnectParts`] trait.
 //!
 //! You can also implement the [`FromConnectParts`] trait for your own types.
-//! See the [`extract`](super::extract) module doc for more details on available extractors.
+//! See the [`extract`](crate::extract) module doc for more details on available extractors.
 //!
 //! Handlers can be _optionally_ async.
 //!
@@ -141,7 +141,7 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
 /// in this case the [`ConnectHandler`] is not called.
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait FromConnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + Send + 'static;
@@ -156,7 +156,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// They must implement the [`FromConnectParts`] trait and return `Result<(), E> where E: Display`.
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect middlewares.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
     /// Call the middleware with the given arguments.
     fn call<'a>(
@@ -175,7 +175,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
 /// It is implemented for closures with up to 16 arguments. They must implement the [`FromConnectParts`] trait.
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);

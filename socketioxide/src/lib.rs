@@ -137,7 +137,7 @@
 //! * Check the [`handler::connect`] module doc for more details on the connect handler and connect middlewares.
 //! * Check the [`handler::message`] module doc for more details on the message handler.
 //! * Check the [`handler::disconnect`] module doc for more details on the disconnect handler.
-//! * Check the [`handler::extract`] module doc for more details on the extractors.
+//! * Check the [`extract`] module doc for more details on the extractors.
 //!
 //! ## Extractors
 //! Handlers params are called extractors and are used to extract data from the incoming connection/message. They are inspired by the axum extractors.

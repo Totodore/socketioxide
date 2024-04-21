@@ -5,7 +5,7 @@
 //! All the types that implement [`FromMessageParts`] also implement [`FromMessage`].
 //!
 //! You can also implement the [`FromMessageParts`] and [`FromMessage`] traits for your own types.
-//! See the [`extract`](super::extract) module doc for more details on available extractors.
+//! See the [`extract`](crate::extract) module doc for more details on available extractors.
 //!
 //! Handlers can be _optionally_ async.
 //!
@@ -93,7 +93,7 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 /// It is implemented for closures with up to 16 arguments. They must implement the [`FromMessageParts`] trait or the [`FromMessage`] trait for the last one.
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 #[cfg_attr(
     nightly_error_messages,
     diagnostic::on_unimplemented(
@@ -150,7 +150,7 @@ mod private {
 /// The `Result` associated type is used to return an error if the extraction fails, in this case the handler is not called.
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 #[cfg_attr(
     nightly_error_messages,
     diagnostic::on_unimplemented(
@@ -175,7 +175,7 @@ pub trait FromMessageParts<A: Adapter>: Sized {
 /// The `Result` associated type is used to return an error if the extraction fails, in this case the handler is not called.
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 #[cfg_attr(
     nightly_error_messages,
     diagnostic::on_unimplemented(
