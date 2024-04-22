@@ -85,6 +85,9 @@ impl<A: Adapter> Namespace<A> {
 
     /// Removes a socket from a namespace and propagate the event to the adapter
     pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?sid, "removing socket from namespace");
+
         self.sockets.write().unwrap().remove(&sid);
         self.adapter
             .del_all(sid)
@@ -158,5 +161,13 @@ impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
             .field("adapter", &self.adapter)
             .field("sockets", &self.sockets)
             .finish()
+    }
+}
+
+#[cfg(feature = "tracing")]
+impl<A: Adapter> Drop for Namespace<A> {
+    fn drop(&mut self) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("dropping namespace {}", self.path);
     }
 }

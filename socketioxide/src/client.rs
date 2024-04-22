@@ -121,11 +121,13 @@ impl<A: Adapter> Client<A> {
         self.ns.write().unwrap().insert(path, ns);
     }
 
-    /// Deletes a namespace handler
+    /// Deletes a namespace handler and closes all the connections to it
     pub fn delete_ns(&self, path: &str) {
         #[cfg(feature = "tracing")]
         tracing::debug!("deleting namespace {}", path);
-        self.ns.write().unwrap().remove(path);
+        if let Some(ns) = self.ns.write().unwrap().remove(path) {
+            tokio::spawn(async move { ns.close().await });
+        }
     }
 
     pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
@@ -230,12 +232,16 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket disconnected");
-        let _res: Result<Vec<_>, _> = self
+        let socks: Vec<_> = self
             .ns
             .read()
             .unwrap()
             .values()
             .filter_map(|ns| ns.get_socket(socket.id).ok())
+            .collect();
+
+        let _res: Result<Vec<_>, _> = socks
+            .into_iter()
             .map(|s| s.close(reason.clone().into()))
             .collect();
 

@@ -342,7 +342,10 @@ impl<A: Adapter> SocketIo<A> {
         self.0.add_ns(path.into(), callback);
     }
 
-    /// Deletes the namespace with the given path
+    /// Deletes the namespace with the given path.
+    ///
+    /// This will disconnect all sockets connected to this
+    /// namespace in deferred way.
     #[inline]
     pub fn delete_ns<'a>(&self, path: impl Into<&'a str>) {
         self.0.delete_ns(path.into());

@@ -2,8 +2,24 @@ mod utils;
 
 use bytes::Bytes;
 use engineioxide::Packet::*;
-use socketioxide::{extract::SocketRef, handler::ConnectHandler, SendError, SocketError, SocketIo};
+use socketioxide::{
+    extract::{SocketRef, State},
+    handler::ConnectHandler,
+    packet::Packet,
+    SendError, SocketError, SocketIo,
+};
 use tokio::sync::mpsc;
+
+fn create_msg(ns: &str, event: &str, data: impl Into<serde_json::Value>) -> engineioxide::Packet {
+    let packet: String = Packet::event(ns, event, data.into()).into();
+    Message(packet.into())
+}
+async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
+    tokio::time::timeout(std::time::Duration::from_millis(500), srx.recv())
+        .await
+        .unwrap()
+        .unwrap()
+}
 
 #[tokio::test]
 pub async fn connect_middleware() {
@@ -96,4 +112,39 @@ pub async fn connect_middleware_error() {
     rx.recv().await.unwrap();
     rx.recv().await.unwrap();
     assert_err!(rx.try_recv());
+}
+
+#[tokio::test]
+async fn remove_ns() {
+    use tokio::sync::mpsc::Sender;
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
+
+    let (_svc, io) = SocketIo::builder().with_state(tx).build_svc();
+
+    let io_clone = io.clone();
+    let io_clone2 = io.clone();
+    io.ns("/test1", move |s: SocketRef| {
+        s.on("delete_ns", move |State::<Sender<()>>(tx)| {
+            io_clone2.delete_ns("/test1");
+            tx.try_send(()).unwrap();
+        });
+    });
+    io.ns("/test2", move |s: SocketRef| {
+        s.on_disconnect(move |State::<Sender<()>>(tx)| {
+            io_clone.delete_ns("/test2");
+            tx.try_send(()).unwrap();
+        })
+    });
+    let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
+    timeout_rcv(&mut srx).await;
+    assert_ok!(stx.try_send(create_msg("/test1", "delete_ns", ())));
+    timeout_rcv(&mut rx).await;
+    assert_ok!(stx.try_send(create_msg("/test1", "delete_ns", ())));
+    // No response since ns is already deleted
+
+    let (stx, mut srx) = io.new_dummy_sock("/test2", ()).await;
+    timeout_rcv(&mut srx).await;
+    assert_ok!(stx.try_send(Close));
+    timeout_rcv(&mut rx).await;
 }
