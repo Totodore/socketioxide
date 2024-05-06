@@ -694,7 +694,8 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
         self.set_connected(false);
 
-        if let Some(handler) = self.disconnect_handler.lock().unwrap().take() {
+        let handler = { self.disconnect_handler.lock().unwrap().take() };
+        if let Some(handler) = handler {
             handler.call(self.clone(), reason);
         }
 
