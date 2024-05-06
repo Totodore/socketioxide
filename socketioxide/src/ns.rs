@@ -9,7 +9,7 @@ use crate::{
     errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
-    socket::Socket,
+    socket::{DisconnectReason, Socket},
     SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
@@ -121,18 +121,38 @@ impl<A: Adapter> Namespace<A> {
 
     /// Closes the entire namespace :
     /// * Closes the adapter
-    /// * Closes all the sockets and their underlying connections
+    /// * Closes all the sockets and
+    /// their underlying connections in case of [`DisconnectReason::ClosingServer`]
     /// * Removes all the sockets from the namespace
-    pub async fn close(&self) {
-        self.adapter.close().ok();
+    ///
+    /// This function is using .await points only when called with [`DisconnectReason::ClosingServer`]
+    pub async fn close(&self, reason: DisconnectReason) {
+        use futures_util::future;
         #[cfg(feature = "tracing")]
-        tracing::debug!("closing all sockets in namespace {}", self.path);
         let sockets = self.sockets.read().unwrap().clone();
-        futures_util::future::join_all(sockets.values().map(|s| s.close_underlying_transport()))
-            .await;
-        self.sockets.write().unwrap().shrink_to_fit();
+        tracing::debug!(?self.path, "closing {} sockets in namespace", sockets.len());
+        if reason == DisconnectReason::ClosingServer {
+            // When closing the underlying transport, this will indirectly close the socket
+            // Therefore there is no need to manually call `s.close()`.
+            future::join_all(sockets.values().map(|s| s.close_underlying_transport())).await;
+        } else {
+            for s in sockets.into_values() {
+                let _sid = s.id;
+                let _err = s.close(reason);
+                #[cfg(feature = "tracing")]
+                if let Err(err) = _err {
+                    tracing::debug!(?_sid, ?err, "error closing socket");
+                }
+            }
+        }
         #[cfg(feature = "tracing")]
-        tracing::debug!("all sockets in namespace {} closed", self.path);
+        tracing::debug!(?self.path, "all sockets in namespace closed");
+
+        let _err = self.adapter.close();
+        #[cfg(feature = "tracing")]
+        if let Err(err) = _err {
+            tracing::debug!(?err, "could not close adapter");
+        }
     }
 }
 
