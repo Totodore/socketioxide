@@ -6,13 +6,14 @@ use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
 use engineioxide::Str;
-use futures_util::TryFutureExt;
+use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
+use crate::socket::DisconnectReason;
 use crate::ProtocolVersion;
 use crate::{
     errors::Error,
@@ -121,11 +122,19 @@ impl<A: Adapter> Client<A> {
         self.ns.write().unwrap().insert(path, ns);
     }
 
-    /// Deletes a namespace handler
+    /// Deletes a namespace handler and closes all the connections to it
     pub fn delete_ns(&self, path: &str) {
+        #[cfg(feature = "v4")]
+        if path == "/" {
+            panic!("the root namespace \"/\" cannot be deleted for the socket.io v4 protocol. See https://socket.io/docs/v3/namespaces/#main-namespace for more info");
+        }
+
         #[cfg(feature = "tracing")]
         tracing::debug!("deleting namespace {}", path);
-        self.ns.write().unwrap().remove(path);
+        if let Some(ns) = self.ns.write().unwrap().remove(path) {
+            ns.close(DisconnectReason::ServerNSDisconnect)
+                .now_or_never();
+        }
     }
 
     pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
@@ -138,7 +147,11 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all namespaces");
         let ns = self.ns.read().unwrap().clone();
-        futures_util::future::join_all(ns.values().map(|ns| ns.close())).await;
+        futures_util::future::join_all(
+            ns.values()
+                .map(|ns| ns.close(DisconnectReason::ClosingServer)),
+        )
+        .await;
         #[cfg(feature = "tracing")]
         tracing::debug!("all namespaces closed");
     }
@@ -230,12 +243,16 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket disconnected");
-        let _res: Result<Vec<_>, _> = self
+        let socks: Vec<_> = self
             .ns
             .read()
             .unwrap()
             .values()
             .filter_map(|ns| ns.get_socket(socket.id).ok())
+            .collect();
+
+        let _res: Result<Vec<_>, _> = socks
+            .into_iter()
             .map(|s| s.close(reason.clone().into()))
             .collect();
 

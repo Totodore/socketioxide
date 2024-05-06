@@ -229,6 +229,27 @@ pub async fn server_ns_disconnect() {
 }
 
 #[tokio::test]
+pub async fn server_ns_close() {
+    let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
+    let io = create_server(12353).await;
+    let io2 = io.clone();
+    io.ns("/test", move |socket: SocketRef| {
+        socket.on_disconnect(move |reason: DisconnectReason| tx.try_send(reason).unwrap());
+        io2.delete_ns("/test");
+    });
+
+    let mut ws = create_ws_connection(12353).await;
+    ws.send(Message::Text("40/test,{}".to_string()))
+        .await
+        .unwrap();
+    let data = tokio::time::timeout(Duration::from_millis(20), rx.recv())
+        .await
+        .expect("timeout waiting for DisconnectReason::ServerNSDisconnect")
+        .unwrap();
+    assert_eq!(data, DisconnectReason::ServerNSDisconnect);
+}
+
+#[tokio::test]
 pub async fn server_ws_closing() {
     let io = create_server(12350).await;
     let _rx = attach_handler(&io, 100);
