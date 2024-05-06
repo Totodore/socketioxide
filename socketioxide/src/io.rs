@@ -345,7 +345,11 @@ impl<A: Adapter> SocketIo<A> {
     /// Deletes the namespace with the given path.
     ///
     /// This will disconnect all sockets connected to this
-    /// namespace in deferred way.
+    /// namespace in a deferred way.
+    ///
+    /// # Panics
+    /// If the v4 protocol (legacy) is enabled and the namespace to delete is the default namespace "/".
+    /// For v4, the default namespace cannot be deleted. See [official doc](https://socket.io/docs/v3/namespaces/#main-namespace) for more informations.
     #[inline]
     pub fn delete_ns<'a>(&self, path: impl Into<&'a str>) {
         self.0.delete_ns(path.into());

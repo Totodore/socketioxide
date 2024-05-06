@@ -64,7 +64,7 @@ pub enum DisconnectReason {
     /// The client has manually disconnected the socket using [`socket.disconnect()`](https://socket.io/fr/docs/v4/client-api/#socketdisconnect)
     ClientNSDisconnect,
 
-    /// The socket was forcefully disconnected from the namespace with [`Socket::disconnect`]
+    /// The socket was forcefully disconnected from the namespace with [`Socket::disconnect`] or with [`SocketIo::delete_ns`](crate::io::SocketIo::delete_ns)
     ServerNSDisconnect,
 
     /// The server is being closed
@@ -696,6 +696,9 @@ impl<A: Adapter> Socket<A> {
 
         let handler = { self.disconnect_handler.lock().unwrap().take() };
         if let Some(handler) = handler {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(?reason, ?self.id, "spawning disconnect handler");
+
             handler.call(self.clone(), reason);
         }
 
