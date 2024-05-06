@@ -128,9 +128,11 @@ impl<A: Adapter> Namespace<A> {
     /// This function is using .await points only when called with [`DisconnectReason::ClosingServer`]
     pub async fn close(&self, reason: DisconnectReason) {
         use futures_util::future;
-        #[cfg(feature = "tracing")]
         let sockets = self.sockets.read().unwrap().clone();
+
+        #[cfg(feature = "tracing")]
         tracing::debug!(?self.path, "closing {} sockets in namespace", sockets.len());
+
         if reason == DisconnectReason::ClosingServer {
             // When closing the underlying transport, this will indirectly close the socket
             // Therefore there is no need to manually call `s.close()`.
