@@ -1,7 +1,19 @@
+# 0.13.0
+
+## socketioxide
+* fix: issue #311, the `delete_ns` fn was deadlocking the entire server when called from inside a `disconnec_handler`.
+* feat: the `delete_ns` is now gracefully closing the adapter as well as all its sockets before being removed.
+* feat: the API use `Bytes` rather than `Vec<u8>` to represent binary payloads. This allow to avoid unnecessary copies.
+* deps: use `futures-util` and `futures-core` rather than the whole `futures` crate.
+
+## engineioxide
+* feat: the API use `Bytes/Str` rather than `Vec<u8>` and `String` to represent payloads. This allow to avoid unnecessary copies.
+* deps: use `futures-util` and `futures-core` rather than the whole `futures` crate.
+
 # 0.12.0
 **MSRV**: Minimum supported Rust version is now 1.75.
 
-# socketioxide
+## socketioxide
 * **(Breaking)**: Introduction of [connect middlewares](https://docs.rs/socketioxide/latest/socketioxide/#middlewares). It allows to execute code before the connection to the namespace is established. It is useful to check the request, to authenticate the user, to log the connection etc. It is possible to add multiple middlewares and to chain them.
 * The `SocketRef` extractor is now `Clone`. Be careful to drop clones when the socket is disconnected to avoid any memory leak.
 
