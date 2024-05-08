@@ -191,7 +191,11 @@ where
                 Ok(())
             }
             Message::Close(_) => break,
-            _ => panic!("[sid={}] unexpected ws message", socket.id),
+            _ => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("[sid={}] unexpected ws message", socket.id);
+                Ok(())
+            }
         }?
     }
     Ok(())
