@@ -17,11 +17,11 @@
 //! * [`TransportType`](crate::TransportType): extracts the transport type
 //! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
 //! * [`State`]: extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
-//! * [`Extension`]: extracts an extension of the given type
-//! * [`MaybeExtension`]: extracts an extension of the given type if it exists or `None` otherwise
+//! * [`Extension`]: extracts an extension of the given type stored on the called socket by cloning it.
+//! * [`MaybeExtension`]: extracts an extension of the given type if it exists or [`None`] otherwise
 //! * [`HttpExtension`]: extracts an http extension of the given type coming from the request.
 //! (Similar to axum's [`extract::Extension`](https://docs.rs/axum/latest/axum/struct.Extension.html)
-//! * [`MaybeHttpExtension`]: extracts an http extension of the given type if it exists or `None` otherwise.
+//! * [`MaybeHttpExtension`]: extracts an http extension of the given type if it exists or [`None`] otherwise.
 //!
 //! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits
 //! When implementing these traits, if you clone the [`Arc<Socket>`](crate::socket::Socket) make sure that it is dropped at least when the socket is disconnected.
