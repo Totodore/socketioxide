@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicUsize;
 
 use serde::{Deserialize, Serialize};
 use socketioxide::{
-    extract::{Data, Extension, MaybeExtension, SocketRef, State},
+    extract::{Data, Extension, SocketRef, State},
     SocketIo,
 };
 use tower::ServiceBuilder;
@@ -104,15 +104,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         s.on_disconnect(
-            |s: SocketRef, user_cnt: State<UserCnt>, MaybeExtension::<Username>(username)| {
-                if let Some(username) = username {
-                    let num_users = user_cnt.remove_user();
-                    let res = Res::UserEvent {
-                        num_users,
-                        username,
-                    };
-                    s.broadcast().emit("user left", res).ok();
-                }
+            |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| {
+                let num_users = user_cnt.remove_user();
+                let res = Res::UserEvent {
+                    num_users,
+                    username,
+                };
+                s.broadcast().emit("user left", res).ok();
             },
         );
     });

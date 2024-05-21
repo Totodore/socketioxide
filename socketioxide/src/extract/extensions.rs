@@ -10,7 +10,7 @@ use bytes::Bytes;
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 pub use extensions_extract::*;
 
-/// It was impossible to find the given extension
+/// It was impossible to find the given extension.
 pub struct ExtensionNotFound<T>(std::marker::PhantomData<T>);
 
 impl<T> std::fmt::Display for ExtensionNotFound<T> {
@@ -120,9 +120,11 @@ mod extensions_extract {
     /// An Extractor that returns the extension of the given type.
     /// If the extension is not found,
     /// the handler won't be called and an error log will be print if the `tracing` feature is enabled.
+    ///
+    /// You can use [`MaybeExtension`] if the extensions you are requesting _may_ not exists.
     pub struct Extension<T>(pub T);
 
-    /// An Extractor that returns the extension of the given type if it exists or `None` otherwise.
+    /// An Extractor that returns the extension of the given type T if it exists or [`None`] otherwise.
     pub struct MaybeExtension<T>(pub Option<T>);
 
     impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for Extension<T> {
@@ -180,4 +182,6 @@ mod extensions_extract {
             Ok(MaybeExtension(extract_extension(s).ok()))
         }
     }
+    super::super::__impl_deref!(Extension);
+    super::super::__impl_deref!(MaybeExtension<T>: Option<T>);
 }

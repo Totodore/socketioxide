@@ -188,6 +188,7 @@
 //!     Because the socket is not yet connected to the namespace,
 //!     you can't send messages to it from the middleware.
 //! </div>
+//!
 //! See the [`handler::connect`](handler::connect#middleware) module doc for more details on middlewares and examples.
 //!
 //! ## [Emiting data](#emiting-data)

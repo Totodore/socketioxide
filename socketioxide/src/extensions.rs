@@ -6,6 +6,9 @@
 //! to allow concurrent access. Moreover, any value extracted from the map is cloned before being returned.
 //!
 //! This is necessary because [`Extensions`] are shared between all the threads that handle the same socket.
+//!
+//! You can use the [`Extension`](crate::extract::Extension) or
+//! [`MaybeExtension`](crate::extract::MaybeExtension) extractor to extract an extension of the given type.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -50,6 +53,9 @@ impl Hasher for IdHasher {
 /// The main difference is that the inner Map is wrapped with an `RwLock` to allow concurrent access.
 ///
 /// This is necessary because `Extensions` are shared between all the threads that handle the same socket.
+///
+/// You can use the [`Extension`](crate::extract::Extension) or
+/// [`MaybeExtension`](crate::extract::MaybeExtension) extractor to extract an extension of the given type.
 #[derive(Default)]
 pub struct Extensions {
     /// The underlying map
