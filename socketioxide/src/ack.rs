@@ -19,7 +19,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
-use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet, SocketError};
+use crate::{errors::AckError, extract::SocketRef, packet::Packet, SocketError};
 
 /// An acknowledgement sent by the client.
 /// It contains the data sent by the client and the binary payloads if there are any.
@@ -145,9 +145,9 @@ impl AckInnerStream {
     ///
     /// The [`AckInnerStream`] will wait for the default timeout specified in the config
     /// (5s by default) if no custom timeout is specified.
-    pub fn broadcast<A: Adapter>(
+    pub fn broadcast(
         packet: Packet<'static>,
-        sockets: Vec<SocketRef<A>>,
+        sockets: Vec<SocketRef>,
         duration: Option<Duration>,
     ) -> Self {
         let rxs = FuturesUnordered::new();
@@ -311,13 +311,13 @@ mod test {
     use engineioxide::sid::Sid;
     use futures_util::StreamExt;
 
-    use crate::{adapter::LocalAdapter, ns::Namespace, socket::Socket};
+    use crate::{ns::Namespace, socket::Socket};
 
     use super::*;
 
-    fn create_socket() -> Arc<Socket<LocalAdapter>> {
+    fn create_socket() -> Arc<Socket> {
         let sid = Sid::new();
-        let ns = Namespace::<LocalAdapter>::new_dummy([sid]).into();
+        let ns = Namespace::new_dummy([sid]).into();
         let socket = Socket::new_dummy(sid, ns);
         socket.into()
     }

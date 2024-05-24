@@ -11,7 +11,6 @@ use futures_util::{FutureExt, TryFutureExt};
 use engineioxide::sid::Sid;
 use tokio::sync::oneshot;
 
-use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::socket::DisconnectReason;
 use crate::ProtocolVersion;
@@ -22,20 +21,21 @@ use crate::{
     SocketIoConfig,
 };
 
-#[derive(Debug)]
-pub struct Client<A: Adapter> {
+pub struct Client {
     pub(crate) config: Arc<SocketIoConfig>,
-    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
+    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace>>>,
+    state: Arc<state::TypeMap![Send + Sync]>,
 }
 
-impl<A: Adapter> Client<A> {
+impl Client {
     pub fn new(config: Arc<SocketIoConfig>) -> Self {
-        #[cfg(feature = "state")]
-        crate::state::freeze_state();
+        // #[cfg(feature = "state")]
+        // crate::state::freeze_state();
 
         Self {
             config,
             ns: RwLock::new(HashMap::new()),
+            state: Arc::new(state::TypeMap::new()),
         }
     }
 
@@ -113,12 +113,12 @@ impl<A: Adapter> Client<A> {
     /// Adds a new namespace handler
     pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
-        let ns = Namespace::new(path.clone(), callback);
+        let ns = Namespace::new(path.clone(), callback, self.config.adapter.boxed_clone());
         self.ns.write().unwrap().insert(path, ns);
     }
 
@@ -137,7 +137,7 @@ impl<A: Adapter> Client<A> {
         }
     }
 
-    pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
+    pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace>> {
         self.ns.read().unwrap().get(path).cloned()
     }
 
@@ -215,7 +215,7 @@ pub struct SocketData {
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
-impl<A: Adapter> EngineIoHandler for Client<A> {
+impl EngineIoHandler for Client {
     type Data = SocketData;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
@@ -333,6 +333,16 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     }
 }
 
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("config", &self.config)
+            .field("ns", &self.ns)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
 /// Utility that applies an incoming binary payload to a partial binary packet
 /// waiting to be filled with all the payloads
 ///
@@ -363,12 +373,12 @@ mod test {
     use crate::adapter::LocalAdapter;
     const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
 
-    fn create_client() -> super::Client<LocalAdapter> {
+    fn create_client() -> super::Client {
         let config = crate::SocketIoConfig {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
-        let client = Client::<LocalAdapter>::new(std::sync::Arc::new(config));
+        let client = Client::new(std::sync::Arc::new(config));
         client.add_ns("/".into(), || {});
         client
     }

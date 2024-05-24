@@ -4,28 +4,28 @@ use std::sync::Arc;
 use crate::errors::{DisconnectError, SendError};
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::DisconnectReason;
-use crate::{
-    adapter::{Adapter, LocalAdapter},
-    packet::Packet,
-    socket::Socket,
-};
+use crate::{packet::Packet, socket::Socket};
 use bytes::Bytes;
 use serde::Serialize;
 
 /// An Extractor that returns a reference to a [`Socket`].
 #[derive(Debug)]
-pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
+pub struct SocketRef(Arc<Socket>);
 
-impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
+impl FromConnectParts for SocketRef {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket>,
+        _: &Option<String>,
+        _: &Arc<state::TypeMap![Send + Sync]>,
+    ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
-impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
+impl FromMessageParts for SocketRef {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
@@ -33,40 +33,40 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
         Ok(SocketRef(s.clone()))
     }
 }
-impl<A: Adapter> FromDisconnectParts<A> for SocketRef<A> {
+impl FromDisconnectParts for SocketRef {
     type Error = Infallible;
-    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+    fn from_disconnect_parts(s: &Arc<Socket>, _: DisconnectReason) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
 
-impl<A: Adapter> std::ops::Deref for SocketRef<A> {
-    type Target = Socket<A>;
+impl std::ops::Deref for SocketRef {
+    type Target = Socket;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<A: Adapter> PartialEq for SocketRef<A> {
+impl PartialEq for SocketRef {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.0.id == other.0.id
     }
 }
-impl<A: Adapter> From<Arc<Socket<A>>> for SocketRef<A> {
+impl From<Arc<Socket>> for SocketRef {
     #[inline(always)]
-    fn from(socket: Arc<Socket<A>>) -> Self {
+    fn from(socket: Arc<Socket>) -> Self {
         Self(socket)
     }
 }
 
-impl<A: Adapter> Clone for SocketRef<A> {
+impl Clone for SocketRef {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<A: Adapter> SocketRef<A> {
+impl SocketRef {
     /// Disconnect the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
@@ -79,15 +79,15 @@ impl<A: Adapter> SocketRef<A> {
 /// An Extractor to send an ack response corresponding to the current event.
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 #[derive(Debug)]
-pub struct AckSender<A: Adapter = LocalAdapter> {
+pub struct AckSender {
     binary: Vec<Bytes>,
-    socket: Arc<Socket<A>>,
+    socket: Arc<Socket>,
     ack_id: Option<i64>,
 }
-impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
+impl FromMessageParts for AckSender {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Bytes>,
         ack_id: &Option<i64>,
@@ -95,8 +95,8 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
         Ok(Self::new(s.clone(), *ack_id))
     }
 }
-impl<A: Adapter> AckSender<A> {
-    pub(crate) fn new(socket: Arc<Socket<A>>, ack_id: Option<i64>) -> Self {
+impl AckSender {
+    pub(crate) fn new(socket: Arc<Socket>, ack_id: Option<i64>) -> Self {
         Self {
             binary: vec![],
             socket,
@@ -137,16 +137,16 @@ impl<A: Adapter> AckSender<A> {
     }
 }
 
-impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
+impl FromConnectParts for crate::ProtocolVersion {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
 }
-impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
+impl FromMessageParts for crate::ProtocolVersion {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
@@ -154,23 +154,23 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
         Ok(s.protocol())
     }
 }
-impl<A: Adapter> FromDisconnectParts<A> for crate::ProtocolVersion {
+impl FromDisconnectParts for crate::ProtocolVersion {
     type Error = Infallible;
-    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+    fn from_disconnect_parts(s: &Arc<Socket>, _: DisconnectReason) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
 }
 
-impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
+impl FromConnectParts for crate::TransportType {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
-impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
+impl FromMessageParts for crate::TransportType {
     type Error = Infallible;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
@@ -178,17 +178,17 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
         Ok(s.transport_type())
     }
 }
-impl<A: Adapter> FromDisconnectParts<A> for crate::TransportType {
+impl FromDisconnectParts for crate::TransportType {
     type Error = Infallible;
-    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Infallible> {
+    fn from_disconnect_parts(s: &Arc<Socket>, _: DisconnectReason) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
 
-impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
+impl FromDisconnectParts for DisconnectReason {
     type Error = Infallible;
     fn from_disconnect_parts(
-        _: &Arc<Socket<A>>,
+        _: &Arc<Socket>,
         reason: DisconnectReason,
     ) -> Result<Self, Infallible> {
         Ok(reason)

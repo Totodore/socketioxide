@@ -111,7 +111,7 @@ pub async fn create_server(port: u16) -> SocketIo {
     io
 }
 
-async fn spawn_server(port: u16, svc: SocketIoService<NotFoundService, LocalAdapter>) {
+async fn spawn_server(port: u16, svc: SocketIoService<NotFoundService>) {
     let addr = &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     let listener = TcpListener::bind(&addr).await.unwrap();
     tokio::spawn(async move {

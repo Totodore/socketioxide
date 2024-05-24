@@ -13,13 +13,11 @@ use bytes::Bytes;
 use engineioxide::sid::Sid;
 
 use crate::ack::{AckInnerStream, AckStream};
-use crate::adapter::LocalAdapter;
-use crate::errors::{BroadcastError, DisconnectError};
+use crate::errors::{AdapterError, BroadcastError, DisconnectError, SendError};
 use crate::extract::SocketRef;
 use crate::socket::Socket;
-use crate::SendError;
 use crate::{
-    adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
+    adapter::{BroadcastFlags, BroadcastOptions, Room},
     ns::Namespace,
     packet::Packet,
 };
@@ -103,21 +101,21 @@ impl RoomParam for Sid {
 }
 
 /// Chainable operators to configure the message to be sent.
-pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
+pub struct ConfOperators<'a> {
     binary: Vec<Bytes>,
     timeout: Option<Duration>,
-    socket: &'a Socket<A>,
+    socket: &'a Socket,
 }
 /// Chainable operators to select sockets to send a message to and to configure the message to be sent.
-pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
+pub struct BroadcastOperators {
     binary: Vec<Bytes>,
     timeout: Option<Duration>,
-    ns: Arc<Namespace<A>>,
+    ns: Arc<Namespace>,
     opts: BroadcastOptions,
 }
 
-impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
-    fn from(conf: ConfOperators<'_, A>) -> Self {
+impl From<ConfOperators<'_>> for BroadcastOperators {
+    fn from(conf: ConfOperators<'_>) -> Self {
         let opts = BroadcastOptions {
             sid: Some(conf.socket.id),
             ..Default::default()
@@ -132,8 +130,8 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
 }
 
 // ==== impl ConfOperators operations ====
-impl<'a, A: Adapter> ConfOperators<'a, A> {
-    pub(crate) fn new(sender: &'a Socket<A>) -> Self {
+impl<'a> ConfOperators<'a> {
+    pub(crate) fn new(sender: &'a Socket) -> Self {
         Self {
             binary: vec![],
             timeout: None,
@@ -161,7 +159,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn to(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn to(self, rooms: impl RoomParam) -> BroadcastOperators {
         BroadcastOperators::from(self).to(rooms)
     }
 
@@ -185,7 +183,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn within(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn within(self, rooms: impl RoomParam) -> BroadcastOperators {
         BroadcastOperators::from(self).within(rooms)
     }
 
@@ -208,7 +206,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.broadcast().except("room1").emit("test", data);
     ///     });
     /// });
-    pub fn except(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn except(self, rooms: impl RoomParam) -> BroadcastOperators {
         BroadcastOperators::from(self).except(rooms)
     }
 
@@ -225,7 +223,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.local().emit("test", data);
     ///     });
     /// });
-    pub fn local(self) -> BroadcastOperators<A> {
+    pub fn local(self) -> BroadcastOperators {
         BroadcastOperators::from(self).local()
     }
 
@@ -241,7 +239,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
-    pub fn broadcast(self) -> BroadcastOperators<A> {
+    pub fn broadcast(self) -> BroadcastOperators {
         BroadcastOperators::from(self).broadcast()
     }
 
@@ -304,7 +302,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
 }
 
 // ==== impl ConfOperators consume fns ====
-impl<A: Adapter> ConfOperators<'_, A> {
+impl ConfOperators<'_> {
     /// Emits a message to the client and apply the previous operators on the message.
     ///
     /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
@@ -452,7 +450,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///     socket.within("room1").within("room3").join(["room4", "room5"]).unwrap();
     ///   });
     /// });
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+    pub fn join(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
         self.socket.join(rooms)
     }
 
@@ -468,12 +466,12 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///     socket.within("room1").within("room3").leave(["room4", "room5"]).unwrap();
     ///   });
     /// });
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+    pub fn leave(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
         self.socket.leave(rooms)
     }
 
     /// Gets all room names for a given namespace
-    pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
+    pub fn rooms(self) -> Result<Vec<Room>, AdapterError> {
         self.socket.rooms()
     }
 
@@ -495,8 +493,8 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 }
 
-impl<A: Adapter> BroadcastOperators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>) -> Self {
+impl BroadcastOperators {
+    pub(crate) fn new(ns: Arc<Namespace>) -> Self {
         Self {
             binary: vec![],
             timeout: None,
@@ -504,7 +502,7 @@ impl<A: Adapter> BroadcastOperators<A> {
             opts: BroadcastOptions::default(),
         }
     }
-    pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
+    pub(crate) fn from_sock(ns: Arc<Namespace>, sid: Sid) -> Self {
         Self {
             binary: vec![],
             timeout: None,
@@ -684,7 +682,7 @@ impl<A: Adapter> BroadcastOperators<A> {
 }
 
 // ==== impl BroadcastOperators consume fns ====
-impl<A: Adapter> BroadcastOperators<A> {
+impl BroadcastOperators {
     /// Emits a message to all sockets selected with the previous operators.
     ///
     /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
@@ -826,7 +824,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///     }
     ///   });
     /// });
-    pub fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
+    pub fn sockets(self) -> Result<Vec<SocketRef>, AdapterError> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 
@@ -858,8 +856,10 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///     socket.within("room1").within("room3").join(["room4", "room5"]).unwrap();
     ///   });
     /// });
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_sockets(self.opts, rooms)
+    pub fn join(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
+        self.ns
+            .adapter
+            .add_sockets(self.opts, rooms.into_room_iter().collect())
     }
 
     /// Makes all sockets selected with the previous operators leave the given room(s).
@@ -874,17 +874,19 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///     socket.within("room1").within("room3").leave(["room4", "room5"]).unwrap();
     ///   });
     /// });
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del_sockets(self.opts, rooms)
+    pub fn leave(self, rooms: impl RoomParam) -> Result<(), AdapterError> {
+        self.ns
+            .adapter
+            .del_sockets(self.opts, rooms.into_room_iter().collect())
     }
 
     /// Gets all room names for a given namespace
-    pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
+    pub fn rooms(self) -> Result<Vec<Room>, AdapterError> {
         self.ns.adapter.rooms()
     }
 
     /// Gets a [`SocketRef`] by the specified [`Sid`].
-    pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
+    pub fn get_socket(&self, sid: Sid) -> Option<SocketRef> {
         self.ns.get_socket(sid).map(SocketRef::from).ok()
     }
 

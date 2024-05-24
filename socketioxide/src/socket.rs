@@ -23,7 +23,7 @@ use crate::extensions::Extensions;
 
 use crate::{
     ack::{AckInnerStream, AckResponse, AckResult, AckStream},
-    adapter::{Adapter, LocalAdapter, Room},
+    adapter::Room,
     errors::{DisconnectError, Error, SendError},
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
@@ -127,11 +127,11 @@ impl<'a> PermitExt<'a> for Permit<'a> {
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
-pub struct Socket<A: Adapter = LocalAdapter> {
+pub struct Socket {
     pub(crate) config: Arc<SocketIoConfig>,
-    pub(crate) ns: Arc<Namespace<A>>,
-    message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
-    disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
+    pub(crate) ns: Arc<Namespace>,
+    message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler>>,
+    disconnect_handler: Mutex<Option<BoxedDisconnectHandler>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
     ack_counter: AtomicI64,
     connected: AtomicBool,
@@ -149,10 +149,10 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     esocket: Arc<engineioxide::Socket<SocketData>>,
 }
 
-impl<A: Adapter> Socket<A> {
+impl Socket {
     pub(crate) fn new(
         sid: Sid,
-        ns: Arc<Namespace<A>>,
+        ns: Arc<Namespace>,
         esocket: Arc<engineioxide::Socket<SocketData>>,
         config: Arc<SocketIoConfig>,
     ) -> Self {
@@ -225,7 +225,7 @@ impl<A: Adapter> Socket<A> {
     /// ```
     pub fn on<H, T>(&self, event: impl Into<Cow<'static, str>>, handler: H)
     where
-        H: MessageHandler<A, T>,
+        H: MessageHandler<T>,
         T: Send + Sync + 'static,
     {
         self.message_handlers
@@ -259,7 +259,7 @@ impl<A: Adapter> Socket<A> {
     /// });
     pub fn on_disconnect<C, T>(&self, callback: C)
     where
-        C: DisconnectHandler<A, T> + Send + Sync + 'static,
+        C: DisconnectHandler<T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         let handler = MakeErasedHandler::new_disconnect_boxed(callback);
@@ -411,8 +411,10 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_all(self.id, rooms)
+    pub fn join(&self, rooms: impl RoomParam) -> Result<(), AdapterError> {
+        self.ns
+            .adapter
+            .add_all(self.id, rooms.into_room_iter().collect())
     }
 
     /// Leaves the given rooms.
@@ -421,15 +423,17 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del(self.id, rooms)
+    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), AdapterError> {
+        self.ns
+            .adapter
+            .del(self.id, rooms.into_room_iter().collect())
     }
 
     /// Leaves all rooms where the socket is connected.
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave_all(&self) -> Result<(), A::Error> {
+    pub fn leave_all(&self) -> Result<(), AdapterError> {
         self.ns.adapter.del_all(self.id)
     }
 
@@ -437,7 +441,7 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+    pub fn rooms(&self) -> Result<Vec<Room>, AdapterError> {
         self.ns.adapter.socket_rooms(self.id)
     }
 
@@ -471,7 +475,7 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).to(rooms)
     }
 
@@ -495,7 +499,7 @@ impl<A: Adapter> Socket<A> {
     ///             .emit("test", data);
     ///     });
     /// });
-    pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).within(rooms)
     }
 
@@ -519,7 +523,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().except("room1").emit("test", data);
     ///     });
     /// });
-    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+    pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).except(rooms)
     }
 
@@ -537,7 +541,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.local().emit("test", data);
     ///     });
     /// });
-    pub fn local(&self) -> BroadcastOperators<A> {
+    pub fn local(&self) -> BroadcastOperators {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).local()
     }
 
@@ -576,7 +580,7 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     ///
-    pub fn timeout(&self, timeout: Duration) -> ConfOperators<'_, A> {
+    pub fn timeout(&self, timeout: Duration) -> ConfOperators<'_> {
         ConfOperators::new(self).timeout(timeout)
     }
 
@@ -593,7 +597,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.bin(bin).emit("test", data);
     ///     });
     /// });
-    pub fn bin(&self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> ConfOperators<'_, A> {
+    pub fn bin(&self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> ConfOperators<'_> {
         ConfOperators::new(self).bin(binary)
     }
 
@@ -610,7 +614,7 @@ impl<A: Adapter> Socket<A> {
     ///         socket.broadcast().emit("test", data);
     ///     });
     /// });
-    pub fn broadcast(&self) -> BroadcastOperators<A> {
+    pub fn broadcast(&self) -> BroadcastOperators {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
     }
 
@@ -798,7 +802,7 @@ impl<A: Adapter> Socket<A> {
     }
 }
 
-impl<A: Adapter> Debug for Socket<A> {
+impl Debug for Socket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Socket")
             .field("ns", &self.ns())
@@ -808,16 +812,16 @@ impl<A: Adapter> Debug for Socket<A> {
             .finish()
     }
 }
-impl<A: Adapter> PartialEq for Socket<A> {
+impl PartialEq for Socket {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
 #[cfg(any(test, socketioxide_test))]
-impl<A: Adapter> Socket<A> {
+impl Socket {
     /// Creates a dummy socket for testing purposes
-    pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
+    pub fn new_dummy(sid: Sid, ns: Arc<Namespace>) -> Socket {
         let close_fn = Box::new(move |_, _| ());
         let s = Socket::new(
             sid,
@@ -837,7 +841,7 @@ mod test {
     #[tokio::test]
     async fn send_with_ack_error() {
         let sid = Sid::new();
-        let ns = Namespace::<LocalAdapter>::new_dummy([sid]).into();
+        let ns = Namespace::new_dummy([sid]).into();
         let socket: Arc<Socket> = Socket::new_dummy(sid, ns).into();
         // Saturate the channel
         for _ in 0..1024 {

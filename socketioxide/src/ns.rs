@@ -5,34 +5,41 @@ use std::{
 };
 
 use crate::{
-    adapter::Adapter,
-    errors::{ConnectFail, Error},
+    adapter::{Adapter, LocalAdapter},
+    client::SocketData,
+    errors::{AdapterError, ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::{DisconnectReason, Socket},
     SocketIoConfig,
 };
-use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
 
-pub struct Namespace<A: Adapter> {
+pub struct Namespace {
     pub path: Cow<'static, str>,
-    pub(crate) adapter: A,
-    handler: BoxedConnectHandler<A>,
-    sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
+    pub(crate) adapter: Box<dyn Adapter>,
+    handler: BoxedConnectHandler,
+    sockets: RwLock<HashMap<Sid, Arc<Socket>>>,
 }
 
-impl<A: Adapter> Namespace<A> {
-    pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
+impl Namespace {
+    pub fn new<C, T>(
+        path: Cow<'static, str>,
+        handler: C,
+        mut adapter: Box<dyn Adapter>,
+    ) -> Arc<Self>
     where
-        C: ConnectHandler<A, T> + Send + Sync + 'static,
+        C: ConnectHandler<T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
-        Arc::new_cyclic(|ns| Self {
-            path,
-            handler: MakeErasedHandler::new_ns_boxed(handler),
-            sockets: HashMap::new().into(),
-            adapter: A::new(ns.clone()),
+        Arc::new_cyclic(move |ns: &std::sync::Weak<_>| {
+            adapter.init(ns.clone()).ok();
+            Self {
+                path,
+                handler: MakeErasedHandler::new_ns_boxed(handler),
+                sockets: HashMap::new().into(),
+                adapter,
+            }
         })
     }
 
@@ -49,9 +56,13 @@ impl<A: Adapter> Namespace<A> {
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
     ) -> Result<(), ConnectFail> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
+        let socket: Arc<Socket> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
 
-        if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {
+        if let Err(e) = self
+            .handler
+            .call_middleware(socket.clone(), &auth, &self.state)
+            .await
+        {
             #[cfg(feature = "tracing")]
             tracing::trace!(ns = self.path.as_ref(), ?socket.id, "emitting connect_error packet");
 
@@ -78,7 +89,7 @@ impl<A: Adapter> Namespace<A> {
         }
 
         socket.set_connected(true);
-        self.handler.call(socket, auth);
+        self.handler.call(socket, auth, self.state.clone());
 
         Ok(())
     }
@@ -106,7 +117,7 @@ impl<A: Adapter> Namespace<A> {
         }
     }
 
-    pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {
+    pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket>, Error> {
         self.sockets
             .read()
             .unwrap()
@@ -115,7 +126,7 @@ impl<A: Adapter> Namespace<A> {
             .ok_or(Error::SocketGone(sid))
     }
 
-    pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
+    pub fn get_sockets(&self) -> Vec<Arc<Socket>> {
         self.sockets.read().unwrap().values().cloned().collect()
     }
 
@@ -159,9 +170,9 @@ impl<A: Adapter> Namespace<A> {
 }
 
 #[cfg(any(test, socketioxide_test))]
-impl<A: Adapter> Namespace<A> {
+impl Namespace {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
-        let ns = Namespace::new(Cow::Borrowed("/"), || {});
+        let ns = Namespace::new(Cow::Borrowed("/"), || {}, Box::new(LocalAdapter::new()));
         for sid in sockets {
             ns.sockets
                 .write()
@@ -176,7 +187,7 @@ impl<A: Adapter> Namespace<A> {
     }
 }
 
-impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
+impl std::fmt::Debug for Namespace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Namespace")
             .field("path", &self.path)
@@ -187,7 +198,7 @@ impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
 }
 
 #[cfg(feature = "tracing")]
-impl<A: Adapter> Drop for Namespace<A> {
+impl Drop for Namespace {
     fn drop(&mut self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("dropping namespace {}", self.path);

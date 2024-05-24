@@ -12,16 +12,14 @@ pub use disconnect::{DisconnectHandler, FromDisconnectParts};
 pub(crate) use message::BoxedMessageHandler;
 pub use message::{FromMessage, FromMessageParts, MessageHandler};
 /// A struct used to erase the type of a [`ConnectHandler`] or [`MessageHandler`] so it can be stored in a map
-pub(crate) struct MakeErasedHandler<H, A, T> {
+pub(crate) struct MakeErasedHandler<H, T> {
     handler: H,
-    adapter: std::marker::PhantomData<A>,
     type_: std::marker::PhantomData<T>,
 }
-impl<H, A, T> MakeErasedHandler<H, A, T> {
+impl<H, T> MakeErasedHandler<H, T> {
     pub fn new(handler: H) -> Self {
         Self {
             handler,
-            adapter: std::marker::PhantomData,
             type_: std::marker::PhantomData,
         }
     }

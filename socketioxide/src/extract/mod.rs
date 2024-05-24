@@ -56,9 +56,9 @@
 //! }
 //! impl std::error::Error for UserIdNotFound {}
 //!
-//! impl<A: Adapter> FromConnectParts<A> for UserId {
+//! impl FromConnectParts for UserId {
 //!     type Error = Infallible;
-//!     fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
+//!     fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Self::Error> {
 //!         // In a real app it would be better to parse the query params with a crate like `url`
 //!         let uri = &s.req_parts().uri;
 //!         let uid = uri
@@ -72,11 +72,11 @@
 //!
 //! // Here, if the user id is not found, the handler won't be called
 //! // and a tracing `error` log will be printed (if the `tracing` feature is enabled)
-//! impl<A: Adapter> FromMessageParts<A> for UserId {
+//! impl FromMessageParts for UserId {
 //!     type Error = UserIdNotFound;
 //!
 //!     fn from_message_parts(
-//!         s: &Arc<Socket<A>>,
+//!         s: &Arc<Socket>,
 //!         _: &mut serde_json::Value,
 //!         _: &mut Vec<Bytes>,
 //!         _: &Option<i64>,
