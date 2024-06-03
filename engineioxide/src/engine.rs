@@ -21,7 +21,7 @@ pub struct EngineIo<H: EngineIoHandler> {
     sockets: SocketMap<Socket<H::Data>>,
 
     /// The handler for the engine.io server that will be called when events are received
-    pub handler: H,
+    pub handler: Arc<H>,
 
     /// The config for the engine.io server
     pub config: EngineIoConfig,
@@ -29,7 +29,7 @@ pub struct EngineIo<H: EngineIoHandler> {
 
 impl<H: EngineIoHandler> EngineIo<H> {
     /// Create a new Engine.IO server with a [`EngineIoHandler`] and a [`EngineIoConfig`]
-    pub fn new(handler: H, config: EngineIoConfig) -> Self {
+    pub fn new(handler: Arc<H>, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
@@ -64,7 +64,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             .write()
             .unwrap()
             .insert(socket.id, socket.clone());
-        self.handler.on_connect(socket.clone());
+        self.handler.clone().on_connect(socket.clone());
         socket
     }
 

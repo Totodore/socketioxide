@@ -63,23 +63,23 @@ pub struct EngineIoService<H: EngineIoHandler, S = NotFoundService> {
 impl<H: EngineIoHandler> EngineIoService<H, NotFoundService> {
     /// Create a new [`EngineIoService`] with a [`NotFoundService`] as the inner service.
     /// If the request is not an `EngineIo` request, it will always return a 404 response.
-    pub fn new(handler: H) -> Self {
+    pub fn new(handler: Arc<H>) -> Self {
         EngineIoService::with_config(handler, EngineIoConfig::default())
     }
     /// Create a new [`EngineIoService`] with a custom config
-    pub fn with_config(handler: H, config: EngineIoConfig) -> Self {
+    pub fn with_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
         EngineIoService::with_config_inner(NotFoundService, handler, config)
     }
 }
 
 impl<S: Clone, H: EngineIoHandler> EngineIoService<H, S> {
     /// Create a new [`EngineIoService`] with a custom inner service.
-    pub fn with_inner(inner: S, handler: H) -> Self {
+    pub fn with_inner(inner: S, handler: Arc<H>) -> Self {
         EngineIoService::with_config_inner(inner, handler, EngineIoConfig::default())
     }
 
     /// Create a new [`EngineIoService`] with a custom inner service and a custom config.
-    pub fn with_config_inner(inner: S, handler: H, config: EngineIoConfig) -> Self {
+    pub fn with_config_inner(inner: S, handler: Arc<H>, config: EngineIoConfig) -> Self {
         EngineIoService {
             inner,
             engine: Arc::new(EngineIo::new(handler, config)),

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
@@ -14,13 +14,13 @@ use tokio::sync::oneshot;
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::socket::DisconnectReason;
-use crate::ProtocolVersion;
 use crate::{
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
 };
+use crate::{ProtocolVersion, SocketIo};
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
@@ -44,7 +44,7 @@ impl<A: Adapter> Client<A> {
         &self,
         auth: Option<String>,
         ns_path: &str,
-        esocket: &Arc<engineioxide::Socket<SocketData>>,
+        esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
     ) -> Result<(), Error> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
@@ -95,7 +95,7 @@ impl<A: Adapter> Client<A> {
 
     /// Spawn a task that will close the socket if it is not connected to a namespace
     /// after the [`SocketIoConfig::connect_timeout`] duration
-    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
+    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("spawning connect timeout task");
         let (tx, rx) = oneshot::channel();
@@ -205,21 +205,34 @@ impl<A: Adapter> Client<A> {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct SocketData {
+#[derive(Debug)]
+pub struct SocketData<A: Adapter> {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
     pub partial_bin_packet: Mutex<Option<Packet<'static>>>,
 
     /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
+
+    pub io: OnceLock<SocketIo<A>>,
+}
+impl<A: Adapter> Default for SocketData<A> {
+    fn default() -> Self {
+        Self {
+            partial_bin_packet: Default::default(),
+            connect_recv_tx: Default::default(),
+            io: OnceLock::new(),
+        }
+    }
 }
 
 impl<A: Adapter> EngineIoHandler for Client<A> {
-    type Data = SocketData;
+    type Data = SocketData<A>;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
-    fn on_connect(&self, socket: Arc<EIoSocket<SocketData>>) {
+    fn on_connect(self: Arc<Self>, socket: Arc<EIoSocket<SocketData<A>>>) {
+        socket.data.io.set(SocketIo::from(self.clone())).ok();
+
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket connect");
 
@@ -240,7 +253,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
-    fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
+    fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData<A>>>, reason: EIoDisconnectReason) {
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket disconnected");
         let socks: Vec<_> = self
@@ -267,7 +280,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData>>) {
+    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
@@ -314,7 +327,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData>>) {
+    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
         if apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
@@ -337,7 +350,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 /// waiting to be filled with all the payloads
 ///
 /// Returns true if the packet is complete and should be processed
-fn apply_payload_on_packet(data: Bytes, socket: &EIoSocket<SocketData>) -> bool {
+fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketData<A>>) -> bool {
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={}] applying payload on packet", socket.id);
     if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {

@@ -816,6 +816,11 @@ impl<A: Adapter> Clone for SocketIo<A> {
         Self(self.0.clone())
     }
 }
+impl<A: Adapter> From<Arc<Client<A>>> for SocketIo<A> {
+    fn from(client: Arc<Client<A>>) -> Self {
+        SocketIo(client)
+    }
+}
 
 #[cfg(any(test, socketioxide_test))]
 impl<A: Adapter> SocketIo<A> {
