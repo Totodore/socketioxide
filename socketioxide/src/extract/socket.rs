@@ -1,14 +1,13 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::errors::{DisconnectError, SendError};
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
-use crate::socket::DisconnectReason;
-use crate::SocketIo;
 use crate::{
     adapter::{Adapter, LocalAdapter},
+    errors::{DisconnectError, SendError},
     packet::Packet,
-    socket::Socket,
+    socket::{DisconnectReason, Socket},
+    SocketIo,
 };
 use bytes::Bytes;
 use serde::Serialize;
