@@ -387,6 +387,15 @@ mod test {
     }
 
     #[tokio::test]
+    async fn io_should_always_be_set() {
+        let client = create_client();
+        let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
+        let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
+        client.on_connect(sock.clone());
+        assert!(sock.data.io.get().is_some());
+    }
+
+    #[tokio::test]
     async fn connect_timeout_fail() {
         let client = create_client();
         let (tx, mut rx) = mpsc::channel(1);
