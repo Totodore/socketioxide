@@ -182,4 +182,6 @@ mod extensions_extract {
             Ok(MaybeExtension(extract_extension(s).ok()))
         }
     }
+    super::super::__impl_deref!(Extension);
+    super::super::__impl_deref!(MaybeExtension<T>: Option<T>);
 }
