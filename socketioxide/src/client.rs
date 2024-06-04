@@ -376,14 +376,14 @@ mod test {
     use crate::adapter::LocalAdapter;
     const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
 
-    fn create_client() -> super::Client<LocalAdapter> {
+    fn create_client() -> Arc<super::Client<LocalAdapter>> {
         let config = crate::SocketIoConfig {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
         let client = Client::<LocalAdapter>::new(std::sync::Arc::new(config));
         client.add_ns("/".into(), || {});
-        client
+        Arc::new(client)
     }
 
     #[tokio::test]
@@ -405,7 +405,7 @@ mod test {
         let (tx, mut rx) = mpsc::channel(1);
         let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
         let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
-        client.on_connect(sock.clone());
+        client.clone().on_connect(sock.clone());
         client.on_message("0".into(), sock.clone());
         tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
             .await
