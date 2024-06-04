@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicUsize;
 
 use serde::{Deserialize, Serialize};
 use socketioxide::{
-    extract::{Data, SocketRef, State},
+    extract::{Data, Extension, SocketRef, State},
     SocketIo,
 };
 use tower::ServiceBuilder;
@@ -59,14 +59,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (layer, io) = SocketIo::builder().with_state(UserCnt::new()).build_layer();
 
     io.ns("/", |s: SocketRef| {
-        s.on("new message", |s: SocketRef, Data::<String>(msg)| {
-            let username = s.extensions.get::<Username>().unwrap().clone();
-            let msg = Res::Message {
-                username,
-                message: msg,
-            };
-            s.broadcast().emit("new message", msg).ok();
-        });
+        s.on(
+            "new message",
+            |s: SocketRef, Data::<String>(msg), Extension::<Username>(username)| {
+                let msg = Res::Message {
+                    username,
+                    message: msg,
+                };
+                s.broadcast().emit("new message", msg).ok();
+            },
+        );
 
         s.on(
             "add user",
@@ -86,30 +88,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         );
 
-        s.on("typing", |s: SocketRef| {
-            let username = s.extensions.get::<Username>().unwrap().clone();
+        s.on("typing", |s: SocketRef, Extension::<Username>(username)| {
             s.broadcast()
                 .emit("typing", Res::Username { username })
                 .ok();
         });
 
-        s.on("stop typing", |s: SocketRef| {
-            let username = s.extensions.get::<Username>().unwrap().clone();
-            s.broadcast()
-                .emit("stop typing", Res::Username { username })
-                .ok();
-        });
+        s.on(
+            "stop typing",
+            |s: SocketRef, Extension::<Username>(username)| {
+                s.broadcast()
+                    .emit("stop typing", Res::Username { username })
+                    .ok();
+            },
+        );
 
-        s.on_disconnect(|s: SocketRef, user_cnt: State<UserCnt>| {
-            if let Some(username) = s.extensions.get::<Username>() {
+        s.on_disconnect(
+            |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| {
                 let num_users = user_cnt.remove_user();
                 let res = Res::UserEvent {
                     num_users,
-                    username: username.clone(),
+                    username,
                 };
                 s.broadcast().emit("user left", res).ok();
-            }
-        });
+            },
+        );
     });
 
     let app = axum::Router::new()

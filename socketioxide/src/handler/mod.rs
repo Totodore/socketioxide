@@ -3,7 +3,6 @@
 //! All handlers can be async or not.
 pub mod connect;
 pub mod disconnect;
-pub mod extract;
 pub mod message;
 
 pub(crate) use connect::BoxedConnectHandler;

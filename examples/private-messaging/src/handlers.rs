@@ -1,6 +1,8 @@
+use std::sync::{atomic::Ordering, Arc};
+
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use socketioxide::extract::{Data, SocketRef, State, TryData};
+use socketioxide::extract::{Data, Extension, SocketRef, State};
 use uuid::Uuid;
 
 use crate::store::{Message, Messages, Session, Sessions};
@@ -22,12 +24,19 @@ struct UserConnectedRes {
     messages: Vec<Message>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct UserDisconnectedRes {
+    #[serde(rename = "userID")]
+    user_id: Uuid,
+    username: String,
+}
+
 impl UserConnectedRes {
     fn new(session: &Session, messages: Vec<Message>) -> Self {
         Self {
             user_id: session.user_id,
             username: session.username.clone(),
-            connected: session.connected,
+            connected: session.connected.load(Ordering::SeqCst),
             messages,
         }
     }
@@ -38,86 +47,80 @@ struct PrivateMessageReq {
     content: String,
 }
 
-pub fn on_connection(s: SocketRef) {
+pub fn on_connection(
+    s: SocketRef,
+    Extension::<Arc<Session>>(session): Extension<Arc<Session>>,
+    State(sessions): State<Sessions>,
+    State(msgs): State<Messages>,
+) {
+    s.emit("session", (*session).clone()).unwrap();
+
+    let users = sessions
+        .get_all_other_sessions(session.user_id)
+        .into_iter()
+        .map(|session| {
+            let messages = msgs.get_all_for_user(session.user_id);
+            UserConnectedRes::new(&session, messages)
+        })
+        .collect::<Vec<_>>();
+
+    s.emit("users", [users]).unwrap();
+
+    let res = UserConnectedRes::new(&session, vec![]);
+    s.broadcast().emit("user connected", res).unwrap();
+
     s.on(
         "private message",
-        |s: SocketRef, Data(PrivateMessageReq { to, content }), State(Messages(msg))| {
-            let user_id = s.extensions.get::<Session>().unwrap().user_id;
+        |s: SocketRef,
+         Data(PrivateMessageReq { to, content }),
+         State::<Messages>(msgs),
+         Extension::<Arc<Session>>(session)| {
             let message = Message {
-                from: user_id,
+                from: session.user_id,
                 to,
                 content,
             };
-            msg.write().unwrap().push(message.clone());
+            msgs.add(message.clone());
             s.within(to.to_string())
                 .emit("private message", message)
                 .ok();
         },
     );
 
-    s.on_disconnect(|s: SocketRef, State(Sessions(sessions))| {
-        let mut session = s.extensions.get::<Session>().unwrap().clone();
-        session.connected = false;
-
-        sessions
-            .write()
-            .unwrap()
-            .get_mut(&session.session_id)
-            .unwrap()
-            .connected = false;
-
-        s.broadcast().emit("user disconnected", session).ok();
+    s.on_disconnect(|s: SocketRef, Extension::<Arc<Session>>(session)| {
+        session.set_connected(false);
+        s.broadcast()
+            .emit(
+                "user disconnected",
+                UserDisconnectedRes {
+                    user_id: session.user_id,
+                    username: session.username.clone(),
+                },
+            )
+            .ok();
     });
 }
 
-/// Handles the connection of a new user
+/// Handles the connection of a new user.
+/// Be careful to not emit anything to the user before the authentication is done.
 pub fn authenticate_middleware(
     s: SocketRef,
-    TryData(auth): TryData<Auth>,
-    State(Sessions(session_state)): State<Sessions>,
-    State(Messages(msg_state)): State<Messages>,
+    Data(auth): Data<Auth>,
+    State(sessions): State<Sessions>,
 ) -> Result<(), anyhow::Error> {
-    let auth = auth?;
-    let mut sessions = session_state.write().unwrap();
-    if let Some(session) = auth.session_id.and_then(|id| sessions.get_mut(&id)) {
-        session.connected = true;
+    let session = if let Some(session) = auth.session_id.and_then(|id| sessions.get(id)) {
+        session.set_connected(true);
         s.extensions.insert(session.clone());
+        session
     } else {
         let username = auth.username.ok_or(anyhow!("invalid username"))?;
-        let session = Session::new(username);
+        let session = Arc::new(Session::new(username));
         s.extensions.insert(session.clone());
-
-        sessions.insert(session.session_id, session);
+        sessions.add(session.clone());
+        session
     };
-    drop(sessions);
 
-    let session = s.extensions.get::<Session>().unwrap();
+    s.join(session.user_id.to_string())?;
 
-    s.join(session.user_id.to_string()).ok();
-    s.emit("session", session.clone())?;
-
-    let users = session_state
-        .read()
-        .unwrap()
-        .iter()
-        .filter(|(id, _)| id != &&session.session_id)
-        .map(|(_, session)| {
-            let messages = msg_state
-                .read()
-                .unwrap()
-                .iter()
-                .filter(|message| message.to == session.user_id || message.from == session.user_id)
-                .cloned()
-                .collect();
-
-            UserConnectedRes::new(session, messages)
-        })
-        .collect::<Vec<_>>();
-
-    s.emit("users", [users])?;
-
-    let res = UserConnectedRes::new(&session, vec![]);
-
-    s.broadcast().emit("user connected", res)?;
     Ok(())
 }

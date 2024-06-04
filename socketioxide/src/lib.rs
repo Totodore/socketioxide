@@ -137,7 +137,7 @@
 //! * Check the [`handler::connect`] module doc for more details on the connect handler and connect middlewares.
 //! * Check the [`handler::message`] module doc for more details on the message handler.
 //! * Check the [`handler::disconnect`] module doc for more details on the disconnect handler.
-//! * Check the [`handler::extract`] module doc for more details on the extractors.
+//! * Check the [`extract`] module doc for more details on the extractors.
 //!
 //! ## Extractors
 //! Handlers params are called extractors and are used to extract data from the incoming connection/message. They are inspired by the axum extractors.
@@ -188,6 +188,7 @@
 //!     Because the socket is not yet connected to the namespace,
 //!     you can't send messages to it from the middleware.
 //! </div>
+//!
 //! See the [`handler::connect`](handler::connect#middleware) module doc for more details on middlewares and examples.
 //!
 //! ## [Emiting data](#emiting-data)
@@ -281,6 +282,7 @@ pub mod extensions;
 mod state;
 
 pub mod ack;
+pub mod extract;
 pub mod handler;
 pub mod layer;
 pub mod operators;
@@ -290,7 +292,6 @@ pub mod socket;
 
 pub use engineioxide::TransportType;
 pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};
-pub use handler::extract;
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 
 mod client;

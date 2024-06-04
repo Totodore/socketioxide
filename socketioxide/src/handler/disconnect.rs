@@ -2,7 +2,7 @@
 //! It has a flexible axum-like API, you can put any arguments as long as it implements the [`FromDisconnectParts`] trait.
 //!
 //! You can also implement the [`FromDisconnectParts`] trait for your own types.
-//! See the [`extract`](super::extract) module doc for more details on available extractors.
+//! See the [`extract`](crate::extract) module doc for more details on available extractors.
 //!
 //! Handlers can be _optionally_ async.
 //!
@@ -97,7 +97,7 @@ where
 /// in this case the [`DisconnectHandler`] is not called.
 ///
 /// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait FromDisconnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
@@ -114,7 +114,7 @@ pub trait FromDisconnectParts<A: Adapter>: Sized {
 /// It is implemented for closures with up to 16 arguments. They must implement the [`FromDisconnectParts`] trait.
 ///
 /// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
-/// * See the [`extract`](super::extract) module doc for more details on available extractors.
+/// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
     fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason);
