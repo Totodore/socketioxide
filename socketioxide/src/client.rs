@@ -167,8 +167,9 @@ impl<A: Adapter> Client<A> {
     ) {
         let buffer_size = self.config.engine_config.max_buffer_size;
         let sid = Sid::new();
-        let (esock, rx) = EIoSocket::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
-
+        let (esock, rx) =
+            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
+        esock.data.io.set(SocketIo::from(self.clone())).ok();
         let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
         tokio::spawn({
             let esock = esock.clone();
@@ -389,7 +390,7 @@ mod test {
     #[tokio::test]
     async fn io_should_always_be_set() {
         let client = create_client();
-        let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
+        let close_fn = Box::new(move |_, _| {});
         let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
         client.on_connect(sock.clone());
         assert!(sock.data.io.get().is_some());
