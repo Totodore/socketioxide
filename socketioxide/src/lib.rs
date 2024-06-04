@@ -278,8 +278,6 @@ pub mod adapter;
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 #[cfg(feature = "extensions")]
 pub mod extensions;
-#[cfg(feature = "state")]
-mod state;
 
 pub mod ack;
 pub mod extract;

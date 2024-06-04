@@ -22,20 +22,26 @@ use crate::{
 };
 use crate::{ProtocolVersion, SocketIo};
 
-#[derive(Debug)]
 pub struct Client<A: Adapter> {
     pub(crate) config: Arc<SocketIoConfig>,
     ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
+    #[cfg(feature = "state")]
+    pub(crate) state: state::TypeMap![Send + Sync],
 }
 
 impl<A: Adapter> Client<A> {
-    pub fn new(config: Arc<SocketIoConfig>) -> Self {
+    pub fn new(
+        config: Arc<SocketIoConfig>,
+        #[cfg(feature = "state")] mut state: state::TypeMap![Send + Sync],
+    ) -> Self {
         #[cfg(feature = "state")]
-        crate::state::freeze_state();
+        state.freeze();
 
         Self {
             config,
             ns: RwLock::new(HashMap::new()),
+            #[cfg(feature = "state")]
+            state,
         }
     }
 
@@ -343,6 +349,15 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                 }
             }
         }
+    }
+}
+impl<A: Adapter> std::fmt::Debug for Client<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_struct("Client");
+        f.field("config", &self.config).field("ns", &self.ns);
+        #[cfg(feature = "state")]
+        let f = f.field("state", &self.state);
+        f.finish()
     }
 }
 
