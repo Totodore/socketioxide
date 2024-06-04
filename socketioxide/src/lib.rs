@@ -247,8 +247,9 @@
 //!
 //! #### Per socket state
 //! You can enable the `extensions` feature and use the [`extensions`](socket::Socket::extensions) field on any socket to manage
-//! the state of each socket. It is backed by a [`dashmap`] so you can safely access it from multiple threads.
-//! Beware that deadlocks can easily occur if you hold a value ref and try to remove it at the same time.
+//! the state of each socket. It is backed by a [`RwLock<HashMap>>`](std::sync::RwLock) so you can safely access it
+//! from multiple threads. However, the value must be [`Clone`] and `'static`.
+//! When calling get, or using the [`Extension`](extract::Extension) extractor, the value will always be cloned.
 //! See the [`extensions`] module doc for more details.
 //!
 //! #### Global state
