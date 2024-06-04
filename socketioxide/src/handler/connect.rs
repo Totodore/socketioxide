@@ -31,7 +31,7 @@
 //! let (svc, io) = SocketIo::new_svc();
 //! // Here the handler is sync,
 //! // if there is a serialization error, the handler is not called
-//! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
+//! io.ns("/nsp", move |io: SocketIo, s: SocketRef, Data(auth): Data<String>| {
 //!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
 //! });
 //! ```
@@ -43,7 +43,7 @@
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! // Here the handler is async and extract the current socket and the auth payload
-//! io.ns("/", move |s: SocketRef, TryData(auth): TryData<String>| async move {
+//! io.ns("/", move |io: SocketIo, s: SocketRef, TryData(auth): TryData<String>| async move {
 //!     println!("Socket connected on / namespace with id and auth data: {} {:?}", s.id, auth);
 //! });
 //! // Here the handler is async and only extract the current socket.
