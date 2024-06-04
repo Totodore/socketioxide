@@ -21,7 +21,7 @@ use std::{
 /// TypeMap value
 type AnyVal = Box<dyn Any + Send + Sync>;
 
-/// The `AnyDashMap` is a `HashMap` that uses `TypeId` as keys and `Any` as values.
+/// The [`AnyHashMap`] is a [`HashMap`] that uses `TypeId` as keys and `Any` as values.
 type AnyHashMap = RwLock<HashMap<TypeId, AnyVal, BuildHasherDefault<IdHasher>>>;
 
 // With TypeIds as keys, there's no need to hash them. They are already hashes
