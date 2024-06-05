@@ -400,7 +400,7 @@ mod test {
         let client = Client::<LocalAdapter>::new(
             std::sync::Arc::new(config),
             #[cfg(feature = "state")]
-            state::TypeMap::new(),
+            Default::default(),
         );
         client.add_ns("/".into(), || {});
         Arc::new(client)
