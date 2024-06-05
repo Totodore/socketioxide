@@ -62,7 +62,7 @@ use crate::{
 /// A [`Tower`](TowerSvc)/[`Hyper`](HyperSvc) Service that wraps [`EngineIoService`] and
 /// redirect every request to it
 pub struct SocketIoService<S: Clone, A: Adapter = LocalAdapter> {
-    engine_svc: EngineIoService<Arc<Client<A>>, S>,
+    engine_svc: EngineIoService<Client<A>, S>,
 }
 
 /// Tower Service implementation.
@@ -75,9 +75,9 @@ where
     S: TowerSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
     A: Adapter,
 {
-    type Response = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Response;
-    type Error = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Error;
-    type Future = <EngineIoService<Arc<Client<A>>, S> as TowerSvc<Request<ReqBody>>>::Future;
+    type Response = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Response;
+    type Error = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Error;
+    type Future = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Future;
 
     #[inline(always)]
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -99,9 +99,9 @@ where
     S: HyperSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
     A: Adapter,
 {
-    type Response = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<ReqBody>>>::Response;
-    type Error = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<ReqBody>>>::Error;
-    type Future = <EngineIoService<Arc<Client<A>>, S> as HyperSvc<Request<ReqBody>>>::Future;
+    type Response = <EngineIoService<Client<A>, S> as HyperSvc<Request<ReqBody>>>::Response;
+    type Error = <EngineIoService<Client<A>, S> as HyperSvc<Request<ReqBody>>>::Error;
+    type Future = <EngineIoService<Client<A>, S> as HyperSvc<Request<ReqBody>>>::Future;
 
     #[inline(always)]
     fn call(&self, req: Request<ReqBody>) -> Self::Future {
@@ -112,7 +112,7 @@ where
 impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     /// Creates a MakeService which can be used as a hyper service
     #[inline(always)]
-    pub fn into_make_service(self) -> MakeEngineIoService<Arc<Client<A>>, S> {
+    pub fn into_make_service(self) -> MakeEngineIoService<Client<A>, S> {
         self.engine_svc.into_make_service()
     }
 

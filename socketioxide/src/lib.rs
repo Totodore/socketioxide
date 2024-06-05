@@ -159,6 +159,12 @@
 //! * [`TransportType`]: extracts the transport type of the socket
 //! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
 //! * [`State`](extract::State): extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+//! * [`Extension`](extract::Extension): extracts a clone of the corresponding socket extension
+//! * [`MaybeExtension`](extract::MaybeExtension): extracts a clone of the corresponding socket extension if it exists
+//! * [`HttpExtension`](extract::HttpExtension): extracts a clone of the http request extension
+//! * [`MaybeHttpExtension`](extract::MaybeHttpExtension): extracts a clone of the http request extension if it exists
+//! * [`SocketIo`]: extracts a reference to the [`SocketIo`] handle
+//!
 //! ### Extractor order
 //! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
 //!

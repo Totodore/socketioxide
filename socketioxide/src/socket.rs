@@ -32,7 +32,7 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    AckError, SocketIoConfig,
+    AckError, SocketIo, SocketIoConfig,
 };
 use crate::{
     client::SocketData,
@@ -146,14 +146,14 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
     #[cfg(feature = "extensions")]
     pub extensions: Extensions,
-    esocket: Arc<engineioxide::Socket<SocketData>>,
+    esocket: Arc<engineioxide::Socket<SocketData<A>>>,
 }
 
 impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
         sid: Sid,
         ns: Arc<Namespace<A>>,
-        esocket: Arc<engineioxide::Socket<SocketData>>,
+        esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         config: Arc<SocketIoConfig>,
     ) -> Self {
         Self {
@@ -612,6 +612,15 @@ impl<A: Adapter> Socket<A> {
     /// });
     pub fn broadcast(&self) -> BroadcastOperators<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
+    }
+
+    /// Get the [`SocketIo`] context related to this socket
+    ///
+    /// # Panics
+    /// Because [`SocketData::io`] should be immediately set at the creation of the socket.
+    /// this should never panic.
+    pub(crate) fn get_io(&self) -> &SocketIo<A> {
+        self.esocket.data.io.get().unwrap()
     }
 
     /// Disconnects the socket from the current namespace,

@@ -45,7 +45,7 @@ impl<A: Adapter> Namespace<A> {
     pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,
-        esocket: Arc<engineioxide::Socket<SocketData>>,
+        esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<String>,
         config: Arc<SocketIoConfig>,
     ) -> Result<(), ConnectFail> {

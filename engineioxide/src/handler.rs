@@ -22,7 +22,7 @@
 //! impl EngineIoHandler for MyHandler {
 //!     type Data = SocketState;
 //!
-//!     fn on_connect(&self, socket: Arc<Socket<SocketState>>) {
+//!     fn on_connect(self: Arc<Self>, socket: Arc<Socket<SocketState>>) {
 //!         let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
 //!         socket.emit(cnt.to_string()).ok();
 //!     }
@@ -37,7 +37,7 @@
 //! }
 //!
 //! // Create an engine io service with the given handler
-//! let svc = EngineIoService::new(MyHandler::default());
+//! let svc = EngineIoService::new(Arc::new(MyHandler::default()));
 //! ```
 use std::sync::Arc;
 
@@ -54,7 +54,7 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     type Data: Default + Send + Sync + 'static;
 
     /// Called when a new socket is connected.
-    fn on_connect(&self, socket: Arc<Socket<Self::Data>>);
+    fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>);
 
     /// Called when a socket is disconnected with a [`DisconnectReason`]
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason);
@@ -64,24 +64,4 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
 
     /// Called when a binary message is received from the client.
     fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>);
-}
-
-impl<T: EngineIoHandler> EngineIoHandler for Arc<T> {
-    type Data = T::Data;
-
-    fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
-        (**self).on_connect(socket)
-    }
-
-    fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
-        (**self).on_disconnect(socket, reason)
-    }
-
-    fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>) {
-        (**self).on_message(msg, socket)
-    }
-
-    fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>) {
-        (**self).on_binary(data, socket)
-    }
 }

@@ -754,10 +754,9 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// let io2 = io.clone();
-    /// io.ns("/", move |socket: SocketRef| async move {
+    /// io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
     ///     println!("Socket connected on /test namespace with id: {}", socket.id);
-    ///     let rooms = io2.rooms().unwrap();
+    ///     let rooms = io.rooms().unwrap();
     ///     println!("All rooms on / namespace: {:?}", rooms);
     /// });
     pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
@@ -814,6 +813,11 @@ impl<A: Adapter> SocketIo<A> {
 impl<A: Adapter> Clone for SocketIo<A> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
+    }
+}
+impl<A: Adapter> From<Arc<Client<A>>> for SocketIo<A> {
+    fn from(client: Arc<Client<A>>) -> Self {
+        SocketIo(client)
     }
 }
 

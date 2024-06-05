@@ -1,5 +1,6 @@
 //! Functions and types used to handle incoming connections and messages.
-//! There is three main types of handlers: [`ConnectHandler`], [`MessageHandler`] and [`DisconnectHandler`].
+//! There is three main types of handlers: [connect](crate::handler::connect), [message](crate::handler::message)
+//! and [disconnect](crate::handler::disconnect).
 //! All handlers can be async or not.
 pub mod connect;
 pub mod disconnect;

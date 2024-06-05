@@ -28,7 +28,7 @@
 //! impl EngineIoHandler for MyHandler {
 //!     type Data = SocketState;
 //!
-//!     fn on_connect(&self, socket: Arc<Socket<SocketState>>) {
+//!     fn on_connect(self: Arc<Self>, socket: Arc<Socket<SocketState>>) {
 //!         // Get the request made to initialize the connection
 //!         // and check that the authorization header is correct
 //!         let connected = socket.req_parts.headers.get("Authorization")
@@ -52,7 +52,7 @@
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 //! }
 //!
-//! let svc = EngineIoService::new(MyHandler::default());
+//! let svc = EngineIoService::new(Arc::new(MyHandler::default()));
 //! ```
 use std::{
     sync::{

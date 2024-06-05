@@ -13,19 +13,20 @@
 //!
 //! impl EngineIoHandler for MyHandler {
 //!     type Data = ();
-//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
+//!     fn on_connect(self: Arc<Self>, socket: Arc<Socket<()>>) { }
 //!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
 //!     fn on_message(&self, msg: Str, socket: Arc<Socket<()>>) { }
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) { }
 //! }
 //! // Create a new engineio layer
-//! let layer = EngineIoLayer::new(MyHandler);
+//! let layer = EngineIoLayer::new(Arc::new(MyHandler));
 //!
 //! let app = axum::Router::<()>::new()
 //!     .route("/", get(|| async { "Hello, World!" }))
 //!     .layer(layer);
 //! // Spawn the axum server
 //! ```
+use std::sync::Arc;
 use tower::Layer;
 
 use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
@@ -34,13 +35,13 @@ use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoS
 #[derive(Debug, Clone)]
 pub struct EngineIoLayer<H: EngineIoHandler> {
     config: EngineIoConfig,
-    handler: H,
+    handler: Arc<H>,
 }
 
 impl<H: EngineIoHandler> EngineIoLayer<H> {
     /// Create a new [`EngineIoLayer`] with a given [`Handler`](crate::handler::EngineIoHandler)
     /// and a default [`EngineIoConfig`]
-    pub fn new(handler: H) -> Self {
+    pub fn new(handler: Arc<H>) -> Self {
         Self {
             config: EngineIoConfig::default(),
             handler,
@@ -49,7 +50,7 @@ impl<H: EngineIoHandler> EngineIoLayer<H> {
 
     /// Create a new [`EngineIoLayer`] with a given [`Handler`](crate::handler::EngineIoHandler)
     /// and a custom [`EngineIoConfig`]
-    pub fn from_config(handler: H, config: EngineIoConfig) -> Self {
+    pub fn from_config(handler: Arc<H>, config: EngineIoConfig) -> Self {
         Self { config, handler }
     }
 }

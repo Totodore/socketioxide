@@ -1,13 +1,13 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::errors::{DisconnectError, SendError};
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
-use crate::socket::DisconnectReason;
 use crate::{
     adapter::{Adapter, LocalAdapter},
+    errors::{DisconnectError, SendError},
     packet::Packet,
-    socket::Socket,
+    socket::{DisconnectReason, Socket},
+    SocketIo,
 };
 use bytes::Bytes;
 use serde::Serialize;
@@ -192,5 +192,32 @@ impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
         reason: DisconnectReason,
     ) -> Result<Self, Infallible> {
         Ok(reason)
+    }
+}
+
+impl<A: Adapter> FromConnectParts<A> for SocketIo<A> {
+    type Error = Infallible;
+
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
+        Ok(s.get_io().clone())
+    }
+}
+impl<A: Adapter> FromMessageParts<A> for SocketIo<A> {
+    type Error = Infallible;
+
+    fn from_message_parts(
+        s: &Arc<Socket<A>>,
+        _: &mut serde_json::Value,
+        _: &mut Vec<Bytes>,
+        _: &Option<i64>,
+    ) -> Result<Self, Self::Error> {
+        Ok(s.get_io().clone())
+    }
+}
+impl<A: Adapter> FromDisconnectParts<A> for SocketIo<A> {
+    type Error = Infallible;
+
+    fn from_disconnect_parts(s: &Arc<Socket<A>>, _: DisconnectReason) -> Result<Self, Self::Error> {
+        Ok(s.get_io().clone())
     }
 }

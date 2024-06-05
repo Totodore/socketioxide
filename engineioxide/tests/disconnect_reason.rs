@@ -31,7 +31,7 @@ struct MyHandler {
 impl EngineIoHandler for MyHandler {
     type Data = ();
 
-    fn on_connect(&self, socket: Arc<Socket<()>>) {
+    fn on_connect(self: Arc<Self>, socket: Arc<Socket<()>>) {
         println!("socket connect {}", socket.id);
     }
     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) {

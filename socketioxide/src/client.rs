@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
@@ -14,13 +14,13 @@ use tokio::sync::oneshot;
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::socket::DisconnectReason;
-use crate::ProtocolVersion;
 use crate::{
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
 };
+use crate::{ProtocolVersion, SocketIo};
 
 #[derive(Debug)]
 pub struct Client<A: Adapter> {
@@ -44,7 +44,7 @@ impl<A: Adapter> Client<A> {
         &self,
         auth: Option<String>,
         ns_path: &str,
-        esocket: &Arc<engineioxide::Socket<SocketData>>,
+        esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
     ) -> Result<(), Error> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
@@ -95,7 +95,7 @@ impl<A: Adapter> Client<A> {
 
     /// Spawn a task that will close the socket if it is not connected to a namespace
     /// after the [`SocketIoConfig::connect_timeout`] duration
-    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
+    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("spawning connect timeout task");
         let (tx, rx) = oneshot::channel();
@@ -167,8 +167,9 @@ impl<A: Adapter> Client<A> {
     ) {
         let buffer_size = self.config.engine_config.max_buffer_size;
         let sid = Sid::new();
-        let (esock, rx) = EIoSocket::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
-
+        let (esock, rx) =
+            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
+        esock.data.io.set(SocketIo::from(self.clone())).ok();
         let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
         tokio::spawn({
             let esock = esock.clone();
@@ -205,21 +206,34 @@ impl<A: Adapter> Client<A> {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct SocketData {
+#[derive(Debug)]
+pub struct SocketData<A: Adapter> {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
     pub partial_bin_packet: Mutex<Option<Packet<'static>>>,
 
     /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
+
+    pub io: OnceLock<SocketIo<A>>,
+}
+impl<A: Adapter> Default for SocketData<A> {
+    fn default() -> Self {
+        Self {
+            partial_bin_packet: Default::default(),
+            connect_recv_tx: Default::default(),
+            io: OnceLock::new(),
+        }
+    }
 }
 
 impl<A: Adapter> EngineIoHandler for Client<A> {
-    type Data = SocketData;
+    type Data = SocketData<A>;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
-    fn on_connect(&self, socket: Arc<EIoSocket<SocketData>>) {
+    fn on_connect(self: Arc<Self>, socket: Arc<EIoSocket<SocketData<A>>>) {
+        socket.data.io.set(SocketIo::from(self.clone())).ok();
+
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket connect");
 
@@ -240,7 +254,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
-    fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
+    fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData<A>>>, reason: EIoDisconnectReason) {
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket disconnected");
         let socks: Vec<_> = self
@@ -267,7 +281,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData>>) {
+    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
@@ -314,7 +328,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData>>) {
+    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
         if apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
@@ -337,7 +351,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 /// waiting to be filled with all the payloads
 ///
 /// Returns true if the packet is complete and should be processed
-fn apply_payload_on_packet(data: Bytes, socket: &EIoSocket<SocketData>) -> bool {
+fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketData<A>>) -> bool {
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={}] applying payload on packet", socket.id);
     if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
@@ -363,14 +377,23 @@ mod test {
     use crate::adapter::LocalAdapter;
     const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
 
-    fn create_client() -> super::Client<LocalAdapter> {
+    fn create_client() -> Arc<super::Client<LocalAdapter>> {
         let config = crate::SocketIoConfig {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
         let client = Client::<LocalAdapter>::new(std::sync::Arc::new(config));
         client.add_ns("/".into(), || {});
-        client
+        Arc::new(client)
+    }
+
+    #[tokio::test]
+    async fn io_should_always_be_set() {
+        let client = create_client();
+        let close_fn = Box::new(move |_, _| {});
+        let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
+        client.on_connect(sock.clone());
+        assert!(sock.data.io.get().is_some());
     }
 
     #[tokio::test]
@@ -392,7 +415,7 @@ mod test {
         let (tx, mut rx) = mpsc::channel(1);
         let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
         let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
-        client.on_connect(sock.clone());
+        client.clone().on_connect(sock.clone());
         client.on_message("0".into(), sock.clone());
         tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
             .await
