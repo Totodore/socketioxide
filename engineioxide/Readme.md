@@ -42,7 +42,7 @@ struct SocketState {
 impl EngineIoHandler for MyHandler {
     type Data = SocketState;
 
-    fn on_connect(&self, socket: Arc<Socket<SocketState>>) { 
+    fn on_connect(self: Arc<Self>, socket: Arc<Socket<SocketState>>) { 
         let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
         socket.emit(cnt.to_string()).ok();
     }
@@ -57,7 +57,7 @@ impl EngineIoHandler for MyHandler {
 }
 
 // Create a new engineio layer
-let layer = EngineIoLayer::new(MyHandler::default());
+let layer = EngineIoLayer::new(Arc::new(MyHandler::default()));
 
 let app = axum::Router::<()>::new()
     .route("/", get(|| async { "Hello, World!" }))

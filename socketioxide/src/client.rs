@@ -173,8 +173,9 @@ impl<A: Adapter> Client<A> {
     ) {
         let buffer_size = self.config.engine_config.max_buffer_size;
         let sid = Sid::new();
-        let (esock, rx) = EIoSocket::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
-
+        let (esock, rx) =
+            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
+        esock.data.io.set(SocketIo::from(self.clone())).ok();
         let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
         tokio::spawn({
             let esock = esock.clone();
@@ -391,14 +392,23 @@ mod test {
     use crate::adapter::LocalAdapter;
     const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
 
-    fn create_client() -> super::Client<LocalAdapter> {
+    fn create_client() -> Arc<super::Client<LocalAdapter>> {
         let config = crate::SocketIoConfig {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
         let client = Client::<LocalAdapter>::new(std::sync::Arc::new(config));
         client.add_ns("/".into(), || {});
-        client
+        Arc::new(client)
+    }
+
+    #[tokio::test]
+    async fn io_should_always_be_set() {
+        let client = create_client();
+        let close_fn = Box::new(move |_, _| {});
+        let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
+        client.on_connect(sock.clone());
+        assert!(sock.data.io.get().is_some());
     }
 
     #[tokio::test]
@@ -420,7 +430,7 @@ mod test {
         let (tx, mut rx) = mpsc::channel(1);
         let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
         let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
-        client.on_connect(sock.clone());
+        client.clone().on_connect(sock.clone());
         client.on_message("0".into(), sock.clone());
         tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
             .await

@@ -773,10 +773,9 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// let io2 = io.clone();
-    /// io.ns("/", move |socket: SocketRef| async move {
+    /// io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
     ///     println!("Socket connected on /test namespace with id: {}", socket.id);
-    ///     let rooms = io2.rooms().unwrap();
+    ///     let rooms = io.rooms().unwrap();
     ///     println!("All rooms on / namespace: {:?}", rooms);
     /// });
     pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {

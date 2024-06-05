@@ -201,15 +201,14 @@ pub async fn client_ns_disconnect() {
 pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
     let io = create_server(12349).await;
-    let io2 = io.clone();
-    io.ns("/", move |socket: SocketRef| {
+    io.ns("/", move |socket: SocketRef, io: SocketIo| {
         let id = socket.id;
         println!("Socket connected on / namespace with id: {}", id);
         let tx = tx.clone();
 
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            let s = io2.sockets().unwrap().into_iter().nth(0).unwrap();
+            let s = io.sockets().unwrap().into_iter().nth(0).unwrap();
             s.disconnect().unwrap();
         });
 
@@ -232,10 +231,9 @@ pub async fn server_ns_disconnect() {
 pub async fn server_ns_close() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
     let io = create_server(12353).await;
-    let io2 = io.clone();
-    io.ns("/test", move |socket: SocketRef| {
+    io.ns("/test", move |socket: SocketRef, io: SocketIo| {
         socket.on_disconnect(move |reason: DisconnectReason| tx.try_send(reason).unwrap());
-        io2.delete_ns("/test");
+        io.delete_ns("/test");
     });
 
     let mut ws = create_ws_connection(12353).await;

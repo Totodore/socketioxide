@@ -107,7 +107,7 @@ mod tests {
     impl EngineIoHandler for MockHandler {
         type Data = ();
 
-        fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
+        fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>) {
             println!("socket connect {}", socket.id);
         }
 
@@ -126,10 +126,14 @@ mod tests {
         }
     }
 
+    fn create_engine() -> Arc<EngineIo<MockHandler>> {
+        let config = EngineIoConfig::default();
+        Arc::new(EngineIo::new(Arc::new(MockHandler), config))
+    }
+
     #[tokio::test]
     async fn create_session() {
-        let config = EngineIoConfig::default();
-        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let engine = create_engine();
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,
@@ -144,8 +148,7 @@ mod tests {
 
     #[tokio::test]
     async fn close_session() {
-        let config = EngineIoConfig::default();
-        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let engine = create_engine();
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,
@@ -160,8 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_socket() {
-        let config = EngineIoConfig::default();
-        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let engine = create_engine();
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,

@@ -159,6 +159,12 @@
 //! * [`TransportType`]: extracts the transport type of the socket
 //! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
 //! * [`State`](extract::State): extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+//! * [`Extension`](extract::Extension): extracts a clone of the corresponding socket extension
+//! * [`MaybeExtension`](extract::MaybeExtension): extracts a clone of the corresponding socket extension if it exists
+//! * [`HttpExtension`](extract::HttpExtension): extracts a clone of the http request extension
+//! * [`MaybeHttpExtension`](extract::MaybeHttpExtension): extracts a clone of the http request extension if it exists
+//! * [`SocketIo`]: extracts a reference to the [`SocketIo`] handle
+//!
 //! ### Extractor order
 //! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
 //!
@@ -247,8 +253,9 @@
 //!
 //! #### Per socket state
 //! You can enable the `extensions` feature and use the [`extensions`](socket::Socket::extensions) field on any socket to manage
-//! the state of each socket. It is backed by a [`dashmap`] so you can safely access it from multiple threads.
-//! Beware that deadlocks can easily occur if you hold a value ref and try to remove it at the same time.
+//! the state of each socket. It is backed by a [`RwLock<HashMap>>`](std::sync::RwLock) so you can safely access it
+//! from multiple threads. However, the value must be [`Clone`] and `'static`.
+//! When calling get, or using the [`Extension`](extract::Extension) extractor, the value will always be cloned.
 //! See the [`extensions`] module doc for more details.
 //!
 //! #### Global state

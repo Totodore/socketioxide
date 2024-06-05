@@ -22,7 +22,7 @@
 //! impl EngineIoHandler for MyHandler {
 //!     type Data = SocketState;
 //!
-//!     fn on_connect(&self, socket: Arc<Socket<SocketState>>) {
+//!     fn on_connect(self: Arc<Self>, socket: Arc<Socket<SocketState>>) {
 //!         let cnt = self.user_cnt.fetch_add(1, Ordering::Relaxed) + 1;
 //!         socket.emit(cnt.to_string()).ok();
 //!     }
@@ -37,7 +37,7 @@
 //! }
 //!
 //! // Create an engine io service with the given handler
-//! let svc = EngineIoService::new(MyHandler::default());
+//! let svc = EngineIoService::new(Arc::new(MyHandler::default()));
 //! ```
 use std::sync::Arc;
 

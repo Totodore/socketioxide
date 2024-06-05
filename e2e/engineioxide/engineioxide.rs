@@ -22,7 +22,7 @@ struct MyHandler;
 impl EngineIoHandler for MyHandler {
     type Data = ();
 
-    fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
+    fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>) {
         println!("socket connect {}", socket.id);
     }
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_payload(1e6 as u64)
         .build();
 
-    let svc = EngineIoService::with_config(MyHandler, config);
+    let svc = EngineIoService::with_config(Arc::new(MyHandler), config);
 
     let listener = TcpListener::bind("127.0.0.1:3000").await?;
 
