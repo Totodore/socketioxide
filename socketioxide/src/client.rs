@@ -397,7 +397,11 @@ mod test {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
-        let client = Client::<LocalAdapter>::new(std::sync::Arc::new(config));
+        let client = Client::<LocalAdapter>::new(
+            std::sync::Arc::new(config),
+            #[cfg(feature = "state")]
+            state::TypeMap::new(),
+        );
         client.add_ns("/".into(), || {});
         Arc::new(client)
     }
