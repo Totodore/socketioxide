@@ -38,6 +38,8 @@ itoa = "1.0.10"
 hyper-util.version = "0.1.1"
 hyper = "1.0.3"
 pin-project-lite = "0.2.13"
+matchit = "0.8.2"
+slab = "0.4.9"
 
 # Dev deps
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

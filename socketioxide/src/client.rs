@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bytes::Bytes;
@@ -9,6 +8,8 @@ use engineioxide::Str;
 use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
+use matchit::Router;
+use slab::Slab;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
@@ -22,12 +23,24 @@ use crate::{
 };
 use crate::{ProtocolVersion, SocketIo};
 
+#[derive(Debug)]
+struct NsBuff<A: Adapter> {
+    /// Buffer of all the namespaces that the server is handling
+    buff: Slab<Arc<Namespace<A>>>,
+    /// Router used to find the namespace for a given path
+    /// Map to an index in the [`Slab`]
+    router: Router<usize>,
+}
+
 pub struct Client<A: Adapter> {
     pub(crate) config: Arc<SocketIoConfig>,
-    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
+    ns: RwLock<NsBuff<A>>,
+
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
 }
+
+/// ==== impl Client ====
 
 impl<A: Adapter> Client<A> {
     pub fn new(
@@ -39,7 +52,7 @@ impl<A: Adapter> Client<A> {
 
         Self {
             config,
-            ns: RwLock::new(HashMap::new()),
+            ns: RwLock::new(NsBuff::default()),
             #[cfg(feature = "state")]
             state,
         }
@@ -55,7 +68,7 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
 
-        if let Some(ns) = self.get_ns(ns_path) {
+        if let Some((ns, _params)) = self.ns.read().unwrap().get_with_params(ns_path) {
             let esocket = esocket.clone();
             let config = self.config.clone();
             tokio::spawn(async move {
@@ -117,15 +130,20 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Adds a new namespace handler
-    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
+    pub fn add_ns<C, T>(
+        &self,
+        path: Cow<'static, str>,
+        callback: C,
+    ) -> Result<(), matchit::InsertError>
     where
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
+
         let ns = Namespace::new(path.clone(), callback);
-        self.ns.write().unwrap().insert(path, ns);
+        self.ns.write().unwrap().insert(ns)
     }
 
     /// Deletes a namespace handler and closes all the connections to it
@@ -144,7 +162,7 @@ impl<A: Adapter> Client<A> {
     }
 
     pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
-        self.ns.read().unwrap().get(path).cloned()
+        self.ns.read().unwrap().get(path)
     }
 
     /// Closes all engine.io connections and all clients
@@ -152,63 +170,15 @@ impl<A: Adapter> Client<A> {
     pub(crate) async fn close(&self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all namespaces");
-        let ns = self.ns.read().unwrap().clone();
+        //TODO: remove ns at the same time ?
+        let ns = self.ns.write().unwrap().take();
         futures_util::future::join_all(
-            ns.values()
-                .map(|ns| ns.close(DisconnectReason::ClosingServer)),
+            ns.iter()
+                .map(|(_, ns)| ns.close(DisconnectReason::ClosingServer)),
         )
         .await;
         #[cfg(feature = "tracing")]
         tracing::debug!("all namespaces closed");
-    }
-
-    #[cfg(socketioxide_test)]
-    pub async fn new_dummy_sock(
-        self: Arc<Self>,
-        ns: &'static str,
-        auth: impl serde::Serialize,
-    ) -> (
-        tokio::sync::mpsc::Sender<engineioxide::Packet>,
-        tokio::sync::mpsc::Receiver<engineioxide::Packet>,
-    ) {
-        let buffer_size = self.config.engine_config.max_buffer_size;
-        let sid = Sid::new();
-        let (esock, rx) =
-            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
-        esock.data.io.set(SocketIo::from(self.clone())).ok();
-        let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
-        tokio::spawn({
-            let esock = esock.clone();
-            let client = self.clone();
-            async move {
-                while let Some(packet) = rx1.recv().await {
-                    match packet {
-                        engineioxide::Packet::Message(msg) => {
-                            client.on_message(msg, esock.clone());
-                        }
-                        engineioxide::Packet::Close => {
-                            client
-                                .on_disconnect(esock.clone(), EIoDisconnectReason::TransportClose);
-                        }
-                        engineioxide::Packet::Binary(bin) => {
-                            client.on_binary(bin, esock.clone());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        });
-        let p: String = Packet {
-            ns: ns.into(),
-            inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
-        }
-        .into();
-        self.on_message(p.into(), esock.clone());
-
-        // wait for the socket to be connected to the namespace
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-
-        (tx1, rx)
     }
 }
 
@@ -221,6 +191,7 @@ pub struct SocketData<A: Adapter> {
     /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 
+    /// Used to store the [`SocketIo`] instance so it can be accessed by any sockets
     pub io: OnceLock<SocketIo<A>>,
 }
 impl<A: Adapter> Default for SocketData<A> {
@@ -267,8 +238,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .ns
             .read()
             .unwrap()
-            .values()
-            .filter_map(|ns| ns.get_socket(socket.id).ok())
+            .iter()
+            .filter_map(|(_, ns)| ns.get_socket(socket.id).ok())
             .collect();
 
         let _res: Result<Vec<_>, _> = socks
@@ -384,6 +355,107 @@ fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketDat
     }
 }
 
+/// ==== impl NsBuff ====
+
+impl<A: Adapter> Default for NsBuff<A> {
+    fn default() -> Self {
+        Self {
+            buff: Slab::new(),
+            router: Router::new(),
+        }
+    }
+}
+impl<A: Adapter> NsBuff<A> {
+    pub fn get(&self, path: &str) -> Option<Arc<Namespace<A>>> {
+        self.router
+            .at(path)
+            .ok()
+            .map(|m| self.buff[*m.value].clone())
+    }
+    pub fn get_with_params<'k, 'v>(
+        &'k self,
+        path: &'v str,
+    ) -> Option<(Arc<Namespace<A>>, matchit::Params<'k, 'v>)> {
+        self.router
+            .at(path)
+            .ok()
+            .map(move |m| (self.buff[*m.value].clone(), m.params))
+    }
+
+    pub fn insert(&mut self, ns: Arc<Namespace<A>>) -> Result<(), matchit::InsertError> {
+        let index = self.buff.insert(ns);
+        self.router
+            .insert(self.buff[index].path.clone(), index)
+            .map_err(|e| {
+                self.buff.remove(index);
+                e
+            })
+    }
+
+    pub fn remove(&mut self, path: &str) -> Option<Arc<Namespace<A>>> {
+        self.router.remove(path).map(|i| self.buff.remove(i))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (usize, &Arc<Namespace<A>>)> {
+        self.buff.iter()
+    }
+
+    pub fn take(&mut self) -> Slab<Arc<Namespace<A>>> {
+        self.router = Router::new();
+        std::mem::take(&mut self.buff)
+    }
+}
+
+#[cfg(socketioxide_test)]
+impl<A: Adapter> Client<A> {
+    pub async fn new_dummy_sock(
+        self: Arc<Self>,
+        ns: &'static str,
+        auth: impl serde::Serialize,
+    ) -> (
+        tokio::sync::mpsc::Sender<engineioxide::Packet>,
+        tokio::sync::mpsc::Receiver<engineioxide::Packet>,
+    ) {
+        let buffer_size = self.config.engine_config.max_buffer_size;
+        let sid = Sid::new();
+        let (esock, rx) =
+            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
+        esock.data.io.set(SocketIo::from(self.clone())).ok();
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
+        tokio::spawn({
+            let esock = esock.clone();
+            let client = self.clone();
+            async move {
+                while let Some(packet) = rx1.recv().await {
+                    match packet {
+                        engineioxide::Packet::Message(msg) => {
+                            client.on_message(msg, esock.clone());
+                        }
+                        engineioxide::Packet::Close => {
+                            client
+                                .on_disconnect(esock.clone(), EIoDisconnectReason::TransportClose);
+                        }
+                        engineioxide::Packet::Binary(bin) => {
+                            client.on_binary(bin, esock.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        let p: String = Packet {
+            ns: ns.into(),
+            inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
+        }
+        .into();
+        self.on_message(p.into(), esock.clone());
+
+        // wait for the socket to be connected to the namespace
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        (tx1, rx)
+    }
+}
 #[cfg(test)]
 mod test {
     use super::*;

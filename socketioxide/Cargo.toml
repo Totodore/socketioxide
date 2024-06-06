@@ -27,6 +27,8 @@ http-body.workspace = true
 thiserror.workspace = true
 itoa.workspace = true
 hyper.workspace = true
+matchit.workspace = true
+slab.workspace = true
 pin-project-lite.workspace = true
 
 # Tracing
