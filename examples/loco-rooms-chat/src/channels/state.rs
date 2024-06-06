@@ -11,9 +11,9 @@ pub struct Message {
 
 pub type RoomStore = HashMap<String, VecDeque<Message>>;
 
-#[derive(Default, Arc)]
+#[derive(Default, Clone)]
 pub struct MessageStore {
-    pub messages: Arc::new(RwLock<RoomStore>),
+    pub messages: Arc<RwLock<RoomStore>>,
 }
 
 impl MessageStore {
