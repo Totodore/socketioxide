@@ -18,11 +18,10 @@ use crate::socket::{DisconnectReason, Socket};
 /// ```
 /// # use socketioxide::{SocketIo, extract::{SocketRef, State}};
 /// # use serde::{Serialize, Deserialize};
-/// # use std::sync::atomic::AtomicUsize;
-/// # use std::sync::atomic::Ordering;
-/// #[derive(Default)]
+/// # use std::sync::{Arc, atomic::{Ordering, AtomicUsize}};
+/// #[derive(Default, Clone)]
 /// struct MyAppData {
-///     user_cnt: AtomicUsize,
+///     user_cnt: Arc<AtomicUsize>,
 /// }
 /// impl MyAppData {
 ///     fn add_user(&self) {
