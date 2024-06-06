@@ -32,7 +32,7 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    AckError, SocketIo, SocketIoConfig,
+    AckError, SocketIo,
 };
 use crate::{
     client::SocketData,
@@ -128,7 +128,6 @@ impl<'a> PermitExt<'a> for Permit<'a> {
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket<A: Adapter = LocalAdapter> {
-    pub(crate) config: Arc<SocketIoConfig>,
     pub(crate) ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
@@ -154,7 +153,6 @@ impl<A: Adapter> Socket<A> {
         sid: Sid,
         ns: Arc<Namespace<A>>,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
-        config: Arc<SocketIoConfig>,
     ) -> Self {
         Self {
             ns,
@@ -166,7 +164,6 @@ impl<A: Adapter> Socket<A> {
             id: sid,
             #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
-            config,
             esocket,
         }
     }
@@ -398,7 +395,7 @@ impl<A: Adapter> Socket<A> {
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(self.ns(), event.into(), data);
         let rx = self.send_with_ack_permit(packet, permit);
-        let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
+        let stream = AckInnerStream::send(rx, self.get_io().config().ack_timeout, self.id);
         Ok(AckStream::<V>::from(stream))
     }
 
@@ -827,13 +824,17 @@ impl<A: Adapter> PartialEq for Socket<A> {
 impl<A: Adapter> Socket<A> {
     /// Creates a dummy socket for testing purposes
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
+        use crate::client::Client;
+        use crate::io::SocketIoConfig;
+
         let close_fn = Box::new(move |_, _| ());
-        let s = Socket::new(
-            sid,
-            ns,
-            engineioxide::Socket::new_dummy(sid, close_fn),
-            Arc::new(SocketIoConfig::default()),
-        );
+        let config = SocketIoConfig::default();
+        let io = SocketIo::from(Arc::new(Client::<A>::new(
+            config,
+            std::default::Default::default(),
+        )));
+        let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
+        s.esocket.data.io.set(io).unwrap();
         s.set_connected(true);
         s
     }
