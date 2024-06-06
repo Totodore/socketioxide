@@ -9,6 +9,7 @@ use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use std::sync::Arc;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(transparent)]
@@ -34,11 +35,11 @@ enum Res {
         username: Username,
     },
 }
-
-struct UserCnt(AtomicUsize);
+#[derive(Clone)]
+struct UserCnt(Arc<AtomicUsize>);
 impl UserCnt {
     fn new() -> Self {
-        Self(AtomicUsize::new(0))
+        Self(Arc::new(AtomicUsize::new(0)))
     }
     fn add_user(&self) -> usize {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::RwLock};
+use std::{collections::HashMap, sync::{RwLock, Arc}};
 
 use serde::{Deserialize, Serialize};
 use socketioxide::extract::{AckSender, Data, SocketRef, State};
@@ -21,8 +21,8 @@ pub struct PartialTodo {
     title: String,
 }
 
-#[derive(Default)]
-pub struct Todos(RwLock<HashMap<Uuid, Todo>>);
+#[derive(Clone, Default)]
+pub struct Todos(Arc<RwLock<HashMap<Uuid, Todo>>>);
 impl Todos {
     fn insert(&self, id: Uuid, todo: Todo) {
         self.0.write().unwrap().insert(id, todo);
