@@ -12,7 +12,7 @@ fn create_msg(ns: &str, event: &str, data: impl Into<serde_json::Value>) -> engi
     Message(packet.into())
 }
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
-    tokio::time::timeout(std::time::Duration::from_millis(500), srx.recv())
+    tokio::time::timeout(std::time::Duration::from_millis(10), srx.recv())
         .await
         .unwrap()
         .unwrap()
