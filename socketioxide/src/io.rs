@@ -171,10 +171,11 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Add a custom global state for the [`SocketIo`] instance.
     /// This state will be accessible from every handler with the [`State`](crate::extract::State) extractor.
     /// You can set any number of states as long as they have different types.
+    /// The state must be cloneable, therefore it is recommended to wrap it in an `Arc` if you want shared state.
     #[inline]
     #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
     #[cfg(feature = "state")]
-    pub fn with_state<S: Send + Sync + 'static>(self, state: S) -> Self {
+    pub fn with_state<S: Clone + Send + Sync + 'static>(self, state: S) -> Self {
         self.state.set(state);
         self
     }
