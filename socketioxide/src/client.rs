@@ -27,8 +27,10 @@ use crate::{ProtocolVersion, SocketIo};
 struct NsBuff<A: Adapter> {
     /// Buffer of all the namespaces that the server is handling
     buff: Slab<Arc<Namespace<A>>>,
-    /// Router used to find the namespace for a given path
-    /// Map to an index in the [`Slab`]
+    /// Router used to find the namespace for a given path.
+    /// Map to an index in the [`Slab`].
+    /// This is not directly used as a [`Router<Arc<Namespace<A>>>`] because the [`Router`]
+    /// doesn't support iterating over the values
     router: Router<usize>,
 }
 pub struct Client<A: Adapter> {
@@ -470,7 +472,7 @@ mod test {
             #[cfg(feature = "state")]
             Default::default(),
         );
-        client.add_ns("/".into(), || {});
+        client.add_ns("/".into(), || {}).unwrap();
         Arc::new(client)
     }
 
@@ -507,5 +509,50 @@ mod test {
         tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
             .await
             .unwrap_err();
+    }
+
+    #[test]
+    fn nsbuff_insert() {
+        let mut nsbuff = NsBuff::<LocalAdapter>::default();
+        let ns = Namespace::new("/test".into(), || {});
+        nsbuff.insert("/test", ns.clone()).unwrap();
+        assert!(matches!(nsbuff.get("/test"), Some(_)));
+    }
+
+    #[test]
+    fn nsbuff_insert_fail() {
+        let mut nsbuff = NsBuff::<LocalAdapter>::default();
+        let ns = Namespace::new("/test".into(), || {});
+        assert!(nsbuff.insert("/test{", ns).is_err());
+        assert!(nsbuff.get("/test").is_none());
+    }
+
+    #[test]
+    fn nsbuff_remove() {
+        let mut nsbuff = NsBuff::<LocalAdapter>::default();
+        let ns = Namespace::new("/test".into(), || {});
+        nsbuff.insert("/test", ns.clone()).unwrap();
+        assert!(matches!(nsbuff.remove("/test"), Some(_)));
+        assert!(nsbuff.get("/test").is_none());
+        assert!(nsbuff.buff.is_empty());
+    }
+
+    #[test]
+    fn nsbuff_remove_fail() {
+        let mut nsbuff = NsBuff::<LocalAdapter>::default();
+        let ns = Namespace::new("/test".into(), || {});
+        nsbuff.insert("/test", ns.clone()).unwrap();
+        assert!(nsbuff.remove("/test2").is_none());
+        assert!(matches!(nsbuff.get("/test"), Some(ns)));
+    }
+
+    #[test]
+    fn nsbuff_get_with_params() {
+        let mut nsbuff = NsBuff::<LocalAdapter>::default();
+        let ns = Namespace::new("/test".into(), || {});
+        nsbuff.insert("/test/{id}", ns.clone()).unwrap();
+        let (ns2, params) = nsbuff.get_with_params("/test/1").unwrap();
+        assert!(Arc::ptr_eq(&ns, &ns2));
+        assert!(matches!(params.get("id"), Some("1")));
     }
 }

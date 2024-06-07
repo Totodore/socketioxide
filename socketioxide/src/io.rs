@@ -873,7 +873,7 @@ mod tests {
     #[test]
     fn get_default_op() {
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("/", || {});
+        io.ns("/", || {}).unwrap();
         let _ = io.get_default_op();
     }
 
@@ -887,7 +887,7 @@ mod tests {
     #[test]
     fn get_op() {
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("test", || {});
+        io.ns("test", || {}).unwrap();
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
     }
@@ -897,7 +897,7 @@ mod tests {
         use engineioxide::Socket;
         let sid = Sid::new();
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("/", || {});
+        io.ns("/", || {}).unwrap();
         let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
         io.0.get_ns("/")
             .unwrap()
