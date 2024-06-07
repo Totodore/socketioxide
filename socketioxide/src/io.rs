@@ -187,7 +187,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (layer, client) = SocketIoLayer::from_config(
-            Arc::new(self.config),
+            self.config,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -203,7 +203,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
         let (svc, client) = SocketIoService::with_config_inner(
             NotFoundService,
-            Arc::new(self.config),
+            self.config,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -218,7 +218,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
         let (svc, client) = SocketIoService::with_config_inner(
             svc,
-            Arc::new(self.config),
+            self.config,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -895,10 +895,9 @@ mod tests {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
         let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
-        let config = SocketIoConfig::default().into();
         io.0.get_ns("/")
             .unwrap()
-            .connect(sid, socket, None, config)
+            .connect(sid, socket, None)
             .await
             .ok();
 

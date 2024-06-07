@@ -42,11 +42,11 @@ impl<A: Adapter> Clone for SocketIoLayer<A> {
 
 impl<A: Adapter> SocketIoLayer<A> {
     pub(crate) fn from_config(
-        config: Arc<SocketIoConfig>,
+        config: SocketIoConfig,
         #[cfg(feature = "state")] state: state::TypeMap![Send + Sync],
     ) -> (Self, Arc<Client<A>>) {
         let client = Arc::new(Client::new(
-            config.clone(),
+            config,
             #[cfg(feature = "state")]
             state,
         ));

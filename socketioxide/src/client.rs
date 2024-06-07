@@ -23,7 +23,7 @@ use crate::{
 use crate::{ProtocolVersion, SocketIo};
 
 pub struct Client<A: Adapter> {
-    pub(crate) config: Arc<SocketIoConfig>,
+    pub(crate) config: SocketIoConfig,
     ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
@@ -31,7 +31,7 @@ pub struct Client<A: Adapter> {
 
 impl<A: Adapter> Client<A> {
     pub fn new(
-        config: Arc<SocketIoConfig>,
+        config: SocketIoConfig,
         #[cfg(feature = "state")] mut state: state::TypeMap![Send + Sync],
     ) -> Self {
         #[cfg(feature = "state")]
@@ -57,13 +57,8 @@ impl<A: Adapter> Client<A> {
 
         if let Some(ns) = self.get_ns(ns_path) {
             let esocket = esocket.clone();
-            let config = self.config.clone();
             tokio::spawn(async move {
-                if ns
-                    .connect(esocket.id, esocket.clone(), auth, config)
-                    .await
-                    .is_ok()
-                {
+                if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
                     // cancel the connect timeout task for v5
                     if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                         tx.send(()).ok();
@@ -398,7 +393,7 @@ mod test {
             ..Default::default()
         };
         let client = Client::<LocalAdapter>::new(
-            std::sync::Arc::new(config),
+            config,
             #[cfg(feature = "state")]
             Default::default(),
         );

@@ -10,7 +10,6 @@ use crate::{
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::{DisconnectReason, Socket},
-    SocketIoConfig,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::sid::Sid;
@@ -47,9 +46,8 @@ impl<A: Adapter> Namespace<A> {
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<String>,
-        config: Arc<SocketIoConfig>,
     ) -> Result<(), ConnectFail> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone(), config).into();
+        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
 
         if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {
             #[cfg(feature = "tracing")]
