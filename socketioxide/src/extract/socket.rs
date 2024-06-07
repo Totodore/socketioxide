@@ -18,7 +18,11 @@ pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        _: &matchit::Params<'_, '_>,
+    ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
@@ -139,7 +143,11 @@ impl<A: Adapter> AckSender<A> {
 
 impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        _: &matchit::Params<'_, '_>,
+    ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
 }
@@ -163,7 +171,11 @@ impl<A: Adapter> FromDisconnectParts<A> for crate::ProtocolVersion {
 
 impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        _: &matchit::Params<'_, '_>,
+    ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
@@ -198,7 +210,11 @@ impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
 impl<A: Adapter> FromConnectParts<A> for SocketIo<A> {
     type Error = Infallible;
 
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        _: &matchit::Params<'_, '_>,
+    ) -> Result<Self, Self::Error> {
         Ok(s.get_io().clone())
     }
 }

@@ -128,11 +128,12 @@ type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
 
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>);
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
+        params: &'a matchit::Params<'_, '_>,
     ) -> MiddlewareResFut<'a>;
 }
 
@@ -148,7 +149,11 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
-    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        auth: &Option<String>,
+        params: &matchit::Params<'_, '_>,
+    ) -> Result<Self, Self::Error>;
 }
 
 /// Define a middleware for the connect event.
@@ -163,6 +168,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
+        params: &'a matchit::Params<'_, '_>,
     ) -> impl Future<Output = MiddlewareRes> + Send;
 
     #[doc(hidden)]
@@ -178,13 +184,14 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>);
 
     /// Call the middleware with the given arguments.
     fn call_middleware<'a>(
         &'a self,
         _: Arc<Socket<A>>,
         _: &'a Option<String>,
+        _: &'a matchit::Params<'_, '_>,
     ) -> MiddlewareResFut<'a> {
         Box::pin(async move { Ok(()) })
     }
@@ -278,16 +285,17 @@ where
     H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
-        self.handler.call(s, auth);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
+        self.handler.call(s, auth, params);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
+        params: &'a matchit::Params<'_, '_>,
     ) -> MiddlewareResFut<'a> {
-        self.handler.call_middleware(s, auth)
+        self.handler.call_middleware(s, auth, params)
     }
 }
 
@@ -299,16 +307,17 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
-        self.handler.call(s, auth);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
+        self.handler.call(s, auth, params);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
+        params: &'a matchit::Params<'_, '_>,
     ) -> MiddlewareResFut<'a> {
-        Box::pin(async move { self.middleware.call(s, auth).await })
+        Box::pin(async move { self.middleware.call(s, auth, params).await })
     }
 
     fn with<M2, T2>(self, next: M2) -> impl ConnectHandler<A, T>
@@ -335,8 +344,13 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
-        self.middleware.call(s, auth).await
+    async fn call<'a>(
+        &'a self,
+        s: Arc<Socket<A>>,
+        auth: &'a Option<String>,
+        params: &'a matchit::Params<'_, '_>,
+    ) -> MiddlewareRes {
+        self.middleware.call(s, auth, params).await
     }
 }
 
@@ -348,9 +362,14 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
-        self.middleware.call(s.clone(), auth).await?;
-        self.next.call(s, auth).await
+    async fn call<'a>(
+        &'a self,
+        s: Arc<Socket<A>>,
+        auth: &'a Option<String>,
+        params: &'a matchit::Params<'_, '_>,
+    ) -> MiddlewareRes {
+        self.middleware.call(s.clone(), auth, params).await?;
+        self.next.call(s, auth, params).await
     }
 }
 
@@ -373,9 +392,9 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth, &params) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -404,9 +423,9 @@ macro_rules! impl_handler {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth, &params) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -435,9 +454,14 @@ macro_rules! impl_middleware_async {
             E: std::fmt::Display + Send + 'static,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+            async fn call<'a>(
+                &'a self,
+                s: Arc<Socket<A>>,
+                auth: &'a Option<String>,
+                params: &'a matchit::Params<'_, '_>,
+            ) -> MiddlewareRes {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth) {
+                    let $ty = match $ty::from_connect_parts(&s, auth, params) {
                         Ok(v) => v,
                         Err(e) => {
                             #[cfg(feature = "tracing")]
@@ -472,9 +496,14 @@ macro_rules! impl_middleware {
             E: std::fmt::Display + Send + 'static,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+            async fn call<'a>(
+                &'a self,
+                s: Arc<Socket<A>>,
+                auth: &'a Option<String>,
+                params: &'a matchit::Params<'_, '_>,
+            ) -> MiddlewareRes {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth) {
+                    let $ty = match $ty::from_connect_parts(&s, auth, params) {
                         Ok(v) => v,
                         Err(e) => {
                             #[cfg(feature = "tracing")]

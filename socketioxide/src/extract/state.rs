@@ -62,6 +62,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for State
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
+        _: &matchit::Params<'_, '_>,
     ) -> Result<Self, StateNotFound<T>> {
         s.get_io()
             .get_state::<T>()

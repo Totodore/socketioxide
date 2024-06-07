@@ -101,6 +101,7 @@
 
 mod data;
 mod extensions;
+mod ns_params;
 mod socket;
 
 #[cfg(feature = "state")]
@@ -109,6 +110,7 @@ mod state;
 
 pub use data::*;
 pub use extensions::*;
+pub use ns_params::*;
 pub use socket::*;
 #[cfg(feature = "state")]
 #[cfg_attr(docsrs, doc(cfg(feature = "state")))]

@@ -69,10 +69,14 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
 
-        if let Some((ns, _params)) = self.ns.read().unwrap().get_with_params(ns_path) {
+        if let Some((ns, params)) = self.ns.read().unwrap().get_with_params(ns_path) {
             let esocket = esocket.clone();
             tokio::spawn(async move {
-                if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
+                if ns
+                    .connect(esocket.id, esocket.clone(), auth, params)
+                    .await
+                    .is_ok()
+                {
                     // cancel the connect timeout task for v5
                     if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                         tx.send(()).ok();

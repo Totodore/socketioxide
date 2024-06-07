@@ -46,10 +46,15 @@ impl<A: Adapter> Namespace<A> {
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<String>,
+        params: matchit::Params<'_, '_>,
     ) -> Result<(), ConnectFail> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
 
-        if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {
+        if let Err(e) = self
+            .handler
+            .call_middleware(socket.clone(), &auth, &params)
+            .await
+        {
             #[cfg(feature = "tracing")]
             tracing::trace!(ns = self.path.as_ref(), ?socket.id, "emitting connect_error packet");
 
@@ -76,7 +81,7 @@ impl<A: Adapter> Namespace<A> {
         }
 
         socket.set_connected(true);
-        self.handler.call(socket, auth);
+        self.handler.call(socket, auth, params);
 
         Ok(())
     }

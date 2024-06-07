@@ -49,6 +49,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for HttpE
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
+        _: &matchit::Params<'_, '_>,
     ) -> Result<Self, ExtensionNotFound<T>> {
         extract_http_extension(s).map(HttpExtension)
     }
@@ -56,7 +57,11 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for HttpE
 
 impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for MaybeHttpExtension<T> {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(
+        s: &Arc<Socket<A>>,
+        _: &Option<String>,
+        _: &matchit::Params<'_, '_>,
+    ) -> Result<Self, Infallible> {
         Ok(MaybeHttpExtension(extract_http_extension(s).ok()))
     }
 }
@@ -132,13 +137,18 @@ mod extensions_extract {
         fn from_connect_parts(
             s: &Arc<Socket<A>>,
             _: &Option<String>,
+            _: &matchit::Params<'_, '_>,
         ) -> Result<Self, ExtensionNotFound<T>> {
             extract_extension(s).map(Extension)
         }
     }
     impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for MaybeExtension<T> {
         type Error = Infallible;
-        fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+        fn from_connect_parts(
+            s: &Arc<Socket<A>>,
+            _: &Option<String>,
+            _: &matchit::Params<'_, '_>,
+        ) -> Result<Self, Infallible> {
             Ok(MaybeExtension(extract_extension(s).ok()))
         }
     }
