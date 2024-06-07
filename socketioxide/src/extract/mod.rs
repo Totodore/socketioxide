@@ -16,7 +16,7 @@
 //! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
 //! * [`TransportType`](crate::TransportType): extracts the transport type
 //! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
-//! * [`State`]: extracts a reference to a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
+//! * [`State`]: extracts a [`Clone`] of a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 //! * [`Extension`]: extracts an extension of the given type stored on the called socket by cloning it.
 //! * [`MaybeExtension`]: extracts an extension of the given type if it exists or [`None`] otherwise
 //! * [`HttpExtension`]: extracts an http extension of the given type coming from the request.

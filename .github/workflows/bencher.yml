@@ -3,8 +3,7 @@ name: Bencher
 on:
   push:
     branches: main
-  pull_request:
-    types: [opened, reopened, edited, synchronize]
+  workflow_dispatch:
 
 jobs:
   benchmark_base:
@@ -35,7 +34,7 @@ jobs:
           RUSTFLAGS: --cfg=socketioxide_test
 
   benchmark_pr:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch' && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       pull-requests: write
     runs-on: ubuntu-latest
@@ -56,7 +55,6 @@ jobs:
           bencher run \
           --branch '${{ github.head_ref }}' \
           --branch-start-point '${{ github.base_ref }}' \
-          --branch-start-point-hash '${{ github.event.pull_request.base.sha }}' \
           --testbed ubuntu-latest \
           --err \
           --github-actions '${{ secrets.GITHUB_TOKEN }}'

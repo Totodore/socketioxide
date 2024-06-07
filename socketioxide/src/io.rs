@@ -171,10 +171,11 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Add a custom global state for the [`SocketIo`] instance.
     /// This state will be accessible from every handler with the [`State`](crate::extract::State) extractor.
     /// You can set any number of states as long as they have different types.
+    /// The state must be cloneable, therefore it is recommended to wrap it in an `Arc` if you want shared state.
     #[inline]
     #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
     #[cfg(feature = "state")]
-    pub fn with_state<S: Send + Sync + 'static>(self, state: S) -> Self {
+    pub fn with_state<S: Clone + Send + Sync + 'static>(self, state: S) -> Self {
         self.state.set(state);
         self
     }
@@ -186,7 +187,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (layer, client) = SocketIoLayer::from_config(
-            Arc::new(self.config),
+            self.config,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -202,7 +203,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
         let (svc, client) = SocketIoService::with_config_inner(
             NotFoundService,
-            Arc::new(self.config),
+            self.config,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -217,7 +218,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
         let (svc, client) = SocketIoService::with_config_inner(
             svc,
-            Arc::new(self.config),
+            self.config,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -898,10 +899,9 @@ mod tests {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
         let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
-        let config = SocketIoConfig::default().into();
         io.0.get_ns("/")
             .unwrap()
-            .connect(sid, socket, None, config)
+            .connect(sid, socket, None)
             .await
             .ok();
 

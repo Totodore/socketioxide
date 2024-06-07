@@ -1,4 +1,4 @@
-//! Adapters are responsible for managing the state of the server.
+//! Adapters are responsible for managing the internal state of the server (rooms, sockets, etc...).
 //! When a socket joins or leaves a room, the adapter is responsible for updating the state.
 //! The default adapter is the [`LocalAdapter`], which stores the state in memory.
 //! Other adapters can be made to share the state between multiple servers.

@@ -119,7 +119,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     /// Creates a new [`EngineIoService`] with a custom inner service and a custom config.
     pub(crate) fn with_config_inner(
         inner: S,
-        config: Arc<SocketIoConfig>,
+        config: SocketIoConfig,
         #[cfg(feature = "state")] state: state::TypeMap![Send + Sync],
     ) -> (Self, Arc<Client<A>>) {
         let engine_config = config.engine_config.clone();
