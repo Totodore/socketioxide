@@ -34,13 +34,6 @@ struct NsBuff<A: Adapter> {
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
     ns: RwLock<NsBuff<A>>,
-    #[cfg(feature = "state")]
-    pub(crate) state: state::TypeMap![Send + Sync],
-}
-
-pub struct Client<A: Adapter> {
-    pub(crate) config: Arc<SocketIoConfig>,
-    ns: RwLock<NsBuff<A>>,
 
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
@@ -144,7 +137,7 @@ impl<A: Adapter> Client<A> {
         tracing::debug!("adding namespace {}", path);
 
         let ns = Namespace::new(path.clone(), callback);
-        self.ns.write().unwrap().insert(ns)
+        self.ns.write().unwrap().insert(&path, ns)
     }
 
     /// Deletes a namespace handler and closes all the connections to it
@@ -383,14 +376,16 @@ impl<A: Adapter> NsBuff<A> {
             .map(move |m| (self.buff[*m.value].clone(), m.params))
     }
 
-    pub fn insert(&mut self, ns: Arc<Namespace<A>>) -> Result<(), matchit::InsertError> {
+    pub fn insert(
+        &mut self,
+        path: &str,
+        ns: Arc<Namespace<A>>,
+    ) -> Result<(), matchit::InsertError> {
         let index = self.buff.insert(ns);
-        self.router
-            .insert(self.buff[index].path.clone(), index)
-            .map_err(|e| {
-                self.buff.remove(index);
-                e
-            })
+        self.router.insert(path, index).map_err(|e| {
+            self.buff.remove(index);
+            e
+        })
     }
 
     pub fn remove(&mut self, path: &str) -> Option<Arc<Namespace<A>>> {
