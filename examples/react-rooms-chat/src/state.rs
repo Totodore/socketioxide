@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::{collections::{HashMap, VecDeque}, sync::Arc};
 use tokio::sync::RwLock;
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -10,9 +10,9 @@ pub struct Message {
 
 pub type RoomStore = HashMap<String, VecDeque<Message>>;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct MessageStore {
-    pub messages: RwLock<RoomStore>,
+    pub messages: Arc<RwLock<RoomStore>>,
 }
 
 impl MessageStore {

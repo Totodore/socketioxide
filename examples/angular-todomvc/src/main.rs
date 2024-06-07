@@ -5,13 +5,14 @@ use socketioxide::{
     extract::{Data, SocketRef, State},
     SocketIo,
 };
+use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
-#[derive(Default)]
-struct Todos(pub Mutex<Vec<Todo>>);
+#[derive(Default, Clone)]
+struct Todos(Arc<Mutex<Vec<Todo>>>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Todo {

@@ -47,8 +47,8 @@ pub struct Message {
     pub content: String,
 }
 
-#[derive(Default)]
-pub struct Sessions(RwLock<HashMap<Uuid, Arc<Session>>>);
+#[derive(Clone, Default)]
+pub struct Sessions(Arc<RwLock<HashMap<Uuid, Arc<Session>>>>);
 
 impl Sessions {
     pub fn get_all_other_sessions(&self, user_id: Uuid) -> Vec<Arc<Session>> {
@@ -69,8 +69,8 @@ impl Sessions {
         self.0.write().unwrap().insert(session.session_id, session);
     }
 }
-#[derive(Default)]
-pub struct Messages(RwLock<Vec<Message>>);
+#[derive(Clone, Default)]
+pub struct Messages(Arc<RwLock<Vec<Message>>>);
 
 impl Messages {
     pub fn add(&self, message: Message) {
