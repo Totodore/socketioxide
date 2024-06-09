@@ -112,6 +112,14 @@ pub async fn connect_middleware_error() {
 }
 
 #[tokio::test]
+async fn ns_connect_with_params() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
+    let (_svc, io) = SocketIo::new_svc();
+
+    io.ns("/admin/{id}/board", move |io: SocketIo| {}).unwrap();
+}
+
+#[tokio::test]
 async fn remove_ns_from_connect_handler() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();

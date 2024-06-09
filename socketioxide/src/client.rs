@@ -73,7 +73,7 @@ impl<A: Adapter> Client<A> {
             let esocket = esocket.clone();
             tokio::spawn(async move {
                 if ns
-                    .connect(esocket.id, esocket.clone(), auth, params)
+                    .connect(esocket.id, esocket.clone(), auth, &params)
                     .await
                     .is_ok()
                 {
