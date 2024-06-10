@@ -81,7 +81,7 @@ impl<A: Adapter> Namespace<A> {
         }
 
         socket.set_connected(true);
-        self.handler.call(socket, auth, params.to_owned());
+        self.handler.call(socket, auth, params);
 
         Ok(())
     }

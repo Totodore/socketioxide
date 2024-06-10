@@ -128,7 +128,7 @@ type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
 
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &matchit::Params<'_, '_>);
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
@@ -184,7 +184,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &matchit::Params<'_, '_>);
 
     /// Call the middleware with the given arguments.
     fn call_middleware<'a>(
@@ -285,7 +285,7 @@ where
     H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &matchit::Params<'_, '_>) {
         self.handler.call(s, auth, params);
     }
 
@@ -307,7 +307,7 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &matchit::Params<'_, '_>) {
         self.handler.call(s, auth, params);
     }
 
@@ -392,9 +392,9 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &matchit::Params<'_, '_>) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, &params) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth, params) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -423,9 +423,9 @@ macro_rules! impl_handler {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: matchit::Params<'_, '_>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &matchit::Params<'_, '_>) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, &params) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth, params) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
