@@ -49,13 +49,13 @@ impl<A: Adapter> Client<A> {
     fn sock_connect(
         &self,
         auth: Option<String>,
-        ns_path: &str,
+        ns_path: Str,
         esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
     ) -> Result<(), Error> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
 
-        if let Some(ns) = self.get_ns(ns_path) {
+        if let Some(ns) = self.get_ns(&ns_path) {
             let esocket = esocket.clone();
             tokio::spawn(async move {
                 if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
@@ -246,7 +246,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         if protocol == ProtocolVersion::V4 {
             #[cfg(feature = "tracing")]
             tracing::debug!("connecting to default namespace for v4");
-            self.sock_connect(None, "/", &socket).unwrap();
+            self.sock_connect(None, Str::from("/"), &socket).unwrap();
         }
 
         if protocol == ProtocolVersion::V5 {
@@ -299,7 +299,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => self
-                .sock_connect(auth, &packet.ns, &socket)
+                .sock_connect(auth, packet.ns, &socket)
                 .map_err(Into::into),
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 // Cache-in the socket data until all the binary payloads are received

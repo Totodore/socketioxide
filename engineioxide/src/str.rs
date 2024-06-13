@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use bytes::Bytes;
 
 /// A custom [`Bytes`] wrapper to efficiently store string packets
@@ -43,6 +45,23 @@ impl From<String> for Str {
     fn from(s: String) -> Self {
         let vec = s.into_bytes();
         Str(Bytes::from(vec))
+    }
+}
+
+impl From<Cow<'static, str>> for Str {
+    fn from(s: Cow<'static, str>) -> Self {
+        match s {
+            Cow::Borrowed(s) => Str::from(s),
+            Cow::Owned(s) => Str::from(s),
+        }
+    }
+}
+impl From<&Cow<'static, str>> for Str {
+    fn from(s: &Cow<'static, str>) -> Self {
+        match s {
+            Cow::Borrowed(s) => Str::from(*s),
+            Cow::Owned(s) => Str(Bytes::copy_from_slice(s.as_bytes())),
+        }
     }
 }
 

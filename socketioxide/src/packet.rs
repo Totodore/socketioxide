@@ -18,70 +18,70 @@ pub struct Packet<'a> {
     /// The packet data
     pub inner: PacketData<'a>,
     /// The namespace the packet belongs to
-    pub ns: Cow<'a, str>,
+    pub ns: Str,
 }
 
 impl<'a> Packet<'a> {
     /// Send a connect packet with a default payload for v5 and no payload for v4
     pub fn connect(
-        ns: &'a str,
+        ns: impl Into<Str>,
         #[allow(unused_variables)] sid: Sid,
         #[allow(unused_variables)] protocol: ProtocolVersion,
     ) -> Self {
         #[cfg(not(feature = "v4"))]
         {
-            Self::connect_v5(ns, sid)
+            Self::connect_v5(ns.into(), sid)
         }
 
         #[cfg(feature = "v4")]
         {
             match protocol {
-                ProtocolVersion::V4 => Self::connect_v4(ns),
-                ProtocolVersion::V5 => Self::connect_v5(ns, sid),
+                ProtocolVersion::V4 => Self::connect_v4(ns.into()),
+                ProtocolVersion::V5 => Self::connect_v5(ns.into(), sid),
             }
         }
     }
 
     /// Sends a connect packet without payload.
     #[cfg(feature = "v4")]
-    fn connect_v4(ns: &'a str) -> Self {
+    fn connect_v4(ns: Str) -> Self {
         Self {
             inner: PacketData::Connect(None),
-            ns: Cow::Borrowed(ns),
+            ns,
         }
     }
 
     /// Sends a connect packet with payload.
-    fn connect_v5(ns: &'a str, sid: Sid) -> Self {
+    fn connect_v5(ns: Str, sid: Sid) -> Self {
         let val = serde_json::to_string(&ConnectPacket { sid }).unwrap();
         Self {
             inner: PacketData::Connect(Some(val)),
-            ns: Cow::Borrowed(ns),
+            ns,
         }
     }
 
     /// Create a disconnect packet for the given namespace
-    pub fn disconnect(ns: &'a str) -> Self {
+    pub fn disconnect(ns: impl Into<Str>) -> Self {
         Self {
             inner: PacketData::Disconnect,
-            ns: Cow::Borrowed(ns),
+            ns: ns.into(),
         }
     }
 }
 
 impl<'a> Packet<'a> {
     /// Create a connect error packet for the given namespace with a message
-    pub fn connect_error(ns: &'a str, message: &str) -> Self {
+    pub fn connect_error(ns: impl Into<Str>, message: &str) -> Self {
         let message = serde_json::to_string(message).unwrap();
         let packet = format!(r#"{{"message":{}}}"#, message);
         Self {
             inner: PacketData::ConnectError(packet),
-            ns: Cow::Borrowed(ns),
+            ns: ns.into(),
         }
     }
 
     /// Create an event packet for the given namespace
-    pub fn event(ns: impl Into<Cow<'a, str>>, e: impl Into<Cow<'a, str>>, data: Value) -> Self {
+    pub fn event(ns: impl Into<Str>, e: impl Into<Cow<'a, str>>, data: Value) -> Self {
         Self {
             inner: PacketData::Event(e.into(), data, None),
             ns: ns.into(),
@@ -90,7 +90,7 @@ impl<'a> Packet<'a> {
 
     /// Create a binary event packet for the given namespace
     pub fn bin_event(
-        ns: impl Into<Cow<'a, str>>,
+        ns: impl Into<Str>,
         e: impl Into<Cow<'a, str>>,
         data: Value,
         bin: Vec<Bytes>,
@@ -105,20 +105,20 @@ impl<'a> Packet<'a> {
     }
 
     /// Create an ack packet for the given namespace
-    pub fn ack(ns: &'a str, data: Value, ack: i64) -> Self {
+    pub fn ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::EventAck(data, ack),
-            ns: Cow::Borrowed(ns),
+            ns: ns.into(),
         }
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: &'a str, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
+    pub fn bin_ack(ns: impl Into<Str>, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
         debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
             inner: PacketData::BinaryAck(packet, ack),
-            ns: Cow::Borrowed(ns),
+            ns: ns.into(),
         }
     }
 
@@ -466,19 +466,19 @@ impl<'a> TryFrom<Str> for Packet<'a> {
                 match chars.get(i) {
                     Some(b',') => {
                         i += 1;
-                        break Cow::Owned(value[start_index..i - 1].to_string());
+                        break value.slice(start_index..i - 1);
                     }
                     // It maybe possible depending on clients that ns does not end with a comma
                     // if it is the end of the packet
                     // e.g `1/custom`
                     None => {
-                        break Cow::Owned(value[start_index..i].to_string());
+                        break value.slice(start_index..i);
                     }
                     Some(_) => i += 1,
                 }
             }
         } else {
-            Cow::Borrowed("/")
+            Str::from("/")
         };
 
         let start_index = i;

@@ -7,7 +7,11 @@ use socketioxide::{
 };
 use tokio::sync::mpsc;
 
-fn create_msg(ns: &str, event: &str, data: impl Into<serde_json::Value>) -> engineioxide::Packet {
+fn create_msg(
+    ns: &'static str,
+    event: &str,
+    data: impl Into<serde_json::Value>,
+) -> engineioxide::Packet {
     let packet: String = Packet::event(ns, event, data.into()).into();
     Message(packet.into())
 }
