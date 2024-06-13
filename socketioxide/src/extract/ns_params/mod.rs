@@ -1,5 +1,6 @@
-use std::{convert::Infallible, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
+use de::NsParamDeserializationError;
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -10,16 +11,16 @@ use crate::{
 
 mod de;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NsParam<T>(pub T);
 impl<A: Adapter, T: DeserializeOwned> FromConnectParts<A> for NsParam<T> {
-    type Error = Infallible;
+    type Error = NsParamDeserializationError;
     fn from_connect_parts(
         _: &Arc<Socket<A>>,
         _: &Option<String>,
         params: &matchit::Params<'_, '_>,
-    ) -> Result<Self, Infallible> {
-        Ok(NsParam(de::from_params(params)))
+    ) -> Result<Self, Self::Error> {
+        de::from_params(params).map(NsParam)
     }
 }
 
@@ -39,9 +40,8 @@ impl<A: Adapter, T: DeserializeOwned + Clone + Send + Sync + 'static> ConnectMid
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
         params: &'a matchit::Params<'_, '_>,
-    ) -> impl futures_core::Future<Output = Result<(), Box<dyn std::fmt::Display + Send>>> + Send
-    {
-        if let Ok(NsParam(param)) = NsParam::<T>::from_connect_parts(&s, auth, params) {
+    ) -> impl futures_core::Future<Output = Result<(), Box<dyn fmt::Display + Send>>> + Send {
+        if let Ok(param) = NsParam::<T>::from_connect_parts(&s, auth, params) {
             s.extensions.insert(param);
         } else {
             #[cfg(feature = "tracing")]
