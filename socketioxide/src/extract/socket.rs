@@ -122,7 +122,7 @@ impl<A: Adapter> AckSender<A> {
                     return Err(e.with_value(data).into());
                 }
             };
-            let ns = self.socket.ns();
+            let ns = &self.socket.ns.path;
             let data = serde_json::to_value(data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
