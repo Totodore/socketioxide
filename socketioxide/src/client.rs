@@ -61,19 +61,19 @@ impl<A: Adapter> Client<A> {
 
     /// Called when a socket connects to a new namespace
     fn sock_connect(
-        &self,
+        self: Arc<Self>,
         auth: Option<String>,
         ns_path: &str,
         esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
-    ) -> Result<(), Error> {
+    ) {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
-
-        if let Some((ns, params)) = self.ns.read().unwrap().get_with_params(ns_path) {
-            let esocket = esocket.clone();
-            tokio::spawn(async move {
+        tokio::spawn(async move {
+            let ns = self.ns.read().unwrap();
+            if let Some((ns, params)) = ns.get_with_params(ns_path) {
+                let esocket = esocket.clone();
                 if ns
-                    .connect(esocket.id, esocket.clone(), auth, &params)
+                    .connect(esocket.id, esocket.clone(), auth, params)
                     .await
                     .is_ok()
                 {
@@ -82,23 +82,22 @@ impl<A: Adapter> Client<A> {
                         tx.send(()).ok();
                     }
                 }
-            });
-            Ok(())
-        } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
-            #[cfg(feature = "tracing")]
-            tracing::error!(
+            } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4
+                && ns_path == "/"
+            {
+                #[cfg(feature = "tracing")]
+                tracing::error!(
                 "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
             );
-            esocket.close(EIoDisconnectReason::TransportClose);
-            Ok(())
-        } else {
-            let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
-            if let Err(_e) = esocket.emit(packet) {
-                #[cfg(feature = "tracing")]
-                tracing::error!("error while sending invalid namespace packet: {}", _e);
+                esocket.close(EIoDisconnectReason::TransportClose);
+            } else {
+                let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
+                if let Err(_e) = esocket.emit(packet) {
+                    #[cfg(feature = "tracing")]
+                    tracing::error!("error while sending invalid namespace packet: {}", _e);
+                }
             }
-            Ok(())
-        }
+        });
     }
 
     /// Propagate a packet to a its target namespace
@@ -222,7 +221,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         if protocol == ProtocolVersion::V4 {
             #[cfg(feature = "tracing")]
             tracing::debug!("connecting to default namespace for v4");
-            self.sock_connect(None, "/", &socket).unwrap();
+            self.sock_connect(None, "/", &socket);
         }
 
         if protocol == ProtocolVersion::V5 {
@@ -258,7 +257,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
@@ -274,9 +273,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         tracing::debug!("Packet: {:?}", packet);
 
         let res: Result<(), Error> = match packet.inner {
-            PacketData::Connect(auth) => self
-                .sock_connect(auth, &packet.ns, &socket)
-                .map_err(Into::into),
+            PacketData::Connect(auth) => {
+                self.clone().sock_connect(auth, &packet.ns, &socket);
+                Ok(())
+            }
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 // Cache-in the socket data until all the binary payloads are received
                 socket
