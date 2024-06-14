@@ -17,6 +17,7 @@ use crate::handler::ConnectHandler;
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
+    extract::NsParamBuff,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
@@ -63,15 +64,15 @@ impl<A: Adapter> Client<A> {
     fn sock_connect(
         self: Arc<Self>,
         auth: Option<String>,
-        ns_path: &str,
-        esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
+        ns_path: Str,
+        esocket: Arc<engineioxide::Socket<SocketData<A>>>,
     ) {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
+
         tokio::spawn(async move {
-            let ns = self.ns.read().unwrap();
-            if let Some((ns, params)) = ns.get_with_params(ns_path) {
-                let esocket = esocket.clone();
+            let result = { self.ns.read().unwrap().get_with_params(&ns_path) };
+            if let Some((ns, params)) = result {
                 if ns
                     .connect(esocket.id, esocket.clone(), auth, params)
                     .await
@@ -87,10 +88,11 @@ impl<A: Adapter> Client<A> {
             {
                 #[cfg(feature = "tracing")]
                 tracing::error!(
-                "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
-            );
+                    "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
+                );
                 esocket.close(EIoDisconnectReason::TransportClose);
             } else {
+                drop(result);
                 let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
                 if let Err(_e) = esocket.emit(packet) {
                     #[cfg(feature = "tracing")]
@@ -169,7 +171,6 @@ impl<A: Adapter> Client<A> {
     pub(crate) async fn close(&self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all namespaces");
-        //TODO: remove ns at the same time ?
         let ns = self.ns.write().unwrap().take();
         futures_util::future::join_all(
             ns.iter()
@@ -217,15 +218,14 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
         // Because we connect by default to the root namespace, we should ensure before that the root namespace is defined
-        #[cfg(feature = "v4")]
-        if protocol == ProtocolVersion::V4 {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("connecting to default namespace for v4");
-            self.sock_connect(None, "/", &socket);
-        }
-
-        if protocol == ProtocolVersion::V5 {
-            self.spawn_connect_timeout_task(socket);
+        match protocol {
+            #[cfg(feature = "v4")]
+            ProtocolVersion::V4 => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("connecting to default namespace for v4");
+                self.sock_connect(None, Str::from("/"), socket);
+            }
+            ProtocolVersion::V5 => self.spawn_connect_timeout_task(socket),
         }
     }
 
@@ -274,7 +274,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => {
-                self.clone().sock_connect(auth, &packet.ns, &socket);
+                self.clone().sock_connect(auth, packet.ns, socket.clone());
                 Ok(())
             }
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
@@ -372,14 +372,22 @@ impl<A: Adapter> NsBuff<A> {
             .ok()
             .map(|m| self.buff[*m.value].clone())
     }
-    pub fn get_with_params<'k, 'v>(
-        &'k self,
+
+    /// Extracts the namespace and the parameters from the given path
+    ///
+    /// The parameters keys are cloned to avoid borrowing [`NsBuff`] as
+    /// it is used behind a [`RwLock`].
+    ///
+    /// We use a [`SmallVec`] to store parameters because most of the time there is less
+    /// than 3 parameters.
+    pub fn get_with_params<'v>(
+        &self,
         path: &'v str,
-    ) -> Option<(Arc<Namespace<A>>, matchit::Params<'k, 'v>)> {
-        self.router
-            .at(path)
-            .ok()
-            .map(move |m| (self.buff[*m.value].clone(), m.params))
+    ) -> Option<(Arc<Namespace<A>>, NsParamBuff<'v>)> {
+        self.router.at(path).ok().map(move |m| {
+            let ns = self.buff[*m.value].clone();
+            (ns, NsParamBuff::from(m.params))
+        })
     }
 
     pub fn insert(
@@ -547,7 +555,7 @@ mod test {
         let ns = Namespace::new("/test".into(), || {});
         nsbuff.insert("/test", ns.clone()).unwrap();
         assert!(nsbuff.remove("/test2").is_none());
-        assert!(matches!(nsbuff.get("/test"), Some(ns)));
+        assert!(matches!(nsbuff.get("/test"), Some(_)));
     }
 
     #[test]
@@ -557,6 +565,7 @@ mod test {
         nsbuff.insert("/test/{id}", ns.clone()).unwrap();
         let (ns2, params) = nsbuff.get_with_params("/test/1").unwrap();
         assert!(Arc::ptr_eq(&ns, &ns2));
-        assert!(matches!(params.get("id"), Some("1")));
+        let param = params.into_iter().map(|(k, v)| (k.as_str(), *v)).next();
+        assert!(matches!(param, Some(("id", "1"))));
     }
 }

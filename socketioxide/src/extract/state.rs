@@ -3,6 +3,7 @@ use bytes::Bytes;
 use std::sync::Arc;
 
 use crate::adapter::Adapter;
+use crate::extract::NsParamBuff;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
 
@@ -62,7 +63,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for State
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &matchit::Params<'_, '_>,
+        _: &NsParamBuff<'_>,
     ) -> Result<Self, StateNotFound<T>> {
         s.get_io()
             .get_state::<T>()

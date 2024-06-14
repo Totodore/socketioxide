@@ -5,6 +5,7 @@ use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::{DisconnectError, SendError},
+    extract::NsParamBuff,
     packet::Packet,
     socket::{DisconnectReason, Socket},
     SocketIo,
@@ -21,7 +22,7 @@ impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &matchit::Params<'_, '_>,
+        _: &NsParamBuff<'_>,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
@@ -126,7 +127,7 @@ impl<A: Adapter> AckSender<A> {
                     return Err(e.with_value(data).into());
                 }
             };
-            let ns = self.socket.ns();
+            let ns = &self.socket.ns.path;
             let data = serde_json::to_value(data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
@@ -146,7 +147,7 @@ impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &matchit::Params<'_, '_>,
+        _: &NsParamBuff<'_>,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
@@ -174,7 +175,7 @@ impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &matchit::Params<'_, '_>,
+        _: &NsParamBuff<'_>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
@@ -213,7 +214,7 @@ impl<A: Adapter> FromConnectParts<A> for SocketIo<A> {
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &matchit::Params<'_, '_>,
+        _: &NsParamBuff<'_>,
     ) -> Result<Self, Self::Error> {
         Ok(s.get_io().clone())
     }

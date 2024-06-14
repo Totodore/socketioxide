@@ -319,7 +319,7 @@ impl<A: Adapter> Socket<A> {
             }
         };
 
-        let ns = self.ns();
+        let ns = &self.ns.path;
         let data = serde_json::to_value(data)?;
         permit.send(Packet::event(ns, event.into(), data));
         Ok(())
@@ -392,8 +392,9 @@ impl<A: Adapter> Socket<A> {
                 return Err(e.with_value(data).into());
             }
         };
+        let ns = &self.ns.path;
         let data = serde_json::to_value(data)?;
-        let packet = Packet::event(self.ns(), event.into(), data);
+        let packet = Packet::event(ns, event.into(), data);
         let rx = self.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, self.get_io().config().ack_timeout, self.id);
         Ok(AckStream::<V>::from(stream))

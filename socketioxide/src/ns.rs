@@ -7,6 +7,7 @@ use std::{
 use crate::{
     adapter::Adapter,
     errors::{ConnectFail, Error},
+    extract::NsParamBuff,
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::{DisconnectReason, Socket},
@@ -46,7 +47,7 @@ impl<A: Adapter> Namespace<A> {
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<String>,
-        params: matchit::Params<'_, '_>,
+        params: NsParamBuff<'_>,
     ) -> Result<(), ConnectFail> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
 

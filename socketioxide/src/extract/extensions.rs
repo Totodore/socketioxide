@@ -1,9 +1,9 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::adapter::Adapter;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
+use crate::{adapter::Adapter, extract::NsParamBuff};
 use bytes::Bytes;
 
 #[cfg(feature = "extensions")]
@@ -49,7 +49,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for HttpE
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &matchit::Params<'_, '_>,
+        _: &NsParamBuff<'_>,
     ) -> Result<Self, ExtensionNotFound<T>> {
         extract_http_extension(s).map(HttpExtension)
     }
@@ -60,7 +60,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for Maybe
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
         _: &Option<String>,
-        _: &matchit::Params<'_, '_>,
+        _: &NsParamBuff<'_>,
     ) -> Result<Self, Infallible> {
         Ok(MaybeHttpExtension(extract_http_extension(s).ok()))
     }
@@ -137,7 +137,7 @@ mod extensions_extract {
         fn from_connect_parts(
             s: &Arc<Socket<A>>,
             _: &Option<String>,
-            _: &matchit::Params<'_, '_>,
+            _: &NsParamBuff<'_>,
         ) -> Result<Self, ExtensionNotFound<T>> {
             extract_extension(s).map(Extension)
         }
@@ -147,7 +147,7 @@ mod extensions_extract {
         fn from_connect_parts(
             s: &Arc<Socket<A>>,
             _: &Option<String>,
-            _: &matchit::Params<'_, '_>,
+            _: &NsParamBuff<'_>,
         ) -> Result<Self, Infallible> {
             Ok(MaybeExtension(extract_extension(s).ok()))
         }

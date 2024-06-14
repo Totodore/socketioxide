@@ -868,6 +868,8 @@ impl<A: Adapter> SocketIo<A> {
 
 #[cfg(test)]
 mod tests {
+    use crate::extract::NsParamBuff;
+
     use super::*;
 
     #[test]
@@ -901,7 +903,7 @@ mod tests {
         let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
         io.0.get_ns("/")
             .unwrap()
-            .connect(sid, socket, None)
+            .connect(sid, socket, None, NsParamBuff::default())
             .await
             .ok();
 

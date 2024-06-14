@@ -29,6 +29,7 @@ itoa.workspace = true
 hyper.workspace = true
 matchit.workspace = true
 slab.workspace = true
+smallvec.workspace = true
 pin-project-lite.workspace = true
 
 # Tracing

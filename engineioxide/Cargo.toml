@@ -33,11 +33,11 @@ hyper.workspace = true
 tokio-tungstenite.workspace = true
 http-body-util.workspace = true
 pin-project-lite.workspace = true
+smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
 base64 = "0.22.0"
 rand = "0.8.5"
-smallvec = { version = "1.13.1", features = ["union"] }
 
 # Tracing
 tracing = { workspace = true, optional = true }
