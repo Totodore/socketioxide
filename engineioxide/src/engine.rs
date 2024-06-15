@@ -111,11 +111,7 @@ mod tests {
             println!("socket connect {}", socket.id);
         }
 
-        fn on_disconnect(
-            self: &Arc<Self>,
-            socket: Arc<Socket<Self::Data>>,
-            reason: DisconnectReason,
-        ) {
+        fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
             println!("socket disconnect {} {:?}", socket.id, reason);
         }
 
