@@ -26,7 +26,8 @@ pub async fn emit() {
                 }
             });
         }
-    });
+    })
+    .unwrap();
 
     let (_stx, mut srx) = io.new_dummy_sock("/", ()).await;
     assert_some!(srx.recv().await);

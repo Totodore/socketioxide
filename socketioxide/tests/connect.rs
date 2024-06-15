@@ -60,7 +60,8 @@ pub async fn connect_middleware() {
     io.ns(
         "/",
         { || {} }.with(handler(3)).with(handler(2)).with(handler(1)),
-    );
+    )
+    .unwrap();
 
     let (_, mut srx) = io.new_dummy_sock("/", ()).await;
     assert_eq!(rx.recv().await.unwrap(), 1);
@@ -104,7 +105,8 @@ pub async fn connect_middleware_error() {
             .with(handler(3, false))
             .with(handler(2, true))
             .with(handler(1, false)),
-    );
+    )
+    .unwrap();
 
     let (_, mut srx) = io.new_dummy_sock("/", ()).await;
 
@@ -117,10 +119,9 @@ pub async fn connect_middleware_error() {
 
 #[tokio::test]
 async fn ns_connect_with_params() {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    io.ns("/admin/{id}/board", move |io: SocketIo| {}).unwrap();
+    io.ns("/admin/{id}/board", move |_io: SocketIo| {}).unwrap();
 }
 
 #[tokio::test]
@@ -131,7 +132,8 @@ async fn remove_ns_from_connect_handler() {
     io.ns("/test1", move |io: SocketIo| {
         tx.try_send(()).unwrap();
         io.delete_ns("/test1");
-    });
+    })
+    .unwrap();
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
     timeout_rcv(&mut srx).await;
@@ -154,7 +156,7 @@ async fn remove_ns_from_middleware() {
         Ok::<(), std::convert::Infallible>(())
     };
     fn handler() {}
-    io.ns("/test1", handler.with(middleware));
+    io.ns("/test1", handler.with(middleware)).unwrap();
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
     timeout_rcv(&mut srx).await;
@@ -176,7 +178,8 @@ async fn remove_ns_from_event_handler() {
             io.delete_ns("/test1");
             tx.try_send(()).unwrap();
         });
-    });
+    })
+    .unwrap();
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
     timeout_rcv(&mut srx).await;
@@ -199,7 +202,8 @@ async fn remove_ns_from_disconnect_handler() {
             io.delete_ns("/test2");
             tx.try_send("disconnect").unwrap();
         })
-    });
+    })
+    .unwrap();
 
     let (stx, mut srx) = io.new_dummy_sock("/test2", ()).await;
     assert_eq!(timeout_rcv(&mut rx).await, "connect");

@@ -38,7 +38,7 @@ macro_rules! parse_single_value {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum NsParamDeserializationError {
     UnsupportedType(&'static str),
     Message(String),
@@ -782,199 +782,184 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn test_parse_seq_tuple_string_parse() {
-    //     let url_params = create_param_iter(vec![("a", "1"), ("b", "2")]);
-    //     assert_eq!(
-    //         <Vec<(String, u32)>>::deserialize(PathDeserializer::new(&url_params)).unwrap(),
-    //         vec![("a".to_owned(), 1), ("b".to_owned(), 2)]
-    //     );
-    // }
+    #[test]
+    fn test_parse_seq_tuple_string_parse() {
+        let iter = vec![("a", "1"), ("b", "2")].into_iter();
+        assert_eq!(
+            <Vec<(String, u32)>>::deserialize(Deserializer { iter }).unwrap(),
+            vec![("a".to_owned(), 1), ("b".to_owned(), 2)]
+        );
+    }
 
-    // #[test]
-    // fn test_parse_struct() {
-    //     let url_params = create_param_iter(vec![("a", "1"), ("b", "true"), ("c", "abc")]);
-    //     assert_eq!(
-    //         Struct::deserialize(PathDeserializer::new(&url_params)).unwrap(),
-    //         Struct {
-    //             c: "abc".to_owned(),
-    //             b: true,
-    //             a: 1,
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_struct() {
+        let iter = [("a", "1"), ("b", "true"), ("c", "abc")].into_iter();
+        assert_eq!(
+            Struct::deserialize(Deserializer { iter }).unwrap(),
+            Struct {
+                c: "abc".to_owned(),
+                b: true,
+                a: 1,
+            }
+        );
+    }
 
-    // #[test]
-    // fn test_parse_struct_ignoring_additional_fields() {
-    //     let url_params = create_param_iter(vec![
-    //         ("a", "1"),
-    //         ("b", "true"),
-    //         ("c", "abc"),
-    //         ("d", "false"),
-    //     ]);
-    //     assert_eq!(
-    //         Struct::deserialize(PathDeserializer::new(&url_params)).unwrap(),
-    //         Struct {
-    //             c: "abc".to_owned(),
-    //             b: true,
-    //             a: 1,
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_struct_ignoring_additional_fields() {
+        let iter = [("a", "1"), ("b", "true"), ("c", "abc"), ("d", "false")].into_iter();
+        assert_eq!(
+            Struct::deserialize(Deserializer { iter }).unwrap(),
+            Struct {
+                c: "abc".to_owned(),
+                b: true,
+                a: 1,
+            }
+        );
+    }
 
-    // #[test]
-    // fn test_parse_tuple_ignoring_additional_fields() {
-    //     let url_params = create_param_iter(vec![
-    //         ("a", "abc"),
-    //         ("b", "true"),
-    //         ("c", "1"),
-    //         ("d", "false"),
-    //     ]);
-    //     assert_eq!(
-    //         <(&str, bool, u32)>::deserialize(PathDeserializer::new(&url_params)).unwrap(),
-    //         ("abc", true, 1)
-    //     );
-    // }
+    #[test]
+    fn test_parse_tuple_ignoring_additional_fields() {
+        let iter = [("a", "abc"), ("b", "true"), ("c", "1"), ("d", "false")].into_iter();
+        assert_eq!(
+            <(&str, bool, u32)>::deserialize(Deserializer { iter }).unwrap(),
+            ("abc", true, 1)
+        );
+    }
 
-    // #[test]
-    // fn test_parse_map() {
-    //     let url_params = create_param_iter(vec![("a", "1"), ("b", "true"), ("c", "abc")]);
-    //     assert_eq!(
-    //         <HashMap<String, String>>::deserialize(PathDeserializer::new(&url_params)).unwrap(),
-    //         [("a", "1"), ("b", "true"), ("c", "abc")]
-    //             .iter()
-    //             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-    //             .collect()
-    //     );
-    // }
+    #[test]
+    fn test_parse_map() {
+        use std::collections::HashMap;
+        let iter = [("a", "1"), ("b", "true"), ("c", "abc")].into_iter();
+        assert_eq!(
+            <HashMap<String, String>>::deserialize(Deserializer { iter }).unwrap(),
+            [("a", "1"), ("b", "true"), ("c", "abc")]
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect()
+        );
+    }
 
-    // macro_rules! test_parse_error {
-    //     (
-    //         $params:expr,
-    //         $ty:ty,
-    //         $expected_error_kind:expr $(,)?
-    //     ) => {
-    //         let url_params = create_url_params($params);
-    //         let actual_error_kind = <$ty>::deserialize(PathDeserializer::new(&url_params))
-    //             .unwrap_err()
-    //             .kind;
-    //         assert_eq!(actual_error_kind, $expected_error_kind);
-    //     };
-    // }
+    macro_rules! test_parse_error {
+        (
+            $params:expr,
+            $ty:ty,
+            $expected_error_kind:expr $(,)?
+        ) => {
+            let iter = $params.into_iter();
+            let err = <$ty>::deserialize(Deserializer { iter }).unwrap_err();
+            assert_eq!(err, $expected_error_kind);
+        };
+    }
 
-    // #[test]
-    // fn test_wrong_number_of_parameters_error() {
-    //     test_parse_error!(
-    //         vec![("a", "1")],
-    //         (u32, u32),
-    //         ErrorKind::WrongNumberOfParameters {
-    //             got: 1,
-    //             expected: 2,
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_wrong_number_of_parameters_error() {
+        test_parse_error!(
+            [("a", "1")],
+            (u32, u32),
+            NsParamDeserializationError::WrongNumberOfParameters {
+                got: 1,
+                expected: 2,
+            }
+        );
+    }
 
-    // #[test]
-    // fn test_parse_error_at_key_error() {
-    //     #[derive(Debug, Deserialize)]
-    //     #[allow(dead_code)]
-    //     struct Params {
-    //         a: u32,
-    //     }
-    //     test_parse_error!(
-    //         vec![("a", "false")],
-    //         Params,
-    //         ErrorKind::ParseErrorAtKey {
-    //             key: "a".to_owned(),
-    //             value: "false".to_owned(),
-    //             expected_type: "u32",
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_error_at_key_error() {
+        #[derive(Debug, Deserialize)]
+        #[allow(dead_code)]
+        struct Params {
+            a: u32,
+        }
+        test_parse_error!(
+            [("a", "false")],
+            Params,
+            NsParamDeserializationError::ParseErrorAtKey {
+                key: "a".to_owned(),
+                value: "false".to_owned(),
+                expected_type: "u32",
+            }
+        );
+    }
 
-    // #[test]
-    // fn test_parse_error_at_key_error_multiple() {
-    //     #[derive(Debug, Deserialize)]
-    //     #[allow(dead_code)]
-    //     struct Params {
-    //         a: u32,
-    //         b: u32,
-    //     }
-    //     test_parse_error!(
-    //         vec![("a", "false")],
-    //         Params,
-    //         ErrorKind::ParseErrorAtKey {
-    //             key: "a".to_owned(),
-    //             value: "false".to_owned(),
-    //             expected_type: "u32",
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_error_at_key_error_multiple() {
+        #[derive(Debug, Deserialize)]
+        #[allow(dead_code)]
+        struct Params {
+            a: u32,
+            b: u32,
+        }
+        test_parse_error!(
+            [("a", "false")],
+            Params,
+            NsParamDeserializationError::ParseErrorAtKey {
+                key: "a".to_owned(),
+                value: "false".to_owned(),
+                expected_type: "u32",
+            }
+        );
+    }
 
-    // #[test]
-    // fn test_parse_error_at_index_error() {
-    //     test_parse_error!(
-    //         vec![("a", "false"), ("b", "true")],
-    //         (bool, u32),
-    //         ErrorKind::ParseErrorAtIndex {
-    //             index: 1,
-    //             value: "true".to_owned(),
-    //             expected_type: "u32",
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_error_at_index_error() {
+        test_parse_error!(
+            [("a", "false"), ("b", "true")],
+            (bool, u32),
+            NsParamDeserializationError::ParseErrorAtIndex {
+                index: 1,
+                value: "true".to_owned(),
+                expected_type: "u32",
+            }
+        );
+    }
 
-    // #[test]
-    // fn test_parse_error_error() {
-    //     test_parse_error!(
-    //         vec![("a", "false")],
-    //         u32,
-    //         ErrorKind::ParseError {
-    //             value: "false".to_owned(),
-    //             expected_type: "u32",
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_error_error() {
+        test_parse_error!(
+            [("a", "false")],
+            u32,
+            NsParamDeserializationError::ParseError {
+                value: "false".to_owned(),
+                expected_type: "u32",
+            }
+        );
+    }
 
-    // #[test]
-    // fn test_unsupported_type_error_nested_data_structure() {
-    //     test_parse_error!(
-    //         vec![("a", "false")],
-    //         Vec<Vec<u32>>,
-    //         ErrorKind::UnsupportedType {
-    //             name: "alloc::vec::Vec<u32>",
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_unsupported_type_error_nested_data_structure() {
+        test_parse_error!(
+            [("a", "false")],
+            Vec<Vec<u32>>,
+            NsParamDeserializationError::UnsupportedType("alloc::vec::Vec<u32>")
+        );
+    }
 
-    // #[test]
-    // fn test_parse_seq_tuple_unsupported_key_type() {
-    //     test_parse_error!(
-    //         vec![("a", "false")],
-    //         Vec<(u32, String)>,
-    //         ErrorKind::Message("Unexpected key type".to_owned())
-    //     );
-    // }
+    #[test]
+    fn test_parse_seq_tuple_unsupported_key_type() {
+        test_parse_error!(
+            [("a", "false")],
+            Vec<(u32, String)>,
+            NsParamDeserializationError::Message("Unexpected key type".to_owned())
+        );
+    }
 
-    // #[test]
-    // fn test_parse_seq_wrong_tuple_length() {
-    //     test_parse_error!(
-    //         vec![("a", "false")],
-    //         Vec<(String, String, String)>,
-    //         ErrorKind::UnsupportedType {
-    //             name: "(alloc::string::String, alloc::string::String, alloc::string::String)",
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_seq_wrong_tuple_length() {
+        test_parse_error!(
+            [("a", "false")],
+            Vec<(String, String, String)>,
+            NsParamDeserializationError::UnsupportedType(
+                "(alloc::string::String, alloc::string::String, alloc::string::String)"
+            ),
+        );
+    }
 
-    // #[test]
-    // fn test_parse_seq_seq() {
-    //     test_parse_error!(
-    //         vec![("a", "false")],
-    //         Vec<Vec<String>>,
-    //         ErrorKind::UnsupportedType {
-    //             name: "alloc::vec::Vec<alloc::string::String>",
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_parse_seq_seq() {
+        test_parse_error!(
+            [("a", "false")],
+            Vec<Vec<String>>,
+            NsParamDeserializationError::UnsupportedType("alloc::vec::Vec<alloc::string::String>"),
+        );
+    }
 }

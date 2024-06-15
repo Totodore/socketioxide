@@ -40,7 +40,8 @@ pub async fn state_extractor() {
         socket.on("test", |socket: SocketRef, State(state): State<i32>| {
             assert_ok!(socket.emit("state", state));
         });
-    });
+    })
+    .unwrap();
     let res_packet = create_msg("/", "state", state);
 
     // Connect packet
@@ -67,7 +68,8 @@ pub async fn data_extractor() {
         socket.on("test", move |Data(data): Data<String>| {
             assert_ok!(tx.try_send(data));
         });
-    });
+    })
+    .unwrap();
 
     io.new_dummy_sock("/", ()).await;
     assert!(matches!(
@@ -103,7 +105,8 @@ pub async fn try_data_extractor() {
         s.on("test", move |TryData(data): TryData<String>| {
             assert_ok!(tx.try_send(data));
         });
-    });
+    })
+    .unwrap();
 
     // Non deserializable data
     io.new_dummy_sock("/", ()).await;
@@ -143,9 +146,9 @@ pub async fn extension_extractor() {
     }
 
     // Namespace without errors (the extension is set)
-    io.ns("/", ns_root.with(set_ext));
+    io.ns("/", ns_root.with(set_ext)).unwrap();
     // Namespace with errors (the extension is not set)
-    io.ns("/test", ns_root);
+    io.ns("/test", ns_root).unwrap();
 
     // Extract extensions from the socket
     let (tx, mut rx) = io.new_dummy_sock("/", ()).await;
@@ -185,9 +188,9 @@ pub async fn maybe_extension_extractor() {
     }
 
     // Namespace without errors (the extension is set)
-    io.ns("/", ns_root.with(set_ext));
+    io.ns("/", ns_root.with(set_ext)).unwrap();
     // Namespace with errors (the extension is not set)
-    io.ns("/test", ns_root);
+    io.ns("/test", ns_root).unwrap();
 
     // Extract extensions from the socket
     let (tx, mut rx) = io.new_dummy_sock("/", ()).await;

@@ -30,7 +30,8 @@ fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectR
             println!("Socket.IO disconnected: {} {}", s.id, reason);
             tx.try_send(reason).unwrap();
         });
-    });
+    })
+    .unwrap();
     rx
 }
 
@@ -216,7 +217,8 @@ pub async fn server_ns_disconnect() {
             println!("Socket.IO disconnected: {} {}", socket.id, reason);
             tx.try_send(reason).unwrap();
         });
-    });
+    })
+    .unwrap();
 
     let _stream = create_ws_connection(12349).await;
 
@@ -234,7 +236,8 @@ pub async fn server_ns_close() {
     io.ns("/test", move |socket: SocketRef, io: SocketIo| {
         socket.on_disconnect(move |reason: DisconnectReason| tx.try_send(reason).unwrap());
         io.delete_ns("/test");
-    });
+    })
+    .unwrap();
 
     let mut ws = create_ws_connection(12353).await;
     ws.send(Message::Text("40/test,{}".to_string()))
