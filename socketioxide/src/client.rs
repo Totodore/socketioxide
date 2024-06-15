@@ -219,7 +219,6 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
         // Because we connect by default to the root namespace, we should ensure before that the root namespace is defined
         match protocol {
-            #[cfg(feature = "v4")]
             ProtocolVersion::V4 => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("connecting to default namespace for v4");
