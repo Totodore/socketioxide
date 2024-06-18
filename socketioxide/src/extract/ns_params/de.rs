@@ -1,3 +1,5 @@
+//! `Deserializer` implementation for `NsParamBuff`
+
 use serde::{de, forward_to_deserialize_any};
 use std::iter::{ExactSizeIterator, Iterator};
 use std::{any::type_name, fmt};
@@ -94,6 +96,7 @@ where
     I: Iterator<Item = (&'de str, &'de str)> + ExactSizeIterator,
 {
     iter: I,
+    idx: usize,
 }
 struct MapDeserializer<'de, I>
 where
@@ -121,7 +124,7 @@ pub fn from_params<T: de::DeserializeOwned>(
     params: &NsParamBuff<'_>,
 ) -> Result<T, NsParamDeserializationError> {
     let deserializer = Deserializer {
-        iter: params.into_iter().map(|(k, v)| (k.as_str(), *v)),
+        iter: params.into_iter().map(|(k, v)| (k.as_ref(), *v)),
     };
     T::deserialize(deserializer)
 }
@@ -189,7 +192,10 @@ where
     }
 
     fn deserialize_seq<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_seq(SeqDeserializer { iter: self.iter })
+        visitor.visit_seq(SeqDeserializer {
+            iter: self.iter,
+            idx: 0,
+        })
     }
 
     fn deserialize_tuple<V: de::Visitor<'de>>(
@@ -204,7 +210,10 @@ where
                 expected: len,
             });
         }
-        visitor.visit_seq(SeqDeserializer { iter: self.iter })
+        visitor.visit_seq(SeqDeserializer {
+            iter: self.iter,
+            idx: 0,
+        })
     }
 
     fn deserialize_tuple_struct<V: de::Visitor<'de>>(
@@ -219,7 +228,10 @@ where
                 expected: len,
             });
         }
-        visitor.visit_seq(SeqDeserializer { iter: self.iter })
+        visitor.visit_seq(SeqDeserializer {
+            iter: self.iter,
+            idx: 0,
+        })
     }
 
     fn deserialize_map<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -479,9 +491,14 @@ where
         &mut self,
         seed: T,
     ) -> Result<Option<T::Value>, Self::Error> {
-        self.iter.next().map_or(Ok(None), |(_, value)| {
-            let iter = std::iter::once(("", value));
-            seed.deserialize(Deserializer { iter }).map(Some)
+        self.iter.next().map_or(Ok(None), |(key, value)| {
+            let idx = self.idx;
+            self.idx += 1;
+            seed.deserialize(ValueDeserializer {
+                key: Some(KeyOrIdx::Idx { key, idx }),
+                value,
+            })
+            .map(Some)
         })
     }
 }
