@@ -168,7 +168,7 @@ where
                 expected: 1,
             });
         }
-        visitor.visit_borrowed_str(&self.iter.next().unwrap().1)
+        visitor.visit_borrowed_str(self.iter.next().unwrap().1)
     }
 
     fn deserialize_unit<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -265,7 +265,7 @@ where
         }
 
         visitor.visit_enum(EnumDeserializer {
-            value: &self.iter.next().unwrap().1,
+            value: self.iter.next().unwrap().1,
         })
     }
 }
