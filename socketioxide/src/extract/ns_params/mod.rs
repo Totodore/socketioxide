@@ -11,7 +11,8 @@ use crate::{
 };
 
 mod de;
-
+#[cfg(feature = "extensions")]
+pub use ns_param_ext::*;
 /// A buffer that holds the namespace parameters.
 /// It should not be used directly, use the [`NsParam`] extractor instead.
 #[derive(Debug, Default)]
@@ -47,30 +48,35 @@ impl<A: Adapter, T: DeserializeOwned> FromConnectParts<A> for NsParam<T> {
     }
 }
 
-/// A middleware helper that save the namespace parameters in the socket extensions.
-#[derive(Debug, Default)]
-pub struct KeepNsParam<T>(std::marker::PhantomData<T>);
-impl<T: DeserializeOwned + Clone + Send + Sync + 'static> KeepNsParam<T> {
-    pub fn new() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-impl<A: Adapter, T: DeserializeOwned + Clone + Send + Sync + 'static> ConnectMiddleware<A, ()>
-    for KeepNsParam<T>
-{
-    fn call<'a>(
-        &'a self,
-        s: Arc<Socket<A>>,
-        auth: &'a Option<String>,
-        params: &'a NsParamBuff<'_>,
-    ) -> impl futures_core::Future<Output = Result<(), Box<dyn fmt::Display + Send>>> + Send {
-        if let Ok(param) = NsParam::<T>::from_connect_parts(&s, auth, params) {
-            s.extensions.insert(param);
-        } else {
-            #[cfg(feature = "tracing")]
-            tracing::warn!("Failed to extract namespace param from connect parts");
+#[cfg(feature = "extensions")]
+mod ns_param_ext {
+    use super::*;
+    /// A middleware helper that save the namespace parameters in the socket extensions.
+    #[derive(Debug, Default)]
+    pub struct KeepNsParam<T>(std::marker::PhantomData<T>);
+    impl<T: DeserializeOwned + Clone + Send + Sync + 'static> KeepNsParam<T> {
+        pub fn new() -> Self {
+            Self(std::marker::PhantomData)
         }
-        async move { Ok(()) }
     }
+    impl<A: Adapter, T: DeserializeOwned + Clone + Send + Sync + 'static> ConnectMiddleware<A, ()>
+        for KeepNsParam<T>
+    {
+        fn call<'a>(
+            &'a self,
+            s: Arc<Socket<A>>,
+            auth: &'a Option<String>,
+            params: &'a NsParamBuff<'_>,
+        ) -> impl futures_core::Future<Output = Result<(), Box<dyn fmt::Display + Send>>> + Send
+        {
+            if let Ok(param) = NsParam::<T>::from_connect_parts(&s, auth, params) {
+                s.extensions.insert(param);
+            } else {
+                #[cfg(feature = "tracing")]
+                tracing::warn!("Failed to extract namespace param from connect parts");
+            }
+            async move { Ok(()) }
+        }
+    }
+    super::super::__impl_deref!(NsParam<T>: T);
 }
-super::__impl_deref!(NsParam<T>: T);

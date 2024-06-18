@@ -564,7 +564,7 @@ mod test {
         nsbuff.insert("/test/{id}", ns.clone()).unwrap();
         let (ns2, params) = nsbuff.get_with_params("/test/1").unwrap();
         assert!(Arc::ptr_eq(&ns, &ns2));
-        let param = params.into_iter().next();
+        let param = params.into_iter().map(|k, v| (k.as_ref(), *v)).next();
         assert!(matches!(param, Some(("id", "1"))));
     }
 }
