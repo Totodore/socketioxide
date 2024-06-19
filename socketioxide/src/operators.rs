@@ -11,6 +11,7 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use engineioxide::sid::Sid;
+use engineioxide::Str;
 
 use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
@@ -485,7 +486,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
-        let ns = self.socket.ns.path.clone();
+        let ns = self.socket.ns_path.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)
@@ -498,15 +499,17 @@ impl<A: Adapter> ConfOperators<'_, A> {
 }
 
 impl<A: Adapter> BroadcastOperators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>) -> Self {
+    pub(crate) fn new(ns: Arc<Namespace<A>>, ns_path: Str) -> Self {
         Self {
             binary: vec![],
             timeout: None,
             ns,
-            opts: BroadcastOptions::default(),
+            opts: BroadcastOptions {
+                ..Default::default()
+            },
         }
     }
-    pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
+    pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid, ns_path: Str) -> Self {
         Self {
             binary: vec![],
             timeout: None,
@@ -896,7 +899,7 @@ impl<A: Adapter> BroadcastOperators<A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
-        let ns = self.ns.path.clone();
+        let ns = self.ns.path.clone().into();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)

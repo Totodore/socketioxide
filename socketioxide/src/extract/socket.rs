@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::{
     adapter::{Adapter, LocalAdapter},
-    handler::connect::NsParamBuff,
     errors::{DisconnectError, SendError},
+    handler::connect::NsParamBuff,
     packet::Packet,
     socket::{DisconnectReason, Socket},
     SocketIo,
@@ -127,7 +127,7 @@ impl<A: Adapter> AckSender<A> {
                     return Err(e.with_value(data).into());
                 }
             };
-            let ns = &self.socket.ns.path;
+            let ns = self.socket.ns_path.clone();
             let data = serde_json::to_value(data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)

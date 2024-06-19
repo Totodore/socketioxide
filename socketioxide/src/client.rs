@@ -74,7 +74,7 @@ impl<A: Adapter> Client<A> {
             let result = { self.ns.read().unwrap().get_with_params(&ns_path) };
             if let Some((ns, params)) = result {
                 if ns
-                    .connect(esocket.id, esocket.clone(), auth, params)
+                    .connect(esocket.id, &ns_path, esocket.clone(), auth, params)
                     .await
                     .is_ok()
                 {

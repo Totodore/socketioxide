@@ -13,7 +13,7 @@ use crate::{
     socket::{DisconnectReason, Socket},
 };
 use crate::{client::SocketData, errors::AdapterError};
-use engineioxide::sid::Sid;
+use engineioxide::{sid::Sid, Str};
 
 pub struct Namespace<A: Adapter> {
     pub path: Cow<'static, str>,
@@ -45,11 +45,19 @@ impl<A: Adapter> Namespace<A> {
     pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,
+        ns_path: &Str,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<String>,
         params: NsParamBuff<'_>,
     ) -> Result<(), ConnectFail> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
+        // deep-clone to avoid packet memory leak
+        let socket: Arc<Socket<A>> = Socket::new(
+            sid,
+            self.clone(),
+            Str::copy_from_slice(&ns_path),
+            esocket.clone(),
+        )
+        .into();
 
         if let Err(e) = self
             .handler
@@ -60,7 +68,7 @@ impl<A: Adapter> Namespace<A> {
             tracing::trace!(ns = self.path.as_ref(), ?socket.id, "emitting connect_error packet");
 
             let data = e.to_string();
-            if let Err(_e) = socket.send(Packet::connect_error(&self.path, &data)) {
+            if let Err(_e) = socket.send(Packet::connect_error(ns_path.clone(), &data)) {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("error sending connect_error packet: {:?}, closing conn", _e);
                 esocket.close(engineioxide::DisconnectReason::PacketParsingError);
@@ -74,7 +82,7 @@ impl<A: Adapter> Namespace<A> {
 
         let protocol = esocket.protocol.into();
 
-        if let Err(_e) = socket.send(Packet::connect(&self.path, socket.id, protocol)) {
+        if let Err(_e) = socket.send(Packet::connect(ns_path.clone(), socket.id, protocol)) {
             #[cfg(feature = "tracing")]
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);

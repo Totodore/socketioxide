@@ -5,7 +5,7 @@ use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
     sid::Sid,
-    TransportType,
+    Str, TransportType,
 };
 
 use crate::{
@@ -416,7 +416,8 @@ impl<A: Adapter> SocketIo<A> {
 
     // Chaining operators fns
 
-    /// Selects a specific namespace to perform operations on
+    /// Selects a specific namespace to perform operations on.
+    /// With dynamic namespace you either get it from the original namespace or with any path parameter set.
     ///
     /// ## Example
     /// ```
@@ -432,6 +433,21 @@ impl<A: Adapter> SocketIo<A> {
     /// for socket in sockets {
     ///    println!("found socket on /custom_ns namespace with id: {}", socket.id);
     /// }
+    /// ```
+    ///
+    /// ## Example with a dynamic namespace
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::{SocketRef, NsParam}};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/{id}/{user_id}", |socket: SocketRef, NsParam(params): NsParam<(String, String)>| {
+    ///     println!("Socket connected on {} namespace with params {:?}", socket.ns(), params);
+    /// });
+    ///
+    /// // Later in your code you can select the "/{id}/{user_id}" namespace either with the original namespace or with any path parameter set:
+    /// assert!(matches!(io.of("/{id}/{user_id}"), Some(_)));
+    /// assert!(matches!(io.of("/my_id/my_user_id"), Some(_)));
+    /// assert!(matches!(io.of("/132/1"), Some(_)));
+    /// ```
     #[inline]
     pub fn of<'a>(&self, path: impl Into<&'a str>) -> Option<BroadcastOperators<A>> {
         self.get_op(path.into())
@@ -852,7 +868,7 @@ impl<A: Adapter> SocketIo<A> {
     fn get_op(&self, path: &str) -> Option<BroadcastOperators<A>> {
         self.0
             .get_ns(path)
-            .map(|ns| BroadcastOperators::new(ns).broadcast())
+            .map(|ns| BroadcastOperators::new(ns, Str::copy_from_slice(path)).broadcast())
     }
 
     /// Returns a new operator on the default namespace "/" (root namespace)
@@ -930,7 +946,7 @@ mod tests {
         let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
         io.0.get_ns("/")
             .unwrap()
-            .connect(sid, socket, None, NsParamBuff::default())
+            .connect(sid, "/", socket, None, NsParamBuff::default())
             .await
             .ok();
 

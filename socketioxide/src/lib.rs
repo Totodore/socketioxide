@@ -185,7 +185,6 @@
 //! Socketioxide supports dynamic namespaces with the [`io.ns`](SocketIo::ns) method. You can specify any number of parameters in the namespace path.
 //! These parameters can then be extracted with the [`NsParam`](extract::NsParam) extractor.
 //!
-//!
 //! In case of deserialization error, the handler is not called and if the tracing feature is enabled, an error log is emitted.
 //!
 //! <div class="warning">

@@ -3,7 +3,10 @@ mod utils;
 use bytes::Bytes;
 use engineioxide::Packet::*;
 use socketioxide::{
-    extract::SocketRef, handler::ConnectHandler, packet::Packet, SendError, SocketError, SocketIo,
+    extract::{NsParam, SocketRef},
+    handler::ConnectHandler,
+    packet::Packet,
+    SendError, SocketError, SocketIo,
 };
 use tokio::sync::mpsc;
 
@@ -120,8 +123,50 @@ pub async fn connect_middleware_error() {
 #[tokio::test]
 async fn ns_connect_with_params() {
     let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(1);
 
-    io.ns("/admin/{id}/board", move |_io: SocketIo| {}).unwrap();
+    io.ns("/admin/{id}/board", move |NsParam(id): NsParam<usize>| {
+        tx.try_send(id).unwrap();
+    })
+    .unwrap();
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/132/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, 132);
+}
+#[tokio::test]
+async fn ns_connect_with_param_errors() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(1);
+
+    io.ns("/admin/{id}/board", move |NsParam(id): NsParam<usize>| {
+        tx.try_send(id).unwrap();
+    })
+    .unwrap();
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/azudnazd/board", ()).await;
+    let elapsed = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
+    assert!(elapsed.is_err() || elapsed.unwrap().is_none());
+}
+#[tokio::test]
+async fn ns_connect_with_params_share_rooms() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(2);
+
+    io.ns(
+        "/admin/{id}/board",
+        move |s: SocketRef, NsParam(id): NsParam<String>| {
+            s.join(id.clone()).unwrap();
+            tx.try_send(id).unwrap();
+        },
+    )
+    .unwrap();
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/1/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, "1");
+    let (_stx1, mut _srx1) = io.new_dummy_sock("/admin/2/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, "2");
+    let rooms = assert_ok!(io.of("/admin/2/board").unwrap().rooms());
+    assert_eq!(rooms.len(), 2);
+    for room in rooms {
+        assert!(matches!(room.as_ref(), "1" | "2"));
+    }
 }
 
 #[tokio::test]

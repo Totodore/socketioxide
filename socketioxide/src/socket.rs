@@ -13,7 +13,10 @@ use std::{
 };
 
 use bytes::Bytes;
-use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
+use engineioxide::{
+    socket::{DisconnectReason as EIoDisconnectReason, Permit},
+    Str,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
@@ -129,6 +132,7 @@ impl<'a> PermitExt<'a> for Permit<'a> {
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket<A: Adapter = LocalAdapter> {
     pub(crate) ns: Arc<Namespace<A>>,
+    pub(crate) ns_path: Str,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
@@ -152,10 +156,12 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn new(
         sid: Sid,
         ns: Arc<Namespace<A>>,
+        ns_path: Str,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
     ) -> Self {
         Self {
             ns,
+            ns_path,
             message_handlers: RwLock::new(HashMap::new()),
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
@@ -319,7 +325,7 @@ impl<A: Adapter> Socket<A> {
             }
         };
 
-        let ns = &self.ns.path;
+        let ns = self.ns_path.clone();
         let data = serde_json::to_value(data)?;
         permit.send(Packet::event(ns, event.into(), data));
         Ok(())
@@ -392,7 +398,7 @@ impl<A: Adapter> Socket<A> {
                 return Err(e.with_value(data).into());
             }
         };
-        let ns = &self.ns.path;
+        let ns = self.ns_path.clone();
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(ns, event.into(), data);
         let rx = self.send_with_ack_permit(packet, permit);
@@ -470,7 +476,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).to(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.ns_path.clone()).to(rooms)
     }
 
     /// Selects all clients in the given rooms.
@@ -494,7 +500,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).within(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.ns_path.clone()).within(rooms)
     }
 
     /// Filters out all clients selected with the previous operators which are in the given rooms.
@@ -518,7 +524,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).except(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.ns_path.clone()).except(rooms)
     }
 
     /// Broadcasts to all clients only connected on this node (when using multiple nodes).
@@ -536,7 +542,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn local(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).local()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.ns_path.clone()).local()
     }
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
@@ -609,7 +615,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn broadcast(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.ns_path.clone()).broadcast()
     }
 
     /// Get the [`SocketIo`] context related to this socket
@@ -625,7 +631,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
-        let res = self.send(Packet::disconnect(&self.ns.path));
+        let res = self.send(Packet::disconnect(self.ns_path.clone()));
         if let Err(SocketError::InternalChannelFull(_)) = res {
             return Err(DisconnectError::InternalChannelFull);
         }
@@ -834,7 +840,12 @@ impl<A: Adapter> Socket<A> {
             config,
             std::default::Default::default(),
         )));
-        let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
+        let s = Socket::new(
+            sid,
+            ns,
+            Str::from("/"),
+            engineioxide::Socket::new_dummy(sid, close_fn),
+        );
         s.esocket.data.io.set(io).unwrap();
         s.set_connected(true);
         s

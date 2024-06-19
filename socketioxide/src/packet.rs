@@ -24,7 +24,7 @@ pub struct Packet<'a> {
 impl<'a> Packet<'a> {
     /// Send a connect packet with a default payload for v5 and no payload for v4
     pub fn connect(
-        ns: impl Into<Str>,
+        ns: Str,
         #[allow(unused_variables)] sid: Sid,
         #[allow(unused_variables)] protocol: ProtocolVersion,
     ) -> Self {
@@ -36,8 +36,8 @@ impl<'a> Packet<'a> {
         #[cfg(feature = "v4")]
         {
             match protocol {
-                ProtocolVersion::V4 => Self::connect_v4(ns.into()),
-                ProtocolVersion::V5 => Self::connect_v5(ns.into(), sid),
+                ProtocolVersion::V4 => Self::connect_v4(ns),
+                ProtocolVersion::V5 => Self::connect_v5(ns, sid),
             }
         }
     }
@@ -61,64 +61,59 @@ impl<'a> Packet<'a> {
     }
 
     /// Create a disconnect packet for the given namespace
-    pub fn disconnect(ns: impl Into<Str>) -> Self {
+    pub fn disconnect(ns: Str) -> Self {
         Self {
             inner: PacketData::Disconnect,
-            ns: ns.into(),
+            ns,
         }
     }
 }
 
 impl<'a> Packet<'a> {
     /// Create a connect error packet for the given namespace with a message
-    pub fn connect_error(ns: impl Into<Str>, message: &str) -> Self {
+    pub fn connect_error(ns: Str, message: &str) -> Self {
         let message = serde_json::to_string(message).unwrap();
         let packet = format!(r#"{{"message":{}}}"#, message);
         Self {
             inner: PacketData::ConnectError(packet),
-            ns: ns.into(),
+            ns: ns,
         }
     }
 
     /// Create an event packet for the given namespace
-    pub fn event(ns: impl Into<Str>, e: impl Into<Cow<'a, str>>, data: Value) -> Self {
+    pub fn event(ns: Str, e: impl Into<Cow<'a, str>>, data: Value) -> Self {
         Self {
             inner: PacketData::Event(e.into(), data, None),
-            ns: ns.into(),
+            ns,
         }
     }
 
     /// Create a binary event packet for the given namespace
-    pub fn bin_event(
-        ns: impl Into<Str>,
-        e: impl Into<Cow<'a, str>>,
-        data: Value,
-        bin: Vec<Bytes>,
-    ) -> Self {
+    pub fn bin_event(ns: Str, e: impl Into<Cow<'a, str>>, data: Value, bin: Vec<Bytes>) -> Self {
         debug_assert!(!bin.is_empty());
 
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
             inner: PacketData::BinaryEvent(e.into(), packet, None),
-            ns: ns.into(),
+            ns,
         }
     }
 
     /// Create an ack packet for the given namespace
-    pub fn ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {
+    pub fn ack(ns: Str, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::EventAck(data, ack),
-            ns: ns.into(),
+            ns,
         }
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: impl Into<Str>, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
+    pub fn bin_ack(ns: Str, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
         debug_assert!(!bin.is_empty());
         let packet = BinaryPacket::outgoing(data, bin);
         Self {
             inner: PacketData::BinaryAck(packet, ack),
-            ns: ns.into(),
+            ns,
         }
     }
 
