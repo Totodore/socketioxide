@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
-use crate::{adapter::Adapter, extract::NsParamBuff};
+use crate::{adapter::Adapter, handler::connect::NsParamBuff};
 use bytes::Bytes;
 
 #[cfg(feature = "extensions")]

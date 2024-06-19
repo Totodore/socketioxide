@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::{
     adapter::{Adapter, LocalAdapter},
+    handler::connect::NsParamBuff,
     errors::{DisconnectError, SendError},
-    extract::NsParamBuff,
     packet::Packet,
     socket::{DisconnectReason, Socket},
     SocketIo,

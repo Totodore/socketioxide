@@ -115,7 +115,7 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::{adapter::Adapter, extract::NsParamBuff, socket::Socket};
+use crate::{adapter::Adapter, socket::Socket};
 use futures_core::Future;
 
 use super::MakeErasedHandler;
@@ -125,6 +125,27 @@ pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
 
 type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
+
+/// A buffer that holds the namespace parameters.
+/// It should not be used directly, use the [`NsParam`](crate::extract::NsParam) extractor instead.
+#[derive(Debug, Default)]
+pub struct NsParamBuff<'a>(smallvec::SmallVec<[(Box<str>, &'a str); 3]>);
+impl<'k, 'v> From<matchit::Params<'k, 'v>> for NsParamBuff<'v> {
+    fn from(params: matchit::Params<'k, 'v>) -> Self {
+        let mut vec = smallvec::SmallVec::new();
+        for (k, v) in params.iter() {
+            vec.push((k.to_string().into_boxed_str(), v));
+        }
+        Self(vec)
+    }
+}
+impl<'a, 'v> IntoIterator for &'a NsParamBuff<'v> {
+    type Item = &'a (Box<str>, &'v str);
+    type IntoIter = std::slice::Iter<'a, (Box<str>, &'v str)>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
 
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>);

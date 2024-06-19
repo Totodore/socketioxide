@@ -1,10 +1,14 @@
 //! `Deserializer` implementation for `NsParamBuff`
+//!
+//! It is mostly taken from the equivalent `Deserializer` for path params in the axum crate
+//!
+//! <https://github.com/tokio-rs/axum/blob/806bc26e62afc2e0c83240a9e85c14c96bc2ceb3/axum/src/extract/path/de.rs>
 
 use serde::{de, forward_to_deserialize_any};
 use std::iter::{ExactSizeIterator, Iterator};
 use std::{any::type_name, fmt};
 
-use super::NsParamBuff;
+use crate::handler::connect::NsParamBuff;
 
 macro_rules! unsupported_type {
     ($trait_fn:ident) => {

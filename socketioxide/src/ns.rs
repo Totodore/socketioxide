@@ -7,7 +7,7 @@ use std::{
 use crate::{
     adapter::Adapter,
     errors::{ConnectFail, Error},
-    extract::NsParamBuff,
+    handler::connect::NsParamBuff,
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::{DisconnectReason, Socket},

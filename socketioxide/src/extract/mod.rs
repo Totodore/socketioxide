@@ -22,6 +22,7 @@
 //! * [`HttpExtension`]: extracts an http extension of the given type coming from the request.
 //! (Similar to axum's [`extract::Extension`](https://docs.rs/axum/latest/axum/struct.Extension.html)
 //! * [`MaybeHttpExtension`]: extracts an http extension of the given type if it exists or [`None`] otherwise.
+//! * [`NsParam`]: extracts and deserialize the namespace path parameters. Works only for the [`ConnectHandler`] and [`ConnectMiddleware`].
 //!
 //! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits
 //! When implementing these traits, if you clone the [`Arc<Socket>`](crate::socket::Socket) make sure that it is dropped at least when the socket is disconnected.
@@ -38,7 +39,7 @@
 //! #### Example that extracts a user id from the query params
 //! ```rust
 //! # use bytes::Bytes;
-//! # use socketioxide::handler::{FromConnectParts, FromMessageParts};
+//! # use socketioxide::handler::{FromConnectParts, FromMessageParts, connect::NsParamBuff};
 //! # use socketioxide::adapter::Adapter;
 //! # use socketioxide::socket::Socket;
 //! # use std::sync::Arc;
@@ -58,7 +59,7 @@
 //!
 //! impl<A: Adapter> FromConnectParts<A> for UserId {
 //!     type Error = Infallible;
-//!     fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
+//!     fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>, _: &NsParamBuff<'_>) -> Result<Self, Self::Error> {
 //!         // In a real app it would be better to parse the query params with a crate like `url`
 //!         let uri = &s.req_parts().uri;
 //!         let uid = uri
@@ -71,7 +72,7 @@
 //! }
 //!
 //! // Here, if the user id is not found, the handler won't be called
-//! // and a tracing `error` log will be printed (if the `tracing` feature is enabled)
+//! // and a tracing `error` log will be emitted (if the `tracing` feature is enabled)
 //! impl<A: Adapter> FromMessageParts<A> for UserId {
 //!     type Error = UserIdNotFound;
 //!

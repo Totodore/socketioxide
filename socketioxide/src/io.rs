@@ -274,10 +274,17 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
-    /// ### Registers a [`ConnectHandler`] for the given namespace.
+    /// Registers a [`ConnectHandler`] for the given namespace. It can be a dynamic namespace with path parameters.
     ///
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// <div class="warning">
+    ///     Contrary to the official socket.io implementation in javascript,
+    ///     different instances of the same dynamic namespace share the same rooms/sockets!
+    /// </div>
+    ///
+    /// # Examples
     /// #### Simple example with a sync closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -352,6 +359,26 @@ impl<A: Adapter> SocketIo<A> {
     ///     });
     /// });
     ///
+    /// ```
+    ///
+    /// #### Example with dynamic namespace:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::{NsParam, SocketRef}};
+    /// #[derive(Debug, serde::Deserialize)]
+    /// struct Params {
+    ///     id: String,
+    ///     user_id: String
+    /// }
+    ///
+    /// let (_svc, io) = SocketIo::new_svc();
+    /// io.ns("/{id}/user/{user_id}", |s: SocketRef, NsParam(params): NsParam<Params>| {
+    ///     println!("new socket with params: {:?}", params);
+    /// }).unwrap();
+    ///
+    /// // You can specify any type that implements the `serde::Deserialize` trait.
+    /// io.ns("/{id}/admin/{role}", |s: SocketRef, NsParam(params): NsParam<(usize, String)>| {
+    ///     println!("new socket with params: {:?}", params);
+    /// }).unwrap();
     /// ```
     #[inline]
     pub fn ns<C, T>(
@@ -868,7 +895,7 @@ impl<A: Adapter> SocketIo<A> {
 
 #[cfg(test)]
 mod tests {
-    use crate::extract::NsParamBuff;
+    use crate::handler::connect::NsParamBuff;
 
     use super::*;
 

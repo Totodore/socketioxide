@@ -41,6 +41,7 @@
 //! * [Handlers](#handlers)
 //! * [Extractors](#extractors)
 //! * [Events](#events)
+//! * [Namespaces](#namespaces)
 //! * [Middlewares](#middlewares)
 //! * [Emiting data](#emiting-data)
 //! * [Acknowledgements](#acknowledgements)
@@ -180,7 +181,44 @@
 //!
 //! Only one handler can exist for an event so registering a new handler for an event will replace the previous one.
 //!
-//! ## Middlewares
+//! ## Namespaces
+//! Socketioxide supports dynamic namespaces with the [`io.ns`](SocketIo::ns) method. You can specify any number of parameters in the namespace path.
+//! These parameters can then be extracted with the [`NsParam`](extract::NsParam) extractor.
+//!
+//!
+//! In case of deserialization error, the handler is not called and if the tracing feature is enabled, an error log is emitted.
+//!
+//! <div class="warning">
+//!     Contrary to the official socket.io implementation in javascript,
+//!     different instances of the same dynamic namespace share the same rooms/sockets!
+//! </div>
+//!
+//! You can also save the extracted parameters in the socket extensions automatically
+//! with the [`KeepNsParam`](crate::extract::KeepNsParam) middleware helper.
+//!
+//! Path parameters must be wrapped in curly braces `{}`:
+//! ```
+//! # use socketioxide::{SocketIo, extract::{NsParam, SocketRef}};
+//! #[derive(Debug, serde::Deserialize)]
+//! struct Params {
+//!     id: String,
+//!     user_id: String
+//! }
+//!
+//! let (_svc, io) = SocketIo::new_svc();
+//! io.ns("/{id}/user/{user_id}", |s: SocketRef, NsParam(params): NsParam<Params>| {
+//!     println!("new socket with params: {:?}", params);
+//! }).unwrap();
+//!
+//! // You can specify any type that implements the `serde::Deserialize` trait.
+//! io.ns("/{id}/admin/{role}", |s: SocketRef, NsParam(params): NsParam<(usize, String)>| {
+//!     println!("new socket with params: {:?}", params);
+//! }).unwrap();
+//! ```
+//!
+//! You can check the [`matchit`] crate for more details on the path parameters format.
+//!
+//!  ## Middlewares
 //! When providing a [`ConnectHandler`](handler::ConnectHandler) for a namespace you can add any number of
 //! [`ConnectMiddleware`](handler::ConnectMiddleware) in front of it. It is useful to add authentication or logging middlewares.
 //!

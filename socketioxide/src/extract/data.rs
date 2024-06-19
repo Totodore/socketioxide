@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use crate::handler::{FromConnectParts, FromMessage, FromMessageParts};
-use crate::{adapter::Adapter, extract::NsParamBuff, socket::Socket};
+use crate::{adapter::Adapter, handler::connect::NsParamBuff, socket::Socket};
 use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -17,8 +17,8 @@ fn upwrap_array(v: &mut Value) {
     }
 }
 
-/// An Extractor that returns the serialized auth data without checking errors.
-/// If a deserialization error occurs, the [`ConnectHandler`](crate::handler::ConnectHandler) won't be called
+/// An Extractor that returns the deserialized data without checking errors.
+/// If a deserialization error occurs, the handler won't be called
 /// and an error log will be print if the `tracing` feature is enabled.
 pub struct Data<T>(pub T);
 impl<T, A> FromConnectParts<A> for Data<T>

@@ -3,7 +3,7 @@ use bytes::Bytes;
 use std::sync::Arc;
 
 use crate::adapter::Adapter;
-use crate::extract::NsParamBuff;
+use crate::handler::connect::NsParamBuff;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
 
