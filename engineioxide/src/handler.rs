@@ -30,7 +30,7 @@
 //!         let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
 //!         socket.emit(cnt.to_string()).ok();
 //!     }
-//!     fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<SocketState>>) {
+//!     fn on_message(&self, msg: Str, socket: Arc<Socket<SocketState>>) {
 //!         *socket.data.id.lock().unwrap() = msg.into(); // bind a provided user id to a socket
 //!     }
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
@@ -60,7 +60,7 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason);
 
     /// Called when a message is received from the client.
-    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>);
+    fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>);
 
     /// Called when a binary message is received from the client.
     fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>);

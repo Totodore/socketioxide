@@ -115,7 +115,7 @@ mod tests {
             println!("socket disconnect {} {:?}", socket.id, reason);
         }
 
-        fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>) {
+        fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>) {
             println!("Ping pong message {:?}", msg);
             socket.emit(msg).ok();
         }

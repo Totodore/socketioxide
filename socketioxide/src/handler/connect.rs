@@ -158,7 +158,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect middlewares.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
+pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// Call the middleware with the given arguments.
     fn call<'a>(
         &'a self,
@@ -177,7 +177,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
+pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// Call the handler with the given arguments.
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 
@@ -236,7 +236,6 @@ pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// ```
     fn with<M, T1>(self, middleware: M) -> impl ConnectHandler<A, T>
     where
-        Self: Sized,
         M: ConnectMiddleware<A, T1> + Send + Sync + 'static,
         T: Send + Sync + 'static,
         T1: Send + Sync + 'static,
@@ -266,7 +265,7 @@ struct ConnectMiddlewareLayer<M, N, T, T1> {
 
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
 where
-    H: ConnectHandler<A, T> + Clone + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler<A>> {
@@ -276,7 +275,7 @@ where
 
 impl<A: Adapter, T, H> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T>
 where
-    H: ConnectHandler<A, T> + Clone + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
@@ -342,6 +341,32 @@ where
 {
     async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
         self.middleware.call(s, auth).await
+    }
+}
+impl<A, H, N, T, T1> Clone for LayeredConnectHandler<A, H, N, T, T1>
+where
+    H: Clone,
+    N: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
+            middleware: self.middleware.clone(),
+            phantom: self.phantom,
+        }
+    }
+}
+impl<M, N, T, T1> Clone for ConnectMiddlewareLayer<M, N, T, T1>
+where
+    M: Clone,
+    N: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            middleware: self.middleware.clone(),
+            next: self.next.clone(),
+            phantom: self.phantom,
+        }
     }
 }
 

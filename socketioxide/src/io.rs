@@ -5,7 +5,7 @@ use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
     sid::Sid,
-    Str, TransportType,
+    TransportType,
 };
 
 use crate::{
@@ -274,15 +274,10 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
-    /// Registers a [`ConnectHandler`] for the given namespace. It can be a dynamic namespace with path parameters.
+    /// Registers a [`ConnectHandler`] for the given namespace
     ///
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-    ///
-    /// <div class="warning">
-    ///     Contrary to the official socket.io implementation in javascript,
-    ///     different instances of the same dynamic namespace share the same rooms/sockets!
-    /// </div>
     ///
     /// # Examples
     /// #### Simple example with a sync closure:
@@ -360,33 +355,27 @@ impl<A: Adapter> SocketIo<A> {
     /// });
     ///
     /// ```
-    ///
-    /// #### Example with dynamic namespace:
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::{NsParam, SocketRef}};
-    /// #[derive(Debug, serde::Deserialize)]
-    /// struct Params {
-    ///     id: String,
-    ///     user_id: String
-    /// }
-    ///
-    /// let (_svc, io) = SocketIo::new_svc();
-    /// io.ns("/{id}/user/{user_id}", |s: SocketRef, NsParam(params): NsParam<Params>| {
-    ///     println!("new socket with params: {:?}", params);
-    /// }).unwrap();
-    ///
-    /// // You can specify any type that implements the `serde::Deserialize` trait.
-    /// io.ns("/{id}/admin/{role}", |s: SocketRef, NsParam(params): NsParam<(usize, String)>| {
-    ///     println!("new socket with params: {:?}", params);
-    /// }).unwrap();
-    /// ```
     #[inline]
     pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
-        C: ConnectHandler<A, T> + Clone,
+        C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
-        self.0.add_ns(path.into(), callback)
+        self.0.add_ns(path.into(), callback);
+    }
+
+    ///
+    #[inline]
+    pub fn dyn_ns<C, T>(
+        &self,
+        path: impl Into<String>,
+        callback: C,
+    ) -> Result<(), crate::NsInsertError>
+    where
+        C: ConnectHandler<A, T>,
+        T: Send + Sync + 'static,
+    {
+        self.0.add_dyn_ns(path.into(), callback)
     }
 
     /// Deletes the namespace with the given path.
@@ -413,7 +402,6 @@ impl<A: Adapter> SocketIo<A> {
     // Chaining operators fns
 
     /// Selects a specific namespace to perform operations on.
-    /// With dynamic namespace you either get it from the original namespace or with any path parameter set.
     ///
     /// ## Example
     /// ```
@@ -433,9 +421,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ## Example with a dynamic namespace
     /// ```
-    /// # use socketioxide::{SocketIo, extract::{SocketRef, NsParam}};
+    /// # use socketioxide::{SocketIo, extract::{SocketRef}};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/{id}/{user_id}", |socket: SocketRef, NsParam(params): NsParam<(String, String)>| {
+    /// io.ns("/{id}/{user_id}", |socket: SocketRef| {
     ///     println!("Socket connected on {} namespace with params {:?}", socket.ns(), params);
     /// });
     ///

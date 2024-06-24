@@ -13,6 +13,9 @@ use crate::{
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::{sid::Sid, Str};
 
+/// A [`Namespace`] constructor used for dynamic namespaces
+/// A namespace constructor only hold a common handler that will be cloned
+/// to the instantiated namespaces.
 pub struct NamespaceCtr<A: Adapter> {
     handler: BoxedConnectHandler<A>,
 }
@@ -27,7 +30,7 @@ pub struct Namespace<A: Adapter> {
 impl<A: Adapter> NamespaceCtr<A> {
     pub fn new<C, T>(handler: C) -> Self
     where
-        C: ConnectHandler<A, T> + Clone + Send + Sync + 'static,
+        C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         Self {
@@ -47,7 +50,7 @@ impl<A: Adapter> NamespaceCtr<A> {
 impl<A: Adapter> Namespace<A> {
     pub fn new<C, T>(path: Str, handler: C) -> Arc<Self>
     where
-        C: ConnectHandler<A, T> + Clone + Send + Sync + 'static,
+        C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         Arc::new_cyclic(|ns| Self {
@@ -70,7 +73,6 @@ impl<A: Adapter> Namespace<A> {
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<String>,
     ) -> Result<(), ConnectFail> {
-        // deep-clone to avoid packet memory leak
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
 
         if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {

@@ -9,7 +9,7 @@ use engineioxide::Str;
 use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
-use matchit::Router;
+use matchit::{Match, Router};
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
@@ -54,35 +54,31 @@ impl<A: Adapter> Client<A> {
 
     /// Called when a socket connects to a new namespace
     fn sock_connect(
-        self: Arc<Self>,
+        &self,
         auth: Option<String>,
         ns_path: Str,
-        esocket: Arc<engineioxide::Socket<SocketData<A>>>,
+        esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
     ) {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
         let protocol: ProtocolVersion = esocket.protocol.into();
-        let esocket_clone = esocket.clone();
-        let connect = move |ns: Arc<Namespace<A>>| async move {
-            if ns
-                .connect(esocket_clone.id, esocket_clone.clone(), auth)
-                .await
-                .is_ok()
-            {
-                // cancel the connect timeout task for v5
-                if let Some(tx) = esocket_clone.data.connect_recv_tx.lock().unwrap().take() {
-                    tx.send(()).ok();
+        let connect =
+            move |ns: Arc<Namespace<A>>, esocket: Arc<engineioxide::Socket<SocketData<A>>>| async move {
+                if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
+                    // cancel the connect timeout task for v5
+                    if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                        tx.send(()).ok();
+                    }
                 }
-            }
-        };
+            };
 
         if let Some(ns) = self.get_ns(&ns_path) {
-            tokio::spawn(connect(ns));
-        } else if let Ok(res) = self.router.read().unwrap().at(&ns_path) {
+            tokio::spawn(connect(ns, esocket.clone()));
+        } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(&ns_path) {
             let path: Cow<'static, str> = Cow::Owned(ns_path.clone().into());
-            let ns = res.value.get_new_ns(ns_path); //TODO: check memory leak here
+            let ns = ns_ctr.get_new_ns(ns_path); //TODO: check memory leak here
             self.ns.write().unwrap().insert(path, ns.clone());
-            tokio::spawn(connect(ns));
+            tokio::spawn(connect(ns, esocket.clone()));
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
@@ -129,7 +125,7 @@ impl<A: Adapter> Client<A> {
     /// Adds a new namespace handler
     pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: ConnectHandler<A, T> + Clone,
+        C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
@@ -140,7 +136,7 @@ impl<A: Adapter> Client<A> {
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
     where
-        C: ConnectHandler<A, T> + Clone,
+        C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
@@ -176,8 +172,8 @@ impl<A: Adapter> Client<A> {
         tracing::debug!("closing all namespaces");
         let ns = { std::mem::take(&mut *self.ns.write().unwrap()) };
         futures_util::future::join_all(
-            ns.iter()
-                .map(|(_, ns)| ns.close(DisconnectReason::ClosingServer)),
+            ns.values()
+                .map(|ns| ns.close(DisconnectReason::ClosingServer)),
         )
         .await;
         #[cfg(feature = "tracing")]
@@ -225,7 +221,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             ProtocolVersion::V4 => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("connecting to default namespace for v4");
-                self.sock_connect(None, Str::from("/"), socket);
+                self.sock_connect(None, Str::from("/"), &socket);
             }
             ProtocolVersion::V5 => self.spawn_connect_timeout_task(socket),
         }
@@ -239,8 +235,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .ns
             .read()
             .unwrap()
-            .iter()
-            .filter_map(|(_, ns)| ns.get_socket(socket.id).ok())
+            .values()
+            .filter_map(|ns| ns.get_socket(socket.id).ok())
             .collect();
 
         let _res: Result<Vec<_>, _> = socks
@@ -259,7 +255,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
@@ -276,7 +272,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => {
-                self.clone().sock_connect(auth, packet.ns, socket.clone());
+                self.sock_connect(auth, packet.ns, &socket);
                 Ok(())
             }
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {

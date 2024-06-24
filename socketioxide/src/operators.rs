@@ -11,7 +11,6 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use engineioxide::sid::Sid;
-use engineioxide::Str;
 
 use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
@@ -509,7 +508,7 @@ impl<A: Adapter> BroadcastOperators<A> {
             },
         }
     }
-    pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid, ns_path: Str) -> Self {
+    pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
         Self {
             binary: vec![],
             timeout: None,

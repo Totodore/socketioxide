@@ -3,10 +3,7 @@ mod utils;
 use bytes::Bytes;
 use engineioxide::Packet::*;
 use socketioxide::{
-    extract::{NsParam, SocketRef},
-    handler::ConnectHandler,
-    packet::Packet,
-    SendError, SocketError, SocketIo,
+    extract::SocketRef, handler::ConnectHandler, packet::Packet, SendError, SocketError, SocketIo,
 };
 use tokio::sync::mpsc;
 
@@ -15,7 +12,7 @@ fn create_msg(
     event: &str,
     data: impl Into<serde_json::Value>,
 ) -> engineioxide::Packet {
-    let packet: String = Packet::event(ns, event, data.into()).into();
+    let packet: String = Packet::event(ns.into(), event, data.into()).into();
     Message(packet.into())
 }
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
@@ -63,8 +60,7 @@ pub async fn connect_middleware() {
     io.ns(
         "/",
         { || {} }.with(handler(3)).with(handler(2)).with(handler(1)),
-    )
-    .unwrap();
+    );
 
     let (_, mut srx) = io.new_dummy_sock("/", ()).await;
     assert_eq!(rx.recv().await.unwrap(), 1);
@@ -108,8 +104,7 @@ pub async fn connect_middleware_error() {
             .with(handler(3, false))
             .with(handler(2, true))
             .with(handler(1, false)),
-    )
-    .unwrap();
+    );
 
     let (_, mut srx) = io.new_dummy_sock("/", ()).await;
 
@@ -121,52 +116,16 @@ pub async fn connect_middleware_error() {
 }
 
 #[tokio::test]
-async fn ns_connect_with_params() {
+async fn ns_dyn_connect() {
     let (_svc, io) = SocketIo::new_svc();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(1);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
 
-    io.ns("/admin/{id}/board", move |NsParam(id): NsParam<usize>| {
-        tx.try_send(id).unwrap();
+    io.dyn_ns("/admin/{id}/board", move |s: SocketRef| {
+        tx.try_send(s.ns().to_string()).unwrap();
     })
     .unwrap();
     let (_stx, mut _srx) = io.new_dummy_sock("/admin/132/board", ()).await;
-    assert_eq!(timeout_rcv(&mut rx).await, 132);
-}
-#[tokio::test]
-async fn ns_connect_with_param_errors() {
-    let (_svc, io) = SocketIo::new_svc();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<usize>(1);
-
-    io.ns("/admin/{id}/board", move |NsParam(id): NsParam<usize>| {
-        tx.try_send(id).unwrap();
-    })
-    .unwrap();
-    let (_stx, mut _srx) = io.new_dummy_sock("/admin/azudnazd/board", ()).await;
-    let elapsed = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
-    assert!(elapsed.is_err() || elapsed.unwrap().is_none());
-}
-#[tokio::test]
-async fn ns_connect_with_params_share_rooms() {
-    let (_svc, io) = SocketIo::new_svc();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(2);
-
-    io.ns(
-        "/admin/{id}/board",
-        move |s: SocketRef, NsParam(id): NsParam<String>| {
-            s.join(id.clone()).unwrap();
-            tx.try_send(id).unwrap();
-        },
-    )
-    .unwrap();
-    let (_stx, mut _srx) = io.new_dummy_sock("/admin/1/board", ()).await;
-    assert_eq!(timeout_rcv(&mut rx).await, "1");
-    let (_stx1, mut _srx1) = io.new_dummy_sock("/admin/2/board", ()).await;
-    assert_eq!(timeout_rcv(&mut rx).await, "2");
-    let rooms = assert_ok!(io.of("/admin/2/board").unwrap().rooms());
-    assert_eq!(rooms.len(), 2);
-    for room in rooms {
-        assert!(matches!(room.as_ref(), "1" | "2"));
-    }
+    assert_eq!(timeout_rcv(&mut rx).await, "/admin/132/board");
 }
 
 #[tokio::test]
@@ -177,8 +136,7 @@ async fn remove_ns_from_connect_handler() {
     io.ns("/test1", move |io: SocketIo| {
         tx.try_send(()).unwrap();
         io.delete_ns("/test1");
-    })
-    .unwrap();
+    });
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
     timeout_rcv(&mut srx).await;
@@ -201,7 +159,7 @@ async fn remove_ns_from_middleware() {
         Ok::<(), std::convert::Infallible>(())
     };
     fn handler() {}
-    io.ns("/test1", handler.with(middleware)).unwrap();
+    io.ns("/test1", handler.with(middleware));
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
     timeout_rcv(&mut srx).await;
@@ -223,8 +181,7 @@ async fn remove_ns_from_event_handler() {
             io.delete_ns("/test1");
             tx.try_send(()).unwrap();
         });
-    })
-    .unwrap();
+    });
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
     timeout_rcv(&mut srx).await;
@@ -247,8 +204,7 @@ async fn remove_ns_from_disconnect_handler() {
             io.delete_ns("/test2");
             tx.try_send("disconnect").unwrap();
         })
-    })
-    .unwrap();
+    });
 
     let (stx, mut srx) = io.new_dummy_sock("/test2", ()).await;
     assert_eq!(timeout_rcv(&mut rx).await, "connect");

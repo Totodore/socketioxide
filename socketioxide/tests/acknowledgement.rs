@@ -25,8 +25,7 @@ pub async fn emit_with_ack() {
         let res = assert_ok!(res).await;
         let ack = assert_ok!(res);
         assert_ok!(tx.try_send(ack.data));
-    })
-    .unwrap();
+    });
 
     let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
     assert_some!(srx.recv().await); // NS connect packet
@@ -87,8 +86,7 @@ pub async fn broadcast_with_ack() {
             async move {}
         })
         .await;
-    })
-    .unwrap();
+    });
 
     // Spawn 5 clients and make them echo the ack
     for _ in 0..5 {
