@@ -155,6 +155,8 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
         auth: &'a Option<String>,
         params: &'a NsParamBuff<'_>,
     ) -> MiddlewareResFut<'a>;
+
+    fn boxed_clone(&self) -> BoxedConnectHandler<A>;
 }
 
 /// A trait used to extract the arguments from the connect event.
@@ -292,7 +294,7 @@ struct ConnectMiddlewareLayer<M, N, T, T1> {
 
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
 where
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Clone + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler<A>> {
@@ -302,7 +304,7 @@ where
 
 impl<A: Adapter, T, H> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T>
 where
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<A, T> + Clone + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>) {
@@ -316,6 +318,10 @@ where
         params: &'a NsParamBuff<'_>,
     ) -> MiddlewareResFut<'a> {
         self.handler.call_middleware(s, auth, params)
+    }
+
+    fn boxed_clone(&self) -> BoxedConnectHandler<A> {
+        Box::new(self.clone())
     }
 }
 

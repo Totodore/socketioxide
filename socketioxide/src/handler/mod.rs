@@ -26,3 +26,12 @@ impl<H, A, T> MakeErasedHandler<H, A, T> {
         }
     }
 }
+impl<H: Clone, A, T> Clone for MakeErasedHandler<H, A, T> {
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
+            adapter: std::marker::PhantomData,
+            type_: std::marker::PhantomData,
+        }
+    }
+}

@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bytes::Bytes;
@@ -9,11 +10,11 @@ use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use matchit::Router;
-use slab::Slab;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
+use crate::ns::NamespaceCtr;
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
@@ -24,19 +25,10 @@ use crate::{
 };
 use crate::{ProtocolVersion, SocketIo};
 
-#[derive(Debug)]
-struct NsBuff<A: Adapter> {
-    /// Buffer of all the namespaces that the server is handling
-    buff: Slab<Arc<Namespace<A>>>,
-    /// Router used to find the namespace for a given path.
-    /// Map to an index in the [`Slab`].
-    /// This is not directly used as a [`Router<Arc<Namespace<A>>>`] because the [`Router`]
-    /// doesn't support iterating over the values
-    router: Router<usize>,
-}
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
-    ns: RwLock<NsBuff<A>>,
+    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
+    router: RwLock<Router<NamespaceCtr<A>>>,
 
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
@@ -54,7 +46,8 @@ impl<A: Adapter> Client<A> {
 
         Self {
             config,
-            ns: RwLock::new(NsBuff::default()),
+            ns: RwLock::new(HashMap::new()),
+            router: RwLock::new(Router::new()),
             #[cfg(feature = "state")]
             state,
         }
@@ -69,37 +62,41 @@ impl<A: Adapter> Client<A> {
     ) {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
-
-        tokio::spawn(async move {
-            let result = { self.ns.read().unwrap().get_with_params(&ns_path) };
-            if let Some((ns, params)) = result {
-                if ns
-                    .connect(esocket.id, &ns_path, esocket.clone(), auth, params)
-                    .await
-                    .is_ok()
-                {
-                    // cancel the connect timeout task for v5
-                    if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                        tx.send(()).ok();
-                    }
-                }
-            } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4
-                && ns_path == "/"
+        let connect = move |ns: Arc<Namespace<A>>, params: NsParamBuff<'_>| async move {
+            if ns
+                .connect(esocket.id, esocket.clone(), auth, params)
+                .await
+                .is_ok()
             {
-                #[cfg(feature = "tracing")]
-                tracing::error!(
-                    "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
-                );
-                esocket.close(EIoDisconnectReason::TransportClose);
-            } else {
-                drop(result);
-                let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
-                if let Err(_e) = esocket.emit(packet) {
-                    #[cfg(feature = "tracing")]
-                    tracing::error!("error while sending invalid namespace packet: {}", _e);
+                // cancel the connect timeout task for v5
+                if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                    tx.send(()).ok();
                 }
             }
-        });
+        };
+
+        if let Some(ns) = self.get_ns(&ns_path) {
+            tokio::spawn(connect(ns, NsParamBuff::default()));
+        } else if let Ok(res) = self.router.read().unwrap().at(&ns_path) {
+            let ns = res.value.get_new_ns(ns_path); //TODO: check memory leak here
+            self.ns
+                .write()
+                .unwrap()
+                .insert(Cow::Owned(ns_path.to_string()), ns.clone());
+            tokio::spawn(connect(ns, NsParamBuff::from(res.params)));
+        } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
+            #[cfg(feature = "tracing")]
+            tracing::error!(
+                    "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
+                );
+            esocket.close(EIoDisconnectReason::TransportClose);
+        } else {
+            let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
+            if let Err(_e) = esocket.emit(packet) {
+                #[cfg(feature = "tracing")]
+                tracing::error!("error while sending invalid namespace packet: {}", _e);
+            }
+        }
     }
 
     /// Propagate a packet to a its target namespace
@@ -131,20 +128,27 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Adds a new namespace handler
-    pub fn add_ns<C, T>(
-        &self,
-        path: Cow<'static, str>,
-        callback: C,
-    ) -> Result<(), matchit::InsertError>
+    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<A, T> + Clone,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
+        let ns = Namespace::new(Str::from(&path), callback);
+        self.ns.write().unwrap().insert(path, ns);
+    }
 
-        let ns = Namespace::new(path.clone(), callback);
-        self.ns.write().unwrap().insert(&path, ns)
+    pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
+    where
+        C: ConnectHandler<A, T> + Clone,
+        T: Send + Sync + 'static,
+    {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("adding dynamic namespace {}", &path);
+
+        let ns = NamespaceCtr::new(callback);
+        self.router.write().unwrap().insert(path, ns)
     }
 
     /// Deletes a namespace handler and closes all the connections to it
@@ -163,7 +167,7 @@ impl<A: Adapter> Client<A> {
     }
 
     pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
-        self.ns.read().unwrap().get(path)
+        self.ns.read().unwrap().get(path).cloned()
     }
 
     /// Closes all engine.io connections and all clients
@@ -171,7 +175,7 @@ impl<A: Adapter> Client<A> {
     pub(crate) async fn close(&self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all namespaces");
-        let ns = self.ns.write().unwrap().take();
+        let ns = { std::mem::take(&mut *self.ns.write().unwrap()) };
         futures_util::future::join_all(
             ns.iter()
                 .map(|(_, ns)| ns.close(DisconnectReason::ClosingServer)),
@@ -354,67 +358,6 @@ fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketDat
     }
 }
 
-/// ==== impl NsBuff ====
-
-impl<A: Adapter> Default for NsBuff<A> {
-    fn default() -> Self {
-        Self {
-            buff: Slab::new(),
-            router: Router::new(),
-        }
-    }
-}
-impl<A: Adapter> NsBuff<A> {
-    pub fn get(&self, path: &str) -> Option<Arc<Namespace<A>>> {
-        self.router
-            .at(path)
-            .ok()
-            .map(|m| self.buff[*m.value].clone())
-    }
-
-    /// Extracts the namespace and the parameters from the given path
-    ///
-    /// The parameters keys are cloned to avoid borrowing [`NsBuff`] as
-    /// it is used behind a [`RwLock`].
-    ///
-    /// We use a [`SmallVec`] to store parameters because most of the time there is less
-    /// than 3 parameters.
-    pub fn get_with_params<'v>(
-        &self,
-        path: &'v str,
-    ) -> Option<(Arc<Namespace<A>>, NsParamBuff<'v>)> {
-        self.router.at(path).ok().map(move |m| {
-            let ns = self.buff[*m.value].clone();
-            (ns, NsParamBuff::from(m.params))
-        })
-    }
-
-    pub fn insert(
-        &mut self,
-        path: &str,
-        ns: Arc<Namespace<A>>,
-    ) -> Result<(), matchit::InsertError> {
-        let index = self.buff.insert(ns);
-        self.router.insert(path, index).map_err(|e| {
-            self.buff.remove(index);
-            e
-        })
-    }
-
-    pub fn remove(&mut self, path: &str) -> Option<Arc<Namespace<A>>> {
-        self.router.remove(path).map(|i| self.buff.remove(i))
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (usize, &Arc<Namespace<A>>)> {
-        self.buff.iter()
-    }
-
-    pub fn take(&mut self) -> Slab<Arc<Namespace<A>>> {
-        self.router = Router::new();
-        std::mem::take(&mut self.buff)
-    }
-}
-
 #[cfg(socketioxide_test)]
 impl<A: Adapter> Client<A> {
     pub async fn new_dummy_sock(
@@ -483,7 +426,7 @@ mod test {
             #[cfg(feature = "state")]
             Default::default(),
         );
-        client.add_ns("/".into(), || {}).unwrap();
+        client.add_ns("/".into(), || {});
         Arc::new(client)
     }
 
@@ -520,51 +463,5 @@ mod test {
         tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
             .await
             .unwrap_err();
-    }
-
-    #[test]
-    fn nsbuff_insert() {
-        let mut nsbuff = NsBuff::<LocalAdapter>::default();
-        let ns = Namespace::new("/test".into(), || {});
-        nsbuff.insert("/test", ns.clone()).unwrap();
-        assert!(matches!(nsbuff.get("/test"), Some(_)));
-    }
-
-    #[test]
-    fn nsbuff_insert_fail() {
-        let mut nsbuff = NsBuff::<LocalAdapter>::default();
-        let ns = Namespace::new("/test".into(), || {});
-        assert!(nsbuff.insert("/test{", ns).is_err());
-        assert!(nsbuff.get("/test").is_none());
-    }
-
-    #[test]
-    fn nsbuff_remove() {
-        let mut nsbuff = NsBuff::<LocalAdapter>::default();
-        let ns = Namespace::new("/test".into(), || {});
-        nsbuff.insert("/test", ns.clone()).unwrap();
-        assert!(matches!(nsbuff.remove("/test"), Some(_)));
-        assert!(nsbuff.get("/test").is_none());
-        assert!(nsbuff.buff.is_empty());
-    }
-
-    #[test]
-    fn nsbuff_remove_fail() {
-        let mut nsbuff = NsBuff::<LocalAdapter>::default();
-        let ns = Namespace::new("/test".into(), || {});
-        nsbuff.insert("/test", ns.clone()).unwrap();
-        assert!(nsbuff.remove("/test2").is_none());
-        assert!(matches!(nsbuff.get("/test"), Some(_)));
-    }
-
-    #[test]
-    fn nsbuff_get_with_params() {
-        let mut nsbuff = NsBuff::<LocalAdapter>::default();
-        let ns = Namespace::new("/test".into(), || {});
-        nsbuff.insert("/test/{id}", ns.clone()).unwrap();
-        let (ns2, params) = nsbuff.get_with_params("/test/1").unwrap();
-        assert!(Arc::ptr_eq(&ns, &ns2));
-        let param = params.into_iter().map(|(k, v)| (k.as_ref(), *v)).next();
-        assert!(matches!(param, Some(("id", "1"))));
     }
 }

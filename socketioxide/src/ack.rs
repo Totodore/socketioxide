@@ -327,12 +327,12 @@ mod test {
     async fn broadcast_ack() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/".into(), "test", "test".into());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
-        let res_packet = Packet::ack("test", "test".into(), 1);
+        let res_packet = Packet::ack("test".into(), "test".into(), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
         socket2.recv(res_packet.inner).unwrap();
 
@@ -383,12 +383,12 @@ mod test {
     async fn broadcast_ack_with_deserialize_error() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/".into(), "test", "test".into());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
-        let res_packet = Packet::ack("test", 132.into(), 1);
+        let res_packet = Packet::ack("test".into(), 132.into(), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
         socket2.recv(res_packet.inner).unwrap();
 
@@ -447,12 +447,12 @@ mod test {
     async fn broadcast_ack_with_closed_socket() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/".into(), "test", "test".into());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
 
-        let res_packet = Packet::ack("test", "test".into(), 1);
+        let res_packet = Packet::ack("test".into(), "test".into(), 1);
         socket.clone().recv(res_packet.inner.clone()).unwrap();
 
         futures_util::pin_mut!(stream);
@@ -502,14 +502,14 @@ mod test {
     async fn broadcast_ack_with_timeout() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let mut packet = Packet::event("/", "test", "test".into());
+        let mut packet = Packet::event("/".into(), "test", "test".into());
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> =
             AckInnerStream::broadcast(packet, socks, Some(Duration::from_millis(10))).into();
 
         socket
-            .recv(Packet::ack("test", "test".into(), 1).inner)
+            .recv(Packet::ack("test".into(), "test".into(), 1).inner)
             .unwrap();
 
         futures_util::pin_mut!(stream);

@@ -486,7 +486,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
-        let ns = self.socket.ns_path.clone();
+        let ns = self.socket.ns.path.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)
@@ -499,7 +499,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
 }
 
 impl<A: Adapter> BroadcastOperators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>, ns_path: Str) -> Self {
+    pub(crate) fn new(ns: Arc<Namespace<A>>) -> Self {
         Self {
             binary: vec![],
             timeout: None,

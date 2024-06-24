@@ -381,13 +381,9 @@ impl<A: Adapter> SocketIo<A> {
     /// }).unwrap();
     /// ```
     #[inline]
-    pub fn ns<C, T>(
-        &self,
-        path: impl Into<Cow<'static, str>>,
-        callback: C,
-    ) -> Result<(), matchit::InsertError>
+    pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<A, T> + Clone,
         T: Send + Sync + 'static,
     {
         self.0.add_ns(path.into(), callback)
@@ -868,7 +864,7 @@ impl<A: Adapter> SocketIo<A> {
     fn get_op(&self, path: &str) -> Option<BroadcastOperators<A>> {
         self.0
             .get_ns(path)
-            .map(|ns| BroadcastOperators::new(ns, Str::copy_from_slice(path)).broadcast())
+            .map(|ns| BroadcastOperators::new(ns).broadcast())
     }
 
     /// Returns a new operator on the default namespace "/" (root namespace)
@@ -918,7 +914,7 @@ mod tests {
     #[test]
     fn get_default_op() {
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("/", || {}).unwrap();
+        io.ns("/", || {});
         let _ = io.get_default_op();
     }
 
@@ -932,7 +928,7 @@ mod tests {
     #[test]
     fn get_op() {
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("test", || {}).unwrap();
+        io.ns("test", || {});
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
     }
@@ -942,11 +938,11 @@ mod tests {
         use engineioxide::Socket;
         let sid = Sid::new();
         let (_, io) = SocketIo::builder().build_svc();
-        io.ns("/", || {}).unwrap();
+        io.ns("/", || {});
         let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
         io.0.get_ns("/")
             .unwrap()
-            .connect(sid, "/", socket, None, NsParamBuff::default())
+            .connect(sid, socket, None, NsParamBuff::default())
             .await
             .ok();
 
