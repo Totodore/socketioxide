@@ -18,7 +18,6 @@ use crate::ns::NamespaceCtr;
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
-    handler::connect::NsParamBuff,
     ns::Namespace,
     packet::{Packet, PacketData},
     SocketIoConfig,
@@ -62,29 +61,29 @@ impl<A: Adapter> Client<A> {
     ) {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
-        let connect = move |ns: Arc<Namespace<A>>, params: NsParamBuff<'_>| async move {
+        let protocol: ProtocolVersion = esocket.protocol.into();
+        let esocket_clone = esocket.clone();
+        let connect = move |ns: Arc<Namespace<A>>| async move {
             if ns
-                .connect(esocket.id, esocket.clone(), auth, params)
+                .connect(esocket_clone.id, esocket_clone.clone(), auth)
                 .await
                 .is_ok()
             {
                 // cancel the connect timeout task for v5
-                if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                if let Some(tx) = esocket_clone.data.connect_recv_tx.lock().unwrap().take() {
                     tx.send(()).ok();
                 }
             }
         };
 
         if let Some(ns) = self.get_ns(&ns_path) {
-            tokio::spawn(connect(ns, NsParamBuff::default()));
+            tokio::spawn(connect(ns));
         } else if let Ok(res) = self.router.read().unwrap().at(&ns_path) {
+            let path: Cow<'static, str> = Cow::Owned(ns_path.clone().into());
             let ns = res.value.get_new_ns(ns_path); //TODO: check memory leak here
-            self.ns
-                .write()
-                .unwrap()
-                .insert(Cow::Owned(ns_path.to_string()), ns.clone());
-            tokio::spawn(connect(ns, NsParamBuff::from(res.params)));
-        } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
+            self.ns.write().unwrap().insert(path, ns.clone());
+            tokio::spawn(connect(ns));
+        } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
                     "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"

@@ -6,7 +6,6 @@ use std::{
 use crate::{
     adapter::Adapter,
     errors::{ConnectFail, Error},
-    handler::connect::NsParamBuff,
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::{DisconnectReason, Socket},
@@ -70,16 +69,11 @@ impl<A: Adapter> Namespace<A> {
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<String>,
-        params: NsParamBuff<'_>,
     ) -> Result<(), ConnectFail> {
         // deep-clone to avoid packet memory leak
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
 
-        if let Err(e) = self
-            .handler
-            .call_middleware(socket.clone(), &auth, &params)
-            .await
-        {
+        if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {
             #[cfg(feature = "tracing")]
             tracing::trace!(ns = self.path.as_str(), ?socket.id, "emitting connect_error packet");
 
@@ -106,7 +100,7 @@ impl<A: Adapter> Namespace<A> {
         }
 
         socket.set_connected(true);
-        self.handler.call(socket, auth, &params);
+        self.handler.call(socket, auth);
 
         Ok(())
     }

@@ -13,10 +13,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use engineioxide::{
-    socket::{DisconnectReason as EIoDisconnectReason, Permit},
-    Str,
-};
+use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};

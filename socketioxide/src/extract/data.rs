@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use crate::handler::{FromConnectParts, FromMessage, FromMessageParts};
-use crate::{adapter::Adapter, handler::connect::NsParamBuff, socket::Socket};
+use crate::{adapter::Adapter, socket::Socket};
 use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -27,11 +27,7 @@ where
     A: Adapter,
 {
     type Error = serde_json::Error;
-    fn from_connect_parts(
-        _: &Arc<Socket<A>>,
-        auth: &Option<String>,
-        _: &NsParamBuff<'_>,
-    ) -> Result<Self, Self::Error> {
+    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error> {
         auth.as_ref()
             .map(|a| serde_json::from_str::<T>(a))
             .unwrap_or(serde_json::from_str::<T>("{}"))
@@ -64,11 +60,7 @@ where
     A: Adapter,
 {
     type Error = Infallible;
-    fn from_connect_parts(
-        _: &Arc<Socket<A>>,
-        auth: &Option<String>,
-        _: &NsParamBuff<'_>,
-    ) -> Result<Self, Infallible> {
+    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Infallible> {
         let v: Result<T, serde_json::Error> = auth
             .as_ref()
             .map(|a| serde_json::from_str(a))

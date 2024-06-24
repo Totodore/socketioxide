@@ -126,34 +126,12 @@ pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
 type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
 
-/// A buffer that holds the namespace parameters.
-/// It should not be used directly, use the [`NsParam`](crate::extract::NsParam) extractor instead.
-#[derive(Debug, Default)]
-pub struct NsParamBuff<'a>(smallvec::SmallVec<[(Box<str>, &'a str); 3]>);
-impl<'k, 'v> From<matchit::Params<'k, 'v>> for NsParamBuff<'v> {
-    fn from(params: matchit::Params<'k, 'v>) -> Self {
-        let mut vec = smallvec::SmallVec::new();
-        for (k, v) in params.iter() {
-            vec.push((k.to_string().into_boxed_str(), v));
-        }
-        Self(vec)
-    }
-}
-impl<'a, 'v> IntoIterator for &'a NsParamBuff<'v> {
-    type Item = &'a (Box<str>, &'v str);
-    type IntoIter = std::slice::Iter<'a, (Box<str>, &'v str)>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
-        params: &'a NsParamBuff<'_>,
     ) -> MiddlewareResFut<'a>;
 
     fn boxed_clone(&self) -> BoxedConnectHandler<A>;
@@ -171,11 +149,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
-    fn from_connect_parts(
-        s: &Arc<Socket<A>>,
-        auth: &Option<String>,
-        params: &NsParamBuff<'_>,
-    ) -> Result<Self, Self::Error>;
+    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
 }
 
 /// Define a middleware for the connect event.
@@ -190,7 +164,6 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
-        params: &'a NsParamBuff<'_>,
     ) -> impl Future<Output = MiddlewareRes> + Send;
 
     #[doc(hidden)]
@@ -206,14 +179,13 @@ pub trait ConnectMiddleware<A: Adapter, T>: Send + Sync + 'static {
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
 
     /// Call the middleware with the given arguments.
     fn call_middleware<'a>(
         &'a self,
         _: Arc<Socket<A>>,
         _: &'a Option<String>,
-        _: &'a NsParamBuff<'_>,
     ) -> MiddlewareResFut<'a> {
         Box::pin(async move { Ok(()) })
     }
@@ -307,17 +279,16 @@ where
     H: ConnectHandler<A, T> + Clone + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>) {
-        self.handler.call(s, auth, params);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+        self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
-        params: &'a NsParamBuff<'_>,
     ) -> MiddlewareResFut<'a> {
-        self.handler.call_middleware(s, auth, params)
+        self.handler.call_middleware(s, auth)
     }
 
     fn boxed_clone(&self) -> BoxedConnectHandler<A> {
@@ -333,17 +304,16 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>) {
-        self.handler.call(s, auth, params);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+        self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
         auth: &'a Option<String>,
-        params: &'a NsParamBuff<'_>,
     ) -> MiddlewareResFut<'a> {
-        Box::pin(async move { self.middleware.call(s, auth, params).await })
+        Box::pin(async move { self.middleware.call(s, auth).await })
     }
 
     fn with<M2, T2>(self, next: M2) -> impl ConnectHandler<A, T>
@@ -370,13 +340,8 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(
-        &'a self,
-        s: Arc<Socket<A>>,
-        auth: &'a Option<String>,
-        params: &'a NsParamBuff<'_>,
-    ) -> MiddlewareRes {
-        self.middleware.call(s, auth, params).await
+    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+        self.middleware.call(s, auth).await
     }
 }
 
@@ -388,14 +353,9 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(
-        &'a self,
-        s: Arc<Socket<A>>,
-        auth: &'a Option<String>,
-        params: &'a NsParamBuff<'_>,
-    ) -> MiddlewareRes {
-        self.middleware.call(s.clone(), auth, params).await?;
-        self.next.call(s, auth, params).await
+    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+        self.middleware.call(s.clone(), auth).await?;
+        self.next.call(s, auth).await
     }
 }
 
@@ -418,9 +378,9 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, params) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -449,9 +409,9 @@ macro_rules! impl_handler {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>, params: &NsParamBuff<'_>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, params) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -484,10 +444,9 @@ macro_rules! impl_middleware_async {
                 &'a self,
                 s: Arc<Socket<A>>,
                 auth: &'a Option<String>,
-                params: &'a NsParamBuff<'_>,
             ) -> MiddlewareRes {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, auth, params) {
+                    let $ty = match $ty::from_connect_parts(&s, auth) {
                         Ok(v) => v,
                         Err(e) => {
                             #[cfg(feature = "tracing")]
@@ -526,10 +485,9 @@ macro_rules! impl_middleware {
                 &'a self,
                 s: Arc<Socket<A>>,
                 auth: &'a Option<String>,
-                params: &'a NsParamBuff<'_>,
             ) -> MiddlewareRes {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, auth, params) {
+                    let $ty = match $ty::from_connect_parts(&s, auth) {
                         Ok(v) => v,
                         Err(e) => {
                             #[cfg(feature = "tracing")]

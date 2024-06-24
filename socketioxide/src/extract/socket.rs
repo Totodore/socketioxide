@@ -5,7 +5,6 @@ use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::{DisconnectError, SendError},
-    handler::connect::NsParamBuff,
     packet::Packet,
     socket::{DisconnectReason, Socket},
     SocketIo,
@@ -19,11 +18,7 @@ pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
     type Error = Infallible;
-    fn from_connect_parts(
-        s: &Arc<Socket<A>>,
-        _: &Option<String>,
-        _: &NsParamBuff<'_>,
-    ) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
@@ -144,11 +139,7 @@ impl<A: Adapter> AckSender<A> {
 
 impl<A: Adapter> FromConnectParts<A> for crate::ProtocolVersion {
     type Error = Infallible;
-    fn from_connect_parts(
-        s: &Arc<Socket<A>>,
-        _: &Option<String>,
-        _: &NsParamBuff<'_>,
-    ) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(s.protocol())
     }
 }
@@ -172,11 +163,7 @@ impl<A: Adapter> FromDisconnectParts<A> for crate::ProtocolVersion {
 
 impl<A: Adapter> FromConnectParts<A> for crate::TransportType {
     type Error = Infallible;
-    fn from_connect_parts(
-        s: &Arc<Socket<A>>,
-        _: &Option<String>,
-        _: &NsParamBuff<'_>,
-    ) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(s.transport_type())
     }
 }
@@ -211,11 +198,7 @@ impl<A: Adapter> FromDisconnectParts<A> for DisconnectReason {
 impl<A: Adapter> FromConnectParts<A> for SocketIo<A> {
     type Error = Infallible;
 
-    fn from_connect_parts(
-        s: &Arc<Socket<A>>,
-        _: &Option<String>,
-        _: &NsParamBuff<'_>,
-    ) -> Result<Self, Self::Error> {
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
         Ok(s.get_io().clone())
     }
 }

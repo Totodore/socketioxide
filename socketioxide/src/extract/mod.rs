@@ -39,7 +39,7 @@
 //! #### Example that extracts a user id from the query params
 //! ```rust
 //! # use bytes::Bytes;
-//! # use socketioxide::handler::{FromConnectParts, FromMessageParts, connect::NsParamBuff};
+//! # use socketioxide::handler::{FromConnectParts, FromMessageParts};
 //! # use socketioxide::adapter::Adapter;
 //! # use socketioxide::socket::Socket;
 //! # use std::sync::Arc;
@@ -102,7 +102,6 @@
 
 mod data;
 mod extensions;
-mod ns_params;
 mod socket;
 
 #[cfg(feature = "state")]
@@ -111,7 +110,6 @@ mod state;
 
 pub use data::*;
 pub use extensions::*;
-pub use ns_params::*;
 pub use socket::*;
 #[cfg(feature = "state")]
 #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
