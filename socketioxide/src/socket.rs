@@ -32,7 +32,7 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
-    AckError, SocketIoConfig,
+    AckError, SocketIo,
 };
 use crate::{
     client::SocketData,
@@ -128,7 +128,6 @@ impl<'a> PermitExt<'a> for Permit<'a> {
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
 pub struct Socket {
-    pub(crate) config: Arc<SocketIoConfig>,
     pub(crate) ns: Arc<Namespace>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler>>,
@@ -140,9 +139,9 @@ pub struct Socket {
 
     /// A type map of protocol extensions.
     /// It can be used to share data through the lifetime of the socket.
-    /// Because it uses a [`DashMap`](dashmap::DashMap) internally, it is thread safe but be careful about deadlocks!
     ///
     /// **Note**: This is note the same data than the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
+    /// If you want to extract extensions from the http request, you should use the [`HttpExtension`](crate::extract::HttpExtension) extractor.
     #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
     #[cfg(feature = "extensions")]
     pub extensions: Extensions,
@@ -154,7 +153,6 @@ impl Socket {
         sid: Sid,
         ns: Arc<Namespace>,
         esocket: Arc<engineioxide::Socket<SocketData>>,
-        config: Arc<SocketIoConfig>,
     ) -> Self {
         Self {
             ns,
@@ -166,7 +164,6 @@ impl Socket {
             id: sid,
             #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
-            config,
             esocket,
         }
     }
@@ -322,7 +319,7 @@ impl Socket {
             }
         };
 
-        let ns = self.ns();
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         permit.send(Packet::event(ns, event.into(), data));
         Ok(())
@@ -395,10 +392,11 @@ impl Socket {
                 return Err(e.with_value(data).into());
             }
         };
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        let packet = Packet::event(self.ns(), event.into(), data);
+        let packet = Packet::event(ns, event.into(), data);
         let rx = self.send_with_ack_permit(packet, permit);
-        let stream = AckInnerStream::send(rx, self.config.ack_timeout, self.id);
+        let stream = AckInnerStream::send(rx, self.get_io().config().ack_timeout, self.id);
         Ok(AckStream::<V>::from(stream))
     }
 
@@ -618,11 +616,20 @@ impl Socket {
         BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
     }
 
+    /// Get the [`SocketIo`] context related to this socket
+    ///
+    /// # Panics
+    /// Because [`SocketData::io`] should be immediately set at the creation of the socket.
+    /// this should never panic.
+    pub(crate) fn get_io(&self) -> &SocketIo {
+        self.esocket.data.io.get().unwrap()
+    }
+
     /// Disconnects the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
-        let res = self.send(Packet::disconnect(&self.ns.path));
+        let res = self.send(Packet::disconnect(self.ns.path.clone()));
         if let Err(SocketError::InternalChannelFull(_)) = res {
             return Err(DisconnectError::InternalChannelFull);
         }
@@ -822,13 +829,17 @@ impl PartialEq for Socket {
 impl Socket {
     /// Creates a dummy socket for testing purposes
     pub fn new_dummy(sid: Sid, ns: Arc<Namespace>) -> Socket {
+        use crate::client::Client;
+        use crate::io::SocketIoConfig;
+
         let close_fn = Box::new(move |_, _| ());
-        let s = Socket::new(
-            sid,
-            ns,
-            engineioxide::Socket::new_dummy(sid, close_fn),
-            Arc::new(SocketIoConfig::default()),
-        );
+        let config = SocketIoConfig::default();
+        let io = SocketIo::from(Arc::new(Client::new(
+            config,
+            std::default::Default::default(),
+        )));
+        let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
+        s.esocket.data.io.set(io).unwrap();
         s.set_connected(true);
         s
     }

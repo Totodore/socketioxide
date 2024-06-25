@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
     time::Duration,
 };
 
@@ -83,7 +84,7 @@ pub async fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
 
-    let svc = EngineIoService::with_config(handler, config);
+    let svc = EngineIoService::with_config(Arc::new(handler), config);
 
     let listener = TcpListener::bind(&addr).await.unwrap();
     tokio::spawn(async move {

@@ -1,10 +1,13 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::errors::{DisconnectError, SendError};
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
-use crate::socket::DisconnectReason;
-use crate::{packet::Packet, socket::Socket};
+use crate::{
+    errors::{DisconnectError, SendError},
+    packet::Packet,
+    socket::{DisconnectReason, Socket},
+    SocketIo,
+};
 use bytes::Bytes;
 use serde::Serialize;
 
@@ -14,11 +17,7 @@ pub struct SocketRef(Arc<Socket>);
 
 impl FromConnectParts for SocketRef {
     type Error = Infallible;
-    fn from_connect_parts(
-        s: &Arc<Socket>,
-        _: &Option<String>,
-        _: &Arc<state::TypeMap![Send + Sync]>,
-    ) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
     }
 }
@@ -122,7 +121,7 @@ impl AckSender {
                     return Err(e.with_value(data).into());
                 }
             };
-            let ns = self.socket.ns();
+            let ns = self.socket.ns.path.clone();
             let data = serde_json::to_value(data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
@@ -192,5 +191,32 @@ impl FromDisconnectParts for DisconnectReason {
         reason: DisconnectReason,
     ) -> Result<Self, Infallible> {
         Ok(reason)
+    }
+}
+
+impl FromConnectParts for SocketIo {
+    type Error = Infallible;
+
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, Self::Error> {
+        Ok(s.get_io().clone())
+    }
+}
+impl FromMessageParts for SocketIo {
+    type Error = Infallible;
+
+    fn from_message_parts(
+        s: &Arc<Socket>,
+        _: &mut serde_json::Value,
+        _: &mut Vec<Bytes>,
+        _: &Option<i64>,
+    ) -> Result<Self, Self::Error> {
+        Ok(s.get_io().clone())
+    }
+}
+impl FromDisconnectParts for SocketIo {
+    type Error = Infallible;
+
+    fn from_disconnect_parts(s: &Arc<Socket>, _: DisconnectReason) -> Result<Self, Self::Error> {
+        Ok(s.get_io().clone())
     }
 }

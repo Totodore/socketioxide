@@ -156,7 +156,8 @@ impl AckInnerStream {
             return AckInnerStream::Stream { rxs };
         }
 
-        let duration = duration.unwrap_or_else(|| sockets.first().unwrap().config.ack_timeout);
+        let duration =
+            duration.unwrap_or_else(|| sockets.first().unwrap().get_io().config().ack_timeout);
         for socket in sockets {
             let rx = socket.send_with_ack(packet.clone());
             rxs.push(AckResultWithId {

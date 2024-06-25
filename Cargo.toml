@@ -25,8 +25,9 @@ futures-util = { version = "0.3.30", default-features = false, features = [
     "std",
 ] }
 tokio = "1.35.0"
-tokio-tungstenite = "0.21.0"
+tokio-tungstenite = "0.23.0"
 serde = { version = "1.0.193", features = ["derive"] }
+smallvec = { version = "1.13.1", features = ["union"] }
 serde_json = "1.0.108"
 tower = { version = "0.4.13", default-features = false }
 http = "1.0.0"
@@ -38,6 +39,7 @@ itoa = "1.0.10"
 hyper-util.version = "0.1.1"
 hyper = "1.0.3"
 pin-project-lite = "0.2.13"
+matchit = "0.8.2"
 
 # Dev deps
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

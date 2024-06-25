@@ -14,18 +14,18 @@ mod fixture;
 mod utils;
 
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
-    tokio::time::timeout(Duration::from_millis(500), srx.recv())
+    tokio::time::timeout(Duration::from_millis(10), srx.recv())
         .await
         .unwrap()
         .unwrap()
 }
 async fn timeout_rcv_err<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) {
-    tokio::time::timeout(Duration::from_millis(500), srx.recv())
+    tokio::time::timeout(Duration::from_millis(10), srx.recv())
         .await
         .unwrap_err();
 }
 
-fn create_msg(ns: &str, event: &str, data: impl Into<serde_json::Value>) -> EioPacket {
+fn create_msg(ns: &'static str, event: &str, data: impl Into<serde_json::Value>) -> EioPacket {
     let packet: String = Packet::event(ns, event, data.into()).into();
     EioPacket::Message(packet.into())
 }

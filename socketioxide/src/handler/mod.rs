@@ -1,5 +1,5 @@
 //! Functions and types used to handle incoming connections and messages.
-//! There is three main types of handlers: [`ConnectHandler`], [`MessageHandler`] and [`DisconnectHandler`].
+//! There is three main types of handlers: [connect], [message] and [disconnect].
 //! All handlers can be async or not.
 pub mod connect;
 pub mod disconnect;
@@ -20,6 +20,14 @@ impl<H, T> MakeErasedHandler<H, T> {
     pub fn new(handler: H) -> Self {
         Self {
             handler,
+            type_: std::marker::PhantomData,
+        }
+    }
+}
+impl<H: Clone, T> Clone for MakeErasedHandler<H, T> {
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
             type_: std::marker::PhantomData,
         }
     }

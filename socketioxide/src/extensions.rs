@@ -21,7 +21,7 @@ use std::{
 /// TypeMap value
 type AnyVal = Box<dyn Any + Send + Sync>;
 
-/// The `AnyDashMap` is a `HashMap` that uses `TypeId` as keys and `Any` as values.
+/// The [`AnyHashMap`] is a [`HashMap`] that uses `TypeId` as keys and `Any` as values.
 type AnyHashMap = RwLock<HashMap<TypeId, AnyVal, BuildHasherDefault<IdHasher>>>;
 
 // With TypeIds as keys, there's no need to hash them. They are already hashes
@@ -53,6 +53,9 @@ impl Hasher for IdHasher {
 /// The main difference is that the inner Map is wrapped with an `RwLock` to allow concurrent access.
 ///
 /// This is necessary because `Extensions` are shared between all the threads that handle the same socket.
+///
+/// You can use the [`Extension`](crate::extract::Extension) or
+/// [`MaybeExtension`](crate::extract::MaybeExtension) extractor to extract an extension of the given type.
 #[derive(Default)]
 pub struct Extensions {
     /// The underlying map

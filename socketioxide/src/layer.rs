@@ -36,8 +36,15 @@ impl Clone for SocketIoLayer {
 }
 
 impl SocketIoLayer {
-    pub(crate) fn from_config(config: Arc<SocketIoConfig>) -> (Self, Arc<Client>) {
-        let client = Arc::new(Client::new(config.clone()));
+    pub(crate) fn from_config(
+        config: SocketIoConfig,
+        #[cfg(feature = "state")] state: state::TypeMap![Send + Sync],
+    ) -> (Self, Arc<Client>) {
+        let client = Arc::new(Client::new(
+            config,
+            #[cfg(feature = "state")]
+            state,
+        ));
         let layer = Self {
             client: client.clone(),
         };

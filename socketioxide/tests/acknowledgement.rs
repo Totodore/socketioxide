@@ -50,10 +50,9 @@ pub async fn broadcast_with_ack() {
     let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
 
-    let io2 = io.clone();
-    io.ns("/", move |socket: SocketRef| async move {
-        let res = io2.emit_with_ack::<[String; 1]>("test", "foo");
-        let sockets = io2.sockets().unwrap();
+    io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
+        let res = io.emit_with_ack::<[String; 1]>("test", "foo");
+        let sockets = io.sockets().unwrap();
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
@@ -63,7 +62,7 @@ pub async fn broadcast_with_ack() {
         })
         .await;
 
-        let res = io2
+        let res = io
             .timeout(Duration::from_millis(500))
             .emit_with_ack::<[String; 1]>("test", "foo");
         let res = assert_ok!(res);

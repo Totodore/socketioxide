@@ -21,7 +21,7 @@ pub struct EngineIo<H: EngineIoHandler> {
     sockets: SocketMap<Socket<H::Data>>,
 
     /// The handler for the engine.io server that will be called when events are received
-    pub handler: H,
+    pub handler: Arc<H>,
 
     /// The config for the engine.io server
     pub config: EngineIoConfig,
@@ -29,7 +29,7 @@ pub struct EngineIo<H: EngineIoHandler> {
 
 impl<H: EngineIoHandler> EngineIo<H> {
     /// Create a new Engine.IO server with a [`EngineIoHandler`] and a [`EngineIoConfig`]
-    pub fn new(handler: H, config: EngineIoConfig) -> Self {
+    pub fn new(handler: Arc<H>, config: EngineIoConfig) -> Self {
         Self {
             sockets: RwLock::new(HashMap::new()),
             config,
@@ -64,7 +64,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             .write()
             .unwrap()
             .insert(socket.id, socket.clone());
-        self.handler.on_connect(socket.clone());
+        self.handler.clone().on_connect(socket.clone());
         socket
     }
 
@@ -107,7 +107,7 @@ mod tests {
     impl EngineIoHandler for MockHandler {
         type Data = ();
 
-        fn on_connect(&self, socket: Arc<Socket<Self::Data>>) {
+        fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>) {
             println!("socket connect {}", socket.id);
         }
 
@@ -126,10 +126,14 @@ mod tests {
         }
     }
 
+    fn create_engine() -> Arc<EngineIo<MockHandler>> {
+        let config = EngineIoConfig::default();
+        Arc::new(EngineIo::new(Arc::new(MockHandler), config))
+    }
+
     #[tokio::test]
     async fn create_session() {
-        let config = EngineIoConfig::default();
-        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let engine = create_engine();
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,
@@ -144,8 +148,7 @@ mod tests {
 
     #[tokio::test]
     async fn close_session() {
-        let config = EngineIoConfig::default();
-        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let engine = create_engine();
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,
@@ -160,8 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_socket() {
-        let config = EngineIoConfig::default();
-        let engine = Arc::new(EngineIo::new(MockHandler, config));
+        let engine = create_engine();
         let socket = engine.create_session(
             ProtocolVersion::V4,
             TransportType::Polling,

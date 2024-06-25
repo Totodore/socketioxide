@@ -2,13 +2,14 @@ use std::sync::atomic::AtomicUsize;
 
 use serde::{Deserialize, Serialize};
 use socketioxide::{
-    extract::{Data, Extension, MaybeExtension, SocketRef, State},
+    extract::{Data, Extension, SocketRef, State},
     SocketIo,
 };
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
+use std::sync::Arc;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(transparent)]
@@ -34,11 +35,11 @@ enum Res {
         username: Username,
     },
 }
-
-struct UserCnt(AtomicUsize);
+#[derive(Clone)]
+struct UserCnt(Arc<AtomicUsize>);
 impl UserCnt {
     fn new() -> Self {
-        Self(AtomicUsize::new(0))
+        Self(Arc::new(AtomicUsize::new(0)))
     }
     fn add_user(&self) -> usize {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
@@ -104,15 +105,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         s.on_disconnect(
-            |s: SocketRef, user_cnt: State<UserCnt>, MaybeExtension::<Username>(username)| {
-                if let Some(username) = username {
-                    let num_users = user_cnt.remove_user();
-                    let res = Res::UserEvent {
-                        num_users,
-                        username,
-                    };
-                    s.broadcast().emit("user left", res).ok();
-                }
+            |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| {
+                let num_users = user_cnt.remove_user();
+                let res = Res::UserEvent {
+                    num_users,
+                    username,
+                };
+                s.broadcast().emit("user left", res).ok();
             },
         );
     });

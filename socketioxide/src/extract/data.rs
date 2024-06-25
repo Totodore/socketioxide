@@ -17,8 +17,8 @@ fn upwrap_array(v: &mut Value) {
     }
 }
 
-/// An Extractor that returns the serialized auth data without checking errors.
-/// If a deserialization error occurs, the [`ConnectHandler`](crate::handler::ConnectHandler) won't be called
+/// An Extractor that returns the deserialized data without checking errors.
+/// If a deserialization error occurs, the handler won't be called
 /// and an error log will be print if the `tracing` feature is enabled.
 pub struct Data<T>(pub T);
 impl<T> FromConnectParts for Data<T>
@@ -26,11 +26,7 @@ where
     T: DeserializeOwned,
 {
     type Error = serde_json::Error;
-    fn from_connect_parts(
-        _: &Arc<Socket>,
-        auth: &Option<String>,
-        _: &Arc<state::TypeMap![Send + Sync]>,
-    ) -> Result<Self, Self::Error> {
+    fn from_connect_parts(_: &Arc<Socket>, auth: &Option<String>) -> Result<Self, Self::Error> {
         auth.as_ref()
             .map(|a| serde_json::from_str::<T>(a))
             .unwrap_or(serde_json::from_str::<T>("{}"))

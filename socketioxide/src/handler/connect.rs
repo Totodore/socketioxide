@@ -31,7 +31,7 @@
 //! let (svc, io) = SocketIo::new_svc();
 //! // Here the handler is sync,
 //! // if there is a serialization error, the handler is not called
-//! io.ns("/nsp", move |s: SocketRef, Data(auth): Data<String>| {
+//! io.ns("/nsp", move |io: SocketIo, s: SocketRef, Data(auth): Data<String>| {
 //!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
 //! });
 //! ```
@@ -43,7 +43,7 @@
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! // Here the handler is async and extract the current socket and the auth payload
-//! io.ns("/", move |s: SocketRef, TryData(auth): TryData<String>| async move {
+//! io.ns("/", move |io: SocketIo, s: SocketRef, TryData(auth): TryData<String>| async move {
 //!     println!("Socket connected on / namespace with id and auth data: {} {:?}", s.id, auth);
 //! });
 //! // Here the handler is async and only extract the current socket.
@@ -115,9 +115,8 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures_core::Future;
-
 use crate::socket::Socket;
+use futures_core::Future;
 
 use super::MakeErasedHandler;
 
@@ -128,13 +127,14 @@ type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
 
 pub(crate) trait ErasedConnectHandler: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket>, auth: Option<String>, state: Arc<state::TypeMap![Send + Sync]>);
+    fn call(&self, s: Arc<Socket>, auth: Option<String>);
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket>,
         auth: &'a Option<String>,
-        state: &'a Arc<state::TypeMap![Send + Sync]>,
     ) -> MiddlewareResFut<'a>;
+
+    fn boxed_clone(&self) -> BoxedConnectHandler;
 }
 
 /// A trait used to extract the arguments from the connect event.
@@ -149,11 +149,7 @@ pub trait FromConnectParts: Sized {
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
-    fn from_connect_parts(
-        s: &Arc<Socket>,
-        auth: &Option<String>,
-        state: &Arc<state::TypeMap![Send + Sync]>,
-    ) -> Result<Self, Self::Error>;
+    fn from_connect_parts(s: &Arc<Socket>, auth: &Option<String>) -> Result<Self, Self::Error>;
 }
 
 /// Define a middleware for the connect event.
@@ -162,13 +158,12 @@ pub trait FromConnectParts: Sized {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect middlewares.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait ConnectMiddleware<T>: Send + Sync + 'static {
+pub trait ConnectMiddleware<T>: Sized + Clone + Send + Sync + 'static {
     /// Call the middleware with the given arguments.
     fn call<'a>(
         &'a self,
         s: Arc<Socket>,
         auth: &'a Option<String>,
-        state: &'a Arc<state::TypeMap![Send + Sync]>,
     ) -> impl Future<Output = MiddlewareRes> + Send;
 
     #[doc(hidden)]
@@ -182,16 +177,15 @@ pub trait ConnectMiddleware<T>: Send + Sync + 'static {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait ConnectHandler<T>: Send + Sync + 'static {
+pub trait ConnectHandler<T>: Sized + Clone + Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket>, auth: Option<String>, state: Arc<state::TypeMap![Send + Sync]>);
+    fn call(&self, s: Arc<Socket>, auth: Option<String>);
 
     /// Call the middleware with the given arguments.
     fn call_middleware<'a>(
         &'a self,
         _: Arc<Socket>,
         _: &'a Option<String>,
-        _: &'a Arc<state::TypeMap![Send + Sync]>,
     ) -> MiddlewareResFut<'a> {
         Box::pin(async move { Ok(()) })
     }
@@ -242,7 +236,6 @@ pub trait ConnectHandler<T>: Send + Sync + 'static {
     /// ```
     fn with<M, T1>(self, middleware: M) -> impl ConnectHandler<T>
     where
-        Self: Sized,
         M: ConnectMiddleware<T1> + Send + Sync + 'static,
         T: Send + Sync + 'static,
         T1: Send + Sync + 'static,
@@ -285,17 +278,20 @@ where
     H: ConnectHandler<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket>, auth: Option<String>, state: Arc<state::TypeMap![Send + Sync]>) {
-        self.handler.call(s, auth, state);
+    fn call(&self, s: Arc<Socket>, auth: Option<String>) {
+        self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket>,
         auth: &'a Option<String>,
-        state: &'a Arc<state::TypeMap![Send + Sync]>,
     ) -> MiddlewareResFut<'a> {
-        self.handler.call_middleware(s, auth, state)
+        self.handler.call_middleware(s, auth)
+    }
+
+    fn boxed_clone(&self) -> BoxedConnectHandler {
+        Box::new(self.clone())
     }
 }
 
@@ -306,17 +302,16 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket>, auth: Option<String>, state: Arc<state::TypeMap![Send + Sync]>) {
-        self.handler.call(s, auth, state);
+    fn call(&self, s: Arc<Socket>, auth: Option<String>) {
+        self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket>,
         auth: &'a Option<String>,
-        state: &'a Arc<state::TypeMap![Send + Sync]>,
     ) -> MiddlewareResFut<'a> {
-        Box::pin(async move { self.middleware.call(s, auth, state).await })
+        Box::pin(async move { self.middleware.call(s, auth).await })
     }
 
     fn with<M2, T2>(self, next: M2) -> impl ConnectHandler<T>
@@ -342,13 +337,34 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(
-        &'a self,
-        s: Arc<Socket>,
-        auth: &'a Option<String>,
-        state: &'a Arc<state::TypeMap![Send + Sync]>,
-    ) -> MiddlewareRes {
+    async fn call<'a>(&'a self, s: Arc<Socket>, auth: &'a Option<String>) -> MiddlewareRes {
         self.middleware.call(s, auth).await
+    }
+}
+impl<H, N, T, T1> Clone for LayeredConnectHandler<H, N, T, T1>
+where
+    H: Clone,
+    N: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
+            middleware: self.middleware.clone(),
+            phantom: self.phantom,
+        }
+    }
+}
+impl<M, N, T, T1> Clone for ConnectMiddlewareLayer<M, N, T, T1>
+where
+    M: Clone,
+    N: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            middleware: self.middleware.clone(),
+            next: self.next.clone(),
+            phantom: self.phantom,
+        }
     }
 }
 
@@ -359,14 +375,9 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(
-        &'a self,
-        s: Arc<Socket>,
-        auth: &'a Option<String>,
-        state: &'a Arc<state::TypeMap![Send + Sync]>,
-    ) -> MiddlewareRes {
-        self.middleware.call(s.clone(), auth, state).await?;
-        self.next.call(s, auth, state).await
+    async fn call<'a>(&'a self, s: Arc<Socket>, auth: &'a Option<String>) -> MiddlewareRes {
+        self.middleware.call(s.clone(), auth).await?;
+        self.next.call(s, auth).await
     }
 }
 
@@ -392,10 +403,9 @@ macro_rules! impl_handler_async {
                 &self,
                 s: Arc<Socket>,
                 auth: Option<String>,
-                state: Arc<state::TypeMap![Send + Sync]>,
             ) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, &state) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -427,10 +437,9 @@ macro_rules! impl_handler {
                 &self,
                 s: Arc<Socket>,
                 auth: Option<String>,
-                state: Arc<state::TypeMap![Send + Sync]>,
             ) {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, &state) {
+                    let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
                         Err(_e) => {
                             #[cfg(feature = "tracing")]
@@ -462,10 +471,9 @@ macro_rules! impl_middleware_async {
                 &'a self,
                 s: Arc<Socket>,
                 auth: &'a Option<String>,
-                state: &'a Arc<state::TypeMap![Send + Sync]>,
             ) -> MiddlewareRes {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, &state) {
+                    let $ty = match $ty::from_connect_parts(&s, auth) {
                         Ok(v) => v,
                         Err(e) => {
                             #[cfg(feature = "tracing")]
@@ -503,10 +511,9 @@ macro_rules! impl_middleware {
                 &'a self,
                 s: Arc<Socket>,
                 auth: &'a Option<String>,
-                state: &'a Arc<state::TypeMap![Send + Sync]>,
             ) -> MiddlewareRes {
                 $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth, &state) {
+                    let $ty = match $ty::from_connect_parts(&s, auth) {
                         Ok(v) => v,
                         Err(e) => {
                             #[cfg(feature = "tracing")]

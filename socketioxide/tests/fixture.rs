@@ -17,7 +17,7 @@ use hyper_util::{
 };
 
 use serde::{Deserialize, Serialize};
-use socketioxide::{adapter::LocalAdapter, service::SocketIoService, SocketIo};
+use socketioxide::{service::SocketIoService, SocketIo};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 

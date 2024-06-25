@@ -13,7 +13,7 @@
 //!
 //! impl EngineIoHandler for MyHandler {
 //!     type Data = ();
-//!     fn on_connect(&self, socket: Arc<Socket<()>>) { }
+//!     fn on_connect(self: Arc<Self>, socket: Arc<Socket<()>>) { }
 //!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
 //!     fn on_message(&self, msg: Str, socket: Arc<Socket<()>>) { }
 //!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) { }
@@ -27,7 +27,7 @@
 //!     .build();
 //!
 //! // Create an engine io service with a custom config
-//! let svc = EngineIoService::with_config(MyHandler, config);
+//! let svc = EngineIoService::with_config(Arc::new(MyHandler), config);
 //! ```
 
 use std::{borrow::Cow, time::Duration};
@@ -143,7 +143,7 @@ impl EngineIoConfigBuilder {
     /// impl EngineIoHandler for MyHandler {
     ///
     ///     type Data = ();
-    ///     fn on_connect(&self, socket: Arc<Socket<()>>) {
+    ///     fn on_connect(self: Arc<Self>, socket: Arc<Socket<()>>) {
     ///         println!("socket connect {}", socket.id);
     ///     }
     ///     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) {

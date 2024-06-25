@@ -70,6 +70,8 @@ impl Clone for SocketIoConfig {
 pub struct SocketIoBuilder {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
+    #[cfg(feature = "state")]
+    state: state::TypeMap![Send + Sync],
 }
 
 impl SocketIoBuilder {
@@ -78,6 +80,8 @@ impl SocketIoBuilder {
         Self {
             config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
+            #[cfg(feature = "state")]
+            state: std::default::Default::default(),
         }
     }
 
@@ -174,11 +178,12 @@ impl SocketIoBuilder {
     /// Add a custom global state for the [`SocketIo`] instance.
     /// This state will be accessible from every handler with the [`State`](crate::extract::State) extractor.
     /// You can set any number of states as long as they have different types.
+    /// The state must be cloneable, therefore it is recommended to wrap it in an `Arc` if you want shared state.
     #[inline]
     #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
     #[cfg(feature = "state")]
-    pub fn with_state<S: Send + Sync + 'static>(self, state: S) -> Self {
-        crate::state::set_state(state);
+    pub fn with_state<S: Clone + Send + Sync + 'static>(self, state: S) -> Self {
+        self.state.set(state);
         self
     }
 
@@ -188,7 +193,11 @@ impl SocketIoBuilder {
     pub fn build_layer(mut self) -> (SocketIoLayer, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
-        let (layer, client) = SocketIoLayer::from_config(Arc::new(self.config));
+        let (layer, client) = SocketIoLayer::from_config(
+            self.config,
+            #[cfg(feature = "state")]
+            self.state,
+        );
         (layer, SocketIo(client))
     }
 
@@ -199,8 +208,12 @@ impl SocketIoBuilder {
     pub fn build_svc(mut self) -> (SocketIoService<NotFoundService>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
-        let (svc, client) =
-            SocketIoService::with_config_inner(NotFoundService, Arc::new(self.config));
+        let (svc, client) = SocketIoService::with_config_inner(
+            NotFoundService,
+            self.config,
+            #[cfg(feature = "state")]
+            self.state,
+        );
         (svc, SocketIo(client))
     }
 
@@ -210,7 +223,12 @@ impl SocketIoBuilder {
     pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<S>, SocketIo) {
         self.config.engine_config = self.engine_config_builder.build();
 
-        let (svc, client) = SocketIoService::with_config_inner(svc, Arc::new(self.config));
+        let (svc, client) = SocketIoService::with_config_inner(
+            svc,
+            self.config,
+            #[cfg(feature = "state")]
+            self.state,
+        );
         (svc, SocketIo(client))
     }
 }
@@ -263,10 +281,12 @@ impl SocketIo {
         &self.0.config
     }
 
-    /// ### Registers a [`ConnectHandler`] for the given namespace.
+    /// Registers a [`ConnectHandler`] for the given namespace
     ///
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// # Examples
     /// #### Simple example with a sync closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -351,6 +371,51 @@ impl SocketIo {
         self.0.add_ns(path.into(), callback);
     }
 
+    /// Registers a [`ConnectHandler`] for the given dynamic namespace.
+    /// You can specify dynamic parts in the path by using the `{name}` syntax.
+    /// Note that any static namespace will take precedence over a dynamic one.
+    ///
+    ///
+    /// For more info about namespace routing, see the [matchit] router documentation.
+    ///
+    /// The dynamic namespace will create a child namespace for any path that matches the given pattern with the given handler.
+    ///
+    /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// ## Errors
+    /// If the pattern is invalid, a [`NsInsertError`](crate::NsInsertError) will be returned.
+    ///
+    /// ## Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.dyn_ns("/client/{client_id}", |socket: SocketRef| {
+    ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
+    /// }).unwrap();
+    ///
+    /// ```
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.dyn_ns("/client/{*remaining_path}", |socket: SocketRef| {
+    ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
+    /// }).unwrap();
+    ///
+    /// ```
+    #[inline]
+    pub fn dyn_ns<C, T>(
+        &self,
+        path: impl Into<String>,
+        callback: C,
+    ) -> Result<(), crate::NsInsertError>
+    where
+        C: ConnectHandler<T>,
+        T: Send + Sync + 'static,
+    {
+        self.0.add_dyn_ns(path.into(), callback)
+    }
+
     /// Deletes the namespace with the given path.
     ///
     /// This will disconnect all sockets connected to this
@@ -374,7 +439,8 @@ impl SocketIo {
 
     // Chaining operators fns
 
-    /// Selects a specific namespace to perform operations on
+    /// Selects a specific namespace to perform operations on.
+    /// Currently you cannot select a dynamic namespace with this method.
     ///
     /// ## Example
     /// ```
@@ -390,6 +456,7 @@ impl SocketIo {
     /// for socket in sockets {
     ///    println!("found socket on /custom_ns namespace with id: {}", socket.id);
     /// }
+    /// ```
     #[inline]
     pub fn of<'a>(&self, path: impl Into<&'a str>) -> Option<BroadcastOperators> {
         self.get_op(path.into())
@@ -763,10 +830,9 @@ impl SocketIo {
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// let io2 = io.clone();
-    /// io.ns("/", move |socket: SocketRef| async move {
+    /// io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
     ///     println!("Socket connected on /test namespace with id: {}", socket.id);
-    ///     let rooms = io2.rooms().unwrap();
+    ///     let rooms = io.rooms().unwrap();
     ///     println!("All rooms on / namespace: {:?}", rooms);
     /// });
     pub fn rooms(&self) -> Result<Vec<Room>, AdapterError> {
@@ -801,6 +867,11 @@ impl SocketIo {
         self.get_default_op().get_socket(sid)
     }
 
+    #[cfg(feature = "state")]
+    pub(crate) fn get_state<T: Clone + 'static>(&self) -> Option<T> {
+        self.0.state.try_get::<T>().cloned()
+    }
+
     /// Returns a new operator on the given namespace
     #[inline(always)]
     fn get_op(&self, path: &str) -> Option<BroadcastOperators> {
@@ -825,6 +896,11 @@ impl Clone for SocketIo {
         Self(self.0.clone())
     }
 }
+impl From<Arc<Client>> for SocketIo {
+    fn from(client: Arc<Client>) -> Self {
+        SocketIo(client)
+    }
+}
 
 #[cfg(any(test, socketioxide_test))]
 impl SocketIo {
@@ -844,6 +920,7 @@ impl SocketIo {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -875,10 +952,9 @@ mod tests {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
         let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
-        let config = SocketIoConfig::default().into();
         io.0.get_ns("/")
             .unwrap()
-            .connect(sid, socket, None, config)
+            .connect(sid, socket, None)
             .await
             .ok();
 

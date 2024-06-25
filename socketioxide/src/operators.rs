@@ -431,7 +431,9 @@ impl ConfOperators<'_> {
                 return Err(e.with_value(data).into());
             }
         };
-        let timeout = self.timeout.unwrap_or(self.socket.config.ack_timeout);
+        let timeout = self
+            .timeout
+            .unwrap_or_else(|| self.socket.get_io().config().ack_timeout);
         let packet = self.get_packet(event, data)?;
         let rx = self.socket.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, timeout, self.socket.id);

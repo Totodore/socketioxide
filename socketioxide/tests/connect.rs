@@ -7,12 +7,16 @@ use socketioxide::{
 };
 use tokio::sync::mpsc;
 
-fn create_msg(ns: &str, event: &str, data: impl Into<serde_json::Value>) -> engineioxide::Packet {
+fn create_msg(
+    ns: &'static str,
+    event: &str,
+    data: impl Into<serde_json::Value>,
+) -> engineioxide::Packet {
     let packet: String = Packet::event(ns, event, data.into()).into();
     Message(packet.into())
 }
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
-    tokio::time::timeout(std::time::Duration::from_millis(500), srx.recv())
+    tokio::time::timeout(std::time::Duration::from_millis(10), srx.recv())
         .await
         .unwrap()
         .unwrap()
@@ -112,14 +116,44 @@ pub async fn connect_middleware_error() {
 }
 
 #[tokio::test]
+async fn ns_dyn_connect() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
+
+    io.dyn_ns("/admin/{id}/board", move |s: SocketRef| {
+        tx.try_send(s.ns().to_string()).unwrap();
+    })
+    .unwrap();
+
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/132/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, "/admin/132/board");
+}
+#[tokio::test]
+async fn ns_dyn_connect_precedence() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<bool>(1);
+    let tx_clone = tx.clone();
+
+    io.dyn_ns("/admin/{id}/board", move || {
+        tx.try_send(false).unwrap();
+    })
+    .unwrap();
+    io.ns("/admin/test/board", move || {
+        tx_clone.try_send(true).unwrap();
+    });
+
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/test/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, true);
+}
+
+#[tokio::test]
 async fn remove_ns_from_connect_handler() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    let io_clone = io.clone();
-    io.ns("/test1", move || {
+    io.ns("/test1", move |io: SocketIo| {
         tx.try_send(()).unwrap();
-        io_clone.delete_ns("/test1");
+        io.delete_ns("/test1");
     });
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
@@ -137,10 +171,9 @@ async fn remove_ns_from_middleware() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    let io_clone = io.clone();
-    let middleware = move || {
+    let middleware = move |io: SocketIo| {
         tx.try_send(()).unwrap();
-        io_clone.delete_ns("/test1");
+        io.delete_ns("/test1");
         Ok::<(), std::convert::Infallible>(())
     };
     fn handler() {}
@@ -161,10 +194,9 @@ async fn remove_ns_from_event_handler() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    let io_clone = io.clone();
-    io.ns("/test1", move |s: SocketRef| {
+    io.ns("/test1", move |s: SocketRef, io: SocketIo| {
         s.on("delete_ns", move || {
-            io_clone.delete_ns("/test1");
+            io.delete_ns("/test1");
             tx.try_send(()).unwrap();
         });
     });
@@ -184,11 +216,10 @@ async fn remove_ns_from_disconnect_handler() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<&'static str>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    let io_clone = io.clone();
-    io.ns("/test2", move |s: SocketRef| {
+    io.ns("/test2", move |s: SocketRef, io: SocketIo| {
         tx.try_send("connect").unwrap();
         s.on_disconnect(move || {
-            io_clone.delete_ns("/test2");
+            io.delete_ns("/test2");
             tx.try_send("disconnect").unwrap();
         })
     });

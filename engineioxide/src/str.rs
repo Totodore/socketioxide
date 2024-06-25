@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
 use bytes::Bytes;
 
 /// A custom [`Bytes`] wrapper to efficiently store string packets
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
 pub struct Str(Bytes);
 impl Str {
     /// Efficiently slice string by calling [`Bytes::slice`] on the inner bytes
@@ -20,6 +22,10 @@ impl Str {
     /// Get the byte at the specified index
     pub fn get(&self, index: usize) -> Option<&u8> {
         self.0.get(index)
+    }
+    /// Creates [`Str`] instance from str slice, by copying it.
+    pub fn copy_from_slice(data: &str) -> Self {
+        Str(Bytes::copy_from_slice(data.as_bytes()))
     }
 }
 
@@ -43,6 +49,23 @@ impl From<String> for Str {
     fn from(s: String) -> Self {
         let vec = s.into_bytes();
         Str(Bytes::from(vec))
+    }
+}
+
+impl From<Cow<'static, str>> for Str {
+    fn from(s: Cow<'static, str>) -> Self {
+        match s {
+            Cow::Borrowed(s) => Str::from(s),
+            Cow::Owned(s) => Str::from(s),
+        }
+    }
+}
+impl From<&Cow<'static, str>> for Str {
+    fn from(s: &Cow<'static, str>) -> Self {
+        match s {
+            Cow::Borrowed(s) => Str::from(*s),
+            Cow::Owned(s) => Str(Bytes::copy_from_slice(s.as_bytes())),
+        }
     }
 }
 
