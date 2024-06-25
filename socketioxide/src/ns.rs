@@ -26,7 +26,7 @@ pub struct Namespace<A: Adapter> {
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
 }
 
-//// ===== impl NamespaceCtr =====
+/// ===== impl NamespaceCtr =====
 impl<A: Adapter> NamespaceCtr<A> {
     pub fn new<C, T>(handler: C) -> Self
     where

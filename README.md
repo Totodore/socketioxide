@@ -23,7 +23,7 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
   * [🔓CORS](https://docs.rs/tower-http/latest/tower_http/cors)
   * [📁Compression](https://docs.rs/tower-http/latest/tower_http/compression)
   * [🔐Authorization](https://docs.rs/tower-http/latest/tower_http/auth)
-* Dynamic Namespaces with path parameters
+* Namespaces and Dynamic Namespaces
 * Rooms
 * Ack and emit with ack
 * Binary packets

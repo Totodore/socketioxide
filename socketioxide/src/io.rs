@@ -364,7 +364,38 @@ impl<A: Adapter> SocketIo<A> {
         self.0.add_ns(path.into(), callback);
     }
 
+    /// Registers a [`ConnectHandler`] for the given dynamic namespace.
+    /// You can specify dynamic parts in the path by using the `{name}` syntax.
+    /// Note that any static namespace will take precedence over a dynamic one.
     ///
+    ///
+    /// For more info about namespace routing, see the [matchit] router documentation.
+    ///
+    /// The dynamic namespace will create a child namespace for any path that matches the given pattern with the given handler.
+    ///
+    /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// ## Errors
+    /// If the pattern is invalid, a [`NsInsertError`](crate::NsInsertError) will be returned.
+    ///
+    /// ## Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.dyn_ns("/client/{client_id}", |socket: SocketRef| {
+    ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
+    /// }).unwrap();
+    ///
+    /// ```
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.dyn_ns("/client/{*remaining_path}", |socket: SocketRef| {
+    ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
+    /// }).unwrap();
+    ///
+    /// ```
     #[inline]
     pub fn dyn_ns<C, T>(
         &self,
@@ -402,6 +433,7 @@ impl<A: Adapter> SocketIo<A> {
     // Chaining operators fns
 
     /// Selects a specific namespace to perform operations on.
+    /// Currently you cannot select a dynamic namespace with this method.
     ///
     /// ## Example
     /// ```
@@ -417,20 +449,6 @@ impl<A: Adapter> SocketIo<A> {
     /// for socket in sockets {
     ///    println!("found socket on /custom_ns namespace with id: {}", socket.id);
     /// }
-    /// ```
-    ///
-    /// ## Example with a dynamic namespace
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::{SocketRef}};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/{id}/{user_id}", |socket: SocketRef| {
-    ///     println!("Socket connected on {} namespace with params {:?}", socket.ns(), params);
-    /// });
-    ///
-    /// // Later in your code you can select the "/{id}/{user_id}" namespace either with the original namespace or with any path parameter set:
-    /// assert!(matches!(io.of("/{id}/{user_id}"), Some(_)));
-    /// assert!(matches!(io.of("/my_id/my_user_id"), Some(_)));
-    /// assert!(matches!(io.of("/132/1"), Some(_)));
     /// ```
     #[inline]
     pub fn of<'a>(&self, path: impl Into<&'a str>) -> Option<BroadcastOperators<A>> {
