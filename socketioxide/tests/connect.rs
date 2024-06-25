@@ -124,8 +124,26 @@ async fn ns_dyn_connect() {
         tx.try_send(s.ns().to_string()).unwrap();
     })
     .unwrap();
+
     let (_stx, mut _srx) = io.new_dummy_sock("/admin/132/board", ()).await;
     assert_eq!(timeout_rcv(&mut rx).await, "/admin/132/board");
+}
+#[tokio::test]
+async fn ns_dyn_connect_precedence() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<bool>(1);
+    let tx_clone = tx.clone();
+
+    io.dyn_ns("/admin/{id}/board", move || {
+        tx.try_send(false).unwrap();
+    })
+    .unwrap();
+    io.ns("/admin/test/board", move || {
+        tx_clone.try_send(true).unwrap();
+    });
+
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/test/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, true);
 }
 
 #[tokio::test]

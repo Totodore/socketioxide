@@ -898,7 +898,7 @@ impl<A: Adapter> BroadcastOperators<A> {
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
     ) -> Result<Packet<'static>, serde_json::Error> {
-        let ns = self.ns.path.clone().into();
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)
