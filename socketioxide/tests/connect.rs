@@ -12,7 +12,7 @@ fn create_msg(
     event: &str,
     data: impl Into<serde_json::Value>,
 ) -> engineioxide::Packet {
-    let packet: String = Packet::event(ns.into(), event, data.into()).into();
+    let packet: String = Packet::event(ns, event, data.into()).into();
     Message(packet.into())
 }
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {

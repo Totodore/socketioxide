@@ -844,7 +844,6 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use engineioxide::Str;
 
     #[tokio::test]
     async fn send_with_ack_error() {
@@ -854,7 +853,7 @@ mod test {
         // Saturate the channel
         for _ in 0..1024 {
             socket
-                .send(Packet::event(Str::from("test"), "test", Value::Null))
+                .send(Packet::event("test", "test", Value::Null))
                 .unwrap();
         }
 
