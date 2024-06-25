@@ -503,9 +503,7 @@ impl<A: Adapter> BroadcastOperators<A> {
             binary: vec![],
             timeout: None,
             ns,
-            opts: BroadcastOptions {
-                ..Default::default()
-            },
+            opts: BroadcastOptions::default(),
         }
     }
     pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
