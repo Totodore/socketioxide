@@ -12,7 +12,7 @@ fn create_msg(
     event: &str,
     data: impl Into<serde_json::Value>,
 ) -> engineioxide::Packet {
-    let packet: String = Packet::event(ns, event, data.into()).into();
+    let packet: String = Packet::event(ns.into(), event, data.into()).into();
     Message(packet.into())
 }
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
@@ -113,6 +113,37 @@ pub async fn connect_middleware_error() {
     rx.recv().await.unwrap();
     rx.recv().await.unwrap();
     assert_err!(rx.try_recv());
+}
+
+#[tokio::test]
+async fn ns_dyn_connect() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
+
+    io.dyn_ns("/admin/{id}/board", move |s: SocketRef| {
+        tx.try_send(s.ns().to_string()).unwrap();
+    })
+    .unwrap();
+
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/132/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, "/admin/132/board");
+}
+#[tokio::test]
+async fn ns_dyn_connect_precedence() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<bool>(1);
+    let tx_clone = tx.clone();
+
+    io.dyn_ns("/admin/{id}/board", move || {
+        tx.try_send(false).unwrap();
+    })
+    .unwrap();
+    io.ns("/admin/test/board", move || {
+        tx_clone.try_send(true).unwrap();
+    });
+
+    let (_stx, mut _srx) = io.new_dummy_sock("/admin/test/board", ()).await;
+    assert_eq!(timeout_rcv(&mut rx).await, true);
 }
 
 #[tokio::test]

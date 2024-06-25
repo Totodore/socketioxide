@@ -274,10 +274,12 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
-    /// ### Registers a [`ConnectHandler`] for the given namespace.
+    /// Registers a [`ConnectHandler`] for the given namespace
     ///
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// # Examples
     /// #### Simple example with a sync closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -362,6 +364,51 @@ impl<A: Adapter> SocketIo<A> {
         self.0.add_ns(path.into(), callback);
     }
 
+    /// Registers a [`ConnectHandler`] for the given dynamic namespace.
+    /// You can specify dynamic parts in the path by using the `{name}` syntax.
+    /// Note that any static namespace will take precedence over a dynamic one.
+    ///
+    ///
+    /// For more info about namespace routing, see the [matchit] router documentation.
+    ///
+    /// The dynamic namespace will create a child namespace for any path that matches the given pattern with the given handler.
+    ///
+    /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// ## Errors
+    /// If the pattern is invalid, a [`NsInsertError`](crate::NsInsertError) will be returned.
+    ///
+    /// ## Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.dyn_ns("/client/{client_id}", |socket: SocketRef| {
+    ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
+    /// }).unwrap();
+    ///
+    /// ```
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.dyn_ns("/client/{*remaining_path}", |socket: SocketRef| {
+    ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
+    /// }).unwrap();
+    ///
+    /// ```
+    #[inline]
+    pub fn dyn_ns<C, T>(
+        &self,
+        path: impl Into<String>,
+        callback: C,
+    ) -> Result<(), crate::NsInsertError>
+    where
+        C: ConnectHandler<A, T>,
+        T: Send + Sync + 'static,
+    {
+        self.0.add_dyn_ns(path.into(), callback)
+    }
+
     /// Deletes the namespace with the given path.
     ///
     /// This will disconnect all sockets connected to this
@@ -385,7 +432,8 @@ impl<A: Adapter> SocketIo<A> {
 
     // Chaining operators fns
 
-    /// Selects a specific namespace to perform operations on
+    /// Selects a specific namespace to perform operations on.
+    /// Currently you cannot select a dynamic namespace with this method.
     ///
     /// ## Example
     /// ```
@@ -401,6 +449,7 @@ impl<A: Adapter> SocketIo<A> {
     /// for socket in sockets {
     ///    println!("found socket on /custom_ns namespace with id: {}", socket.id);
     /// }
+    /// ```
     #[inline]
     pub fn of<'a>(&self, path: impl Into<&'a str>) -> Option<BroadcastOperators<A>> {
         self.get_op(path.into())
@@ -864,6 +913,7 @@ impl<A: Adapter> SocketIo<A> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]

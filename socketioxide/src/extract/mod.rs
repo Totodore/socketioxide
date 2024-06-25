@@ -71,7 +71,7 @@
 //! }
 //!
 //! // Here, if the user id is not found, the handler won't be called
-//! // and a tracing `error` log will be printed (if the `tracing` feature is enabled)
+//! // and a tracing `error` log will be emitted (if the `tracing` feature is enabled)
 //! impl<A: Adapter> FromMessageParts<A> for UserId {
 //!     type Error = UserIdNotFound;
 //!

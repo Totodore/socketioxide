@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::HashMap,
     sync::{Arc, RwLock},
 };
@@ -12,17 +11,44 @@ use crate::{
     socket::{DisconnectReason, Socket},
 };
 use crate::{client::SocketData, errors::AdapterError};
-use engineioxide::sid::Sid;
+use engineioxide::{sid::Sid, Str};
 
+/// A [`Namespace`] constructor used for dynamic namespaces
+/// A namespace constructor only hold a common handler that will be cloned
+/// to the instantiated namespaces.
+pub struct NamespaceCtr<A: Adapter> {
+    handler: BoxedConnectHandler<A>,
+}
 pub struct Namespace<A: Adapter> {
-    pub path: Cow<'static, str>,
+    pub path: Str,
     pub(crate) adapter: A,
     handler: BoxedConnectHandler<A>,
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
 }
 
+/// ===== impl NamespaceCtr =====
+impl<A: Adapter> NamespaceCtr<A> {
+    pub fn new<C, T>(handler: C) -> Self
+    where
+        C: ConnectHandler<A, T> + Send + Sync + 'static,
+        T: Send + Sync + 'static,
+    {
+        Self {
+            handler: MakeErasedHandler::new_ns_boxed(handler),
+        }
+    }
+    pub fn get_new_ns(&self, path: Str) -> Arc<Namespace<A>> {
+        Arc::new_cyclic(|ns| Namespace {
+            path,
+            handler: self.handler.boxed_clone(),
+            sockets: HashMap::new().into(),
+            adapter: A::new(ns.clone()),
+        })
+    }
+}
+
 impl<A: Adapter> Namespace<A> {
-    pub fn new<C, T>(path: Cow<'static, str>, handler: C) -> Arc<Self>
+    pub fn new<C, T>(path: Str, handler: C) -> Arc<Self>
     where
         C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
@@ -51,10 +77,10 @@ impl<A: Adapter> Namespace<A> {
 
         if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {
             #[cfg(feature = "tracing")]
-            tracing::trace!(ns = self.path.as_ref(), ?socket.id, "emitting connect_error packet");
+            tracing::trace!(ns = self.path.as_str(), ?socket.id, "emitting connect_error packet");
 
             let data = e.to_string();
-            if let Err(_e) = socket.send(Packet::connect_error(&self.path, &data)) {
+            if let Err(_e) = socket.send(Packet::connect_error(self.path.clone(), &data)) {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("error sending connect_error packet: {:?}, closing conn", _e);
                 esocket.close(engineioxide::DisconnectReason::PacketParsingError);
@@ -68,7 +94,7 @@ impl<A: Adapter> Namespace<A> {
 
         let protocol = esocket.protocol.into();
 
-        if let Err(_e) = socket.send(Packet::connect(&self.path, socket.id, protocol)) {
+        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
             #[cfg(feature = "tracing")]
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);
@@ -159,7 +185,7 @@ impl<A: Adapter> Namespace<A> {
 #[cfg(any(test, socketioxide_test))]
 impl<A: Adapter> Namespace<A> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
-        let ns = Namespace::new(Cow::Borrowed("/"), || {});
+        let ns = Namespace::new("/".into(), || {});
         for sid in sockets {
             ns.sockets
                 .write()

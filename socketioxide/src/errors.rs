@@ -2,6 +2,8 @@ use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use std::fmt::{Debug, Display};
 use tokio::{sync::mpsc::error::TrySendError, time::error::Elapsed};
 
+pub use matchit::InsertError as NsInsertError;
+
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

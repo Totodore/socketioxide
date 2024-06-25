@@ -3,3 +3,4 @@ Cargo.lock
 .env
 .vscode
 *.gz
+.zed

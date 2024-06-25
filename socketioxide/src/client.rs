@@ -9,10 +9,12 @@ use engineioxide::Str;
 use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
+use matchit::{Match, Router};
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
+use crate::ns::NamespaceCtr;
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
@@ -25,9 +27,13 @@ use crate::{ProtocolVersion, SocketIo};
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
     ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
+    router: RwLock<Router<NamespaceCtr<A>>>,
+
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
 }
+
+/// ==== impl Client ====
 
 impl<A: Adapter> Client<A> {
     pub fn new(
@@ -40,6 +46,7 @@ impl<A: Adapter> Client<A> {
         Self {
             config,
             ns: RwLock::new(HashMap::new()),
+            router: RwLock::new(Router::new()),
             #[cfg(feature = "state")]
             state,
         }
@@ -51,35 +58,39 @@ impl<A: Adapter> Client<A> {
         auth: Option<String>,
         ns_path: Str,
         esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
-    ) -> Result<(), Error> {
+    ) {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
-
-        if let Some(ns) = self.get_ns(&ns_path) {
-            let esocket = esocket.clone();
-            tokio::spawn(async move {
+        let protocol: ProtocolVersion = esocket.protocol.into();
+        let connect =
+            move |ns: Arc<Namespace<A>>, esocket: Arc<engineioxide::Socket<SocketData<A>>>| async move {
                 if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
                     // cancel the connect timeout task for v5
                     if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
                         tx.send(()).ok();
                     }
                 }
-            });
-            Ok(())
-        } else if ProtocolVersion::from(esocket.protocol) == ProtocolVersion::V4 && ns_path == "/" {
+            };
+
+        if let Some(ns) = self.get_ns(&ns_path) {
+            tokio::spawn(connect(ns, esocket.clone()));
+        } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(&ns_path) {
+            let path: Cow<'static, str> = Cow::Owned(ns_path.clone().into());
+            let ns = ns_ctr.get_new_ns(ns_path); //TODO: check memory leak here
+            self.ns.write().unwrap().insert(path, ns.clone());
+            tokio::spawn(connect(ns, esocket.clone()));
+        } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
                 "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
             );
             esocket.close(EIoDisconnectReason::TransportClose);
-            Ok(())
         } else {
             let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
             if let Err(_e) = esocket.emit(packet) {
                 #[cfg(feature = "tracing")]
                 tracing::error!("error while sending invalid namespace packet: {}", _e);
             }
-            Ok(())
         }
     }
 
@@ -119,8 +130,20 @@ impl<A: Adapter> Client<A> {
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
-        let ns = Namespace::new(path.clone(), callback);
+        let ns = Namespace::new(Str::from(&path), callback);
         self.ns.write().unwrap().insert(path, ns);
+    }
+
+    pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
+    where
+        C: ConnectHandler<A, T>,
+        T: Send + Sync + 'static,
+    {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("adding dynamic namespace {}", &path);
+
+        let ns = NamespaceCtr::new(callback);
+        self.router.write().unwrap().insert(path, ns)
     }
 
     /// Deletes a namespace handler and closes all the connections to it
@@ -147,7 +170,7 @@ impl<A: Adapter> Client<A> {
     pub(crate) async fn close(&self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all namespaces");
-        let ns = self.ns.read().unwrap().clone();
+        let ns = { std::mem::take(&mut *self.ns.write().unwrap()) };
         futures_util::future::join_all(
             ns.values()
                 .map(|ns| ns.close(DisconnectReason::ClosingServer)),
@@ -155,55 +178,6 @@ impl<A: Adapter> Client<A> {
         .await;
         #[cfg(feature = "tracing")]
         tracing::debug!("all namespaces closed");
-    }
-
-    #[cfg(socketioxide_test)]
-    pub async fn new_dummy_sock(
-        self: Arc<Self>,
-        ns: &'static str,
-        auth: impl serde::Serialize,
-    ) -> (
-        tokio::sync::mpsc::Sender<engineioxide::Packet>,
-        tokio::sync::mpsc::Receiver<engineioxide::Packet>,
-    ) {
-        let buffer_size = self.config.engine_config.max_buffer_size;
-        let sid = Sid::new();
-        let (esock, rx) =
-            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
-        esock.data.io.set(SocketIo::from(self.clone())).ok();
-        let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
-        tokio::spawn({
-            let esock = esock.clone();
-            let client = self.clone();
-            async move {
-                while let Some(packet) = rx1.recv().await {
-                    match packet {
-                        engineioxide::Packet::Message(msg) => {
-                            client.on_message(msg, esock.clone());
-                        }
-                        engineioxide::Packet::Close => {
-                            client
-                                .on_disconnect(esock.clone(), EIoDisconnectReason::TransportClose);
-                        }
-                        engineioxide::Packet::Binary(bin) => {
-                            client.on_binary(bin, esock.clone());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        });
-        let p: String = Packet {
-            ns: ns.into(),
-            inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
-        }
-        .into();
-        self.on_message(p.into(), esock.clone());
-
-        // wait for the socket to be connected to the namespace
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-
-        (tx1, rx)
     }
 }
 
@@ -216,6 +190,7 @@ pub struct SocketData<A: Adapter> {
     /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 
+    /// Used to store the [`SocketIo`] instance so it can be accessed by any sockets
     pub io: OnceLock<SocketIo<A>>,
 }
 impl<A: Adapter> Default for SocketData<A> {
@@ -242,15 +217,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         // Connecting the client to the default namespace is mandatory if the SocketIO protocol is v4.
         // Because we connect by default to the root namespace, we should ensure before that the root namespace is defined
-        #[cfg(feature = "v4")]
-        if protocol == ProtocolVersion::V4 {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("connecting to default namespace for v4");
-            self.sock_connect(None, Str::from("/"), &socket).unwrap();
-        }
-
-        if protocol == ProtocolVersion::V5 {
-            self.spawn_connect_timeout_task(socket);
+        match protocol {
+            ProtocolVersion::V4 => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("connecting to default namespace for v4");
+                self.sock_connect(None, Str::from("/"), &socket);
+            }
+            ProtocolVersion::V5 => self.spawn_connect_timeout_task(socket),
         }
     }
 
@@ -298,9 +271,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         tracing::debug!("Packet: {:?}", packet);
 
         let res: Result<(), Error> = match packet.inner {
-            PacketData::Connect(auth) => self
-                .sock_connect(auth, packet.ns, &socket)
-                .map_err(Into::into),
+            PacketData::Connect(auth) => {
+                self.sock_connect(auth, packet.ns, &socket);
+                Ok(())
+            }
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
                 // Cache-in the socket data until all the binary payloads are received
                 socket
@@ -379,6 +353,56 @@ fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketDat
     }
 }
 
+#[cfg(socketioxide_test)]
+impl<A: Adapter> Client<A> {
+    pub async fn new_dummy_sock(
+        self: Arc<Self>,
+        ns: &'static str,
+        auth: impl serde::Serialize,
+    ) -> (
+        tokio::sync::mpsc::Sender<engineioxide::Packet>,
+        tokio::sync::mpsc::Receiver<engineioxide::Packet>,
+    ) {
+        let buffer_size = self.config.engine_config.max_buffer_size;
+        let sid = Sid::new();
+        let (esock, rx) =
+            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
+        esock.data.io.set(SocketIo::from(self.clone())).ok();
+        let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
+        tokio::spawn({
+            let esock = esock.clone();
+            let client = self.clone();
+            async move {
+                while let Some(packet) = rx1.recv().await {
+                    match packet {
+                        engineioxide::Packet::Message(msg) => {
+                            client.on_message(msg, esock.clone());
+                        }
+                        engineioxide::Packet::Close => {
+                            client
+                                .on_disconnect(esock.clone(), EIoDisconnectReason::TransportClose);
+                        }
+                        engineioxide::Packet::Binary(bin) => {
+                            client.on_binary(bin, esock.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        let p: String = Packet {
+            ns: ns.into(),
+            inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
+        }
+        .into();
+        self.on_message(p.into(), esock.clone());
+
+        // wait for the socket to be connected to the namespace
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        (tx1, rx)
+    }
+}
 #[cfg(test)]
 mod test {
     use super::*;

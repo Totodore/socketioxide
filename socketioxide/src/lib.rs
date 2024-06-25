@@ -174,13 +174,16 @@
 //!
 //! ## Events
 //! There are three types of events:
-//! * The connect event is emitted when a new connection is established. It can be handled with the [`ConnectHandler`](handler::ConnectHandler) and the `io.ns` method.
-//! * The message event is emitted when a new message is received. It can be handled with the [`MessageHandler`](handler::MessageHandler) and the `socket.on` method.
-//! * The disconnect event is emitted when a socket is closed. It can be handled with the [`DisconnectHandler`](handler::DisconnectHandler) and the `socket.on_disconnect` method.
+//! * The connect event is emitted when a new connection is established. It can be handled with the
+//! [`ConnectHandler`](handler::ConnectHandler) and the `io.ns` method.
+//! * The message event is emitted when a new message is received. It can be handled with the
+//! [`MessageHandler`](handler::MessageHandler) and the `socket.on` method.
+//! * The disconnect event is emitted when a socket is closed. It can be handled with the
+//! [`DisconnectHandler`](handler::DisconnectHandler) and the `socket.on_disconnect` method.
 //!
 //! Only one handler can exist for an event so registering a new handler for an event will replace the previous one.
 //!
-//! ## Middlewares
+//!  ## Middlewares
 //! When providing a [`ConnectHandler`](handler::ConnectHandler) for a namespace you can add any number of
 //! [`ConnectMiddleware`](handler::ConnectMiddleware) in front of it. It is useful to add authentication or logging middlewares.
 //!
@@ -295,7 +298,9 @@ pub mod service;
 pub mod socket;
 
 pub use engineioxide::TransportType;
-pub use errors::{AckError, AdapterError, BroadcastError, DisconnectError, SendError, SocketError};
+pub use errors::{
+    AckError, AdapterError, BroadcastError, DisconnectError, NsInsertError, SendError, SocketError,
+};
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
 
 mod client;

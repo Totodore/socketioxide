@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use bytes::Bytes;
 
 /// A custom [`Bytes`] wrapper to efficiently store string packets
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
 pub struct Str(Bytes);
 impl Str {
     /// Efficiently slice string by calling [`Bytes::slice`] on the inner bytes
@@ -22,6 +22,10 @@ impl Str {
     /// Get the byte at the specified index
     pub fn get(&self, index: usize) -> Option<&u8> {
         self.0.get(index)
+    }
+    /// Creates [`Str`] instance from str slice, by copying it.
+    pub fn copy_from_slice(data: &str) -> Self {
+        Str(Bytes::copy_from_slice(data.as_bytes()))
     }
 }
 

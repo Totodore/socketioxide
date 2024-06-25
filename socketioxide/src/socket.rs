@@ -319,7 +319,7 @@ impl<A: Adapter> Socket<A> {
             }
         };
 
-        let ns = &self.ns.path;
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         permit.send(Packet::event(ns, event.into(), data));
         Ok(())
@@ -392,7 +392,7 @@ impl<A: Adapter> Socket<A> {
                 return Err(e.with_value(data).into());
             }
         };
-        let ns = &self.ns.path;
+        let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
         let packet = Packet::event(ns, event.into(), data);
         let rx = self.send_with_ack_permit(packet, permit);
@@ -625,7 +625,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
-        let res = self.send(Packet::disconnect(&self.ns.path));
+        let res = self.send(Packet::disconnect(self.ns.path.clone()));
         if let Err(SocketError::InternalChannelFull(_)) = res {
             return Err(DisconnectError::InternalChannelFull);
         }
@@ -844,6 +844,7 @@ impl<A: Adapter> Socket<A> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use engineioxide::Str;
 
     #[tokio::test]
     async fn send_with_ack_error() {
@@ -853,7 +854,7 @@ mod test {
         // Saturate the channel
         for _ in 0..1024 {
             socket
-                .send(Packet::event("test", "test", Value::Null))
+                .send(Packet::event(Str::from("test"), "test", Value::Null))
                 .unwrap();
         }
 
