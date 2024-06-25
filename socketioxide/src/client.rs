@@ -12,7 +12,6 @@ use engineioxide::sid::Sid;
 use matchit::{Match, Router};
 use tokio::sync::oneshot;
 
-use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::ns::NamespaceCtr;
 use crate::socket::DisconnectReason;
@@ -24,10 +23,10 @@ use crate::{
 };
 use crate::{ProtocolVersion, SocketIo};
 
-pub struct Client<A: Adapter> {
+pub struct Client {
     pub(crate) config: SocketIoConfig,
-    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
-    router: RwLock<Router<NamespaceCtr<A>>>,
+    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace>>>,
+    router: RwLock<Router<NamespaceCtr>>,
 
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
@@ -35,7 +34,7 @@ pub struct Client<A: Adapter> {
 
 /// ==== impl Client ====
 
-impl<A: Adapter> Client<A> {
+impl Client {
     pub fn new(
         config: SocketIoConfig,
         #[cfg(feature = "state")] mut state: state::TypeMap![Send + Sync],
@@ -57,26 +56,25 @@ impl<A: Adapter> Client<A> {
         &self,
         auth: Option<String>,
         ns_path: Str,
-        esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
+        esocket: &Arc<engineioxide::Socket<SocketData>>,
     ) {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
         let protocol: ProtocolVersion = esocket.protocol.into();
-        let connect =
-            move |ns: Arc<Namespace<A>>, esocket: Arc<engineioxide::Socket<SocketData<A>>>| async move {
-                if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
-                    // cancel the connect timeout task for v5
-                    if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                        tx.send(()).ok();
-                    }
+        let connect = move |ns: Arc<Namespace>, esocket: Arc<engineioxide::Socket<SocketData>>| async move {
+            if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
+                // cancel the connect timeout task for v5
+                if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                    tx.send(()).ok();
                 }
-            };
+            }
+        };
 
         if let Some(ns) = self.get_ns(&ns_path) {
             tokio::spawn(connect(ns, esocket.clone()));
         } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(&ns_path) {
             let path: Cow<'static, str> = Cow::Owned(ns_path.clone().into());
-            let ns = ns_ctr.get_new_ns(ns_path); //TODO: check memory leak here
+            let ns = ns_ctr.get_new_ns(ns_path, self.config.adapter.boxed_clone()); //TODO: check memory leak here
             self.ns.write().unwrap().insert(path, ns.clone());
             tokio::spawn(connect(ns, esocket.clone()));
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
@@ -107,7 +105,7 @@ impl<A: Adapter> Client<A> {
 
     /// Spawn a task that will close the socket if it is not connected to a namespace
     /// after the [`SocketIoConfig::connect_timeout`] duration
-    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn spawn_connect_timeout_task(&self, socket: Arc<EIoSocket<SocketData>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("spawning connect timeout task");
         let (tx, rx) = oneshot::channel();
@@ -125,18 +123,22 @@ impl<A: Adapter> Client<A> {
     /// Adds a new namespace handler
     pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
-        let ns = Namespace::new(Str::from(&path), callback);
+        let ns = Namespace::new(
+            Str::from(&path),
+            callback,
+            self.config.adapter.boxed_clone(),
+        );
         self.ns.write().unwrap().insert(path, ns);
     }
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
     where
-        C: ConnectHandler<A, T>,
+        C: ConnectHandler<T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
@@ -161,7 +163,7 @@ impl<A: Adapter> Client<A> {
         }
     }
 
-    pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
+    pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace>> {
         self.ns.read().unwrap().get(path).cloned()
     }
 
@@ -182,7 +184,7 @@ impl<A: Adapter> Client<A> {
 }
 
 #[derive(Debug)]
-pub struct SocketData<A: Adapter> {
+pub struct SocketData {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
     pub partial_bin_packet: Mutex<Option<Packet<'static>>>,
@@ -191,9 +193,9 @@ pub struct SocketData<A: Adapter> {
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 
     /// Used to store the [`SocketIo`] instance so it can be accessed by any sockets
-    pub io: OnceLock<SocketIo<A>>,
+    pub io: OnceLock<SocketIo>,
 }
-impl<A: Adapter> Default for SocketData<A> {
+impl Default for SocketData {
     fn default() -> Self {
         Self {
             partial_bin_packet: Default::default(),
@@ -203,11 +205,11 @@ impl<A: Adapter> Default for SocketData<A> {
     }
 }
 
-impl<A: Adapter> EngineIoHandler for Client<A> {
-    type Data = SocketData<A>;
+impl EngineIoHandler for Client {
+    type Data = SocketData;
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
-    fn on_connect(self: Arc<Self>, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_connect(self: Arc<Self>, socket: Arc<EIoSocket<SocketData>>) {
         socket.data.io.set(SocketIo::from(self.clone())).ok();
 
         #[cfg(feature = "tracing")]
@@ -228,7 +230,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
-    fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData<A>>>, reason: EIoDisconnectReason) {
+    fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData>>, reason: EIoDisconnectReason) {
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket disconnected");
         let socks: Vec<_> = self
@@ -255,7 +257,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
         let packet = match Packet::try_from(msg) {
@@ -303,7 +305,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData>>) {
         if apply_payload_on_packet(data, &socket) {
             if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
                 if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
@@ -321,7 +323,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 }
-impl<A: Adapter> std::fmt::Debug for Client<A> {
+impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut f = f.debug_struct("Client");
         f.field("config", &self.config).field("ns", &self.ns);
@@ -335,7 +337,7 @@ impl<A: Adapter> std::fmt::Debug for Client<A> {
 /// waiting to be filled with all the payloads
 ///
 /// Returns true if the packet is complete and should be processed
-fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketData<A>>) -> bool {
+fn apply_payload_on_packet(data: Bytes, socket: &EIoSocket<SocketData>) -> bool {
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={}] applying payload on packet", socket.id);
     if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
@@ -354,7 +356,7 @@ fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketDat
 }
 
 #[cfg(socketioxide_test)]
-impl<A: Adapter> Client<A> {
+impl Client {
     pub async fn new_dummy_sock(
         self: Arc<Self>,
         ns: &'static str,
@@ -366,7 +368,7 @@ impl<A: Adapter> Client<A> {
         let buffer_size = self.config.engine_config.max_buffer_size;
         let sid = Sid::new();
         let (esock, rx) =
-            EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
+            EIoSocket::<SocketData>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
         esock.data.io.set(SocketIo::from(self.clone())).ok();
         let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
         tokio::spawn({
@@ -408,15 +410,14 @@ mod test {
     use super::*;
     use tokio::sync::mpsc;
 
-    use crate::adapter::LocalAdapter;
     const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
 
-    fn create_client() -> Arc<super::Client<LocalAdapter>> {
+    fn create_client() -> Arc<Client> {
         let config = crate::SocketIoConfig {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
-        let client = Client::<LocalAdapter>::new(
+        let client = Client::new(
             config,
             #[cfg(feature = "state")]
             Default::default(),

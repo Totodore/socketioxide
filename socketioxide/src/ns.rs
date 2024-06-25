@@ -5,59 +5,65 @@ use std::{
 
 use crate::{
     adapter::Adapter,
-    errors::{ConnectFail, Error},
+    client::SocketData,
+    errors::{AdapterError, ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{Packet, PacketData},
     socket::{DisconnectReason, Socket},
 };
-use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::{sid::Sid, Str};
 
 /// A [`Namespace`] constructor used for dynamic namespaces
 /// A namespace constructor only hold a common handler that will be cloned
 /// to the instantiated namespaces.
-pub struct NamespaceCtr<A: Adapter> {
-    handler: BoxedConnectHandler<A>,
+pub struct NamespaceCtr {
+    handler: BoxedConnectHandler,
 }
-pub struct Namespace<A: Adapter> {
+pub struct Namespace {
     pub path: Str,
-    pub(crate) adapter: A,
-    handler: BoxedConnectHandler<A>,
-    sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
+    pub(crate) adapter: Box<dyn Adapter>,
+    handler: BoxedConnectHandler,
+    sockets: RwLock<HashMap<Sid, Arc<Socket>>>,
 }
 
 /// ===== impl NamespaceCtr =====
-impl<A: Adapter> NamespaceCtr<A> {
+impl NamespaceCtr {
     pub fn new<C, T>(handler: C) -> Self
     where
-        C: ConnectHandler<A, T> + Send + Sync + 'static,
+        C: ConnectHandler<T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
         Self {
             handler: MakeErasedHandler::new_ns_boxed(handler),
         }
     }
-    pub fn get_new_ns(&self, path: Str) -> Arc<Namespace<A>> {
-        Arc::new_cyclic(|ns| Namespace {
-            path,
-            handler: self.handler.boxed_clone(),
-            sockets: HashMap::new().into(),
-            adapter: A::new(ns.clone()),
+    pub fn get_new_ns(&self, path: Str, mut adapter: Box<dyn Adapter>) -> Arc<Namespace> {
+        Arc::new_cyclic(|ns| {
+            adapter.init(ns.clone()).ok();
+            Namespace {
+                path,
+                handler: self.handler.boxed_clone(),
+                sockets: HashMap::new().into(),
+                adapter,
+            }
         })
     }
 }
 
-impl<A: Adapter> Namespace<A> {
-    pub fn new<C, T>(path: Str, handler: C) -> Arc<Self>
+impl Namespace {
+    pub fn new<C, T>(path: Str, handler: C, mut adapter: Box<dyn Adapter>) -> Arc<Self>
     where
-        C: ConnectHandler<A, T> + Send + Sync + 'static,
+        C: ConnectHandler<T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
-        Arc::new_cyclic(|ns| Self {
-            path,
-            handler: MakeErasedHandler::new_ns_boxed(handler),
-            sockets: HashMap::new().into(),
-            adapter: A::new(ns.clone()),
+        Arc::new_cyclic(move |ns: &std::sync::Weak<_>| {
+            adapter.init(ns.clone()).ok();
+            Self {
+                path,
+                handler: MakeErasedHandler::new_ns_boxed(handler),
+                sockets: HashMap::new().into(),
+                adapter,
+            }
         })
     }
 
@@ -70,10 +76,10 @@ impl<A: Adapter> Namespace<A> {
     pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,
-        esocket: Arc<engineioxide::Socket<SocketData<A>>>,
+        esocket: Arc<engineioxide::Socket<SocketData>>,
         auth: Option<String>,
     ) -> Result<(), ConnectFail> {
-        let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
+        let socket: Arc<Socket> = Socket::new(sid, self.clone(), esocket.clone()).into();
 
         if let Err(e) = self.handler.call_middleware(socket.clone(), &auth).await {
             #[cfg(feature = "tracing")]
@@ -130,7 +136,7 @@ impl<A: Adapter> Namespace<A> {
         }
     }
 
-    pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket<A>>, Error> {
+    pub fn get_socket(&self, sid: Sid) -> Result<Arc<Socket>, Error> {
         self.sockets
             .read()
             .unwrap()
@@ -139,7 +145,7 @@ impl<A: Adapter> Namespace<A> {
             .ok_or(Error::SocketGone(sid))
     }
 
-    pub fn get_sockets(&self) -> Vec<Arc<Socket<A>>> {
+    pub fn get_sockets(&self) -> Vec<Arc<Socket>> {
         self.sockets.read().unwrap().values().cloned().collect()
     }
 
@@ -183,9 +189,10 @@ impl<A: Adapter> Namespace<A> {
 }
 
 #[cfg(any(test, socketioxide_test))]
-impl<A: Adapter> Namespace<A> {
+impl Namespace {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
-        let ns = Namespace::new("/".into(), || {});
+        use crate::adapter::LocalAdapter;
+        let ns = Namespace::new("/".into(), || {}, Box::new(LocalAdapter::new()));
         for sid in sockets {
             ns.sockets
                 .write()
@@ -200,7 +207,7 @@ impl<A: Adapter> Namespace<A> {
     }
 }
 
-impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
+impl std::fmt::Debug for Namespace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Namespace")
             .field("path", &self.path)
@@ -211,7 +218,7 @@ impl<A: Adapter + std::fmt::Debug> std::fmt::Debug for Namespace<A> {
 }
 
 #[cfg(feature = "tracing")]
-impl<A: Adapter> Drop for Namespace<A> {
+impl Drop for Namespace {
     fn drop(&mut self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("dropping namespace {}", self.path);

@@ -58,36 +58,33 @@ use std::sync::Arc;
 
 use futures_core::Future;
 
-use crate::{
-    adapter::Adapter,
-    socket::{DisconnectReason, Socket},
-};
+use crate::socket::{DisconnectReason, Socket};
 
 use super::MakeErasedHandler;
 
 /// A Type Erased [`DisconnectHandler`] so it can be stored in a HashMap
-pub(crate) type BoxedDisconnectHandler<A> = Box<dyn ErasedDisconnectHandler<A>>;
-pub(crate) trait ErasedDisconnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason);
+pub(crate) type BoxedDisconnectHandler = Box<dyn ErasedDisconnectHandler>;
+pub(crate) trait ErasedDisconnectHandler: Send + Sync + 'static {
+    fn call(&self, s: Arc<Socket>, reason: DisconnectReason);
 }
 
-impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
+impl<T, H> MakeErasedHandler<H, T>
 where
     T: Send + Sync + 'static,
-    H: DisconnectHandler<A, T> + Send + Sync + 'static,
+    H: DisconnectHandler<T> + Send + Sync + 'static,
 {
-    pub fn new_disconnect_boxed(inner: H) -> Box<dyn ErasedDisconnectHandler<A>> {
+    pub fn new_disconnect_boxed(inner: H) -> Box<dyn ErasedDisconnectHandler> {
         Box::new(MakeErasedHandler::new(inner))
     }
 }
 
-impl<A: Adapter, T, H> ErasedDisconnectHandler<A> for MakeErasedHandler<H, A, T>
+impl<T, H> ErasedDisconnectHandler for MakeErasedHandler<H, T>
 where
-    H: DisconnectHandler<A, T> + Send + Sync + 'static,
+    H: DisconnectHandler<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     #[inline(always)]
-    fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
+    fn call(&self, s: Arc<Socket>, reason: DisconnectReason) {
         self.handler.call(s, reason);
     }
 }
@@ -98,14 +95,14 @@ where
 ///
 /// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait FromDisconnectParts<A: Adapter>: Sized {
+pub trait FromDisconnectParts: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
 
     /// Extract the arguments from the disconnect event.
     /// If it fails, the handler is not called
     fn from_disconnect_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         reason: DisconnectReason,
     ) -> Result<Self, Self::Error>;
 }
@@ -115,9 +112,9 @@ pub trait FromDisconnectParts<A: Adapter>: Sized {
 ///
 /// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
+pub trait DisconnectHandler<T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason);
+    fn call(&self, s: Arc<Socket>, reason: DisconnectReason);
 
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -137,14 +134,13 @@ macro_rules! impl_handler_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, $($ty,)*> DisconnectHandler<A, (private::Async, $($ty,)*)> for F
+        impl<F, Fut, $($ty,)*> DisconnectHandler<(private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
-            A: Adapter,
-            $( $ty: FromDisconnectParts<A> + Send, )*
+            $( $ty: FromDisconnectParts + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
+            fn call(&self, s: Arc<Socket>, reason: DisconnectReason) {
                 $(
                     let $ty = match $ty::from_disconnect_parts(&s, reason) {
                         Ok(v) => v,
@@ -169,13 +165,12 @@ macro_rules! impl_handler {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)*> DisconnectHandler<A, (private::Sync, $($ty,)*)> for F
+        impl<F, $($ty,)*> DisconnectHandler<(private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
-            A: Adapter,
-            $( $ty: FromDisconnectParts<A> + Send, )*
+            $( $ty: FromDisconnectParts + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
+            fn call(&self, s: Arc<Socket>, reason: DisconnectReason) {
                 $(
                     let $ty = match $ty::from_disconnect_parts(&s, reason) {
                         Ok(v) => v,

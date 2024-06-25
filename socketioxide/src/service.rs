@@ -53,31 +53,26 @@ use std::{
 };
 use tower::Service as TowerSvc;
 
-use crate::{
-    adapter::{Adapter, LocalAdapter},
-    client::Client,
-    SocketIoConfig,
-};
+use crate::{client::Client, SocketIoConfig};
 
 /// A [`Tower`](TowerSvc)/[`Hyper`](HyperSvc) Service that wraps [`EngineIoService`] and
 /// redirect every request to it
-pub struct SocketIoService<S: Clone, A: Adapter = LocalAdapter> {
-    engine_svc: EngineIoService<Client<A>, S>,
+pub struct SocketIoService<S: Clone> {
+    engine_svc: EngineIoService<Client, S>,
 }
 
 /// Tower Service implementation.
-impl<S, ReqBody, ResBody, A> TowerSvc<Request<ReqBody>> for SocketIoService<S, A>
+impl<S, ReqBody, ResBody> TowerSvc<Request<ReqBody>> for SocketIoService<S>
 where
     ReqBody: Body + Send + Unpin + std::fmt::Debug + 'static,
     <ReqBody as Body>::Error: std::fmt::Debug,
     <ReqBody as Body>::Data: Send,
     ResBody: Body + Send + 'static,
     S: TowerSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
-    A: Adapter,
 {
-    type Response = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Response;
-    type Error = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Error;
-    type Future = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Future;
+    type Response = <EngineIoService<Client, S> as TowerSvc<Request<ReqBody>>>::Response;
+    type Error = <EngineIoService<Client, S> as TowerSvc<Request<ReqBody>>>::Error;
+    type Future = <EngineIoService<Client, S> as TowerSvc<Request<ReqBody>>>::Future;
 
     #[inline(always)]
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -90,18 +85,17 @@ where
 }
 
 /// Hyper 1.0 Service implementation.
-impl<S, ReqBody, ResBody, A> HyperSvc<Request<ReqBody>> for SocketIoService<S, A>
+impl<S, ReqBody, ResBody> HyperSvc<Request<ReqBody>> for SocketIoService<S>
 where
     ReqBody: Body + Send + Unpin + std::fmt::Debug + 'static,
     <ReqBody as Body>::Error: std::fmt::Debug,
     <ReqBody as Body>::Data: Send,
     ResBody: Body + Send + 'static,
     S: HyperSvc<Request<ReqBody>, Response = Response<ResBody>> + Clone,
-    A: Adapter,
 {
-    type Response = <EngineIoService<Client<A>, S> as HyperSvc<Request<ReqBody>>>::Response;
-    type Error = <EngineIoService<Client<A>, S> as HyperSvc<Request<ReqBody>>>::Error;
-    type Future = <EngineIoService<Client<A>, S> as HyperSvc<Request<ReqBody>>>::Future;
+    type Response = <EngineIoService<Client, S> as HyperSvc<Request<ReqBody>>>::Response;
+    type Error = <EngineIoService<Client, S> as HyperSvc<Request<ReqBody>>>::Error;
+    type Future = <EngineIoService<Client, S> as HyperSvc<Request<ReqBody>>>::Future;
 
     #[inline(always)]
     fn call(&self, req: Request<ReqBody>) -> Self::Future {
@@ -109,10 +103,10 @@ where
     }
 }
 
-impl<A: Adapter, S: Clone> SocketIoService<S, A> {
+impl<S: Clone> SocketIoService<S> {
     /// Creates a MakeService which can be used as a hyper service
     #[inline(always)]
-    pub fn into_make_service(self) -> MakeEngineIoService<Client<A>, S> {
+    pub fn into_make_service(self) -> MakeEngineIoService<Client, S> {
         self.engine_svc.into_make_service()
     }
 
@@ -121,7 +115,7 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
         inner: S,
         config: SocketIoConfig,
         #[cfg(feature = "state")] state: state::TypeMap![Send + Sync],
-    ) -> (Self, Arc<Client<A>>) {
+    ) -> (Self, Arc<Client>) {
         let engine_config = config.engine_config.clone();
         let client = Arc::new(Client::new(
             config,
@@ -134,14 +128,14 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
 
     /// Creates a new [`EngineIoService`] with a custom inner service and an existing client
     /// It is mainly used with a [`SocketIoLayer`](crate::layer::SocketIoLayer) that owns the client
-    pub(crate) fn with_client(inner: S, client: Arc<Client<A>>) -> Self {
+    pub(crate) fn with_client(inner: S, client: Arc<Client>) -> Self {
         let engine_config = client.config.engine_config.clone();
         let svc = EngineIoService::with_config_inner(inner, client, engine_config);
         Self { engine_svc: svc }
     }
 }
 
-impl<A: Adapter, S: Clone> Clone for SocketIoService<S, A> {
+impl<S: Clone> Clone for SocketIoService<S> {
     fn clone(&self) -> Self {
         Self {
             engine_svc: self.engine_svc.clone(),

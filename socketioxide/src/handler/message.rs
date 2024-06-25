@@ -77,16 +77,15 @@ use bytes::Bytes;
 use futures_core::Future;
 use serde_json::Value;
 
-use crate::adapter::Adapter;
 use crate::socket::Socket;
 
 use super::MakeErasedHandler;
 
 /// A Type Erased [`MessageHandler`] so it can be stored in a HashMap
-pub(crate) type BoxedMessageHandler<A> = Box<dyn ErasedMessageHandler<A>>;
+pub(crate) type BoxedMessageHandler = Box<dyn ErasedMessageHandler>;
 
-pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>);
+pub(crate) trait ErasedMessageHandler: Send + Sync + 'static {
+    fn call(&self, s: Arc<Socket>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>);
 }
 
 /// Define a handler for the connect event.
@@ -100,9 +99,9 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
         note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
     )
 )]
-pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
+pub trait MessageHandler<T>: Send + Sync + 'static {
     /// Call the handler with the given arguments
-    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>);
+    fn call(&self, s: Arc<Socket>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>);
 
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -110,25 +109,23 @@ pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
     }
 }
 
-impl<A, T, H> MakeErasedHandler<H, A, T>
+impl<T, H> MakeErasedHandler<H, T>
 where
     T: Send + Sync + 'static,
-    H: MessageHandler<A, T>,
-    A: Adapter,
+    H: MessageHandler<T>,
 {
-    pub fn new_message_boxed(inner: H) -> Box<dyn ErasedMessageHandler<A>> {
+    pub fn new_message_boxed(inner: H) -> Box<dyn ErasedMessageHandler> {
         Box::new(MakeErasedHandler::new(inner))
     }
 }
 
-impl<A, T, H> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T>
+impl<T, H> ErasedMessageHandler for MakeErasedHandler<H, T>
 where
     T: Send + Sync + 'static,
-    H: MessageHandler<A, T>,
-    A: Adapter,
+    H: MessageHandler<T>,
 {
     #[inline(always)]
-    fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>) {
+    fn call(&self, s: Arc<Socket>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>) {
         self.handler.call(s, v, p, ack_id);
     }
 }
@@ -157,14 +154,14 @@ mod private {
         note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
     )
 )]
-pub trait FromMessageParts<A: Adapter>: Sized {
+pub trait FromMessageParts: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
 
     /// Extract the arguments from the message event.
     /// If it fails, the handler is not called.
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         v: &mut Value,
         p: &mut Vec<Bytes>,
         ack_id: &Option<i64>,
@@ -182,14 +179,14 @@ pub trait FromMessageParts<A: Adapter>: Sized {
         note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
     )
 )]
-pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
+pub trait FromMessage<M = private::ViaRequest>: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + 'static;
 
     /// Extract the arguments from the message event.
     /// If it fails, the handler is not called
     fn from_message(
-        s: Arc<Socket<A>>,
+        s: Arc<Socket>,
         v: Value,
         p: Vec<Bytes>,
         ack_id: Option<i64>,
@@ -197,14 +194,13 @@ pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
 }
 
 /// All the types that implement [`FromMessageParts`] also implement [`FromMessage`]
-impl<A, T> FromMessage<A, private::ViaParts> for T
+impl<T> FromMessage<private::ViaParts> for T
 where
-    T: FromMessageParts<A>,
-    A: Adapter,
+    T: FromMessageParts,
 {
     type Error = T::Error;
     fn from_message(
-        s: Arc<Socket<A>>,
+        s: Arc<Socket>,
         mut v: Value,
         mut p: Vec<Bytes>,
         ack_id: Option<i64>,
@@ -214,25 +210,23 @@ where
 }
 
 /// Empty Async handler
-impl<A, F, Fut> MessageHandler<A, (private::Async,)> for F
+impl<F, Fut> MessageHandler<(private::Async,)> for F
 where
     F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
     Fut: Future<Output = ()> + Send + 'static,
-    A: Adapter,
 {
-    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Bytes>, _: Option<i64>) {
+    fn call(&self, _: Arc<Socket>, _: Value, _: Vec<Bytes>, _: Option<i64>) {
         let fut = (self.clone())();
         tokio::spawn(fut);
     }
 }
 
 /// Empty Sync handler
-impl<A, F> MessageHandler<A, (private::Sync,)> for F
+impl<F> MessageHandler<(private::Sync,)> for F
 where
     F: FnOnce() + Send + Sync + Clone + 'static,
-    A: Adapter,
 {
-    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Vec<Bytes>, _: Option<i64>) {
+    fn call(&self, _: Arc<Socket>, _: Value, _: Vec<Bytes>, _: Option<i64>) {
         (self.clone())();
     }
 }
@@ -242,15 +236,14 @@ macro_rules! impl_async_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, M, $($ty,)* $last, Fut> MessageHandler<A, (private::Async, M, $($ty,)* $last,)> for F
+        impl<F, M, $($ty,)* $last, Fut> MessageHandler<(private::Async, M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
-            A: Adapter,
-            $( $ty: FromMessageParts<A> + Send, )*
-            $last: FromMessage<A, M> + Send,
+            $( $ty: FromMessageParts + Send, )*
+            $last: FromMessage<M> + Send,
         {
-            fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Bytes>, ack_id: Option<i64>) {
+            fn call(&self, s: Arc<Socket>, mut v: Value, mut p: Vec<Bytes>, ack_id: Option<i64>) {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id) {
                         Ok(v) => v,
@@ -281,14 +274,13 @@ macro_rules! impl_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, M, $($ty,)* $last> MessageHandler<A, (private::Sync, M, $($ty,)* $last,)> for F
+        impl<F, M, $($ty,)* $last> MessageHandler<(private::Sync, M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) + Send + Sync + Clone + 'static,
-            A: Adapter,
-            $( $ty: FromMessageParts<A> + Send, )*
-            $last: FromMessage<A, M> + Send,
+            $( $ty: FromMessageParts + Send, )*
+            $last: FromMessage<M> + Send,
         {
-            fn call(&self, s: Arc<Socket<A>>, mut v: Value, mut p: Vec<Bytes>, ack_id: Option<i64>) {
+            fn call(&self, s: Arc<Socket>, mut v: Value, mut p: Vec<Bytes>, ack_id: Option<i64>) {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &mut p, &ack_id) {
                         Ok(v) => v,

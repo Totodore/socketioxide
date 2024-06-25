@@ -2,7 +2,6 @@ use bytes::Bytes;
 
 use std::sync::Arc;
 
-use crate::adapter::Adapter;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
 
@@ -57,22 +56,19 @@ impl<T> std::fmt::Debug for StateNotFound<T> {
 }
 impl<T> std::error::Error for StateNotFound<T> {}
 
-impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for State<T> {
+impl<T: Clone + Send + Sync + 'static> FromConnectParts for State<T> {
     type Error = StateNotFound<T>;
-    fn from_connect_parts(
-        s: &Arc<Socket<A>>,
-        _: &Option<String>,
-    ) -> Result<Self, StateNotFound<T>> {
+    fn from_connect_parts(s: &Arc<Socket>, _: &Option<String>) -> Result<Self, StateNotFound<T>> {
         s.get_io()
             .get_state::<T>()
             .map(State)
             .ok_or(StateNotFound(std::marker::PhantomData))
     }
 }
-impl<A: Adapter, T: Clone + Send + Sync + 'static> FromDisconnectParts<A> for State<T> {
+impl<T: Clone + Send + Sync + 'static> FromDisconnectParts for State<T> {
     type Error = StateNotFound<T>;
     fn from_disconnect_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: DisconnectReason,
     ) -> Result<Self, StateNotFound<T>> {
         s.get_io()
@@ -81,10 +77,10 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromDisconnectParts<A> for St
             .ok_or(StateNotFound(std::marker::PhantomData))
     }
 }
-impl<A: Adapter, T: Clone + Send + Sync + 'static> FromMessageParts<A> for State<T> {
+impl<T: Clone + Send + Sync + 'static> FromMessageParts for State<T> {
     type Error = StateNotFound<T>;
     fn from_message_parts(
-        s: &Arc<Socket<A>>,
+        s: &Arc<Socket>,
         _: &mut serde_json::Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,

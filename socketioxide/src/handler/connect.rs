@@ -115,26 +115,26 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::{adapter::Adapter, socket::Socket};
+use crate::socket::Socket;
 use futures_core::Future;
 
 use super::MakeErasedHandler;
 
 /// A Type Erased [`ConnectHandler`] so it can be stored in a HashMap
-pub(crate) type BoxedConnectHandler<A> = Box<dyn ErasedConnectHandler<A>>;
+pub(crate) type BoxedConnectHandler = Box<dyn ErasedConnectHandler>;
 
 type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
 
-pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+pub(crate) trait ErasedConnectHandler: Send + Sync + 'static {
+    fn call(&self, s: Arc<Socket>, auth: Option<String>);
     fn call_middleware<'a>(
         &'a self,
-        s: Arc<Socket<A>>,
+        s: Arc<Socket>,
         auth: &'a Option<String>,
     ) -> MiddlewareResFut<'a>;
 
-    fn boxed_clone(&self) -> BoxedConnectHandler<A>;
+    fn boxed_clone(&self) -> BoxedConnectHandler;
 }
 
 /// A trait used to extract the arguments from the connect event.
@@ -143,13 +143,13 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait FromConnectParts<A: Adapter>: Sized {
+pub trait FromConnectParts: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + Send + 'static;
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
-    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
+    fn from_connect_parts(s: &Arc<Socket>, auth: &Option<String>) -> Result<Self, Self::Error>;
 }
 
 /// Define a middleware for the connect event.
@@ -158,16 +158,16 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect middlewares.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
+pub trait ConnectMiddleware<T>: Sized + Clone + Send + Sync + 'static {
     /// Call the middleware with the given arguments.
     fn call<'a>(
         &'a self,
-        s: Arc<Socket<A>>,
+        s: Arc<Socket>,
         auth: &'a Option<String>,
     ) -> impl Future<Output = MiddlewareRes> + Send;
 
     #[doc(hidden)]
-    fn phantom(&self) -> std::marker::PhantomData<(A, T)> {
+    fn phantom(&self) -> std::marker::PhantomData<T> {
         std::marker::PhantomData
     }
 }
@@ -177,14 +177,14 @@ pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'stati
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
+pub trait ConnectHandler<T>: Sized + Clone + Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(&self, s: Arc<Socket>, auth: Option<String>);
 
     /// Call the middleware with the given arguments.
     fn call_middleware<'a>(
         &'a self,
-        _: Arc<Socket<A>>,
+        _: Arc<Socket>,
         _: &'a Option<String>,
     ) -> MiddlewareResFut<'a> {
         Box::pin(async move { Ok(()) })
@@ -234,9 +234,9 @@ pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// let (_, io) = SocketIo::new_layer();
     /// io.ns("/", handler.with(middleware).with(other_middleware));
     /// ```
-    fn with<M, T1>(self, middleware: M) -> impl ConnectHandler<A, T>
+    fn with<M, T1>(self, middleware: M) -> impl ConnectHandler<T>
     where
-        M: ConnectMiddleware<A, T1> + Send + Sync + 'static,
+        M: ConnectMiddleware<T1> + Send + Sync + 'static,
         T: Send + Sync + 'static,
         T1: Send + Sync + 'static,
     {
@@ -252,10 +252,10 @@ pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
         std::marker::PhantomData
     }
 }
-struct LayeredConnectHandler<A, H, M, T, T1> {
+struct LayeredConnectHandler<H, M, T, T1> {
     handler: H,
     middleware: M,
-    phantom: std::marker::PhantomData<(A, T, T1)>,
+    phantom: std::marker::PhantomData<(T, T1)>,
 }
 struct ConnectMiddlewareLayer<M, N, T, T1> {
     middleware: M,
@@ -263,61 +263,60 @@ struct ConnectMiddlewareLayer<M, N, T, T1> {
     phantom: std::marker::PhantomData<(T, T1)>,
 }
 
-impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
+impl<T, H> MakeErasedHandler<H, T>
 where
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler<A>> {
+    pub fn new_ns_boxed(inner: H) -> Box<dyn ErasedConnectHandler> {
         Box::new(MakeErasedHandler::new(inner))
     }
 }
 
-impl<A: Adapter, T, H> ErasedConnectHandler<A> for MakeErasedHandler<H, A, T>
+impl<T, H> ErasedConnectHandler for MakeErasedHandler<H, T>
 where
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
+    H: ConnectHandler<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+    fn call(&self, s: Arc<Socket>, auth: Option<String>) {
         self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
-        s: Arc<Socket<A>>,
+        s: Arc<Socket>,
         auth: &'a Option<String>,
     ) -> MiddlewareResFut<'a> {
         self.handler.call_middleware(s, auth)
     }
 
-    fn boxed_clone(&self) -> BoxedConnectHandler<A> {
+    fn boxed_clone(&self) -> BoxedConnectHandler {
         Box::new(self.clone())
     }
 }
 
-impl<A, H, M, T, T1> ConnectHandler<A, T> for LayeredConnectHandler<A, H, M, T, T1>
+impl<H, M, T, T1> ConnectHandler<T> for LayeredConnectHandler<H, M, T, T1>
 where
-    A: Adapter,
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
-    M: ConnectMiddleware<A, T1> + Send + Sync + 'static,
+    H: ConnectHandler<T> + Send + Sync + 'static,
+    M: ConnectMiddleware<T1> + Send + Sync + 'static,
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+    fn call(&self, s: Arc<Socket>, auth: Option<String>) {
         self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
-        s: Arc<Socket<A>>,
+        s: Arc<Socket>,
         auth: &'a Option<String>,
     ) -> MiddlewareResFut<'a> {
         Box::pin(async move { self.middleware.call(s, auth).await })
     }
 
-    fn with<M2, T2>(self, next: M2) -> impl ConnectHandler<A, T>
+    fn with<M2, T2>(self, next: M2) -> impl ConnectHandler<T>
     where
-        M2: ConnectMiddleware<A, T2> + Send + Sync + 'static,
+        M2: ConnectMiddleware<T2> + Send + Sync + 'static,
         T2: Send + Sync + 'static,
     {
         LayeredConnectHandler {
@@ -331,19 +330,18 @@ where
         }
     }
 }
-impl<A, H, N, T, T1> ConnectMiddleware<A, T1> for LayeredConnectHandler<A, H, N, T, T1>
+impl<H, N, T, T1> ConnectMiddleware<T1> for LayeredConnectHandler<H, N, T, T1>
 where
-    A: Adapter,
-    H: ConnectHandler<A, T> + Send + Sync + 'static,
-    N: ConnectMiddleware<A, T1> + Send + Sync + 'static,
+    H: ConnectHandler<T> + Send + Sync + 'static,
+    N: ConnectMiddleware<T1> + Send + Sync + 'static,
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+    async fn call<'a>(&'a self, s: Arc<Socket>, auth: &'a Option<String>) -> MiddlewareRes {
         self.middleware.call(s, auth).await
     }
 }
-impl<A, H, N, T, T1> Clone for LayeredConnectHandler<A, H, N, T, T1>
+impl<H, N, T, T1> Clone for LayeredConnectHandler<H, N, T, T1>
 where
     H: Clone,
     N: Clone,
@@ -370,15 +368,14 @@ where
     }
 }
 
-impl<A, M, N, T, T1> ConnectMiddleware<A, T> for ConnectMiddlewareLayer<M, N, T, T1>
+impl<M, N, T, T1> ConnectMiddleware<T> for ConnectMiddlewareLayer<M, N, T, T1>
 where
-    A: Adapter,
-    M: ConnectMiddleware<A, T> + Send + Sync + 'static,
-    N: ConnectMiddleware<A, T1> + Send + Sync + 'static,
+    M: ConnectMiddleware<T> + Send + Sync + 'static,
+    N: ConnectMiddleware<T1> + Send + Sync + 'static,
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+    async fn call<'a>(&'a self, s: Arc<Socket>, auth: &'a Option<String>) -> MiddlewareRes {
         self.middleware.call(s.clone(), auth).await?;
         self.next.call(s, auth).await
     }
@@ -396,14 +393,17 @@ macro_rules! impl_handler_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, (private::Async, $($ty,)*)> for F
+        impl<F, Fut, $($ty,)*> ConnectHandler<(private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
-            A: Adapter,
-            $( $ty: FromConnectParts<A> + Send, )*
+            $( $ty: FromConnectParts + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(
+                &self,
+                s: Arc<Socket>,
+                auth: Option<String>,
+            ) {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
@@ -428,13 +428,16 @@ macro_rules! impl_handler {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)*> ConnectHandler<A, (private::Sync, $($ty,)*)> for F
+        impl<F, $($ty,)*> ConnectHandler<(private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
-            A: Adapter,
-            $( $ty: FromConnectParts<A> + Send, )*
+            $( $ty: FromConnectParts + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(
+                &self,
+                s: Arc<Socket>,
+                auth: Option<String>,
+            ) {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
@@ -457,17 +460,16 @@ macro_rules! impl_middleware_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, E, $($ty,)*> ConnectMiddleware<A, (private::Async, $($ty,)*)> for F
+        impl<F, Fut, E, $($ty,)*> ConnectMiddleware<(private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = Result<(), E>> + Send + 'static,
-            A: Adapter,
             E: std::fmt::Display + Send + 'static,
-            $( $ty: FromConnectParts<A> + Send, )*
+            $( $ty: FromConnectParts + Send, )*
         {
             async fn call<'a>(
                 &'a self,
-                s: Arc<Socket<A>>,
+                s: Arc<Socket>,
                 auth: &'a Option<String>,
             ) -> MiddlewareRes {
                 $(
@@ -499,16 +501,15 @@ macro_rules! impl_middleware {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
-        impl<A, F, E, $($ty,)*> ConnectMiddleware<A, (private::Sync, $($ty,)*)> for F
+        impl<F, E, $($ty,)*> ConnectMiddleware<(private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Result<(), E> + Send + Sync + Clone + 'static,
-            A: Adapter,
             E: std::fmt::Display + Send + 'static,
-            $( $ty: FromConnectParts<A> + Send, )*
+            $( $ty: FromConnectParts + Send, )*
         {
             async fn call<'a>(
                 &'a self,
-                s: Arc<Socket<A>>,
+                s: Arc<Socket>,
                 auth: &'a Option<String>,
             ) -> MiddlewareRes {
                 $(
