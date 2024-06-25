@@ -82,8 +82,8 @@ impl<A: Adapter> Client<A> {
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
-                    "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
-                );
+                "the root namespace \"/\" must be defined before any connection for protocol V4 (legacy)!"
+            );
             esocket.close(EIoDisconnectReason::TransportClose);
         } else {
             let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
