@@ -1,12 +1,24 @@
+# 0.14.0
+
+## socketioxide
+* **(Breaking)**: State reworked to avoid having unsafe global mutable state (issue [#317](https://github.com/Totodore/socketioxide/issues/317)). Therefore State types must now implement `Clone` and will be cloned for each handler where the state is used.
+* **(Breaking)**: Extensions reworked to avoid `Send` + `Sync` requirements on extensions (issue [#295](https://github.com/Totodore/socketioxide/issues/295)). They are now extracted by `Cloning`. Therefore all the type must implement `Clone`. An `Extension` extractor is available to get an extension directly without calling `socket.extensions.get()`.
+* feat: New `HttpExtension` types to extract extensions from the http request.
+* feat: `SocketIo` can now be used as an extractor. So you can now easily access the entire socket.io context from your handlers.
+* feat: Dynamic namespaces. You can know set dynamic namespaces with the [`dyn_ns`](https://docs.rs/socketioxide/latest/socketioxide/struct.SocketIo.html#method.dyn_ns) function. You can specify patterns with the `{name}` syntax thanks to the [matchit](https://github.com/ibraheemdev/matchit) crate. The dynamic namespace will create a child namespace for any path that matches the given pattern with the given handler.
+
+## engineioxide
+* deps: bump `tokio-tungstenite` from `0.21.0` to `0.23.0`.
+
 # 0.13.1
 
 ## engineioxide
-* fix: issue #320. Remove unnecessary panic when receiving unexpected websocket messages. This might happen with some specific socket.io clients.
+* fix: issue [#320](https://github.com/Totodore/socketioxide/issues/320). Remove unnecessary panic when receiving unexpected websocket messages. This might happen with some specific socket.io clients.
 
 # 0.13.0
 
 ## socketioxide
-* fix: issue #311, the `delete_ns` fn was deadlocking the entire server when called from inside a `disconnect_handler`.
+* fix: issue [#311](https://github.com/Totodore/socketioxide/issues/311), the `delete_ns` fn was deadlocking the entire server when called from inside a `disconnect_handler`.
 * feat: the `delete_ns` is now gracefully closing the adapter as well as all its sockets before being removed.
 * feat: the API use `Bytes` rather than `Vec<u8>` to represent binary payloads. This allow to avoid unnecessary copies.
 * deps: use `futures-util` and `futures-core` rather than the whole `futures` crate.
@@ -24,7 +36,7 @@
 
 # 0.11.1
 ## socketioxide
-* fix(#232): under heavy traffic, the adjacent binary packet to the head packet requirement for engine.io was not respected. It was leading to a protocol error. 
+* fix(#232): under heavy traffic, the adjacent binary packet to the head packet requirement for engine.io was not respected. It was leading to a protocol error.
 
 # 0.11.0
 ## socketioxide
