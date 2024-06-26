@@ -75,6 +75,8 @@ impl<A: Adapter> Client<A> {
         if let Some(ns) = self.get_ns(&ns_path) {
             tokio::spawn(connect(ns, esocket.clone()));
         } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(&ns_path) {
+            // We have to create a new `Str` otherwise, we would keep a ref to the original connect packet
+            // for the entire lifetime of the Namespace.
             let path = Str::copy_from_slice(&ns_path);
             let ns = ns_ctr.get_new_ns(path.clone());
             self.nsps.write().unwrap().insert(path, ns.clone());
