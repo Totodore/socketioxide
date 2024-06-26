@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
 
 use bytes::Bytes;
 
@@ -28,7 +28,13 @@ impl Str {
         Str(Bytes::copy_from_slice(data.as_bytes()))
     }
 }
-
+/// This custom Hash implementation as a [`str`] is made to match with the [`Borrow`]
+/// implementation as [`str`]. Otherwise [`str`] and [`Str`] won't have the same hash.
+impl std::hash::Hash for Str {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        str::hash(self.as_str(), state);
+    }
+}
 impl std::ops::Deref for Str {
     type Target = str;
     fn deref(&self) -> &Self::Target {
@@ -38,6 +44,11 @@ impl std::ops::Deref for Str {
 impl std::fmt::Display for Str {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+impl Borrow<str> for Str {
+    fn borrow(&self) -> &str {
+        self.as_str()
     }
 }
 impl From<&'static str> for Str {

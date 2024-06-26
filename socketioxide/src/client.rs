@@ -26,7 +26,7 @@ use crate::{ProtocolVersion, SocketIo};
 
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
-    ns: RwLock<HashMap<Cow<'static, str>, Arc<Namespace<A>>>>,
+    nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
     router: RwLock<Router<NamespaceCtr<A>>>,
 
     #[cfg(feature = "state")]
@@ -45,7 +45,7 @@ impl<A: Adapter> Client<A> {
 
         Self {
             config,
-            ns: RwLock::new(HashMap::new()),
+            nsps: RwLock::new(HashMap::new()),
             router: RwLock::new(Router::new()),
             #[cfg(feature = "state")]
             state,
@@ -75,9 +75,11 @@ impl<A: Adapter> Client<A> {
         if let Some(ns) = self.get_ns(&ns_path) {
             tokio::spawn(connect(ns, esocket.clone()));
         } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(&ns_path) {
-            let path: Cow<'static, str> = Cow::Owned(ns_path.clone().into());
-            let ns = ns_ctr.get_new_ns(ns_path); //TODO: check memory leak here
-            self.ns.write().unwrap().insert(path, ns.clone());
+            // We have to create a new `Str` otherwise, we would keep a ref to the original connect packet
+            // for the entire lifetime of the Namespace.
+            let path = Str::copy_from_slice(&ns_path);
+            let ns = ns_ctr.get_new_ns(path.clone());
+            self.nsps.write().unwrap().insert(path, ns.clone());
             tokio::spawn(connect(ns, esocket.clone()));
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
@@ -130,8 +132,9 @@ impl<A: Adapter> Client<A> {
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
-        let ns = Namespace::new(Str::from(&path), callback);
-        self.ns.write().unwrap().insert(path, ns);
+        let path = Str::from(path);
+        let ns = Namespace::new(path.clone(), callback);
+        self.nsps.write().unwrap().insert(path, ns);
     }
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
@@ -155,14 +158,14 @@ impl<A: Adapter> Client<A> {
 
         #[cfg(feature = "tracing")]
         tracing::debug!("deleting namespace {}", path);
-        if let Some(ns) = self.ns.write().unwrap().remove(path) {
+        if let Some(ns) = self.nsps.write().unwrap().remove(path) {
             ns.close(DisconnectReason::ServerNSDisconnect)
                 .now_or_never();
         }
     }
 
     pub fn get_ns(&self, path: &str) -> Option<Arc<Namespace<A>>> {
-        self.ns.read().unwrap().get(path).cloned()
+        self.nsps.read().unwrap().get(path).cloned()
     }
 
     /// Closes all engine.io connections and all clients
@@ -170,7 +173,7 @@ impl<A: Adapter> Client<A> {
     pub(crate) async fn close(&self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("closing all namespaces");
-        let ns = { std::mem::take(&mut *self.ns.write().unwrap()) };
+        let ns = { std::mem::take(&mut *self.nsps.write().unwrap()) };
         futures_util::future::join_all(
             ns.values()
                 .map(|ns| ns.close(DisconnectReason::ClosingServer)),
@@ -232,7 +235,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket disconnected");
         let socks: Vec<_> = self
-            .ns
+            .nsps
             .read()
             .unwrap()
             .values()
@@ -324,7 +327,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 impl<A: Adapter> std::fmt::Debug for Client<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut f = f.debug_struct("Client");
-        f.field("config", &self.config).field("ns", &self.ns);
+        f.field("config", &self.config).field("nsps", &self.nsps);
         #[cfg(feature = "state")]
         let f = f.field("state", &self.state);
         f.finish()
@@ -423,6 +426,14 @@ mod test {
         );
         client.add_ns("/".into(), || {});
         Arc::new(client)
+    }
+
+    #[tokio::test]
+    async fn get_ns() {
+        let client = create_client();
+        let ns = Namespace::new(Str::from("/"), || {});
+        client.nsps.write().unwrap().insert(Str::from("/"), ns);
+        assert!(matches!(client.get_ns("/"), Some(_)));
     }
 
     #[tokio::test]
