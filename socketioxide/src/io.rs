@@ -234,6 +234,8 @@ impl Default for SocketIoBuilder {
 
 /// The [`SocketIo`] instance can be cheaply cloned and moved around everywhere in your program.
 /// It can be used as the main handle to access the whole socket.io context.
+///
+/// You can also use it as an extractor for all your [`handlers`](crate::handler).
 #[derive(Debug)]
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
