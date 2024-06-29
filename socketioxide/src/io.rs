@@ -198,7 +198,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
     ///
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request
     /// It can be used as a hyper service
-    pub fn build_svc(mut self) -> (SocketIoService<NotFoundService>, SocketIo) {
+    pub fn build_svc(mut self) -> (SocketIoService<NotFoundService, A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) = SocketIoService::with_config_inner(
@@ -213,7 +213,10 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Builds a [`SocketIoService`] and a [`SocketIo`] instance with an inner service
     ///
     /// It can be used as a hyper service
-    pub fn build_with_inner_svc<S: Clone>(mut self, svc: S) -> (SocketIoService<S>, SocketIo) {
+    pub fn build_with_inner_svc<S: Clone>(
+        mut self,
+        svc: S,
+    ) -> (SocketIoService<S, A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
 
         let (svc, client) = SocketIoService::with_config_inner(
