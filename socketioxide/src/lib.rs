@@ -307,6 +307,7 @@ mod client;
 mod errors;
 mod io;
 mod ns;
+mod parser;
 
 /// Socket.IO protocol version.
 /// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor
