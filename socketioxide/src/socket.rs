@@ -32,6 +32,7 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
+    parser::{Parse, Parser, TransportPayload},
     AckError, SocketIo,
 };
 use crate::{
@@ -103,23 +104,16 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 }
 
 pub(crate) trait PermitExt<'a> {
-    fn send(self, packet: Packet<'_>);
+    fn send(self, packet: Packet<'_>, parser: &Parser);
 }
 impl<'a> PermitExt<'a> for Permit<'a> {
-    fn send(self, mut packet: Packet<'_>) {
-        let bin_payloads = match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                Some(std::mem::take(&mut bin.bin))
-            }
-            _ => None,
-        };
-
-        let msg = packet.into();
-
-        if let Some(bin_payloads) = bin_payloads {
-            self.emit_many(msg, bin_payloads);
-        } else {
-            self.emit(msg);
+    fn send(self, packet: Packet<'_>, parser: &Parser) {
+        let (msg, bin_payloads) = parser.serialize(packet);
+        match msg {
+            TransportPayload::Str(msg) if bin_payloads.is_empty() => self.emit(msg),
+            TransportPayload::Str(msg) => self.emit_many(msg, bin_payloads),
+            TransportPayload::Bytes(bin) if bin_payloads.is_empty() => self.emit_binary(bin),
+            TransportPayload::Bytes(bin) => self.emit_many_binary(bin, bin_payloads),
         }
     }
 }
@@ -321,7 +315,7 @@ impl<A: Adapter> Socket<A> {
 
         let ns = self.ns.path.clone();
         let data = serde_json::to_value(data)?;
-        permit.send(Packet::event(ns, event.into(), data));
+        permit.send(Packet::event(ns, event.into(), data), self.parser());
         Ok(())
     }
 
@@ -655,13 +649,18 @@ impl<A: Adapter> Socket<A> {
         &self.ns.path
     }
 
+    #[inline]
+    pub(crate) fn parser(&self) -> &Parser {
+        self.esocket.data.parser()
+    }
+
     pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError<()>> {
         Ok(self.esocket.reserve()?)
     }
 
     pub(crate) fn send(&self, packet: Packet<'_>) -> Result<(), SocketError<()>> {
         let permit = self.reserve()?;
-        permit.send(packet);
+        permit.send(packet, self.parser());
         Ok(())
     }
 
@@ -674,7 +673,7 @@ impl<A: Adapter> Socket<A> {
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        permit.send(packet);
+        permit.send(packet, self.parser());
         self.ack_message.lock().unwrap().insert(ack, tx);
         rx
     }
@@ -836,6 +835,7 @@ impl<A: Adapter> Socket<A> {
         )));
         let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
         s.esocket.data.io.set(io).unwrap();
+        s.esocket.data.parser.set(Parser::default()).unwrap();
         s.set_connected(true);
         s
     }

@@ -16,6 +16,7 @@ use crate::{
     handler::ConnectHandler,
     layer::SocketIoLayer,
     operators::{BroadcastOperators, RoomParam},
+    parser::Parser,
     service::SocketIoService,
     BroadcastError, DisconnectError,
 };
@@ -35,6 +36,9 @@ pub struct SocketIoConfig {
     ///
     /// Defaults to 45 seconds.
     pub connect_timeout: Duration,
+
+    /// The parser to use to encode and decode socket.io packets
+    pub parser: Parser,
 }
 
 impl Default for SocketIoConfig {
@@ -46,6 +50,7 @@ impl Default for SocketIoConfig {
             },
             ack_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(45),
+            parser: Parser::default(),
         }
     }
 }
@@ -919,6 +924,8 @@ impl<A: Adapter> SocketIo<A> {
 #[cfg(test)]
 mod tests {
 
+    use crate::client::SocketData;
+
     use super::*;
 
     #[test]
@@ -949,7 +956,8 @@ mod tests {
         let sid = Sid::new();
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
-        let socket = Socket::new_dummy(sid, Box::new(|_, _| {}));
+        let socket = Socket::<SocketData<LocalAdapter>>::new_dummy(sid, Box::new(|_, _| {}));
+        socket.data.parser.set(Parser::default()).unwrap();
         io.0.get_ns("/")
             .unwrap()
             .connect(sid, socket, None)

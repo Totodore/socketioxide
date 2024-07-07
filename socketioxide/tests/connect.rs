@@ -3,7 +3,11 @@ mod utils;
 use bytes::Bytes;
 use engineioxide::Packet::*;
 use socketioxide::{
-    extract::SocketRef, handler::ConnectHandler, packet::Packet, SendError, SocketError, SocketIo,
+    extract::SocketRef,
+    handler::ConnectHandler,
+    packet::Packet,
+    parser::{CommonParser, Parse, TransportPayload},
+    SendError, SocketError, SocketIo,
 };
 use tokio::sync::mpsc;
 
@@ -12,8 +16,11 @@ fn create_msg(
     event: &str,
     data: impl Into<serde_json::Value>,
 ) -> engineioxide::Packet {
-    let packet: String = Packet::event(ns, event, data.into()).into();
-    Message(packet.into())
+    let packet = Packet::event(ns, event, data.into()).into();
+    match CommonParser::default().serialize(packet).0 {
+        TransportPayload::Str(data) => Message(data),
+        TransportPayload::Bytes(bin) => Binary(bin),
+    }
 }
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
     tokio::time::timeout(std::time::Duration::from_millis(10), srx.recv())

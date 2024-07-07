@@ -129,7 +129,7 @@ impl<A: Adapter> AckSender<A> {
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)
             };
-            permit.send(packet);
+            permit.send(packet, self.socket.parser());
             Ok(())
         } else {
             Ok(())

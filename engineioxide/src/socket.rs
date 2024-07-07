@@ -126,8 +126,8 @@ pub struct Permit<'a> {
 impl Permit<'_> {
     /// Consume the permit and emit a message to the client.
     #[inline]
-    pub fn emit(self, msg: String) {
-        self.inner.send(smallvec![Packet::Message(msg.into())]);
+    pub fn emit(self, msg: Str) {
+        self.inner.send(smallvec![Packet::Message(msg)]);
     }
     /// Consume the permit and emit a binary message to the client.
     #[inline]
@@ -138,9 +138,21 @@ impl Permit<'_> {
     /// Consume the permit and emit a message with multiple binary data to the client.
     ///
     /// It can be used to ensure atomicity when sending a string packet with adjacent binary packets.
-    pub fn emit_many(self, msg: String, data: Vec<Bytes>) {
+    pub fn emit_many(self, msg: Str, data: Vec<Bytes>) {
         let mut packets = SmallVec::with_capacity(data.len() + 1);
-        packets.push(Packet::Message(msg.into()));
+        packets.push(Packet::Message(msg));
+        for d in data {
+            packets.push(Packet::Binary(d));
+        }
+        self.inner.send(packets);
+    }
+
+    /// Consume the permit and emit a message with multiple binary data to the client.
+    ///
+    /// It can be used to ensure atomicity when sending a string packet with adjacent binary packets.
+    pub fn emit_many_binary(self, bin: Bytes, data: Vec<Bytes>) {
+        let mut packets = SmallVec::with_capacity(data.len() + 1);
+        packets.push(Packet::Binary(bin));
         for d in data {
             packets.push(Packet::Binary(d));
         }

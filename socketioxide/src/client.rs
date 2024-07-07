@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::ns::NamespaceCtr;
+use crate::parser::{self, CommonParser, Parse, Parser, TransportPayload};
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
@@ -88,11 +89,22 @@ impl<A: Adapter> Client<A> {
             );
             esocket.close(EIoDisconnectReason::TransportClose);
         } else {
-            let packet: String = Packet::connect_error(ns_path, "Invalid namespace").into();
-            if let Err(_e) = esocket.emit(packet) {
-                #[cfg(feature = "tracing")]
-                tracing::error!("error while sending invalid namespace packet: {}", _e);
-            }
+            let (packet, _) = esocket
+                .data
+                .parser
+                .get()
+                .unwrap()
+                .serialize(Packet::connect_error(ns_path, "Invalid namespace"));
+            let _ = match packet {
+                TransportPayload::Str(p) => esocket.emit(p).map_err(|_e| {
+                    #[cfg(feature = "tracing")]
+                    tracing::error!("error while sending invalid namespace packet: {}", _e);
+                }),
+                TransportPayload::Bytes(p) => esocket.emit_binary(p).map_err(|_e| {
+                    #[cfg(feature = "tracing")]
+                    tracing::error!("error while sending invalid namespace packet: {}", _e);
+                }),
+            };
         }
     }
 
@@ -186,9 +198,8 @@ impl<A: Adapter> Client<A> {
 
 #[derive(Debug)]
 pub struct SocketData<A: Adapter> {
-    /// Partial binary packet that is being received
-    /// Stored here until all the binary payloads are received
-    pub partial_bin_packet: Mutex<Option<Packet<'static>>>,
+    /// The parser to decode the socket.io packets
+    pub parser: OnceLock<Parser>,
 
     /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
@@ -199,10 +210,15 @@ pub struct SocketData<A: Adapter> {
 impl<A: Adapter> Default for SocketData<A> {
     fn default() -> Self {
         Self {
-            partial_bin_packet: Default::default(),
+            parser: Default::default(),
             connect_recv_tx: Default::default(),
             io: OnceLock::new(),
         }
+    }
+}
+impl<A: Adapter> SocketData<A> {
+    pub fn parser(&self) -> &Parser {
+        self.parser.get().unwrap()
     }
 }
 
@@ -212,6 +228,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
     fn on_connect(self: Arc<Self>, socket: Arc<EIoSocket<SocketData<A>>>) {
         socket.data.io.set(SocketIo::from(self.clone())).ok();
+        socket.data.parser.set(self.config.parser.clone()).ok();
 
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket connect");
@@ -261,8 +278,9 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
-        let packet = match Packet::try_from(msg) {
+        let packet = match socket.data.parser().parse_str(msg) {
             Ok(packet) => packet,
+            Err(parser::Error::NeedsMoreBinaryData) => return,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("socket serialization error: {}", _e);
@@ -276,16 +294,6 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => {
                 self.sock_connect(auth, packet.ns, &socket);
-                Ok(())
-            }
-            PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _) => {
-                // Cache-in the socket data until all the binary payloads are received
-                socket
-                    .data
-                    .partial_bin_packet
-                    .lock()
-                    .unwrap()
-                    .replace(packet);
                 Ok(())
             }
             _ => self.sock_propagate_packet(packet, socket.id),
@@ -307,19 +315,25 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     ///
     /// If the packet is complete, it is propagated to the namespace
     fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
-        if apply_payload_on_packet(data, &socket) {
-            if let Some(packet) = socket.data.partial_bin_packet.lock().unwrap().take() {
-                if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!(
-                        "error while propagating packet to socket {}: {}",
-                        socket.id,
-                        err
-                    );
-                    if let Some(reason) = err.into() {
-                        socket.close(reason);
-                    }
-                }
+        let packet = match socket.data.parser().parse_bin(data) {
+            Ok(packet) => packet,
+            Err(parser::Error::NeedsMoreBinaryData) => return,
+            Err(_e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("socket serialization error: {}", _e);
+                socket.close(EIoDisconnectReason::PacketParsingError);
+                return;
+            }
+        };
+        if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                "error while propagating packet to socket {}: {}",
+                socket.id,
+                err
+            );
+            if let Some(reason) = err.into() {
+                socket.close(reason);
             }
         }
     }
@@ -331,28 +345,6 @@ impl<A: Adapter> std::fmt::Debug for Client<A> {
         #[cfg(feature = "state")]
         let f = f.field("state", &self.state);
         f.finish()
-    }
-}
-
-/// Utility that applies an incoming binary payload to a partial binary packet
-/// waiting to be filled with all the payloads
-///
-/// Returns true if the packet is complete and should be processed
-fn apply_payload_on_packet<A: Adapter>(data: Bytes, socket: &EIoSocket<SocketData<A>>) -> bool {
-    #[cfg(feature = "tracing")]
-    tracing::debug!("[sid={}] applying payload on packet", socket.id);
-    if let Some(ref mut packet) = *socket.data.partial_bin_packet.lock().unwrap() {
-        match packet.inner {
-            PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _) => {
-                bin.add_payload(data);
-                bin.is_complete()
-            }
-            _ => unreachable!("partial_bin_packet should only be set for binary packets"),
-        }
-    } else {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] socket received unexpected bin data", socket.id);
-        false
     }
 }
 
@@ -393,12 +385,16 @@ impl<A: Adapter> Client<A> {
                 }
             }
         });
-        let p: String = Packet {
+        let (p, _) = CommonParser::default().into_payloads(Packet {
             ns: ns.into(),
             inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
+        });
+        match p {
+            TransportPayload::Str(s) => {
+                self.on_message(s, esock.clone());
+            }
+            _ => {}
         }
-        .into();
-        self.on_message(p.into(), esock.clone());
 
         // wait for the socket to be connected to the namespace
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
