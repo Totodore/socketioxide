@@ -318,7 +318,7 @@ mod test {
 
     fn create_socket() -> Arc<Socket<LocalAdapter>> {
         let sid = Sid::new();
-        let ns = Namespace::<LocalAdapter>::new_dummy([sid]).into();
+        let ns = Namespace::<LocalAdapter>::new_dummy([sid]);
         let socket = Socket::new_dummy(sid, ns);
         socket.into()
     }
@@ -338,8 +338,8 @@ mod test {
 
         futures_util::pin_mut!(stream);
 
-        assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
-        assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
+        assert!(stream.next().await.unwrap().1.is_ok());
+        assert!(stream.next().await.unwrap().1.is_ok());
         assert!(stream.next().await.is_none());
     }
 
@@ -459,7 +459,7 @@ mod test {
 
         let (id, ack) = stream.next().await.unwrap();
         assert_eq!(id, socket.id);
-        assert!(matches!(ack, Ok(_)));
+        assert!(ack.is_ok());
 
         let sid = socket2.id;
         socket2.disconnect().unwrap();
@@ -514,7 +514,7 @@ mod test {
 
         futures_util::pin_mut!(stream);
 
-        assert!(matches!(stream.next().await.unwrap().1, Ok(_)));
+        assert!(stream.next().await.unwrap().1.is_ok());
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
             AckError::Timeout

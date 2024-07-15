@@ -379,7 +379,7 @@ mod tests {
             payload.next().await.unwrap().unwrap(),
             Packet::Message(msg) if msg == "f"
         ));
-        assert_eq!(payload.next().await.is_none(), true);
+        assert!(payload.next().await.is_none());
     }
 
     #[tokio::test]
@@ -406,7 +406,7 @@ mod tests {
                 payload.next().await.unwrap().unwrap(),
                 Packet::Message(msg) if msg == "fo"
             ));
-            assert_eq!(payload.next().await.is_none(), true);
+            assert!(payload.next().await.is_none());
         }
     }
 

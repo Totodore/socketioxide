@@ -433,7 +433,7 @@ mod test {
         let client = create_client();
         let ns = Namespace::new(Str::from("/"), || {});
         client.nsps.write().unwrap().insert(Str::from("/"), ns);
-        assert!(matches!(client.get_ns("/"), Some(_)));
+        assert!(client.get_ns("/").is_some());
     }
 
     #[tokio::test]

@@ -848,7 +848,7 @@ mod test {
     #[tokio::test]
     async fn send_with_ack_error() {
         let sid = Sid::new();
-        let ns = Namespace::<LocalAdapter>::new_dummy([sid]).into();
+        let ns = Namespace::<LocalAdapter>::new_dummy([sid]);
         let socket: Arc<Socket> = Socket::new_dummy(sid, ns).into();
         // Saturate the channel
         for _ in 0..1024 {
