@@ -105,10 +105,7 @@ pub async fn broadcast_with_ack() {
                     PacketData::Event(_, _, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };
-                assert_ok!(
-                    stx.send(Message(format!("3{}[\"oof\"]", ack.to_string()).into()))
-                        .await
-                );
+                assert_ok!(stx.send(Message(format!("3{}[\"oof\"]", ack).into())).await);
             }
         });
     }
