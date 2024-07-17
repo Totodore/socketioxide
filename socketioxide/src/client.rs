@@ -363,6 +363,7 @@ impl<A: Adapter> Client<A> {
         let (esock, rx) =
             EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
         esock.data.io.set(SocketIo::from(self.clone())).ok();
+        esock.data.parser.set(Parser::default()).ok();
         let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
         tokio::spawn({
             let esock = esock.clone();
@@ -385,7 +386,7 @@ impl<A: Adapter> Client<A> {
                 }
             }
         });
-        let (p, _) = CommonParser::default().into_payloads(Packet {
+        let (p, _) = CommonParser::default().serialize(Packet {
             ns: ns.into(),
             inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
         });

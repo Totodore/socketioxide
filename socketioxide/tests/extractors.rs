@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use socketioxide::extract::{Data, Extension, MaybeExtension, SocketRef, State, TryData};
 use socketioxide::handler::ConnectHandler;
+use socketioxide::parser::{CommonParser, Parse};
 use tokio::sync::mpsc;
 
 use engineioxide::Packet as EioPacket;
@@ -26,8 +27,9 @@ async fn timeout_rcv_err<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiv
 }
 
 fn create_msg(ns: &'static str, event: &str, data: impl Into<serde_json::Value>) -> EioPacket {
-    let packet: String = Packet::event(ns, event, data.into()).into();
-    EioPacket::Message(packet.into())
+    let parser = CommonParser::default();
+    let (payload, _) = parser.serialize(Packet::event(ns, event, data.into()));
+    EioPacket::Message(payload.into_str().unwrap())
 }
 
 #[tokio::test]

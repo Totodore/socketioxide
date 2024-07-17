@@ -5,6 +5,7 @@ use engineioxide::Packet::*;
 use futures_util::StreamExt;
 use socketioxide::extract::SocketRef;
 use socketioxide::packet::{Packet, PacketData};
+use socketioxide::parser::{CommonParser, Parse};
 use socketioxide::SocketIo;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
@@ -95,13 +96,13 @@ pub async fn broadcast_with_ack() {
             let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
             assert_some!(srx.recv().await);
             assert_some!(srx.recv().await);
-
+            let parser = CommonParser::default();
             while let Some(msg) = srx.recv().await {
                 let msg = match msg {
                     Message(msg) => msg,
                     msg => panic!("Unexpected message: {:?}", msg),
                 };
-                let ack = match assert_ok!(Packet::try_from(msg)).inner {
+                let ack = match assert_ok!(parser.parse_str(msg)).inner {
                     PacketData::Event(_, _, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };
