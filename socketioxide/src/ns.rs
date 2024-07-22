@@ -12,6 +12,7 @@ use crate::{
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::{sid::Sid, Str};
+use serde_json::Value;
 
 /// A [`Namespace`] constructor used for dynamic namespaces
 /// A namespace constructor only hold a common handler that will be cloned
@@ -71,7 +72,7 @@ impl<A: Adapter> Namespace<A> {
         self: Arc<Self>,
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
-        auth: Option<String>,
+        auth: Option<Value>,
     ) -> Result<(), ConnectFail> {
         let socket: Arc<Socket<A>> = Socket::new(sid, self.clone(), esocket.clone()).into();
 

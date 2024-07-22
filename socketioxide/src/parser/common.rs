@@ -30,6 +30,7 @@ impl super::Parse for CommonParser {
         // Serialize the data if there is any
         // pre-serializing allows to preallocate the buffer
         let data = match &mut packet.inner {
+            Connect(Some(data)) => Some(serde_json::to_string(data).unwrap()),
             Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
                 // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
@@ -58,7 +59,7 @@ impl super::Parse for CommonParser {
 
         let capacity = get_size_hint(&packet) + data.as_ref().map(|d| d.len()).unwrap_or(0);
         let mut res = String::with_capacity(capacity);
-        res.push(packet.inner.index());
+        res.push(char::from_digit(packet.inner.index() as u32, 10).unwrap());
 
         // Add the ns if it is not the default one and the packet is not binary
         // In case of bin packet, we should first add the payload count before ns
@@ -79,7 +80,7 @@ impl super::Parse for CommonParser {
         let mut itoa_buf = itoa::Buffer::new();
 
         match &packet.inner {
-            PacketData::Connect(Some(data)) => res.push_str(data),
+            PacketData::Connect(Some(_)) => res.push_str(&data.unwrap()),
             PacketData::Disconnect | PacketData::Connect(None) => (),
             PacketData::Event(_, _, ack) => {
                 if let Some(ack) = *ack {
@@ -175,7 +176,13 @@ impl super::Parse for CommonParser {
 
         let data = &value[i..];
         let inner = match index {
-            b'0' => PacketData::Connect((!data.is_empty()).then(|| data.to_string())),
+            b'0' => {
+                if data.is_empty() {
+                    PacketData::Connect(None)
+                } else {
+                    PacketData::Connect(serde_json::from_str(data)?)
+                }
+            }
             b'1' => PacketData::Disconnect,
             b'2' => {
                 let (event, payload) = deserialize_event_packet(data)?;
@@ -247,7 +254,7 @@ fn get_size_hint(packet: &Packet<'_>) -> usize {
     const NS_PUNCTUATION_SIZE: usize = 1;
 
     let data_size = match &packet.inner {
-        Connect(Some(data)) => data.len(),
+        Connect(Some(data)) => 0,
         Connect(None) => 0,
         Disconnect => 0,
         Event(_, _, Some(ack)) => ack.checked_ilog10().unwrap_or(0) as usize + ACK_PUNCTUATION_SIZE,
@@ -700,12 +707,11 @@ mod test {
     #[test]
     fn packet_size_hint() {
         let sid = Sid::new();
-        let len = serde_json::to_string(&ConnectPacket { sid }).unwrap().len();
         let packet = Packet::connect("/", sid, ProtocolVersion::V5);
-        assert_eq!(get_size_hint(&packet), len + 1);
+        assert_eq!(get_size_hint(&packet), 1);
 
         let packet = Packet::connect("/admin", sid, ProtocolVersion::V5);
-        assert_eq!(get_size_hint(&packet), len + 8);
+        assert_eq!(get_size_hint(&packet), 8);
 
         let packet = Packet::connect("admin", sid, ProtocolVersion::V4);
         assert_eq!(get_size_hint(&packet), 8);

@@ -10,6 +10,7 @@ use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use matchit::{Match, Router};
+use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
@@ -56,7 +57,7 @@ impl<A: Adapter> Client<A> {
     /// Called when a socket connects to a new namespace
     fn sock_connect(
         &self,
-        auth: Option<String>,
+        auth: Option<Value>,
         ns_path: Str,
         esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
     ) {
@@ -388,7 +389,7 @@ impl<A: Adapter> Client<A> {
         });
         let (p, _) = CommonParser::default().serialize(Packet {
             ns: ns.into(),
-            inner: PacketData::Connect(Some(serde_json::to_string(&auth).unwrap())),
+            inner: PacketData::Connect(Some(serde_json::to_value(&auth).unwrap())),
         });
         match p {
             TransportPayload::Str(s) => {

@@ -45,6 +45,7 @@
 //! # use std::sync::Arc;
 //! # use std::convert::Infallible;
 //! # use socketioxide::SocketIo;
+//! # use serde_json::Value;
 //!
 //! struct UserId(String);
 //!
@@ -59,7 +60,7 @@
 //!
 //! impl<A: Adapter> FromConnectParts<A> for UserId {
 //!     type Error = Infallible;
-//!     fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Self::Error> {
+//!     fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<Value>) -> Result<Self, Self::Error> {
 //!         // In a real app it would be better to parse the query params with a crate like `url`
 //!         let uri = &s.req_parts().uri;
 //!         let uid = uri

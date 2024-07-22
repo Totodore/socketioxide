@@ -27,9 +27,9 @@ where
     A: Adapter,
 {
     type Error = serde_json::Error;
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error> {
+    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Self::Error> {
         auth.as_ref()
-            .map(|a| serde_json::from_str::<T>(a))
+            .map(|a| serde_json::from_value::<T>(a.clone())) //TODO: clone
             .unwrap_or(serde_json::from_str::<T>("{}"))
             .map(Data)
     }
@@ -60,10 +60,10 @@ where
     A: Adapter,
 {
     type Error = Infallible;
-    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Infallible> {
         let v: Result<T, serde_json::Error> = auth
             .as_ref()
-            .map(|a| serde_json::from_str(a))
+            .map(|a| serde_json::from_value(a.clone())) //TODO: clone
             .unwrap_or(serde_json::from_str("{}"));
         Ok(TryData(v))
     }

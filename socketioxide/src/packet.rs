@@ -52,7 +52,7 @@ impl<'a> Packet<'a> {
 
     /// Sends a connect packet with payload.
     fn connect_v5(ns: Str, sid: Sid) -> Self {
-        let val = serde_json::to_string(&ConnectPacket { sid }).unwrap();
+        let val: Value = serde_json::to_value(&ConnectPacket { sid }).unwrap();
         Self {
             inner: PacketData::Connect(Some(val)),
             ns,
@@ -134,7 +134,7 @@ impl<'a> Packet<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacketData<'a> {
     /// Connect packet with optional payload (only used with v5 for response)
-    Connect(Option<String>),
+    Connect(Option<serde_json::Value>),
     /// Disconnect packet, used to disconnect from a namespace
     Disconnect,
     /// Event packet with optional ack id, to request an ack from the other side
@@ -161,15 +161,15 @@ pub struct BinaryPacket {
 }
 
 impl<'a> PacketData<'a> {
-    pub(crate) fn index(&self) -> char {
+    pub(crate) fn index(&self) -> usize {
         match self {
-            PacketData::Connect(_) => '0',
-            PacketData::Disconnect => '1',
-            PacketData::Event(_, _, _) => '2',
-            PacketData::EventAck(_, _) => '3',
-            PacketData::ConnectError(_) => '4',
-            PacketData::BinaryEvent(_, _, _) => '5',
-            PacketData::BinaryAck(_, _) => '6',
+            PacketData::Connect(_) => 0,
+            PacketData::Disconnect => 1,
+            PacketData::Event(_, _, _) => 2,
+            PacketData::EventAck(_, _) => 3,
+            PacketData::ConnectError(_) => 4,
+            PacketData::BinaryEvent(_, _, _) => 5,
+            PacketData::BinaryAck(_, _) => 6,
         }
     }
 
