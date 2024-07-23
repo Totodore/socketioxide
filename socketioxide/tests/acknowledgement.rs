@@ -4,7 +4,7 @@ mod utils;
 use engineioxide::Packet::*;
 use futures_util::StreamExt;
 use socketioxide::extract::SocketRef;
-use socketioxide::packet::{Packet, PacketData};
+use socketioxide::packet::PacketData;
 use socketioxide::parser::{CommonParser, Parse};
 use socketioxide::SocketIo;
 use tokio::sync::mpsc;

@@ -391,11 +391,8 @@ impl<A: Adapter> Client<A> {
             ns: ns.into(),
             inner: PacketData::Connect(Some(serde_json::to_value(&auth).unwrap())),
         });
-        match p {
-            TransportPayload::Str(s) => {
-                self.on_message(s, esock.clone());
-            }
-            _ => {}
+        if let TransportPayload::Str(s) = p {
+            self.on_message(s, esock.clone());
         }
 
         // wait for the socket to be connected to the namespace

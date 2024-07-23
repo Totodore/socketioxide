@@ -24,7 +24,7 @@ pub struct CommonParser {
 }
 
 impl super::Parse for CommonParser {
-    fn serialize<'a>(&self, mut packet: Packet<'a>) -> (TransportPayload, Vec<Bytes>) {
+    fn serialize(&self, mut packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
         use PacketData::*;
 
         // Serialize the data if there is any
@@ -237,6 +237,7 @@ impl super::Parse for CommonParser {
 }
 
 impl CommonParser {
+    /// Create a new [`CommonParser`]. This is the default socket.io packet parser.
     pub fn new() -> Self {
         Self::default()
     }
@@ -254,7 +255,7 @@ fn get_size_hint(packet: &Packet<'_>) -> usize {
     const NS_PUNCTUATION_SIZE: usize = 1;
 
     let data_size = match &packet.inner {
-        Connect(Some(data)) => 0,
+        Connect(Some(_)) => 0,
         Connect(None) => 0,
         Disconnect => 0,
         Event(_, _, Some(ack)) => ack.checked_ilog10().unwrap_or(0) as usize + ACK_PUNCTUATION_SIZE,

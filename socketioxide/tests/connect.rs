@@ -16,7 +16,7 @@ fn create_msg(
     event: &str,
     data: impl Into<serde_json::Value>,
 ) -> engineioxide::Packet {
-    let packet = Packet::event(ns, event, data.into()).into();
+    let packet = Packet::event(ns, event, data.into());
     match CommonParser::default().serialize(packet).0 {
         TransportPayload::Str(data) => Message(data),
         TransportPayload::Bytes(bin) => Binary(bin),
