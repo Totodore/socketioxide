@@ -151,7 +151,7 @@ pub async fn extension_extractor() {
 
     // Extract extensions from the socket
     let (tx, mut rx) = io.new_dummy_sock("/", ()).await;
-    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with('0')));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ns\",123]".into())
@@ -164,7 +164,7 @@ pub async fn extension_extractor() {
 
     // Extract unknown extensions from the socket
     let (tx, mut rx) = io.new_dummy_sock("/test", ()).await;
-    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with('0')));
     timeout_rcv_err(&mut rx).await;
     assert_ok!(tx.try_send(create_msg("/test", "test", Value::Null)));
     timeout_rcv_err(&mut rx).await;
@@ -193,7 +193,7 @@ pub async fn maybe_extension_extractor() {
 
     // Extract extensions from the socket
     let (tx, mut rx) = io.new_dummy_sock("/", ()).await;
-    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with('0')));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ns\",123]".into())
@@ -206,7 +206,7 @@ pub async fn maybe_extension_extractor() {
 
     // Extract unknown extensions from the socket
     let (tx, mut rx) = io.new_dummy_sock("/test", ()).await;
-    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with("0")));
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with('0')));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2/test,[\"from_ns\",null]".into())

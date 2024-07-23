@@ -52,7 +52,7 @@ impl<'a> Packet<'a> {
 
     /// Sends a connect packet with payload.
     fn connect_v5(ns: Str, sid: Sid) -> Self {
-        let val: Value = serde_json::to_value(&ConnectPacket { sid }).unwrap();
+        let val: Value = serde_json::to_value(ConnectPacket { sid }).unwrap();
         Self {
             inner: PacketData::Connect(Some(val)),
             ns,

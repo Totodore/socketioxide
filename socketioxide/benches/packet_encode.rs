@@ -10,7 +10,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("Encode packet connect on /", |b| {
         let packet = Packet::connect(black_box("/"), black_box(Sid::ZERO), ProtocolVersion::V5);
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
     group.bench_function("Encode packet connect on /custom_nsp", |b| {
@@ -20,7 +20,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             ProtocolVersion::V5,
         );
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -31,7 +31,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let data = serde_json::to_value(DATA).unwrap();
         let packet = Packet::event(black_box("/"), black_box("event"), black_box(data.clone()));
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -43,7 +43,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(data.clone()),
         );
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -55,7 +55,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             _ => panic!("Wrong packet type"),
         };
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -71,7 +71,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             _ => panic!("Wrong packet type"),
         };
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -79,7 +79,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let data = serde_json::to_value(DATA).unwrap();
         let packet = Packet::ack(black_box("/"), black_box(data.clone()), black_box(0));
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -91,7 +91,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(0),
         );
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -104,7 +104,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(vec![BINARY.clone()]),
         );
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -117,7 +117,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(vec![BINARY.clone()]),
         );
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -130,7 +130,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(0),
         );
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 
@@ -143,7 +143,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(0),
         );
         b.iter(|| {
-            let _: String = packet.clone().try_into().unwrap();
+            let _: String = packet.clone().into();
         })
     });
 

@@ -16,7 +16,7 @@ fn create_msg(
     event: &str,
     data: impl Into<serde_json::Value>,
 ) -> engineioxide::Packet {
-    let packet = Packet::event(ns, event, data.into()).into();
+    let packet = Packet::event(ns, event, data.into());
     match CommonParser::default().serialize(packet).0 {
         TransportPayload::Str(data) => Message(data),
         TransportPayload::Bytes(bin) => Binary(bin),
@@ -75,7 +75,7 @@ pub async fn connect_middleware() {
     assert_eq!(rx.recv().await.unwrap(), 3);
 
     let p = assert_some!(srx.recv().await);
-    assert!(matches!(p, Message(s) if s.starts_with("0")));
+    assert!(matches!(p, Message(s) if s.starts_with('0')));
 
     assert_err!(rx.try_recv());
 }
@@ -150,7 +150,7 @@ async fn ns_dyn_connect_precedence() {
     });
 
     let (_stx, mut _srx) = io.new_dummy_sock("/admin/test/board", ()).await;
-    assert_eq!(timeout_rcv(&mut rx).await, true);
+    assert!(timeout_rcv(&mut rx).await);
 }
 
 #[tokio::test]

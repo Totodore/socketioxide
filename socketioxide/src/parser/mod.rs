@@ -4,7 +4,6 @@
 use bytes::Bytes;
 
 mod common;
-mod msgpack;
 
 pub use common::CommonParser;
 use engineioxide::Str;
@@ -41,7 +40,7 @@ impl TransportPayload {
 /// All socket.io parser should implement this trait
 pub trait Parse: Default {
     /// Convert a packet into multiple payloads to be sent
-    fn serialize<'a>(&self, packet: Packet<'a>) -> (TransportPayload, Vec<Bytes>);
+    fn serialize(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>);
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
     /// the partial packet will be kept and a [`Error::NeedsMoreBinaryData`] will be returned
@@ -76,7 +75,7 @@ impl Clone for Parser {
 }
 
 impl Parse for Parser {
-    fn serialize<'a>(&self, packet: Packet<'a>) -> (TransportPayload, Vec<Bytes>) {
+    fn serialize(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
         match self {
             Parser::Common(p) => p.serialize(packet),
         }

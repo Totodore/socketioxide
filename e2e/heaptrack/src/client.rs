@@ -16,9 +16,7 @@ fn cb(_: Payload, socket: Client) -> Pin<Box<dyn std::future::Future<Output = ()
             loop {
                 inter.tick().await;
                 let _ = socket.emit("ping", serde_json::Value::Null).await;
-                let _ = socket
-                    .emit("ping", (0..u8::MAX).into_iter().collect::<Vec<u8>>())
-                    .await;
+                let _ = socket.emit("ping", (0..u8::MAX).collect::<Vec<u8>>()).await;
             }
         });
     })

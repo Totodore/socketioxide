@@ -4,7 +4,7 @@ mod utils;
 use engineioxide::Packet::*;
 use futures_util::StreamExt;
 use socketioxide::extract::SocketRef;
-use socketioxide::packet::{Packet, PacketData};
+use socketioxide::packet::PacketData;
 use socketioxide::parser::{CommonParser, Parse};
 use socketioxide::SocketIo;
 use tokio::sync::mpsc;
@@ -106,10 +106,7 @@ pub async fn broadcast_with_ack() {
                     PacketData::Event(_, _, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };
-                assert_ok!(
-                    stx.send(Message(format!("3{}[\"oof\"]", ack.to_string()).into()))
-                        .await
-                );
+                assert_ok!(stx.send(Message(format!("3{}[\"oof\"]", ack).into())).await);
             }
         });
     }
