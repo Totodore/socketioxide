@@ -12,7 +12,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         ));
         b.iter_batched(
             || packet.clone(),
-            |p| TryInto::<String>::try_into(p),
+            TryInto::<String>::try_into,
             BatchSize::SmallInput,
         )
     });
@@ -20,7 +20,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet = Packet::Ping;
         b.iter_batched(
             || packet.clone(),
-            |p| TryInto::<String>::try_into(p),
+            TryInto::<String>::try_into,
             BatchSize::SmallInput,
         )
     });
@@ -28,7 +28,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet = Packet::PingUpgrade;
         b.iter_batched(
             || packet.clone(),
-            |p| TryInto::<String>::try_into(p),
+            TryInto::<String>::try_into,
             BatchSize::SmallInput,
         )
     });
@@ -36,7 +36,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet = Packet::Message(black_box("Hello").into());
         b.iter_batched(
             || packet.clone(),
-            |p| TryInto::<String>::try_into(p),
+            TryInto::<String>::try_into,
             BatchSize::SmallInput,
         )
     });
@@ -44,7 +44,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet = Packet::Noop;
         b.iter_batched(
             || packet.clone(),
-            |p| TryInto::<String>::try_into(p),
+            TryInto::<String>::try_into,
             BatchSize::SmallInput,
         )
     });
@@ -53,7 +53,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet = Packet::Binary(BYTES);
         b.iter_batched(
             || packet.clone(),
-            |p| TryInto::<String>::try_into(p),
+            TryInto::<String>::try_into,
             BatchSize::SmallInput,
         )
     });

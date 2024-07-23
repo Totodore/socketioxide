@@ -208,7 +208,7 @@ pub async fn server_ns_disconnect() {
 
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            let s = io.sockets().unwrap().into_iter().nth(0).unwrap();
+            let s = io.sockets().unwrap().into_iter().next().unwrap();
             s.disconnect().unwrap();
         });
 

@@ -74,7 +74,13 @@ pub async fn send_req(
 }
 
 pub async fn create_polling_connection(port: u16) -> String {
-    let body = send_req(port, format!("transport=polling"), http::Method::GET, None).await;
+    let body = send_req(
+        port,
+        "transport=polling".to_string(),
+        http::Method::GET,
+        None,
+    )
+    .await;
     let open_packet: OpenPacket = serde_json::from_str(&body).unwrap();
 
     send_req(

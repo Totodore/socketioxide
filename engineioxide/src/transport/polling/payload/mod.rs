@@ -54,6 +54,7 @@ pub fn decoder(
 }
 
 /// A payload to transmit to the client through http polling
+#[non_exhaustive]
 pub struct Payload {
     pub data: Bytes,
     pub has_binary: bool,
