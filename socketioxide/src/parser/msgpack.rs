@@ -20,7 +20,7 @@ struct MsgPackPacket {
 }
 
 impl Parse for MsgPackParser {
-    fn serialize<'a>(&self, packet: Packet<'a>) -> (TransportPayload, Vec<Bytes>) {
+    fn encode<'a>(&self, packet: Packet<'a>) -> (TransportPayload, Vec<Bytes>) {
         use PacketData::*;
         let index = packet.inner.index();
         let id = match packet.inner {
@@ -46,11 +46,11 @@ impl Parse for MsgPackParser {
         (TransportPayload::Bytes(data.into()), Vec::new())
     }
 
-    fn parse_str(&self, data: engineioxide::Str) -> Result<Packet<'static>, Error> {
+    fn decode_str(&self, data: engineioxide::Str) -> Result<Packet<'static>, Error> {
         Err(Error::UnexpectedStringPacket)
     }
 
-    fn parse_bin(&self, bin: bytes::Bytes) -> Result<Packet<'static>, Error> {
+    fn decode_bin(&self, bin: bytes::Bytes) -> Result<Packet<'static>, Error> {
         Err(Error::UnexpectedStringPacket)
     }
 }

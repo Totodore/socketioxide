@@ -16,7 +16,7 @@ use tokio::sync::oneshot;
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::ns::NamespaceCtr;
-use crate::parser::{self, CommonParser, Parse, Parser, TransportPayload};
+use crate::parser::{self, Parse, Parser, TransportPayload};
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
@@ -95,7 +95,7 @@ impl<A: Adapter> Client<A> {
                 .parser
                 .get()
                 .unwrap()
-                .serialize(Packet::connect_error(ns_path, "Invalid namespace"));
+                .encode(Packet::connect_error(ns_path, "Invalid namespace"));
             let _ = match packet {
                 TransportPayload::Str(p) => esocket.emit(p).map_err(|_e| {
                     #[cfg(feature = "tracing")]
@@ -279,7 +279,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received message: {:?}", msg);
-        let packet = match socket.data.parser().parse_str(msg) {
+        let packet = match socket.data.parser().decode_str(msg) {
             Ok(packet) => packet,
             Err(parser::Error::NeedsMoreBinaryData) => return,
             Err(_e) => {
@@ -316,7 +316,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     ///
     /// If the packet is complete, it is propagated to the namespace
     fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
-        let packet = match socket.data.parser().parse_bin(data) {
+        let packet = match socket.data.parser().decode_bin(data) {
             Ok(packet) => packet,
             Err(parser::Error::NeedsMoreBinaryData) => return,
             Err(_e) => {
@@ -388,7 +388,7 @@ impl<A: Adapter> Client<A> {
                 }
             }
         });
-        let (p, _) = CommonParser::default().serialize(Packet {
+        let (p, _) = parser::CommonParser::default().encode(Packet {
             ns: ns.into(),
             inner: PacketData::Connect(Some(serde_json::to_value(&auth).unwrap())),
         });

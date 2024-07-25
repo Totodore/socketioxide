@@ -24,7 +24,7 @@ pub struct CommonParser {
 }
 
 impl super::Parse for CommonParser {
-    fn serialize(&self, mut packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
+    fn encode(&self, mut packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
         use PacketData::*;
 
         // Serialize the data if there is any
@@ -126,7 +126,7 @@ impl super::Parse for CommonParser {
         (TransportPayload::Str(res.into()), bins)
     }
 
-    fn parse_str(&self, value: Str) -> Result<Packet<'static>, Error> {
+    fn decode_str(&self, value: Str) -> Result<Packet<'static>, Error> {
         let chars = value.as_bytes();
         // It is possible to parse the packet from a byte slice because separators are only ASCII
         let mut i = 1;
@@ -214,7 +214,7 @@ impl super::Parse for CommonParser {
         }
     }
 
-    fn parse_bin(&self, data: Bytes) -> Result<Packet<'static>, Error> {
+    fn decode_bin(&self, data: Bytes) -> Result<Packet<'static>, Error> {
         #[cfg(feature = "tracing")]
         tracing::debug!("[sid=] applying payload on packet"); // TODO: log sid
         let packet = &mut *self.partial_bin_packet.lock().unwrap();
@@ -334,13 +334,13 @@ mod test {
     use super::*;
 
     fn encode(packet: Packet<'_>) -> String {
-        match CommonParser::default().serialize(packet).0 {
+        match CommonParser::default().encode(packet).0 {
             TransportPayload::Str(d) => d.into(),
             TransportPayload::Bytes(_) => panic!("testing only returns str"),
         }
     }
     fn decode(value: String) -> Packet<'static> {
-        CommonParser::default().parse_str(value.into()).unwrap()
+        CommonParser::default().decode_str(value.into()).unwrap()
     }
 
     #[test]
@@ -573,10 +573,10 @@ mod test {
         let parser = CommonParser::default();
         let payload = format!("51-{}", json);
         assert!(matches!(
-            parser.parse_str(payload.into()),
+            parser.decode_str(payload.into()),
             Err(Error::NeedsMoreBinaryData)
         ));
-        let packet = parser.parse_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/"));
 
@@ -584,10 +584,10 @@ mod test {
         let parser = CommonParser::default();
         let payload = format!("51-254{}", json);
         assert!(matches!(
-            parser.parse_str(payload.into()),
+            parser.decode_str(payload.into()),
             Err(Error::NeedsMoreBinaryData)
         ));
-        let packet = parser.parse_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/"));
 
@@ -595,10 +595,10 @@ mod test {
         let parser = CommonParser::default();
         let payload = format!("51-/admin™,{}", json);
         assert!(matches!(
-            parser.parse_str(payload.into()),
+            parser.decode_str(payload.into()),
             Err(Error::NeedsMoreBinaryData)
         ));
-        let packet = parser.parse_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/admin™"));
 
@@ -606,10 +606,10 @@ mod test {
         let parser = CommonParser::default();
         let payload = format!("51-/admin™,254{}", json);
         assert!(matches!(
-            parser.parse_str(payload.into()),
+            parser.decode_str(payload.into()),
             Err(Error::NeedsMoreBinaryData)
         ));
-        let packet = parser.parse_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/admin™"));
     }
@@ -659,10 +659,10 @@ mod test {
         let payload = format!("61-54{}", json);
         let parser = CommonParser::default();
         assert!(matches!(
-            parser.parse_str(payload.into()),
+            parser.decode_str(payload.into()),
             Err(Error::NeedsMoreBinaryData)
         ));
-        let packet = parser.parse_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
 
         assert_eq!(packet, comparison_packet(54, "/"));
 
@@ -670,10 +670,10 @@ mod test {
         let parser = CommonParser::default();
         let payload = format!("61-/admin™,54{}", json);
         assert!(matches!(
-            parser.parse_str(payload.into()),
+            parser.decode_str(payload.into()),
             Err(Error::NeedsMoreBinaryData)
         ));
-        let packet = parser.parse_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
         assert_eq!(packet, comparison_packet(54, "/admin™"));
     }
 

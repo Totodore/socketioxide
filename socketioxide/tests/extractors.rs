@@ -28,7 +28,7 @@ async fn timeout_rcv_err<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiv
 
 fn create_msg(ns: &'static str, event: &str, data: impl Into<serde_json::Value>) -> EioPacket {
     let parser = CommonParser::default();
-    let (payload, _) = parser.serialize(Packet::event(ns, event, data.into()));
+    let (payload, _) = parser.encode(Packet::event(ns, event, data.into()));
     EioPacket::Message(payload.into_str().unwrap())
 }
 
