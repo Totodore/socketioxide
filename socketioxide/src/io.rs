@@ -905,7 +905,8 @@ impl<A: Adapter> From<Arc<Client<A>>> for SocketIo<A> {
     }
 }
 
-#[cfg(any(test, socketioxide_test))]
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
 impl<A: Adapter> SocketIo<A> {
     /// Create a dummy socket for testing purpose with a
     /// receiver to get the packets sent to the client

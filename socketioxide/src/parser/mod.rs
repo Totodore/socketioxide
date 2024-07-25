@@ -4,6 +4,7 @@
 use bytes::Bytes;
 
 mod common;
+mod msgpack;
 
 pub use common::CommonParser;
 use engineioxide::Str;

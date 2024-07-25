@@ -1,7 +1,8 @@
 use super::{Error, Parse, TransportPayload};
 use crate::packet::{BinaryPacket, Packet, PacketData};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Default, Clone)]
 pub struct MsgPackParser;
@@ -10,28 +11,35 @@ pub struct MsgPackParser;
 struct MsgPackPacket {
     r#type: usize,
     nsp: engineioxide::Str,
-    data: MsgPackData,
-}
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum MsgPackData {
-    Connect(serde_json::Value),
-    ConnectError { message: String },
-    Event(serde_json::Value),
-    EventAck(serde_json::Value),
-    BinaryEvent(serde_json::Value),
-    BinaryAck(serde_json::Value),
-    Disconnect,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attachments: Option<usize>,
 }
 
 impl Parse for MsgPackParser {
     fn serialize<'a>(&self, packet: Packet<'a>) -> (TransportPayload, Vec<Bytes>) {
+        use PacketData::*;
         let index = packet.inner.index();
+        let id = match packet.inner {
+            Event(_, _, id) | BinaryEvent(_, _, id) => id,
+            EventAck(_, id) | BinaryAck(_, id) => Some(id),
+            _ => None,
+        };
+        let attachments = match packet.inner {
+            BinaryAck(BinaryPacket { payload_count, .. }, _)
+            | BinaryEvent(_, BinaryPacket { payload_count, .. }, _) => Some(payload_count),
+            _ => None,
+        };
         let data = packet.inner.into();
         let payload = MsgPackPacket {
             r#type: index,
             nsp: packet.ns,
             data,
+            id,
+            attachments,
         };
 
         let data = rmp_serde::encode::to_vec_named(&payload).unwrap();
@@ -47,37 +55,43 @@ impl Parse for MsgPackParser {
     }
 }
 
-impl<'a> From<PacketData<'a>> for MsgPackData {
+impl<'a> From<PacketData<'a>> for Option<Value> {
     fn from(value: PacketData<'a>) -> Self {
+        use PacketData::*;
         match value {
-            PacketData::Connect(data) => MsgPackData::Connect(data.unwrap()),
-            PacketData::ConnectError(message) => MsgPackData::ConnectError { message },
-            PacketData::Disconnect => MsgPackData::Disconnect,
-            PacketData::Event(_, data, _) => MsgPackData::Event(data),
-            PacketData::EventAck(data, _) => MsgPackData::EventAck(data),
-            PacketData::BinaryEvent(_, BinaryPacket { data, .. }, _) => {
-                MsgPackData::BinaryEvent(data)
+            Connect(data) => data,
+            ConnectError(message) => Some(serde_json::json!({ "message": message })),
+            Disconnect => None,
+            Event(e, mut data, _) | BinaryEvent(e, BinaryPacket { mut data, .. }, _) => {
+                // Expand the packet if it is an array with data -> ["event", ...data]
+                let data = match data {
+                    Value::Array(ref mut v) if !v.is_empty() => {
+                        v.insert(0, Value::String(e.to_string()));
+                        data
+                    }
+                    Value::Array(_) => {
+                        Value::Array(vec![Value::String(e.to_string()), Value::Array(vec![])])
+                    }
+                    _ => Value::Array(vec![Value::String(e.to_string()), data]),
+                };
+                Some(data)
             }
-            PacketData::BinaryAck(BinaryPacket { data, .. }, _) => MsgPackData::BinaryAck(data),
-        }
-    }
-}
-impl<'a> From<MsgPackData> for PacketData<'a> {
-    fn from(value: MsgPackData) -> Self {
-        match value {
-            MsgPackData::Connect(data) => PacketData::Connect(Some(data)),
-            MsgPackData::ConnectError { message } => PacketData::ConnectError(message),
-            MsgPackData::Event(data) => PacketData::Event("".into(), data, None),
-            MsgPackData::EventAck(data) => PacketData::EventAck(data, 0),
-            MsgPackData::BinaryEvent(data) => unimplemented!(),
-            MsgPackData::BinaryAck(_) => todo!(),
-            MsgPackData::Disconnect => todo!(),
+            EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
+                // Enforce that the packet is an array -> [data]
+                let data = match data {
+                    Value::Array(_) => data,
+                    Value::Null => Value::Array(vec![]),
+                    _ => Value::Array(vec![data]),
+                };
+                Some(data)
+            }
         }
     }
 }
 
 /// All the static binary data is generated from this script, using the official socket.io implementation:
 /// https://gist.github.com/Totodore/943fac5107325589bfbfb50f55925698
+#[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
