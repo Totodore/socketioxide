@@ -349,7 +349,8 @@ impl<A: Adapter> std::fmt::Debug for Client<A> {
     }
 }
 
-#[cfg(socketioxide_test)]
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
 impl<A: Adapter> Client<A> {
     pub async fn new_dummy_sock(
         self: Arc<Self>,

@@ -42,6 +42,7 @@ v4 = ["engineioxide/v3"]
 tracing = ["dep:tracing", "engineioxide/tracing"]
 extensions = []
 state = ["dep:state"]
+__test_harness = ["engineioxide/__test_harness"]
 
 [dev-dependencies]
 engineioxide = { path = "../engineioxide", features = ["v3", "tracing"] }
