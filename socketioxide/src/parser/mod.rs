@@ -40,14 +40,14 @@ impl TransportPayload {
 /// All socket.io parser should implement this trait
 pub trait Parse: Default {
     /// Convert a packet into multiple payloads to be sent
-    fn serialize(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>);
+    fn encode(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>);
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
     /// the partial packet will be kept and a [`Error::NeedsMoreBinaryData`] will be returned
-    fn parse_str(&self, data: Str) -> Result<Packet<'static>, Error>;
+    fn decode_str(&self, data: Str) -> Result<Packet<'static>, Error>;
 
     /// Parse a given input binary.
-    fn parse_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error>;
+    fn decode_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error>;
 }
 
 /// All the parser available.
@@ -75,20 +75,20 @@ impl Clone for Parser {
 }
 
 impl Parse for Parser {
-    fn serialize(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
+    fn encode(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
         match self {
-            Parser::Common(p) => p.serialize(packet),
+            Parser::Common(p) => p.encode(packet),
         }
     }
 
-    fn parse_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error> {
+    fn decode_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error> {
         match self {
-            Parser::Common(p) => p.parse_bin(bin),
+            Parser::Common(p) => p.decode_bin(bin),
         }
     }
-    fn parse_str(&self, data: Str) -> Result<Packet<'static>, Error> {
+    fn decode_str(&self, data: Str) -> Result<Packet<'static>, Error> {
         match self {
-            Parser::Common(p) => p.parse_str(data),
+            Parser::Common(p) => p.decode_str(data),
         }
     }
 }

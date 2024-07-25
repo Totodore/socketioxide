@@ -102,7 +102,7 @@ pub async fn broadcast_with_ack() {
                     Message(msg) => msg,
                     msg => panic!("Unexpected message: {:?}", msg),
                 };
-                let ack = match assert_ok!(parser.parse_str(msg)).inner {
+                let ack = match assert_ok!(parser.decode_str(msg)).inner {
                     PacketData::Event(_, _, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };

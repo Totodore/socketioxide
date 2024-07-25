@@ -108,7 +108,7 @@ pub(crate) trait PermitExt<'a> {
 }
 impl<'a> PermitExt<'a> for Permit<'a> {
     fn send(self, packet: Packet<'_>, parser: &Parser) {
-        let (msg, bin_payloads) = parser.serialize(packet);
+        let (msg, bin_payloads) = parser.encode(packet);
         match msg {
             TransportPayload::Str(msg) if bin_payloads.is_empty() => self.emit(msg),
             TransportPayload::Str(msg) => self.emit_many(msg, bin_payloads),
