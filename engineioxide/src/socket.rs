@@ -481,7 +481,8 @@ impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
     }
 }
 
-#[cfg(socketioxide_test)]
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
 impl<D> Drop for Socket<D>
 where
     D: Default + Send + Sync + 'static,
@@ -492,7 +493,8 @@ where
     }
 }
 
-#[cfg(any(socketioxide_test, test))]
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
 impl<D> Socket<D>
 where
     D: Default + Send + Sync + 'static,

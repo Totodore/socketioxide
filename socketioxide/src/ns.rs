@@ -183,7 +183,8 @@ impl<A: Adapter> Namespace<A> {
     }
 }
 
-#[cfg(any(test, socketioxide_test))]
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
 impl<A: Adapter> Namespace<A> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
         let ns = Namespace::new("/".into(), || {});

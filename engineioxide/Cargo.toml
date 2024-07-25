@@ -58,6 +58,7 @@ hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
 [features]
 v3 = ["memchr", "unicode-segmentation", "itoa"]
 tracing = ["dep:tracing"]
+__test_harness = []
 
 [[bench]]
 name = "packet_encode"

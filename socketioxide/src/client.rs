@@ -16,7 +16,7 @@ use tokio::sync::oneshot;
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::ns::NamespaceCtr;
-use crate::parser::{self, CommonParser, Parse, Parser, TransportPayload};
+use crate::parser::{self, Parse, Parser, TransportPayload};
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
@@ -349,7 +349,8 @@ impl<A: Adapter> std::fmt::Debug for Client<A> {
     }
 }
 
-#[cfg(socketioxide_test)]
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
 impl<A: Adapter> Client<A> {
     pub async fn new_dummy_sock(
         self: Arc<Self>,
@@ -387,7 +388,7 @@ impl<A: Adapter> Client<A> {
                 }
             }
         });
-        let (p, _) = CommonParser::default().serialize(Packet {
+        let (p, _) = parser::CommonParser::default().serialize(Packet {
             ns: ns.into(),
             inner: PacketData::Connect(Some(serde_json::to_value(&auth).unwrap())),
         });

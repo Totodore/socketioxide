@@ -31,7 +31,6 @@ jobs:
           BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
           BENCHER_CMD: cargo bench --all-features
           BENCHER_PROJECT: socketioxide
-          RUSTFLAGS: --cfg=socketioxide_test
 
   benchmark_pr:
     if: github.event_name == 'workflow_dispatch' && github.event.pull_request.head.repo.full_name == github.repository
@@ -62,4 +61,3 @@ jobs:
           BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
           BENCHER_CMD: cargo bench --all-features
           BENCHER_PROJECT: socketioxide
-          RUSTFLAGS: --cfg=socketioxide_test
