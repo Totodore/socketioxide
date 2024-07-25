@@ -117,6 +117,7 @@ use std::sync::Arc;
 
 use crate::{adapter::Adapter, socket::Socket};
 use futures_core::Future;
+use serde_json::Value;
 
 use super::MakeErasedHandler;
 
@@ -127,11 +128,11 @@ type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
 
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>);
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
-        auth: &'a Option<String>,
+        auth: &'a Option<Value>,
     ) -> MiddlewareResFut<'a>;
 
     fn boxed_clone(&self) -> BoxedConnectHandler<A>;
@@ -149,7 +150,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 
     /// Extract the arguments from the connect event.
     /// If it fails, the handler is not called
-    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<String>) -> Result<Self, Self::Error>;
+    fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Self::Error>;
 }
 
 /// Define a middleware for the connect event.
@@ -163,7 +164,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'stati
     fn call<'a>(
         &'a self,
         s: Arc<Socket<A>>,
-        auth: &'a Option<String>,
+        auth: &'a Option<Value>,
     ) -> impl Future<Output = MiddlewareRes> + Send;
 
     #[doc(hidden)]
@@ -179,13 +180,13 @@ pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'stati
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>);
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>);
 
     /// Call the middleware with the given arguments.
     fn call_middleware<'a>(
         &'a self,
         _: Arc<Socket<A>>,
-        _: &'a Option<String>,
+        _: &'a Option<Value>,
     ) -> MiddlewareResFut<'a> {
         Box::pin(async move { Ok(()) })
     }
@@ -278,14 +279,14 @@ where
     H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>) {
         self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
-        auth: &'a Option<String>,
+        auth: &'a Option<Value>,
     ) -> MiddlewareResFut<'a> {
         self.handler.call_middleware(s, auth)
     }
@@ -303,14 +304,14 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+    fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>) {
         self.handler.call(s, auth);
     }
 
     fn call_middleware<'a>(
         &'a self,
         s: Arc<Socket<A>>,
-        auth: &'a Option<String>,
+        auth: &'a Option<Value>,
     ) -> MiddlewareResFut<'a> {
         Box::pin(async move { self.middleware.call(s, auth).await })
     }
@@ -339,7 +340,7 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<Value>) -> MiddlewareRes {
         self.middleware.call(s, auth).await
     }
 }
@@ -378,7 +379,7 @@ where
     T: Send + Sync + 'static,
     T1: Send + Sync + 'static,
 {
-    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<String>) -> MiddlewareRes {
+    async fn call<'a>(&'a self, s: Arc<Socket<A>>, auth: &'a Option<Value>) -> MiddlewareRes {
         self.middleware.call(s.clone(), auth).await?;
         self.next.call(s, auth).await
     }
@@ -403,7 +404,7 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>) {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
@@ -434,7 +435,7 @@ macro_rules! impl_handler {
             A: Adapter,
             $( $ty: FromConnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<String>) {
+            fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>) {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, &auth) {
                         Ok(v) => v,
@@ -468,7 +469,7 @@ macro_rules! impl_middleware_async {
             async fn call<'a>(
                 &'a self,
                 s: Arc<Socket<A>>,
-                auth: &'a Option<String>,
+                auth: &'a Option<Value>,
             ) -> MiddlewareRes {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, auth) {
@@ -509,7 +510,7 @@ macro_rules! impl_middleware {
             async fn call<'a>(
                 &'a self,
                 s: Arc<Socket<A>>,
-                auth: &'a Option<String>,
+                auth: &'a Option<Value>,
             ) -> MiddlewareRes {
                 $(
                     let $ty = match $ty::from_connect_parts(&s, auth) {

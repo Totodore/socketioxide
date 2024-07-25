@@ -36,7 +36,8 @@ pub use crate::str::Str;
 pub use service::{ProtocolVersion, TransportType};
 pub use socket::{DisconnectReason, Socket};
 
-#[cfg(any(test, socketioxide_test))]
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
 pub use packet::*;
 
 pub mod config;

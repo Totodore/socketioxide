@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use serde_json::Value;
 
 use std::sync::Arc;
 
@@ -59,10 +60,7 @@ impl<T> std::error::Error for StateNotFound<T> {}
 
 impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for State<T> {
     type Error = StateNotFound<T>;
-    fn from_connect_parts(
-        s: &Arc<Socket<A>>,
-        _: &Option<String>,
-    ) -> Result<Self, StateNotFound<T>> {
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<Value>) -> Result<Self, StateNotFound<T>> {
         s.get_io()
             .get_state::<T>()
             .map(State)

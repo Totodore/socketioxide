@@ -1,6 +1,6 @@
-use std::borrow::{Borrow, Cow};
-
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
+use std::borrow::{Borrow, Cow};
 
 /// A custom [`Bytes`] wrapper to efficiently store string packets
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
@@ -90,6 +90,43 @@ impl From<Str> for String {
         let vec = s.0.into();
         // SAFETY: Str is always a valid utf8 string
         unsafe { String::from_utf8_unchecked(vec) }
+    }
+}
+impl Serialize for Str {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+impl<'de> Deserialize<'de> for Str {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct StrVisitor;
+        impl<'de> serde::de::Visitor<'de> for StrVisitor {
+            type Value = Str;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a str")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(Str::copy_from_slice(v))
+            }
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(Str::from(v))
+            }
+        }
+        deserializer.deserialize_str(StrVisitor)
     }
 }
 

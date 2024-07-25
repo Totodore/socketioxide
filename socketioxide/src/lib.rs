@@ -294,6 +294,7 @@ pub mod handler;
 pub mod layer;
 pub mod operators;
 pub mod packet;
+pub mod parser;
 pub mod service;
 pub mod socket;
 

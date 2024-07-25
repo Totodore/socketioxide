@@ -9,6 +9,7 @@ use bytes::Bytes;
 #[cfg(feature = "extensions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 pub use extensions_extract::*;
+use serde_json::Value;
 
 /// It was impossible to find the given extension.
 pub struct ExtensionNotFound<T>(std::marker::PhantomData<T>);
@@ -48,7 +49,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for HttpE
     type Error = ExtensionNotFound<T>;
     fn from_connect_parts(
         s: &Arc<Socket<A>>,
-        _: &Option<String>,
+        _: &Option<Value>,
     ) -> Result<Self, ExtensionNotFound<T>> {
         extract_http_extension(s).map(HttpExtension)
     }
@@ -56,7 +57,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for HttpE
 
 impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for MaybeHttpExtension<T> {
     type Error = Infallible;
-    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+    fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<Value>) -> Result<Self, Infallible> {
         Ok(MaybeHttpExtension(extract_http_extension(s).ok()))
     }
 }
@@ -131,14 +132,14 @@ mod extensions_extract {
         type Error = ExtensionNotFound<T>;
         fn from_connect_parts(
             s: &Arc<Socket<A>>,
-            _: &Option<String>,
+            _: &Option<Value>,
         ) -> Result<Self, ExtensionNotFound<T>> {
             extract_extension(s).map(Extension)
         }
     }
     impl<A: Adapter, T: Clone + Send + Sync + 'static> FromConnectParts<A> for MaybeExtension<T> {
         type Error = Infallible;
-        fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<String>) -> Result<Self, Infallible> {
+        fn from_connect_parts(s: &Arc<Socket<A>>, _: &Option<Value>) -> Result<Self, Infallible> {
             Ok(MaybeExtension(extract_extension(s).ok()))
         }
     }

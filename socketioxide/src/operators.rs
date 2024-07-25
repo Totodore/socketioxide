@@ -360,7 +360,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
             }
         };
         let packet = self.get_packet(event, data)?;
-        permit.send(packet);
+        permit.send(packet, self.socket.parser());
 
         Ok(())
     }
