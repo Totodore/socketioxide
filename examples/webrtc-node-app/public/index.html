@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>WebRTC</title>
+
+        <style type="text/css">
+            body {
+                margin: 0;
+                font-size: 20px;
+            }
+
+            .centered {
+                position: absolute;
+                top: 40%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+
+            .video-position {
+                position: absolute;
+                top: 35%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+
+            #video-chat-container {
+                width: 100%;
+                background-color: black;
+            }
+
+            #local-video {
+                position: absolute;
+                height: 30%;
+                width: 30%;
+                bottom: 0px;
+                left: 0px;
+            }
+
+            #remote-video {
+                height: 100%;
+                width: 100%;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="room-selection-container" class="centered">
+            <h1>WebRTC video conference</h1>
+            <label>Enter the number of the room you want to connect</label>
+            <input id="room-input" type="text" />
+            <button id="connect-button">CONNECT</button>
+        </div>
+
+        <div
+            id="video-chat-container"
+            class="video-position"
+            style="display: none"
+        >
+            <video id="local-video" autoplay="autoplay" muted="muted"></video>
+            <video id="remote-video" autoplay="autoplay"></video>
+        </div>
+
+        <script
+            src="https://cdn.socket.io/4.6.0/socket.io.min.js"
+            integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+"
+            crossorigin="anonymous"
+        ></script>
+        <script type="text/javascript" src="client.js"></script>
+    </body>
+</html>
