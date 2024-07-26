@@ -1,0 +1,17 @@
+[package]
+name = "axum-session"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+socketioxide = { path = "../../socketioxide" }
+axum.workspace = true
+axum_session = "0.14.1"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "axum-session"
+path = "axum_session.rs"
