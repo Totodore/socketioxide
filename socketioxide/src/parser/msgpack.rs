@@ -104,10 +104,10 @@ mod tests {
     use super::*;
 
     fn decode(value: Bytes) -> Packet<'static> {
-        MsgPackParser::default().parse_bin(value.into()).unwrap()
+        MsgPackParser::default().decode_bin(value.into()).unwrap()
     }
     fn encode(packet: Packet<'_>) -> Bytes {
-        match MsgPackParser::default().serialize(packet).0 {
+        match MsgPackParser::default().encode(packet).0 {
             TransportPayload::Bytes(b) => b,
             TransportPayload::Str(_) => panic!("implementation should only return bytes"),
         }

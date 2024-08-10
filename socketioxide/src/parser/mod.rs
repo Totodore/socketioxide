@@ -8,6 +8,7 @@ mod msgpack;
 
 pub use common::CommonParser;
 use engineioxide::Str;
+pub use msgpack::MsgPackParser;
 
 use crate::packet::Packet;
 
