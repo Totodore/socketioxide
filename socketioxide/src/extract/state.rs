@@ -1,11 +1,11 @@
 use bytes::Bytes;
-use serde_json::Value;
 
 use std::sync::Arc;
 
 use crate::adapter::Adapter;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
+use crate::Value;
 
 /// An Extractor that contains a [`Clone`] of a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 /// It implements [`std::ops::Deref`] to access the inner type so you can use it as a normal reference.
@@ -83,7 +83,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromMessageParts<A> for State
     type Error = StateNotFound<T>;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, StateNotFound<T>> {

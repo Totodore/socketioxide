@@ -3,16 +3,15 @@
 //! It should not be used directly except when implementing the [`Adapter`](crate::adapter::Adapter) trait.
 use std::borrow::Cow;
 
-use crate::ProtocolVersion;
+use crate::{parser::Value, ProtocolVersion};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
 use engineioxide::{sid::Sid, Str};
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Packet<'a> {
     /// The packet data
     pub inner: PacketData<'a>,
@@ -24,19 +23,19 @@ impl<'a> Packet<'a> {
     /// Send a connect packet with a default payload for v5 and no payload for v4
     pub fn connect(
         ns: impl Into<Str>,
-        #[allow(unused_variables)] sid: Sid,
+        #[allow(unused_variables)] value: Value,
         #[allow(unused_variables)] protocol: ProtocolVersion,
     ) -> Self {
         #[cfg(not(feature = "v4"))]
         {
-            Self::connect_v5(ns.into(), sid)
+            Self::connect_v5(ns.into(), value)
         }
 
         #[cfg(feature = "v4")]
         {
             match protocol {
                 ProtocolVersion::V4 => Self::connect_v4(ns.into()),
-                ProtocolVersion::V5 => Self::connect_v5(ns.into(), sid),
+                ProtocolVersion::V5 => Self::connect_v5(ns.into(), value),
             }
         }
     }
@@ -51,10 +50,9 @@ impl<'a> Packet<'a> {
     }
 
     /// Sends a connect packet with payload.
-    fn connect_v5(ns: Str, sid: Sid) -> Self {
-        let val: Value = serde_json::to_value(ConnectPacket { sid }).unwrap();
+    fn connect_v5(ns: Str, value: Value) -> Self {
         Self {
-            inner: PacketData::Connect(Some(val)),
+            inner: PacketData::Connect(Some(value)),
             ns,
         }
     }
@@ -94,11 +92,8 @@ impl<'a> Packet<'a> {
         data: Value,
         bin: Vec<Bytes>,
     ) -> Self {
-        debug_assert!(!bin.is_empty());
-
-        let packet = BinaryPacket::outgoing(data, bin);
         Self {
-            inner: PacketData::BinaryEvent(e.into(), packet, None),
+            inner: PacketData::BinaryEvent(e.into(), BinaryPacket::new(data, bin), None),
             ns: ns.into(),
         }
     }
@@ -113,10 +108,8 @@ impl<'a> Packet<'a> {
 
     /// Create a binary ack packet for the given namespace
     pub fn bin_ack(ns: impl Into<Str>, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
-        debug_assert!(!bin.is_empty());
-        let packet = BinaryPacket::outgoing(data, bin);
         Self {
-            inner: PacketData::BinaryAck(packet, ack),
+            inner: PacketData::BinaryAck(BinaryPacket::new(data, bin), ack),
             ns: ns.into(),
         }
     }
@@ -131,10 +124,10 @@ impl<'a> Packet<'a> {
 /// | CONNECT_ERROR | 4   | Used during the [connection to a namespace](#connection-to-a-namespace).              |
 /// | BINARY_EVENT  | 5   | Used to [send binary data](#sending-and-receiving-data) to the other side.            |
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PacketData<'a> {
     /// Connect packet with optional payload (only used with v5 for response)
-    Connect(Option<serde_json::Value>),
+    Connect(Option<Value>),
     /// Disconnect packet, used to disconnect from a namespace
     Disconnect,
     /// Event packet with optional ack id, to request an ack from the other side
@@ -150,7 +143,7 @@ pub enum PacketData<'a> {
 }
 
 /// Binary packet used when sending binary data
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BinaryPacket {
     /// Data related to the packet
     pub data: Value,
@@ -204,55 +197,15 @@ impl<'a> PacketData<'a> {
 }
 
 impl BinaryPacket {
-    /// Create a binary packet from incoming data and remove all placeholders and get the payload count
-    pub fn incoming(mut data: Value) -> Self {
-        let payload_count = match &mut data {
-            Value::Array(ref mut v) => {
-                let count = v.len();
-                v.retain(|v| v.as_object().and_then(|o| o.get("_placeholder")).is_none());
-                count - v.len()
-            }
-            val => {
-                if val
-                    .as_object()
-                    .and_then(|o| o.get("_placeholder"))
-                    .is_some()
-                {
-                    data = Value::Array(vec![]);
-                    1
-                } else {
-                    0
-                }
-            }
-        };
-
-        Self {
-            data,
-            bin: Vec::new(),
-            payload_count,
-        }
-    }
-
-    /// Create a binary packet from outgoing data and a payload
-    pub fn outgoing(data: Value, bin: Vec<Bytes>) -> Self {
-        let mut data = match data {
-            Value::Array(v) => Value::Array(v),
-            d => Value::Array(vec![d]),
-        };
+    /// Create a new binary packet.
+    pub fn new(data: Value, bin: Vec<Bytes>) -> BinaryPacket {
         let payload_count = bin.len();
-        (0..payload_count).for_each(|i| {
-            data.as_array_mut().unwrap().push(json!({
-                "_placeholder": true,
-                "num": i
-            }))
-        });
-        Self {
+        BinaryPacket {
             data,
             bin,
             payload_count,
         }
     }
-
     /// Add a payload to the binary packet, when all payloads are added,
     /// the packet is complete and can be further processed
     pub fn add_payload<B: Into<Bytes>>(&mut self, payload: B) {

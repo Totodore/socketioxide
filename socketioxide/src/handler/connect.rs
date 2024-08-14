@@ -115,9 +115,9 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::Value;
 use crate::{adapter::Adapter, socket::Socket};
 use futures_core::Future;
-use serde_json::Value;
 
 use super::MakeErasedHandler;
 

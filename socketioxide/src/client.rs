@@ -10,7 +10,6 @@ use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use matchit::{Match, Router};
-use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
@@ -22,7 +21,7 @@ use crate::{
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
-    SocketIoConfig,
+    SocketIoConfig, Value,
 };
 use crate::{ProtocolVersion, SocketIo};
 
@@ -390,7 +389,9 @@ impl<A: Adapter> Client<A> {
         });
         let (p, _) = parser::CommonParser::default().encode(Packet {
             ns: ns.into(),
-            inner: PacketData::Connect(Some(serde_json::to_value(&auth).unwrap())),
+            inner: PacketData::Connect(Some(
+                parser::CommonParser::default().to_value(&auth).unwrap(),
+            )),
         });
         if let TransportPayload::Str(s) = p {
             self.on_message(s, esock.clone());

@@ -4,12 +4,12 @@ use std::sync::Arc;
 use crate::adapter::Adapter;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
+use crate::Value;
 use bytes::Bytes;
 
 #[cfg(feature = "extensions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 pub use extensions_extract::*;
-use serde_json::Value;
 
 /// It was impossible to find the given extension.
 pub struct ExtensionNotFound<T>(std::marker::PhantomData<T>);
@@ -84,7 +84,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromMessageParts<A> for HttpE
     type Error = ExtensionNotFound<T>;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, ExtensionNotFound<T>> {
@@ -95,7 +95,7 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromMessageParts<A> for Maybe
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
@@ -165,7 +165,7 @@ mod extensions_extract {
         type Error = ExtensionNotFound<T>;
         fn from_message_parts(
             s: &Arc<Socket<A>>,
-            _: &mut serde_json::Value,
+            _: &mut Value,
             _: &mut Vec<Bytes>,
             _: &Option<i64>,
         ) -> Result<Self, ExtensionNotFound<T>> {
@@ -176,7 +176,7 @@ mod extensions_extract {
         type Error = Infallible;
         fn from_message_parts(
             s: &Arc<Socket<A>>,
-            _: &mut serde_json::Value,
+            _: &mut Value,
             _: &mut Vec<Bytes>,
             _: &Option<i64>,
         ) -> Result<Self, Infallible> {

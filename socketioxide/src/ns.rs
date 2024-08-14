@@ -7,12 +7,13 @@ use crate::{
     adapter::Adapter,
     errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
-    packet::{Packet, PacketData},
+    packet::{ConnectPacket, Packet, PacketData},
+    parser::Parse,
     socket::{DisconnectReason, Socket},
+    Value,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::{sid::Sid, Str};
-use serde_json::Value;
 
 /// A [`Namespace`] constructor used for dynamic namespaces
 /// A namespace constructor only hold a common handler that will be cloned
@@ -95,7 +96,11 @@ impl<A: Adapter> Namespace<A> {
 
         let protocol = esocket.protocol.into();
 
-        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), socket.id, protocol)) {
+        let value = socket
+            .parser()
+            .to_value(ConnectPacket { sid: socket.id })
+            .unwrap();
+        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), value, protocol)) {
             #[cfg(feature = "tracing")]
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);

@@ -62,7 +62,7 @@
 //! // async named event handler
 //! async fn on_event(s: SocketRef, Data(data): Data<serde_json::Value>, ack: AckSender) {
 //!     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-//!     ack.send("Here is my acknowledgment!").ok();   
+//!     ack.send("Here is my acknowledgment!").ok();
 //! }
 //! let (svc, io) = SocketIo::new_svc();
 //! io.ns("/", |s: SocketRef| {
@@ -73,9 +73,9 @@
 //! ```
 use std::sync::Arc;
 
+use crate::Value;
 use bytes::Bytes;
 use futures_core::Future;
-use serde_json::Value;
 
 use crate::adapter::Adapter;
 use crate::socket::Socket;

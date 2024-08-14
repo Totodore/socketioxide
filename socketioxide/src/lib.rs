@@ -303,6 +303,7 @@ pub use errors::{
     AckError, AdapterError, BroadcastError, DisconnectError, NsInsertError, SendError, SocketError,
 };
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
+pub use parser::Value;
 
 mod client;
 mod errors;

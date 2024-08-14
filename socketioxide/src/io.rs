@@ -16,7 +16,7 @@ use crate::{
     handler::ConnectHandler,
     layer::SocketIoLayer,
     operators::{BroadcastOperators, RoomParam},
-    parser::Parser,
+    parser::{value::ParseError, Parser},
     service::SocketIoService,
     BroadcastError, DisconnectError,
 };
@@ -745,7 +745,7 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<AckStream<V>, serde_json::Error> {
+    ) -> Result<AckStream<V>, ParseError> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
@@ -878,9 +878,10 @@ impl<A: Adapter> SocketIo<A> {
     /// Returns a new operator on the given namespace
     #[inline(always)]
     fn get_op(&self, path: &str) -> Option<BroadcastOperators<A>> {
+        let parser = self.config().parser.clone();
         self.0
             .get_ns(path)
-            .map(|ns| BroadcastOperators::new(ns).broadcast())
+            .map(|ns| BroadcastOperators::new(ns, parser).broadcast())
     }
 
     /// Returns a new operator on the default namespace "/" (root namespace)

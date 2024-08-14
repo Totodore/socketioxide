@@ -1,18 +1,30 @@
-use super::{Error, Parse, TransportPayload};
+use super::{value::ParseError, Error, Parse, TransportPayload, Value};
 use crate::packet::{BinaryPacket, Packet, PacketData};
 use bytes::Bytes;
+use rmpv::Value as MsgPackValue;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
+/// The MsgPack parser
 #[derive(Default, Clone)]
 pub struct MsgPackParser;
+
+#[derive(Debug, Serialize, Deserialize)]
+enum MsgPackPacketData {
+    Value(Value),
+    ConnectError(MsgPackConnectErrorMessage),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MsgPackConnectErrorMessage {
+    message: String,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MsgPackPacket {
     r#type: usize,
     nsp: engineioxide::Str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<Value>,
+    data: Option<MsgPackValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,7 +45,7 @@ impl Parse for MsgPackParser {
             | BinaryEvent(_, BinaryPacket { payload_count, .. }, _) => Some(payload_count),
             _ => None,
         };
-        let data = packet.inner.into();
+        let data = packet_to_value(packet.inner);
         let payload = MsgPackPacket {
             r#type: index,
             nsp: packet.ns,
@@ -53,38 +65,44 @@ impl Parse for MsgPackParser {
     fn decode_bin(&self, bin: bytes::Bytes) -> Result<Packet<'static>, Error> {
         Err(Error::UnexpectedStringPacket)
     }
+
+    fn to_value<T: Serialize>(&self, data: T) -> Result<Value, ParseError> {
+        Ok(Value::MsgPack(rmpv::ext::to_value(data)?))
+    }
 }
 
-impl<'a> From<PacketData<'a>> for Option<Value> {
-    fn from(value: PacketData<'a>) -> Self {
-        use PacketData::*;
-        match value {
-            Connect(data) => data,
-            ConnectError(message) => Some(serde_json::json!({ "message": message })),
-            Disconnect => None,
-            Event(e, mut data, _) | BinaryEvent(e, BinaryPacket { mut data, .. }, _) => {
-                // Expand the packet if it is an array with data -> ["event", ...data]
-                let data = match data {
-                    Value::Array(ref mut v) if !v.is_empty() => {
-                        v.insert(0, Value::String(e.to_string()));
-                        data
-                    }
-                    Value::Array(_) => {
-                        Value::Array(vec![Value::String(e.to_string()), Value::Array(vec![])])
-                    }
-                    _ => Value::Array(vec![Value::String(e.to_string()), data]),
-                };
-                Some(data)
-            }
-            EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
-                // Enforce that the packet is an array -> [data]
-                let data = match data {
-                    Value::Array(_) => data,
-                    Value::Null => Value::Array(vec![]),
-                    _ => Value::Array(vec![data]),
-                };
-                Some(data)
-            }
+fn packet_to_value<'a>(packet: PacketData<'a>) -> Option<MsgPackValue> {
+    use PacketData::*;
+    match packet {
+        Connect(Some(Value::MsgPack(data))) => Some(data),
+        Connect(_) => None,
+        ConnectError(message) => {
+            Some(rmpv::ext::to_value(MsgPackConnectErrorMessage { message }).unwrap())
+        }
+        Disconnect => None,
+        Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
+            // Expand the packet if it is an array with data -> ["event", ...data]
+            let data = match data {
+                Value::MsgPack(MsgPackValue::Array(mut arr)) => {
+                    arr.insert(0, MsgPackValue::String(e.to_string().into()));
+                    MsgPackValue::Array(arr)
+                }
+                Value::MsgPack(data) => {
+                    MsgPackValue::Array(vec![MsgPackValue::String(e.to_string().into()), data])
+                }
+                _ => panic!("unsuported value type"),
+            };
+            Some(data)
+        }
+        EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
+            // Enforce that the packet is an array -> [data]
+            let data = match data {
+                Value::MsgPack(MsgPackValue::Array(data)) => MsgPackValue::Array(data),
+                Value::MsgPack(MsgPackValue::Nil) => MsgPackValue::Array(vec![]),
+                Value::MsgPack(data) => MsgPackValue::Array(vec![data]),
+                _ => panic!("unsuported value type"),
+            };
+            Some(data)
         }
     }
 }

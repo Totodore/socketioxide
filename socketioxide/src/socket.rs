@@ -15,7 +15,6 @@ use std::{
 use bytes::Bytes;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
 use tokio::sync::oneshot::{self, Receiver};
 
 #[cfg(feature = "extensions")]
@@ -33,7 +32,7 @@ use crate::{
     operators::{BroadcastOperators, ConfOperators, RoomParam},
     packet::{BinaryPacket, Packet, PacketData},
     parser::{Parse, Parser, TransportPayload},
-    AckError, SocketIo,
+    AckError, SocketIo, Value,
 };
 use crate::{
     client::SocketData,
@@ -314,7 +313,7 @@ impl<A: Adapter> Socket<A> {
         };
 
         let ns = self.ns.path.clone();
-        let data = serde_json::to_value(data)?;
+        let data = self.parser().to_value(data)?;
         permit.send(Packet::event(ns, event.into(), data), self.parser());
         Ok(())
     }
@@ -387,7 +386,7 @@ impl<A: Adapter> Socket<A> {
             }
         };
         let ns = self.ns.path.clone();
-        let data = serde_json::to_value(data)?;
+        let data = self.parser().to_value(data)?;
         let packet = Packet::event(ns, event.into(), data);
         let rx = self.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, self.get_io().config().ack_timeout, self.id);
@@ -464,7 +463,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).to(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).to(rooms)
     }
 
     /// Selects all clients in the given rooms.
@@ -488,7 +487,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).within(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).within(rooms)
     }
 
     /// Filters out all clients selected with the previous operators which are in the given rooms.
@@ -512,7 +511,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).except(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).except(rooms)
     }
 
     /// Broadcasts to all clients only connected on this node (when using multiple nodes).
@@ -530,7 +529,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn local(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).local()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).local()
     }
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
@@ -603,7 +602,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn broadcast(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id).broadcast()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).broadcast()
     }
 
     /// Get the [`SocketIo`] context related to this socket

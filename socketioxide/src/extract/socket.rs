@@ -2,16 +2,16 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
+use crate::parser::Parse;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::{DisconnectError, SendError},
     packet::Packet,
     socket::{DisconnectReason, Socket},
-    SocketIo,
+    SocketIo, Value,
 };
 use bytes::Bytes;
 use serde::Serialize;
-use serde_json::Value;
 
 /// An Extractor that returns a reference to a [`Socket`].
 #[derive(Debug)]
@@ -27,7 +27,7 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
@@ -89,7 +89,7 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         ack_id: &Option<i64>,
     ) -> Result<Self, Infallible> {
@@ -124,7 +124,7 @@ impl<A: Adapter> AckSender<A> {
                 }
             };
             let ns = self.socket.ns.path.clone();
-            let data = serde_json::to_value(data)?;
+            let data = self.socket.parser().to_value(data)?;
             let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {
@@ -148,7 +148,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
@@ -172,7 +172,7 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
     type Error = Infallible;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
@@ -208,7 +208,7 @@ impl<A: Adapter> FromMessageParts<A> for SocketIo<A> {
 
     fn from_message_parts(
         s: &Arc<Socket<A>>,
-        _: &mut serde_json::Value,
+        _: &mut Value,
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {

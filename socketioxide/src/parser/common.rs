@@ -1,13 +1,16 @@
-use std::sync::Mutex;
+use std::{borrow::Cow, sync::Mutex};
 
 use bytes::Bytes;
 use engineioxide::Str;
-use serde_json::Value;
+use serde_json::{json, Value as JsonValue};
 
 use crate::{
     packet::{BinaryPacket, Packet, PacketData},
     parser::{Error, TransportPayload},
+    Value,
 };
+
+use super::value::ParseError;
 
 /// Parse and serialize from and into the socket.io common packet format.
 ///
@@ -31,25 +34,65 @@ impl super::Parse for CommonParser {
         // pre-serializing allows to preallocate the buffer
         let data = match &mut packet.inner {
             Connect(Some(data)) => Some(serde_json::to_string(data).unwrap()),
-            Event(e, data, _) | BinaryEvent(e, BinaryPacket { data, .. }, _) => {
+            Event(e, data, _) => {
                 // Expand the packet if it is an array with data -> ["event", ...data]
                 let packet = match data {
-                    Value::Array(ref mut v) if !v.is_empty() => {
-                        v.insert(0, Value::String((*e).to_string()));
-                        serde_json::to_string(&v)
+                    Value::Json(JsonValue::Array(ref mut arr)) if !arr.is_empty() => {
+                        arr.insert(0, JsonValue::String((*e).to_string()));
+                        serde_json::to_string(arr)
                     }
-                    Value::Array(_) => serde_json::to_string::<(_, [(); 0])>(&(e, [])),
-                    _ => serde_json::to_string(&(e, data)),
+                    Value::Json(JsonValue::Array(_)) => {
+                        serde_json::to_string::<(_, [(); 0])>(&(e, []))
+                    }
+                    Value::Json(_) => serde_json::to_string(&(e, data)),
+                    _ => panic!("value type not supported"),
                 }
                 .unwrap();
                 Some(packet)
             }
-            EventAck(data, _) | BinaryAck(BinaryPacket { data, .. }, _) => {
+            BinaryEvent(e, BinaryPacket { data, bin, .. }, _) => {
+                // Expand the packet if it is an array with data -> ["event", ...data, ...placeholder]
+                let packet = match data {
+                    Value::Json(JsonValue::Array(ref mut arr)) => {
+                        arr.insert(0, JsonValue::String((*e).to_string()));
+                        add_bin_packet_placeholder(bin.len(), arr);
+                        serde_json::to_string(arr)
+                    }
+                    Value::Json(v) => {
+                        let e = Cow::Owned(JsonValue::String(e.to_string()));
+                        let mut arr = vec![e, Cow::Borrowed(v)];
+                        add_bin_packet_placeholder_cow(bin.len(), &mut arr);
+                        serde_json::to_string(&arr)
+                    }
+                    _ => panic!("value type not supported"),
+                }
+                .unwrap();
+                Some(packet)
+            }
+            EventAck(data, _) => {
                 // Enforce that the packet is an array -> [data]
                 let packet = match data {
-                    Value::Array(_) => serde_json::to_string(&data),
-                    Value::Null => Ok("[]".to_string()),
-                    _ => serde_json::to_string(&[data]),
+                    Value::Json(JsonValue::Array(_)) => serde_json::to_string(&data),
+                    Value::Json(JsonValue::Null) => Ok("[]".to_string()),
+                    Value::Json(_) => serde_json::to_string(&[data]),
+                    _ => panic!("value type not supported"),
+                }
+                .unwrap();
+                Some(packet)
+            }
+            BinaryAck(BinaryPacket { data, bin, .. }, _) => {
+                // Enforce that the packet is an array -> [data, ...placeholders]
+                let packet = match data {
+                    Value::Json(JsonValue::Array(arr)) => {
+                        add_bin_packet_placeholder(bin.len(), arr);
+                        serde_json::to_string(arr)
+                    }
+                    Value::Json(v) => {
+                        let mut arr = vec![Cow::Borrowed(v)];
+                        add_bin_packet_placeholder_cow(bin.len(), &mut arr);
+                        serde_json::to_string(&arr)
+                    }
+                    _ => panic!("value type not supported"),
                 }
                 .unwrap();
                 Some(packet)
@@ -186,7 +229,7 @@ impl super::Parse for CommonParser {
             b'1' => PacketData::Disconnect,
             b'2' => {
                 let (event, payload) = deserialize_event_packet(data)?;
-                PacketData::Event(event.into(), payload, ack)
+                PacketData::Event(event.into(), payload.into(), ack)
             }
             b'3' => {
                 let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
@@ -194,12 +237,12 @@ impl super::Parse for CommonParser {
             }
             b'5' => {
                 let (event, payload) = deserialize_event_packet(data)?;
-                PacketData::BinaryEvent(event.into(), BinaryPacket::incoming(payload), ack)
+                PacketData::BinaryEvent(event.into(), new_incoming_bin_packet(payload.into()), ack)
             }
             b'6' => {
                 let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
                 PacketData::BinaryAck(
-                    BinaryPacket::incoming(packet),
+                    new_incoming_bin_packet(packet),
                     ack.ok_or(Error::InvalidPacketType)?,
                 )
             }
@@ -233,6 +276,10 @@ impl super::Parse for CommonParser {
             }
             _ => Err(Error::UnexpectedBinaryPacket),
         }
+    }
+
+    fn to_value<T: serde::Serialize>(&self, data: T) -> Result<Value, ParseError> {
+        Ok(Value::Json(serde_json::to_value(data)?))
     }
 }
 
@@ -293,11 +340,11 @@ fn get_size_hint(packet: &Packet<'_>) -> usize {
 /// ```text
 /// ["<event name>", ...<JSON-stringified payload without binary>]
 /// ```
-fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
+fn deserialize_event_packet(data: &str) -> Result<(String, JsonValue), Error> {
     #[cfg(feature = "tracing")]
     tracing::debug!("Deserializing event packet: {:?}", data);
-    let packet = match serde_json::from_str::<Value>(data)? {
-        Value::Array(packet) => packet,
+    let packet = match serde_json::from_str::<JsonValue>(data)? {
+        JsonValue::Array(packet) => packet,
         _ => return Err(Error::InvalidEventName),
     };
 
@@ -307,7 +354,7 @@ fn deserialize_event_packet(data: &str) -> Result<(String, Value), Error> {
         .as_str()
         .ok_or(Error::InvalidEventName)?
         .to_string();
-    let payload = Value::from_iter(packet.into_iter().skip(1));
+    let payload = JsonValue::from_iter(packet.into_iter().skip(1));
     Ok((event, payload))
 }
 
@@ -324,12 +371,62 @@ fn deserialize_packet<T: serde::de::DeserializeOwned>(
     Ok(packet)
 }
 
+fn add_bin_packet_placeholder(cnt: usize, arr: &mut Vec<JsonValue>) {
+    for i in 0..cnt {
+        arr.push(
+            json!({
+                "_placeholder": true,
+                "num": i
+            })
+            .into(),
+        );
+    }
+}
+
+fn add_bin_packet_placeholder_cow(cnt: usize, arr: &mut Vec<Cow<'_, JsonValue>>) {
+    for i in 0..cnt {
+        arr.push(Cow::Owned(json!({
+            "_placeholder": true,
+            "num": i
+        })));
+    }
+}
+
+/// Create a binary packet from incoming data and remove all placeholders and get the payload count
+fn new_incoming_bin_packet(mut data: JsonValue) -> BinaryPacket {
+    let payload_count = match &mut data {
+        JsonValue::Array(ref mut v) => {
+            let count = v.len();
+            v.retain(|v| v.as_object().and_then(|o| o.get("_placeholder")).is_none());
+            count - v.len()
+        }
+        val => {
+            if val
+                .as_object()
+                .and_then(|o| o.get("_placeholder"))
+                .is_some()
+            {
+                data = JsonValue::Array(vec![]);
+                1
+            } else {
+                0
+            }
+        }
+    };
+
+    BinaryPacket {
+        data: Value::Json(data),
+        bin: Vec::new(),
+        payload_count,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use engineioxide::sid::Sid;
     use serde_json::json;
 
-    use crate::{parser::Parse, ProtocolVersion};
+    use crate::{packet::ConnectPacket, parser::Parse, ProtocolVersion};
 
     use super::*;
 
@@ -349,12 +446,21 @@ mod test {
         let payload = format!("0{}", json!({ "sid": sid }));
         let packet = decode(payload);
 
-        assert_eq!(Packet::connect("/", sid, ProtocolVersion::V5), packet);
+        let value = CommonParser::default()
+            .to_value(ConnectPacket { sid })
+            .unwrap();
+        assert_eq!(Packet::connect("/", value, ProtocolVersion::V5), packet);
 
         let payload = format!("0/admin™,{}", json!({ "sid": sid }));
         let packet = decode(payload);
 
-        assert_eq!(Packet::connect("/admin™", sid, ProtocolVersion::V5), packet);
+        let value = CommonParser::default()
+            .to_value(ConnectPacket { sid })
+            .unwrap();
+        assert_eq!(
+            Packet::connect("/admin™", value, ProtocolVersion::V5),
+            packet
+        );
     }
 
     #[test]

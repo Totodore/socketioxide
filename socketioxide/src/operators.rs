@@ -16,6 +16,8 @@ use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
 use crate::errors::{BroadcastError, DisconnectError};
 use crate::extract::SocketRef;
+use crate::parser::value::ParseError;
+use crate::parser::{Parse, Parser};
 use crate::socket::Socket;
 use crate::SendError;
 use crate::{
@@ -113,6 +115,7 @@ pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
     binary: Vec<Bytes>,
     timeout: Option<Duration>,
     ns: Arc<Namespace<A>>,
+    parser: Parser,
     opts: BroadcastOptions,
 }
 
@@ -126,6 +129,7 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
             binary: conf.binary,
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
+            parser: conf.socket.parser().clone(),
             opts,
         }
     }
@@ -484,9 +488,9 @@ impl<A: Adapter> ConfOperators<'_, A> {
         &mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<Packet<'static>, serde_json::Error> {
+    ) -> Result<Packet<'static>, ParseError> {
         let ns = self.socket.ns.path.clone();
-        let data = serde_json::to_value(data)?;
+        let data = self.socket.parser().to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)
         } else {
@@ -498,19 +502,21 @@ impl<A: Adapter> ConfOperators<'_, A> {
 }
 
 impl<A: Adapter> BroadcastOperators<A> {
-    pub(crate) fn new(ns: Arc<Namespace<A>>) -> Self {
+    pub(crate) fn new(ns: Arc<Namespace<A>>, parser: Parser) -> Self {
         Self {
             binary: vec![],
             timeout: None,
             ns,
+            parser,
             opts: BroadcastOptions::default(),
         }
     }
-    pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid) -> Self {
+    pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid, parser: Parser) -> Self {
         Self {
             binary: vec![],
             timeout: None,
             ns,
+            parser,
             opts: BroadcastOptions {
                 sid: Some(sid),
                 ..Default::default()
@@ -801,7 +807,7 @@ impl<A: Adapter> BroadcastOperators<A> {
         mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<AckStream<V>, serde_json::Error> {
+    ) -> Result<AckStream<V>, ParseError> {
         let packet = self.get_packet(event, data)?;
         let stream = self
             .ns
@@ -895,9 +901,9 @@ impl<A: Adapter> BroadcastOperators<A> {
         &mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<Packet<'static>, serde_json::Error> {
+    ) -> Result<Packet<'static>, ParseError> {
         let ns = self.ns.path.clone();
-        let data = serde_json::to_value(data)?;
+        let data = self.parser.to_value(data)?;
         let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)
         } else {

@@ -4,6 +4,8 @@ use tokio::{sync::mpsc::error::TrySendError, time::error::Elapsed};
 
 pub use matchit::InsertError as NsInsertError;
 
+use crate::parser::value::{self, ParseError};
+
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -32,8 +34,8 @@ pub(crate) struct ConnectFail;
 #[derive(thiserror::Error, Debug)]
 pub enum AckError<T> {
     /// The ack response cannot be parsed
-    #[error("cannot deserialize json packet from ack response: {0:?}")]
-    Serde(#[from] serde_json::Error),
+    #[error("cannot deserialize packet from ack response: {0:?}")]
+    Serde(#[from] ParseError),
 
     /// The ack response timed out
     #[error("ack timeout error")]
@@ -57,7 +59,7 @@ pub enum BroadcastError {
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
-    Serialize(#[from] serde_json::Error),
+    Serialize(#[from] value::ParseError),
 
     /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
@@ -68,7 +70,7 @@ pub enum BroadcastError {
 pub enum SendError<T> {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing JSON packet: {0:?}")]
-    Serialize(#[from] serde_json::Error),
+    Serialize(#[from] value::ParseError),
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]

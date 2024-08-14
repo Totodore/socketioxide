@@ -79,7 +79,7 @@
 //!
 //!     fn from_message_parts(
 //!         s: &Arc<Socket<A>>,
-//!         _: &mut serde_json::Value,
+//!         _: &mut crate::Value
 //!         _: &mut Vec<Bytes>,
 //!         _: &Option<i64>,
 //!     ) -> Result<Self, UserIdNotFound> {

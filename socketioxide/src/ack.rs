@@ -16,10 +16,12 @@ use engineioxide::sid::Sid;
 use futures_core::{FusedFuture, FusedStream, Future, Stream};
 use futures_util::stream::FuturesUnordered;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
-use crate::{adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet, SocketError};
+use crate::{
+    adapter::Adapter, errors::AckError, extract::SocketRef, packet::Packet,
+    parser::value::from_value, SocketError, Value,
+};
 
 /// An acknowledgement sent by the client.
 /// It contains the data sent by the client and the binary payloads if there are any.
@@ -296,7 +298,7 @@ impl<T> From<AckInnerStream> for AckStream<T> {
 
 fn map_ack_response<T: DeserializeOwned>(ack: AckResult<Value>) -> AckResult<T> {
     ack.and_then(|v| {
-        serde_json::from_value(v.data)
+        from_value(v.data)
             .map(|data| AckResponse {
                 data,
                 binary: v.binary,

@@ -5,10 +5,14 @@ use bytes::Bytes;
 
 mod common;
 mod msgpack;
+pub mod value;
 
 pub use common::CommonParser;
 use engineioxide::Str;
 pub use msgpack::MsgPackParser;
+use serde::{de::DeserializeOwned, Serialize};
+use value::ParseError;
+pub use value::Value;
 
 use crate::packet::Packet;
 
@@ -50,6 +54,20 @@ pub trait Parse: Default {
 
     /// Parse a given input binary.
     fn decode_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error>;
+
+    /// Convert any serializable data to a generic [`Value`]
+    fn to_value<T: Serialize>(&self, data: T) -> Result<Value, ParseError>;
+
+    /// Convert any generic [`Value`] to deserializable data.
+    ///
+    /// The parser will be determined from the value given to deserialize.
+    fn from_value<T: DeserializeOwned>(&self, value: Value) -> Result<T, ParseError> {
+        let res = match value {
+            Value::Json(v) => serde_json::from_value(v)?,
+            Value::MsgPack(v) => rmpv::ext::from_value(v)?,
+        };
+        Ok(res)
+    }
 }
 
 /// All the parser available.
@@ -91,6 +109,12 @@ impl Parse for Parser {
     fn decode_str(&self, data: Str) -> Result<Packet<'static>, Error> {
         match self {
             Parser::Common(p) => p.decode_str(data),
+        }
+    }
+
+    fn to_value<T: Serialize>(&self, data: T) -> Result<Value, ParseError> {
+        match self {
+            Parser::Common(p) => p.to_value(data),
         }
     }
 }
