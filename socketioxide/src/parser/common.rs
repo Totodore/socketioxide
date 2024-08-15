@@ -129,19 +129,21 @@ impl super::Parse for CommonParser {
     fn decode_str(&self, value: Str) -> Result<Packet<'static>, Error> {
         let chars = value.as_bytes();
         // It is possible to parse the packet from a byte slice because separators are only ASCII
-        let mut i = 1;
         let index = (b'0'..=b'6')
             .contains(&chars[0])
             .then_some(chars[0])
             .ok_or(Error::InvalidPacketType)?;
 
         // Move the cursor to skip the payload count if it is a binary packet
-        if index == b'5' || index == b'6' {
-            while chars.get(i) != Some(&b'-') {
-                i += 1;
-            }
-            i += 1;
-        }
+        let mut i = if index == b'5' || index == b'6' {
+            chars
+                .iter()
+                .position(|x| *x == b'-')
+                .ok_or(Error::InvalidPacketType)?
+                + 1
+        } else {
+            1
+        };
 
         let start_index = i;
         // Custom nsps will start with a slash
@@ -725,5 +727,15 @@ mod test {
 
         let packet = Packet::bin_ack("/", json!("data"), vec![Bytes::from_static(&[1])], 54);
         assert_eq!(get_size_hint(&packet), 5);
+    }
+
+    #[test]
+    fn packet_reject_invalid_binary_event() {
+        let payload = "5invalid".to_owned();
+        let err = CommonParser::default()
+            .decode_str(payload.into())
+            .unwrap_err();
+
+        assert!(matches!(err, Error::InvalidPacketType));
     }
 }
