@@ -1,7 +1,14 @@
-use std::{borrow::Cow, sync::Mutex};
+use std::{
+    borrow::Cow,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
+};
 
 use bytes::Bytes;
 use engineioxide::Str;
+use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 
 use crate::{
@@ -24,6 +31,8 @@ pub struct CommonParser {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received
     pub partial_bin_packet: Mutex<Option<Packet<'static>>>,
+    /// The number of expected payloads (used when receiving data)
+    pub incoming_payload_cnt: AtomicUsize,
 }
 
 impl super::Parse for CommonParser {
@@ -136,9 +145,16 @@ impl super::Parse for CommonParser {
                 res.push_str(itoa_buf.format(*ack));
                 res.push_str(&data.unwrap())
             }
-            PacketData::ConnectError(data) => res.push_str(data),
+            PacketData::ConnectError(message) => {
+                #[derive(Serialize)]
+                struct ErrorMessage<'a> {
+                    message: &'a str,
+                }
+                let data = serde_json::to_string(&ErrorMessage { message }).unwrap();
+                res.push_str(&data)
+            }
             PacketData::BinaryEvent(_, ref bin, ack) => {
-                res.push_str(itoa_buf.format(bin.payload_count));
+                res.push_str(itoa_buf.format(bin.bin.len()));
                 res.push('-');
 
                 push_nsp(&mut res);
@@ -150,7 +166,7 @@ impl super::Parse for CommonParser {
                 res.push_str(&data.unwrap())
             }
             PacketData::BinaryAck(ref packet, ack) => {
-                res.push_str(itoa_buf.format(packet.payload_count));
+                res.push_str(itoa_buf.format(packet.bin.len()));
                 res.push('-');
 
                 push_nsp(&mut res);
@@ -220,39 +236,39 @@ impl super::Parse for CommonParser {
         };
 
         let data = &value[i..];
+        let mut incoming_payload_cnt = 0;
         let inner = match index {
-            b'0' => {
-                if data.is_empty() {
-                    PacketData::Connect(None)
-                } else {
-                    PacketData::Connect(serde_json::from_str(data)?)
-                }
-            }
+            b'0' => PacketData::Connect(deserialize_packet(&data).transpose()?.map(Value::Json)),
             b'1' => PacketData::Disconnect,
             b'2' => {
                 let (event, payload) = deserialize_event_packet(data)?;
                 PacketData::Event(event.into(), payload.into(), ack)
             }
             b'3' => {
-                let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
-                PacketData::EventAck(packet, ack.ok_or(Error::InvalidPacketType)?)
+                let packet = deserialize_packet(data).ok_or(Error::InvalidPacketType)??;
+                PacketData::EventAck(packet.into(), ack.ok_or(Error::InvalidPacketType)?)
             }
             b'5' => {
                 let (event, payload) = deserialize_event_packet(data)?;
-                PacketData::BinaryEvent(event.into(), new_incoming_bin_packet(payload.into()), ack)
+                let packet: BinaryPacket;
+                (packet, incoming_payload_cnt) = new_incoming_bin_packet(payload.into());
+                PacketData::BinaryEvent(event.into(), packet, ack)
             }
             b'6' => {
-                let packet = deserialize_packet(data)?.ok_or(Error::InvalidPacketType)?;
-                PacketData::BinaryAck(
-                    new_incoming_bin_packet(packet),
-                    ack.ok_or(Error::InvalidPacketType)?,
-                )
+                let payload = deserialize_packet(data).ok_or(Error::InvalidPacketType)??;
+                let packet: BinaryPacket;
+                (packet, incoming_payload_cnt) = new_incoming_bin_packet(payload);
+                PacketData::BinaryAck(packet, ack.ok_or(Error::InvalidPacketType)?)
             }
             _ => return Err(Error::InvalidPacketType),
         };
 
-        if inner.is_binary() && !inner.is_complete() {
+        if !is_bin_packet_complete(&inner, incoming_payload_cnt) {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(?incoming_payload_cnt, "storing partial binary packet:");
             *self.partial_bin_packet.lock().unwrap() = Some(Packet { inner, ns });
+            self.incoming_payload_cnt
+                .store(incoming_payload_cnt, Ordering::Release);
             Err(Error::NeedsMoreBinaryData)
         } else {
             Ok(Packet { inner, ns })
@@ -260,8 +276,6 @@ impl super::Parse for CommonParser {
     }
 
     fn decode_bin(&self, data: Bytes) -> Result<Packet<'static>, Error> {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("[sid=] applying payload on packet"); // TODO: log sid
         let packet = &mut *self.partial_bin_packet.lock().unwrap();
         match packet {
             Some(Packet {
@@ -269,10 +283,14 @@ impl super::Parse for CommonParser {
                     PacketData::BinaryEvent(_, ref mut bin, _) | PacketData::BinaryAck(ref mut bin, _),
                 ..
             }) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("applying payload on packet");
                 bin.add_payload(data);
-                if !bin.is_complete() {
+                if self.incoming_payload_cnt.load(Ordering::Relaxed) > bin.bin.len() {
                     Err(Error::NeedsMoreBinaryData)
                 } else {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("binary packet complete");
                     Ok(packet.take().unwrap())
                 }
             }
@@ -302,7 +320,6 @@ fn get_size_hint(packet: &Packet<'_>) -> usize {
     const BINARY_PUNCTUATION_SIZE: usize = 2;
     const ACK_PUNCTUATION_SIZE: usize = 1;
     const NS_PUNCTUATION_SIZE: usize = 1;
-
     let data_size = match &packet.inner {
         Connect(Some(_)) => 0,
         Connect(None) => 0,
@@ -310,18 +327,18 @@ fn get_size_hint(packet: &Packet<'_>) -> usize {
         Event(_, _, Some(ack)) => ack.checked_ilog10().unwrap_or(0) as usize + ACK_PUNCTUATION_SIZE,
         Event(_, _, None) => 0,
         BinaryEvent(_, bin, None) => {
-            bin.payload_count.checked_ilog10().unwrap_or(0) as usize + BINARY_PUNCTUATION_SIZE
+            bin.bin.len().checked_ilog10().unwrap_or(0) as usize + BINARY_PUNCTUATION_SIZE
         }
         BinaryEvent(_, bin, Some(ack)) => {
             ack.checked_ilog10().unwrap_or(0) as usize
-                + bin.payload_count.checked_ilog10().unwrap_or(0) as usize
+                + bin.bin.len().checked_ilog10().unwrap_or(0) as usize
                 + ACK_PUNCTUATION_SIZE
                 + BINARY_PUNCTUATION_SIZE
         }
         EventAck(_, ack) => ack.checked_ilog10().unwrap_or(0) as usize + ACK_PUNCTUATION_SIZE,
         BinaryAck(bin, ack) => {
             ack.checked_ilog10().unwrap_or(0) as usize
-                + bin.payload_count.checked_ilog10().unwrap_or(0) as usize
+                + bin.bin.len().checked_ilog10().unwrap_or(0) as usize
                 + ACK_PUNCTUATION_SIZE
                 + BINARY_PUNCTUATION_SIZE
         }
@@ -360,17 +377,10 @@ fn deserialize_event_packet(data: &str) -> Result<(String, JsonValue), Error> {
     Ok((event, payload))
 }
 
-fn deserialize_packet<T: serde::de::DeserializeOwned>(
-    data: &str,
-) -> Result<Option<T>, serde_json::Error> {
+fn deserialize_packet(data: &str) -> Option<Result<JsonValue, serde_json::Error>> {
     #[cfg(feature = "tracing")]
     tracing::debug!("Deserializing packet: {:?}", data);
-    let packet = if data.is_empty() {
-        None
-    } else {
-        Some(serde_json::from_str(data)?)
-    };
-    Ok(packet)
+    (!data.is_empty()).then(|| serde_json::from_str(data))
 }
 
 fn add_bin_packet_placeholder(cnt: usize, arr: &mut Vec<JsonValue>) {
@@ -395,8 +405,8 @@ fn add_bin_packet_placeholder_cow(cnt: usize, arr: &mut Vec<Cow<'_, JsonValue>>)
 }
 
 /// Create a binary packet from incoming data and remove all placeholders and get the payload count
-fn new_incoming_bin_packet(mut data: JsonValue) -> BinaryPacket {
-    let payload_count = match &mut data {
+fn new_incoming_bin_packet(mut data: JsonValue) -> (BinaryPacket, usize) {
+    let incoming_payload_cnt = match &mut data {
         JsonValue::Array(ref mut v) => {
             let count = v.len();
             v.retain(|v| v.as_object().and_then(|o| o.get("_placeholder")).is_none());
@@ -415,11 +425,19 @@ fn new_incoming_bin_packet(mut data: JsonValue) -> BinaryPacket {
             }
         }
     };
+    (
+        BinaryPacket::new(Value::Json(data), vec![]),
+        incoming_payload_cnt,
+    )
+}
 
-    BinaryPacket {
-        data: Value::Json(data),
-        bin: Vec::new(),
-        payload_count,
+/// Check if the binary packet is complete, it means that all payloads have been received
+fn is_bin_packet_complete(packet: &PacketData<'_>, incoming_payload_cnt: usize) -> bool {
+    match &packet {
+        PacketData::BinaryEvent(_, bin, _) | PacketData::BinaryAck(bin, _) => {
+            incoming_payload_cnt == bin.bin.len()
+        }
+        _ => true,
     }
 }
 
@@ -468,12 +486,13 @@ mod test {
     #[test]
     fn packet_encode_connect() {
         let sid = Sid::new();
+        let value = Value::Json(serde_json::to_value(ConnectPacket { sid }).unwrap());
         let payload = format!("0{}", json!({ "sid": sid }));
-        let packet = encode(Packet::connect("/", sid, ProtocolVersion::V5));
+        let packet = encode(Packet::connect("/", value.clone(), ProtocolVersion::V5));
         assert_eq!(packet, payload);
 
         let payload = format!("0/admin™,{}", json!({ "sid": sid }));
-        let packet: String = encode(Packet::connect("/admin™", sid, ProtocolVersion::V5));
+        let packet: String = encode(Packet::connect("/admin™", value, ProtocolVersion::V5));
         assert_eq!(packet, payload);
     }
 
@@ -671,8 +690,7 @@ mod test {
                 "event".into(),
                 BinaryPacket {
                     bin: vec![Bytes::from_static(&[1])],
-                    data: json!([{"data": "value™"}]),
-                    payload_count: 1,
+                    data: json!([{"data": "value™"}]).into(),
                 },
                 ack,
             ),
@@ -756,8 +774,7 @@ mod test {
             inner: PacketData::BinaryAck(
                 BinaryPacket {
                     bin: vec![Bytes::from_static(&[1])],
-                    data: json!([{"data": "value™"}]),
-                    payload_count: 1,
+                    data: json!([{"data": "value™"}]).into(),
                 },
                 ack,
             ),
@@ -788,13 +805,14 @@ mod test {
     #[test]
     fn packet_size_hint() {
         let sid = Sid::new();
-        let packet = Packet::connect("/", sid, ProtocolVersion::V5);
+        let value = Value::Json(serde_json::to_value(ConnectPacket { sid }).unwrap());
+        let packet = Packet::connect("/", value.clone(), ProtocolVersion::V5);
         assert_eq!(get_size_hint(&packet), 1);
 
-        let packet = Packet::connect("/admin", sid, ProtocolVersion::V5);
+        let packet = Packet::connect("/admin", value.clone(), ProtocolVersion::V5);
         assert_eq!(get_size_hint(&packet), 8);
 
-        let packet = Packet::connect("admin", sid, ProtocolVersion::V4);
+        let packet = Packet::connect("admin", value.clone(), ProtocolVersion::V4);
         assert_eq!(get_size_hint(&packet), 8);
 
         let packet = Packet::disconnect("/");

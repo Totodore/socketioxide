@@ -44,8 +44,7 @@
 //! # use socketioxide::socket::Socket;
 //! # use std::sync::Arc;
 //! # use std::convert::Infallible;
-//! # use socketioxide::SocketIo;
-//! # use serde_json::Value;
+//! # use socketioxide::{SocketIo, Value};
 //!
 //! struct UserId(String);
 //!
@@ -79,7 +78,7 @@
 //!
 //!     fn from_message_parts(
 //!         s: &Arc<Socket<A>>,
-//!         _: &mut crate::Value
+//!         _: &mut Value,
 //!         _: &mut Vec<Bytes>,
 //!         _: &Option<i64>,
 //!     ) -> Result<Self, UserIdNotFound> {

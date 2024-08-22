@@ -7,15 +7,6 @@ use crate::{adapter::Adapter, parser::value::from_value, socket::Socket, Value};
 use bytes::Bytes;
 use serde::de::DeserializeOwned;
 
-/// Utility function to unwrap an array with a single element
-fn upwrap_array(v: &mut Value) {
-    match v {
-        Value::MsgPack(rmpv::Value::Array(vec)) => *v = Value::MsgPack(vec.pop().unwrap()),
-        Value::Json(serde_json::Value::Array(vec)) => *v = Value::Json(vec.pop().unwrap()),
-        _ => (),
-    };
-}
-
 /// An Extractor that returns the deserialized data without checking errors.
 /// If a deserialization error occurs, the handler won't be called
 /// and an error log will be print if the `tracing` feature is enabled.
@@ -28,11 +19,12 @@ where
     type Error = ParseError;
     fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Self::Error> {
         auth.as_ref()
-            .map(|a| from_value(a.clone())) //TODO: clone
+            .map(|a| from_value(a))
             .unwrap_or(serde_json::from_str::<T>("{}").map_err(Self::Error::from))
             .map(Data)
     }
 }
+
 impl<T, A> FromMessageParts<A> for Data<T>
 where
     T: DeserializeOwned,
@@ -45,8 +37,7 @@ where
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
-        upwrap_array(v);
-        from_value(v.clone()).map(Data)
+        Ok(Data(from_value(v)?))
     }
 }
 
@@ -62,7 +53,7 @@ where
     fn from_connect_parts(_: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Infallible> {
         let v: Result<T, ParseError> = auth
             .as_ref()
-            .map(|a| from_value(a.clone())) //TODO: clone
+            .map(|a| from_value(a)) //TODO: clone
             .unwrap_or(serde_json::from_str("{}").map_err(ParseError::from));
         Ok(TryData(v))
     }
@@ -79,8 +70,7 @@ where
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
-        upwrap_array(v);
-        Ok(TryData(from_value(v.clone())))
+        Ok(TryData(from_value(v)))
     }
 }
 

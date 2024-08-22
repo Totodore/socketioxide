@@ -23,9 +23,14 @@ impl Str {
     pub fn get(&self, index: usize) -> Option<&u8> {
         self.0.get(index)
     }
-    /// Creates [`Str`] instance from str slice, by copying it.
+    /// Creates a [`Str`] instance from str slice, by copying it.
     pub fn copy_from_slice(data: &str) -> Self {
         Str(Bytes::copy_from_slice(data.as_bytes()))
+    }
+    /// Creates a [`Str`] instance from a [`Bytes`] slice. It is the caller's responsibility to
+    /// ensure that the provided bytes are a valid utf8 string.
+    pub unsafe fn from_bytes_unchecked(data: Bytes) -> Self {
+        Str(data)
     }
 }
 /// This custom Hash implementation as a [`str`] is made to match with the [`Borrow`]

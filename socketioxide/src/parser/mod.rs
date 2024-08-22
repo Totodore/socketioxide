@@ -8,11 +8,12 @@ mod msgpack;
 pub mod value;
 
 pub use common::CommonParser;
-use engineioxide::Str;
 pub use msgpack::MsgPackParser;
+pub use value::Value;
+
+use engineioxide::Str;
 use serde::{de::DeserializeOwned, Serialize};
 use value::ParseError;
-pub use value::Value;
 
 use crate::packet::Packet;
 
@@ -61,12 +62,8 @@ pub trait Parse: Default {
     /// Convert any generic [`Value`] to deserializable data.
     ///
     /// The parser will be determined from the value given to deserialize.
-    fn from_value<T: DeserializeOwned>(&self, value: Value) -> Result<T, ParseError> {
-        let res = match value {
-            Value::Json(v) => serde_json::from_value(v)?,
-            Value::MsgPack(v) => rmpv::ext::from_value(v)?,
-        };
-        Ok(res)
+    fn from_value<T: DeserializeOwned>(&self, value: &Value) -> Result<T, ParseError> {
+        value::from_value(value)
     }
 }
 
@@ -78,6 +75,8 @@ pub trait Parse: Default {
 pub enum Parser {
     /// The default parser
     Common(CommonParser),
+    /// The MsgPack parser
+    MsgPack(MsgPackParser),
 }
 impl Default for Parser {
     fn default() -> Self {
@@ -90,6 +89,7 @@ impl Clone for Parser {
     fn clone(&self) -> Self {
         match self {
             Parser::Common(_) => Parser::Common(CommonParser::default()),
+            Parser::MsgPack(_) => Parser::MsgPack(MsgPackParser::default()),
         }
     }
 }
@@ -98,23 +98,33 @@ impl Parse for Parser {
     fn encode(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
         match self {
             Parser::Common(p) => p.encode(packet),
+            Parser::MsgPack(p) => p.encode(packet),
         }
     }
 
     fn decode_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error> {
-        match self {
+        let packet = match self {
             Parser::Common(p) => p.decode_bin(bin),
-        }
+            Parser::MsgPack(p) => p.decode_bin(bin),
+        };
+        #[cfg(feature = "tracing")]
+        tracing::debug!(?packet, "bin payload decoded:");
+        packet
     }
     fn decode_str(&self, data: Str) -> Result<Packet<'static>, Error> {
-        match self {
+        let packet = match self {
             Parser::Common(p) => p.decode_str(data),
-        }
+            Parser::MsgPack(p) => p.decode_str(data),
+        };
+        #[cfg(feature = "tracing")]
+        tracing::debug!(?packet, "str payload decoded:");
+        packet
     }
 
     fn to_value<T: Serialize>(&self, data: T) -> Result<Value, ParseError> {
         match self {
             Parser::Common(p) => p.to_value(data),
+            Parser::MsgPack(p) => p.to_value(data),
         }
     }
 }
@@ -153,6 +163,17 @@ pub enum Error {
     NeedsMoreBinaryData,
 
     /// Error serializing json packet
-    #[error("error serializing json packet: {0:?}")]
-    Serialize(#[from] serde_json::Error),
+    #[error("error serializing/deserializing packet: {0:?}")]
+    ParseError(#[from] value::ParseError),
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(error: serde_json::Error) -> Self {
+        Error::ParseError(ParseError::Json(error))
+    }
+}
+impl From<rmp_serde::decode::Error> for Error {
+    fn from(error: rmp_serde::decode::Error) -> Self {
+        Error::ParseError(ParseError::MsgPackDecode(error))
+    }
 }

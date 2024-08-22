@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
-use serde_json::Value;
+use rmpv::Value;
 use socketioxide::{
     extract::{AckSender, Bin, Data, SocketRef},
     SocketIo,
@@ -56,21 +56,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let (svc, io) = SocketIo::builder()
+    let mut builder = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .ack_timeout(Duration::from_millis(200))
         .connect_timeout(Duration::from_millis(1000))
-        .max_payload(1e6 as u64)
-        .build_svc();
+        .max_payload(1e6 as u64);
+
+    #[cfg(feature = "msgpack")]
+    {
+        builder = builder.with_parser(socketioxide::parser::Parser::MsgPack(Default::default()));
+    }
+
+    let (svc, io) = builder.build_svc();
 
     io.ns("/", on_connect);
     io.ns("/custom", on_connect);
 
-    #[cfg(feature = "v5")]
-    info!("Starting server with v5 protocol");
-    #[cfg(feature = "v4")]
-    info!("Starting server with v4 protocol");
+    #[cfg(all(feature = "v5", feature = "msgpack"))]
+    info!("Starting server with v5 protocol and msgpack parser");
+    #[cfg(all(feature = "v5", not(feature = "msgpack")))]
+    info!("Starting server with v5 protocol and common parser");
+    #[cfg(all(feature = "v4", feature = "msgpack"))]
+    info!("Starting server with v4 protocol and msgpack parser");
+    #[cfg(all(feature = "v4", not(feature = "msgpack")))]
+    info!("Starting server with v4 protocol and common parser");
+
     let listener = TcpListener::bind("127.0.0.1:3000").await?;
 
     // We start a loop to continuously accept incoming connections

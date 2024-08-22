@@ -68,19 +68,17 @@ impl<'a> Packet<'a> {
 
 impl<'a> Packet<'a> {
     /// Create a connect error packet for the given namespace with a message
-    pub fn connect_error(ns: impl Into<Str>, message: &str) -> Self {
-        let message = serde_json::to_string(message).unwrap();
-        let packet = format!(r#"{{"message":{}}}"#, message);
+    pub fn connect_error(ns: impl Into<Str>, message: impl Into<String>) -> Self {
         Self {
-            inner: PacketData::ConnectError(packet),
+            inner: PacketData::ConnectError(message.into()),
             ns: ns.into(),
         }
     }
 
     /// Create an event packet for the given namespace
-    pub fn event(ns: impl Into<Str>, e: impl Into<Cow<'a, str>>, data: Value) -> Self {
+    pub fn event(ns: impl Into<Str>, e: impl Into<Cow<'a, str>>, data: impl Into<Value>) -> Self {
         Self {
-            inner: PacketData::Event(e.into(), data, None),
+            inner: PacketData::Event(e.into(), data.into(), None),
             ns: ns.into(),
         }
     }
@@ -89,27 +87,27 @@ impl<'a> Packet<'a> {
     pub fn bin_event(
         ns: impl Into<Str>,
         e: impl Into<Cow<'a, str>>,
-        data: Value,
+        data: impl Into<Value>,
         bin: Vec<Bytes>,
     ) -> Self {
         Self {
-            inner: PacketData::BinaryEvent(e.into(), BinaryPacket::new(data, bin), None),
+            inner: PacketData::BinaryEvent(e.into(), BinaryPacket::new(data.into(), bin), None),
             ns: ns.into(),
         }
     }
 
     /// Create an ack packet for the given namespace
-    pub fn ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {
+    pub fn ack(ns: impl Into<Str>, data: impl Into<Value>, ack: i64) -> Self {
         Self {
-            inner: PacketData::EventAck(data, ack),
+            inner: PacketData::EventAck(data.into(), ack),
             ns: ns.into(),
         }
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: impl Into<Str>, data: Value, bin: Vec<Bytes>, ack: i64) -> Self {
+    pub fn bin_ack(ns: impl Into<Str>, data: impl Into<Value>, bin: Vec<Bytes>, ack: i64) -> Self {
         Self {
-            inner: PacketData::BinaryAck(BinaryPacket::new(data, bin), ack),
+            inner: PacketData::BinaryAck(BinaryPacket::new(data.into(), bin), ack),
             ns: ns.into(),
         }
     }
@@ -149,8 +147,6 @@ pub struct BinaryPacket {
     pub data: Value,
     /// Binary payload
     pub bin: Vec<Bytes>,
-    /// The number of expected payloads (used when receiving data)
-    pub payload_count: usize,
 }
 
 impl<'a> PacketData<'a> {
@@ -184,41 +180,24 @@ impl<'a> PacketData<'a> {
             PacketData::BinaryEvent(_, _, _) | PacketData::BinaryAck(_, _)
         )
     }
-
-    /// Check if the binary packet is complete, it means that all payloads have been received
-    pub(crate) fn is_complete(&self) -> bool {
-        match self {
-            PacketData::BinaryEvent(_, bin, _) | PacketData::BinaryAck(bin, _) => {
-                bin.payload_count == bin.bin.len()
-            }
-            _ => true,
-        }
-    }
 }
 
 impl BinaryPacket {
-    /// Create a new binary packet.
+    /// Create a new outgoing binary packet.
     pub fn new(data: Value, bin: Vec<Bytes>) -> BinaryPacket {
-        let payload_count = bin.len();
-        BinaryPacket {
-            data,
-            bin,
-            payload_count,
-        }
+        BinaryPacket { data, bin }
     }
+
     /// Add a payload to the binary packet, when all payloads are added,
     /// the packet is complete and can be further processed
     pub fn add_payload<B: Into<Bytes>>(&mut self, payload: B) {
         self.bin.push(payload.into());
-    }
-    /// Check if the binary packet is complete, it means that all payloads have been received
-    pub fn is_complete(&self) -> bool {
-        self.payload_count == self.bin.len()
     }
 }
 
 /// Connect packet sent by the client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectPacket {
-    pub(crate) sid: Sid,
+    /// The socket ID
+    pub sid: Sid,
 }

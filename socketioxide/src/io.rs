@@ -70,8 +70,8 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// Creates a new [`SocketIoBuilder`] with default config
     pub fn new() -> Self {
         Self {
-            config: SocketIoConfig::default(),
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
+            config: SocketIoConfig::default(),
             adapter: std::marker::PhantomData,
             #[cfg(feature = "state")]
             state: std::default::Default::default(),
@@ -162,6 +162,13 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// Sets a custom [`Parser`] for this [`SocketIoBuilder`]
+    #[inline]
+    pub fn with_parser(mut self, parser: Parser) -> Self {
+        self.config.parser = parser;
+        self
+    }
+
     /// Sets a custom [`Adapter`] for this [`SocketIoBuilder`]
     pub fn with_adapter<B: Adapter>(self) -> SocketIoBuilder<B> {
         SocketIoBuilder {
@@ -205,7 +212,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// It can be used as a hyper service
     pub fn build_svc(mut self) -> (SocketIoService<NotFoundService, A>, SocketIo<A>) {
         self.config.engine_config = self.engine_config_builder.build();
-
         let (svc, client) = SocketIoService::with_config_inner(
             NotFoundService,
             self.config,

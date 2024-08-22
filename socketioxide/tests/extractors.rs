@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use socketioxide::extract::{Data, Extension, MaybeExtension, SocketRef, State, TryData};
 use socketioxide::handler::ConnectHandler;
+use socketioxide::parser::value::ParseError;
 use socketioxide::parser::{CommonParser, Parse};
 use tokio::sync::mpsc;
 
@@ -99,7 +100,7 @@ pub async fn data_extractor() {
 #[tokio::test]
 pub async fn try_data_extractor() {
     let (_, io) = SocketIo::new_svc();
-    let (tx, mut rx) = mpsc::channel::<Result<String, serde_json::Error>>(4);
+    let (tx, mut rx) = mpsc::channel::<Result<String, ParseError>>(4);
     io.ns("/", move |s: SocketRef, TryData(data): TryData<String>| {
         assert_ok!(tx.try_send(data));
         s.on("test", move |TryData(data): TryData<String>| {

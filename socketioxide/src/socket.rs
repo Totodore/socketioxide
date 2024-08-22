@@ -853,11 +853,11 @@ mod test {
         // Saturate the channel
         for _ in 0..1024 {
             socket
-                .send(Packet::event("test", "test", Value::Null))
+                .send(Packet::event("test", "test", serde_json::Value::Null))
                 .unwrap();
         }
 
-        let ack = socket.emit_with_ack::<_, Value>("test", Value::Null);
+        let ack = socket.emit_with_ack::<_, Value>("test", serde_json::Value::Null);
         assert!(matches!(
             ack,
             Err(SendError::Socket(SocketError::InternalChannelFull(_)))

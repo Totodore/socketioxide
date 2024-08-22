@@ -114,7 +114,7 @@ impl<A: Adapter> Client<A> {
             ns.recv(sid, packet.inner)
         } else {
             #[cfg(feature = "tracing")]
-            tracing::debug!("invalid namespace requested: {}", packet.ns);
+            tracing::debug!(?sid, "invalid namespace requested: {}", packet.ns);
             Ok(())
         }
     }
@@ -277,7 +277,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
     fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
-        tracing::debug!("Received message: {:?}", msg);
+        tracing::debug!("received message: {:?}", msg);
         let packet = match socket.data.parser().decode_str(msg) {
             Ok(packet) => packet,
             Err(parser::Error::NeedsMoreBinaryData) => return,
@@ -315,6 +315,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     ///
     /// If the packet is complete, it is propagated to the namespace
     fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("received binary: {:?}", &data);
         let packet = match socket.data.parser().decode_bin(data) {
             Ok(packet) => packet,
             Err(parser::Error::NeedsMoreBinaryData) => return,
@@ -325,7 +327,15 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
                 return;
             }
         };
-        if let Err(ref err) = self.sock_propagate_packet(packet, socket.id) {
+
+        let res: Result<(), Error> = match packet.inner {
+            PacketData::Connect(auth) => {
+                self.sock_connect(auth, packet.ns, &socket);
+                Ok(())
+            }
+            _ => self.sock_propagate_packet(packet, socket.id),
+        };
+        if let Err(ref err) = res {
             #[cfg(feature = "tracing")]
             tracing::debug!(
                 "error while propagating packet to socket {}: {}",
