@@ -69,7 +69,7 @@ pub trait Parse: Default {
 
 /// All the parser available.
 /// It also implements the [`Parse`] trait and therefore the
-/// parser implementation is done over enum dispatch.
+/// parser implementation is done over enum delegation.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum Parser {

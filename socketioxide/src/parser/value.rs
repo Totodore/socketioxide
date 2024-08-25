@@ -6,13 +6,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[serde(untagged)]
 pub enum Value {
     Json(serde_json::Value),
-    MsgPack(MsgPackValue),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct MsgPackValue {
-    pub(crate) data: Bytes,
-    pub(crate) attachments: usize,
+    MsgPack(Bytes),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -26,7 +20,7 @@ pub enum ParseError {
 }
 
 impl Value {
-    pub(crate) fn to_msgpack(self) -> Option<MsgPackValue> {
+    pub(crate) fn to_msgpack(self) -> Option<Bytes> {
         match self {
             Value::Json(_) => None,
             Value::MsgPack(data) => Some(data),
@@ -38,21 +32,10 @@ impl Value {
             Value::MsgPack(_) => None,
         }
     }
-    pub(crate) fn has_binary(&self) -> bool {
-        match &self {
-            Value::MsgPack(MsgPackValue { attachments, .. }) => *attachments > 0,
-            Value::Json(_) => false,
-        }
-    }
 }
 impl<T: Into<serde_json::Value>> From<T> for Value {
     fn from(value: T) -> Self {
         Value::Json(value.into())
-    }
-}
-impl From<MsgPackValue> for Value {
-    fn from(value: MsgPackValue) -> Self {
-        Value::MsgPack(value)
     }
 }
 
@@ -60,7 +43,7 @@ impl From<MsgPackValue> for Value {
 pub fn from_value<'de, T: DeserializeOwned>(value: &Value) -> Result<T, ParseError> {
     let res = match value {
         Value::Json(v) => T::deserialize(v)?,
-        Value::MsgPack(v) => rmp_serde::decode::from_slice(&v.data)?,
+        Value::MsgPack(v) => rmp_serde::decode::from_slice(&v)?,
     };
     Ok(res)
 }

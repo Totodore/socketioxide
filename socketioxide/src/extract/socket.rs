@@ -125,7 +125,7 @@ impl<A: Adapter> AckSender<A> {
             };
             let ns = self.socket.ns.path.clone();
             let data = self.socket.parser().to_value(data)?;
-            let packet = if self.binary.is_empty() && !data.has_binary() {
+            let packet = if self.binary.is_empty() {
                 Packet::ack(ns, data, ack_id)
             } else {
                 Packet::bin_ack(ns, data, self.binary, ack_id)

@@ -3,7 +3,7 @@ use std::{borrow::Cow, io::Cursor, ops::Range};
 
 use crate::{
     packet::{BinaryPacket, Packet, PacketData},
-    parser::value::{MsgPackValue, ParseError},
+    parser::value::ParseError,
     Value,
 };
 use bytes::{Buf, BufMut, Bytes};
@@ -25,44 +25,23 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet<'static>, ParseError> {
     let mut index = 0xff;
     let mut nsp = Str::default();
     let mut data_pos: Range<usize> = 0..0;
-    let mut attachments = 0;
     let mut id = None;
 
     for _ in 0..maplen {
-        parse_key_value(
-            &mut reader,
-            &mut index,
-            &mut nsp,
-            &mut data_pos,
-            &mut attachments,
-            &mut id,
-        )?;
+        parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)?;
     }
     let buff = reader.into_inner();
     let inner = match index {
-        0 => PacketData::Connect((!data_pos.is_empty()).then(|| {
-            Value::MsgPack(MsgPackValue {
-                data: buff.slice(data_pos),
-                attachments: 0,
-            })
-        })),
+        0 => PacketData::Connect(
+            (!data_pos.is_empty()).then(|| Value::MsgPack(buff.slice(data_pos))),
+        ),
         1 => PacketData::Disconnect,
         2 => {
             let (event, data) = read_data_event(buff.slice(data_pos))?;
-            PacketData::Event(
-                Cow::Owned(event.into()),
-                Value::MsgPack(MsgPackValue {
-                    data,
-                    attachments: 0,
-                }),
-                id,
-            )
+            PacketData::Event(Cow::Owned(event.into()), Value::MsgPack(data), id)
         }
         3 => PacketData::EventAck(
-            Value::MsgPack(MsgPackValue {
-                data: buff.slice(data_pos).into(),
-                attachments: 0,
-            }),
+            Value::MsgPack(buff.slice(data_pos)),
             id.ok_or(DecodeError::Uncategorized(
                 "event ack id not present".to_string(),
             ))?,
@@ -79,16 +58,13 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet<'static>, ParseError> {
             let (event, data) = read_data_event(buff.slice(data_pos))?;
             PacketData::BinaryEvent(
                 Cow::Owned(event.into()),
-                BinaryPacket::new(MsgPackValue { data, attachments }.into(), vec![]),
+                BinaryPacket::new(Value::MsgPack(data), vec![]),
                 id,
             )
         }
         6 => PacketData::BinaryAck(
             BinaryPacket {
-                data: Value::MsgPack(MsgPackValue {
-                    data: buff.slice(data_pos).into(),
-                    attachments,
-                }),
+                data: Value::MsgPack(buff.slice(data_pos)),
                 bin: Vec::new(),
             },
             id.ok_or(DecodeError::Uncategorized(
@@ -106,7 +82,6 @@ fn parse_key_value(
     index: &mut usize,
     nsp: &mut Str,
     data_pos: &mut Range<usize>,
-    attachments: &mut usize,
     id: &mut Option<i64>,
 ) -> Result<(), DecodeError> {
     let key = read_str(reader)?;
@@ -124,9 +99,6 @@ fn parse_key_value(
             move_to_next_element(reader)?;
             let end = reader.position() as usize;
             *data_pos = start..end;
-        }
-        "attachments" => {
-            *attachments = rmp::decode::read_int::<usize, _>(reader)?;
         }
         "id" => {
             *id = Some(rmp::decode::read_int::<i64, _>(reader)?);
@@ -297,7 +269,7 @@ mod tests {
         rmp::encode::write_str(&mut data, "connect_data").unwrap();
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
-        if let PacketData::Connect(Some(Value::MsgPack(MsgPackValue { data, .. }))) = packet.inner {
+        if let PacketData::Connect(Some(Value::MsgPack(data))) = packet.inner {
             assert!(matches!(
                 rmp_serde::decode::from_slice::<&str>(&data),
                 Ok("connect_data")
@@ -333,11 +305,8 @@ mod tests {
 
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
-        if let PacketData::Event(event_name, Value::MsgPack(MsgPackValue { data, .. }), _) =
-            packet.inner
-        {
+        if let PacketData::Event(event_name, Value::MsgPack(data), _) = packet.inner {
             assert_eq!(event_name, "event_name");
-            dbg!(&data);
             rmp_serde::decode::from_slice::<(&str,)>(&data).unwrap();
             assert!(matches!(
                 rmp_serde::decode::from_slice::<(&str,)>(&data),
@@ -359,7 +328,7 @@ mod tests {
 
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
-        if let PacketData::EventAck(Value::MsgPack(MsgPackValue { data, .. }), id) = packet.inner {
+        if let PacketData::EventAck(Value::MsgPack(data), id) = packet.inner {
             assert_eq!(id, 123);
             assert!(matches!(
                 rmp_serde::decode::from_slice::<(&str,)>(&data),
@@ -389,7 +358,7 @@ mod tests {
 
     #[test]
     fn deserialize_binary_event_packet() {
-        let mut data = create_packet_with_type(5, "/", 2);
+        let mut data = create_packet_with_type(5, "/", 1);
         rmp::encode::write_str(&mut data, "data").unwrap();
         rmp::encode::write_array_len(&mut data, 2).unwrap(); // Event name and one argument
         rmp::encode::write_str(&mut data, "binary_event").unwrap();
@@ -399,15 +368,12 @@ mod tests {
         rmp::encode::write_str(&mut data, "test").unwrap();
         rmp::encode::write_sint(&mut data, 1).unwrap();
 
-        rmp::encode::write_str(&mut data, "attachments").unwrap();
-        rmp::encode::write_sint(&mut data, 1).unwrap();
-
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
         if let PacketData::BinaryEvent(
             event_name,
             BinaryPacket {
-                data: Value::MsgPack(MsgPackValue { data, attachments }),
+                data: Value::MsgPack(data),
                 bin,
             },
             _,
@@ -424,7 +390,6 @@ mod tests {
                     rmp_serde::decode::from_slice::<(TestStruct,)>(&data),
                     Ok((TestStruct { binary_data, test },)) if binary_data == [1, 2, 3, 4] && test == 1
             ));
-            assert_eq!(attachments, 1);
             assert!(bin.is_empty());
         } else {
             panic!("Expected PacketData::BinaryEvent");
@@ -433,7 +398,7 @@ mod tests {
 
     #[test]
     fn deserialize_binary_ack_packet() {
-        let mut data = create_packet_with_type(6, "/", 3);
+        let mut data = create_packet_with_type(6, "/", 2);
         rmp::encode::write_str(&mut data, "data").unwrap();
         rmp::encode::write_array_len(&mut data, 1).unwrap();
         rmp::encode::write_map_len(&mut data, 2).unwrap(); // { binary_data: [1, 2, 3, 4], test: 1 }
@@ -444,14 +409,12 @@ mod tests {
 
         rmp::encode::write_str(&mut data, "id").unwrap();
         rmp::encode::write_sint(&mut data, 456).unwrap();
-        rmp::encode::write_str(&mut data, "attachments").unwrap();
-        rmp::encode::write_sint(&mut data, 1).unwrap();
 
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
         if let PacketData::BinaryAck(
             BinaryPacket {
-                data: Value::MsgPack(MsgPackValue { data, attachments }),
+                data: Value::MsgPack(data),
                 bin,
             },
             id,
@@ -467,7 +430,6 @@ mod tests {
                     rmp_serde::decode::from_slice(&data),
                     Ok((TestStruct { binary_data, test },)) if binary_data == [1, 2, 3, 4] && test == 1
             ));
-            assert_eq!(attachments, 1);
             assert!(bin.is_empty());
         } else {
             panic!("Expected PacketData::BinaryAck");

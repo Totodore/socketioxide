@@ -17,7 +17,7 @@ pub fn serialize_packet(packet: Packet<'_>) -> Vec<u8> {
     match packet.inner {
         PacketData::Event(event, data, id) => {
             rmp::encode::write_str(&mut buff, "data").unwrap();
-            serialize_event_data(&event, &data.to_msgpack().unwrap().data, &mut buff);
+            serialize_event_data(&event, &data.to_msgpack().unwrap(), &mut buff);
             if let Some(id) = id {
                 serialize_id(&mut buff, id);
             }
@@ -25,28 +25,26 @@ pub fn serialize_packet(packet: Packet<'_>) -> Vec<u8> {
         PacketData::BinaryEvent(event, bin, id) => {
             rmp::encode::write_str(&mut buff, "data").unwrap();
             let value = bin.data.to_msgpack().unwrap();
-            serialize_event_data(&event, &value.data, &mut buff);
+            serialize_event_data(&event, &value, &mut buff);
 
-            serialize_attachments(&mut buff, value.attachments);
             if let Some(id) = id {
                 serialize_id(&mut buff, id);
             }
         }
         PacketData::EventAck(data, id) => {
             rmp::encode::write_str(&mut buff, "data").unwrap();
-            serialize_ack_data(&data.to_msgpack().unwrap().data, &mut buff);
+            serialize_ack_data(&data.to_msgpack().unwrap(), &mut buff);
             serialize_id(&mut buff, id);
         }
         PacketData::BinaryAck(bin, id) => {
             rmp::encode::write_str(&mut buff, "data").unwrap();
             let value = bin.data.to_msgpack().unwrap();
-            serialize_ack_data(&value.data, &mut buff);
-            serialize_attachments(&mut buff, value.attachments);
+            serialize_ack_data(&value, &mut buff);
             serialize_id(&mut buff, id);
         }
         PacketData::Connect(Some(data)) => {
             rmp::encode::write_str(&mut buff, "data").unwrap();
-            buff.put_slice(&data.to_msgpack().unwrap().data)
+            buff.put_slice(&data.to_msgpack().unwrap())
         }
         PacketData::ConnectError(data) => {
             rmp::encode::write_str(&mut buff, "data").unwrap();
@@ -87,10 +85,7 @@ fn serialize_id(buff: &mut Vec<u8>, id: i64) {
     rmp::encode::write_str(buff, "id").unwrap();
     rmp::encode::write_sint(buff, id).unwrap();
 }
-fn serialize_attachments(buff: &mut Vec<u8>, len: usize) {
-    rmp::encode::write_str(buff, "attachments").unwrap();
-    rmp::encode::write_uint(buff, len as u64).unwrap();
-}
+
 /// Serialize ack data in place to the following form: `[data]`
 fn serialize_ack_data(data: &[u8], buff: &mut Vec<u8>) {
     let mut bytes = Bytes::new(data);
@@ -214,10 +209,6 @@ mod tests {
         assert_eq!(read_bin_len(&mut bytes).unwrap(), 4);
         bytes.read_exact_buf(&mut buff).unwrap();
         assert_eq!(&buff, BIN.as_ref());
-
-        // Check the attachments
-        assert_str(&mut bytes, "attachments");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), 2);
 
         // Check the ID
         assert_str(&mut bytes, "id");

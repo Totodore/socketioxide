@@ -491,7 +491,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ) -> Result<Packet<'static>, ParseError> {
         let ns = self.socket.ns.path.clone();
         let data = self.socket.parser().to_value(data)?;
-        let packet = if self.binary.is_empty() && !data.has_binary() {
+        let packet = if self.binary.is_empty() {
             Packet::event(ns, event.into(), data)
         } else {
             let binary = std::mem::take(&mut self.binary);
