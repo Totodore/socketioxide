@@ -22,6 +22,16 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet<'static>, ParseError> {
         }
     })?;
 
+    // Bound check to prevent DoS attacks.
+    // other implementations might add some other keys that we don't support
+    // Therefore, we limit the number of keys to 20
+    if maplen == 0 || maplen > 20 {
+        Err(DecodeError::Uncategorized(format!(
+            "packet length too big or empty: {}",
+            maplen
+        )))?;
+    }
+
     let mut index = 0xff;
     let mut nsp = Str::default();
     let mut data_pos: Range<usize> = 0..0;
@@ -103,7 +113,7 @@ fn parse_key_value(
         "id" => {
             *id = Some(rmp::decode::read_int::<i64, _>(reader)?);
         }
-        key => Err(DecodeError::Syntax(key.to_string()))?,
+        _ => (),
     };
     Ok(())
 }
