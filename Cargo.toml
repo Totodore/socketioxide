@@ -14,8 +14,8 @@ categories = [
 license = "MIT"
 
 [workspace]
-members = ["engineioxide", "socketioxide", "e2e/*"]
-default-members = ["engineioxide", "socketioxide"]
+members = ["crates/*", "e2e/*"]
+default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]

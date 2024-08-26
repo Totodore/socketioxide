@@ -12,7 +12,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-socketioxide = { path = "../../socketioxide", default-features = false, features = [
+socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
     "tracing",
 ] }
 hyper-util = { workspace = true, features = ["tokio"] }
