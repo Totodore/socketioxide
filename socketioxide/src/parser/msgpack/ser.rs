@@ -1,5 +1,5 @@
 use bytes::BufMut;
-use rmp::{decode::Bytes, Marker};
+use rmp::Marker;
 
 use crate::packet::{Packet, PacketData};
 
@@ -64,14 +64,14 @@ pub fn serialize_packet(packet: Packet<'_>) -> Vec<u8> {
 /// - `data`: preserialized msgpack data
 /// - `buff`: a output buffer to write into
 fn serialize_event_data(event: &str, data: &[u8], buff: &mut Vec<u8>) {
-    let marker = rmp::decode::read_marker(&mut Bytes::new(data)).unwrap();
+    let marker = Marker::from_u8(data[0]);
     match marker {
         Marker::FixArray(_) | Marker::Array16 | Marker::Array32 => {
-            let mut bytes = Bytes::new(data);
-            let arr_len = rmp::decode::read_array_len(&mut bytes).unwrap();
+            let mut cursor = data;
+            let arr_len = rmp::decode::read_array_len(&mut cursor).unwrap();
             rmp::encode::write_array_len(buff, arr_len + 1).unwrap();
             rmp::encode::write_str(buff, event).unwrap();
-            buff.put_slice(bytes.remaining_slice());
+            buff.put_slice(cursor);
         }
         _ => {
             rmp::encode::write_array_len(buff, 2).unwrap();
@@ -88,8 +88,7 @@ fn serialize_id(buff: &mut Vec<u8>, id: i64) {
 
 /// Serialize ack data in place to the following form: `[data]`
 fn serialize_ack_data(data: &[u8], buff: &mut Vec<u8>) {
-    let mut bytes = Bytes::new(data);
-    let marker = rmp::decode::read_marker(&mut bytes).unwrap();
+    let marker = Marker::from_u8(data[0]);
     match marker {
         Marker::FixArray(_) | Marker::Array16 | Marker::Array32 => {
             buff.put_slice(data);
@@ -126,15 +125,17 @@ mod tests {
     use crate::parser::MsgPackParser;
     use crate::parser::Parse;
     use crate::Value;
+    use ::bytes::Bytes;
     use rmp::decode::*;
     use rmp::encode::*;
+    use std::io::Cursor;
     use std::u8;
 
-    const BIN: ::bytes::Bytes = ::bytes::Bytes::from_static(&[1, 2, 3, 4]);
+    const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);
 
-    fn assert_str(bytes: &mut Bytes<'_>, val: &str) {
+    fn assert_str(reader: &mut Cursor<Vec<u8>>, val: &str) {
         let mut buff = [0; 256];
-        assert_eq!(read_str(bytes, &mut buff).unwrap(), val);
+        assert_eq!(read_str(reader, &mut buff).unwrap(), val);
     }
     fn to_msgpack(value: impl serde::Serialize) -> Value {
         MsgPackParser::default().to_value(value).unwrap()
@@ -148,26 +149,26 @@ mod tests {
         };
         let index = packet.inner.index();
         let serialized = serialize_packet(packet);
-        let mut bytes = Bytes::new(&serialized);
+        let mut reader = Cursor::new(serialized);
 
-        assert_eq!(read_map_len(&mut bytes).unwrap(), 4);
-        assert_str(&mut bytes, "type");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), index);
-        assert_str(&mut bytes, "nsp");
-        assert_str(&mut bytes, "/test");
-        assert_str(&mut bytes, "data");
+        assert_eq!(read_map_len(&mut reader).unwrap(), 4);
+        assert_str(&mut reader, "type");
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), index);
+        assert_str(&mut reader, "nsp");
+        assert_str(&mut reader, "/test");
+        assert_str(&mut reader, "data");
 
-        dbg!(&bytes);
+        dbg!(&reader);
         // Check the event data structure
-        assert_eq!(read_array_len(&mut bytes).unwrap(), 4);
-        assert_str(&mut bytes, "test_event");
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 1);
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 2);
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 3);
+        assert_eq!(read_array_len(&mut reader).unwrap(), 4);
+        assert_str(&mut reader, "test_event");
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 1);
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 2);
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 3);
 
         // Check the ID
-        assert_str(&mut bytes, "id");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), 42);
+        assert_str(&mut reader, "id");
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), 42);
     }
 
     #[test]
@@ -185,34 +186,34 @@ mod tests {
         };
         let index = packet.inner.index();
         let serialized = serialize_packet(packet);
-        let mut bytes = Bytes::new(&serialized);
+        let mut reader = Cursor::new(serialized);
 
-        assert_eq!(read_map_len(&mut bytes).unwrap(), 5);
-        assert_str(&mut bytes, "type");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), index);
-        assert_str(&mut bytes, "nsp");
-        assert_str(&mut bytes, "/binary");
-        assert_str(&mut bytes, "data");
+        assert_eq!(read_map_len(&mut reader).unwrap(), 5);
+        assert_str(&mut reader, "type");
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), index);
+        assert_str(&mut reader, "nsp");
+        assert_str(&mut reader, "/binary");
+        assert_str(&mut reader, "data");
 
         // Check the event data structure
-        assert_eq!(read_array_len(&mut bytes).unwrap(), 6);
-        assert_str(&mut bytes, "bin_event");
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 1);
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 2);
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 3);
+        assert_eq!(read_array_len(&mut reader).unwrap(), 6);
+        assert_str(&mut reader, "bin_event");
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 1);
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 2);
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 3);
 
         let mut buff = [0; 4];
-        assert_eq!(read_bin_len(&mut bytes).unwrap(), 4);
-        bytes.read_exact_buf(&mut buff).unwrap();
+        assert_eq!(read_bin_len(&mut reader).unwrap(), 4);
+        reader.read_exact_buf(&mut buff).unwrap();
         assert_eq!(&buff, BIN.as_ref());
 
-        assert_eq!(read_bin_len(&mut bytes).unwrap(), 4);
-        bytes.read_exact_buf(&mut buff).unwrap();
+        assert_eq!(read_bin_len(&mut reader).unwrap(), 4);
+        reader.read_exact_buf(&mut buff).unwrap();
         assert_eq!(&buff, BIN.as_ref());
 
         // Check the ID
-        assert_str(&mut bytes, "id");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), 99);
+        assert_str(&mut reader, "id");
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), 99);
     }
 
     #[test]
@@ -224,25 +225,25 @@ mod tests {
 
         let index = packet.inner.index();
         let serialized = serialize_packet(packet);
-        let mut bytes = Bytes::new(&serialized);
+        let mut reader = Cursor::new(serialized);
 
-        assert_eq!(read_map_len(&mut bytes).unwrap(), 4);
-        assert_str(&mut bytes, "type");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), index);
-        assert_str(&mut bytes, "nsp");
-        assert_str(&mut bytes, "/ack");
-        assert_str(&mut bytes, "data");
+        assert_eq!(read_map_len(&mut reader).unwrap(), 4);
+        assert_str(&mut reader, "type");
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), index);
+        assert_str(&mut reader, "nsp");
+        assert_str(&mut reader, "/ack");
+        assert_str(&mut reader, "data");
 
         // Check the ack data structure
-        let data_len = read_array_len(&mut bytes).unwrap();
+        let data_len = read_array_len(&mut reader).unwrap();
         assert_eq!(data_len, 3); // Acknowledgement wraps the data in an array
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 4);
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 5);
-        assert_eq!(read_int::<u8, _>(&mut bytes).unwrap(), 6);
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 4);
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 5);
+        assert_eq!(read_int::<u8, _>(&mut reader).unwrap(), 6);
 
         // Check the ID
-        assert_str(&mut bytes, "id");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), 100);
+        assert_str(&mut reader, "id");
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), 100);
     }
 
     #[test]
@@ -253,18 +254,18 @@ mod tests {
         };
         let index = packet.inner.index();
         let serialized = serialize_packet(packet);
-        let mut bytes = Bytes::new(&serialized);
+        let mut reader = Cursor::new(serialized);
 
-        assert_eq!(read_map_len(&mut bytes).unwrap(), 3);
-        assert_str(&mut bytes, "type");
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), index);
-        assert_str(&mut bytes, "nsp");
-        assert_str(&mut bytes, "/error");
-        assert_str(&mut bytes, "data");
+        assert_eq!(read_map_len(&mut reader).unwrap(), 3);
+        assert_str(&mut reader, "type");
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), index);
+        assert_str(&mut reader, "nsp");
+        assert_str(&mut reader, "/error");
+        assert_str(&mut reader, "data");
 
-        assert_eq!(read_map_len(&mut bytes).unwrap(), 1);
-        assert_str(&mut bytes, "message");
-        assert_str(&mut bytes, "Error message");
+        assert_eq!(read_map_len(&mut reader).unwrap(), 1);
+        assert_str(&mut reader, "message");
+        assert_str(&mut reader, "Error message");
     }
 
     #[test]
@@ -281,15 +282,15 @@ mod tests {
         serialize_event_data(EVENT, &data, &mut buff);
 
         // Verify that the buffer contains the expected serialized data
-        let marker = read_marker(&mut Bytes::new(&buff)).unwrap();
+        let marker = Marker::from_u8(buff[0]);
         assert!(matches!(marker, Marker::FixArray(3)));
 
-        let mut bytes = Bytes::new(&buff);
+        let mut reader = Cursor::new(buff);
 
-        assert_eq!(read_array_len(&mut bytes).unwrap(), 3);
-        assert_str(&mut bytes, EVENT);
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), 42);
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), 43);
+        assert_eq!(read_array_len(&mut reader).unwrap(), 3);
+        assert_str(&mut reader, EVENT);
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), 42);
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), 43);
     }
 
     #[test]
@@ -304,13 +305,13 @@ mod tests {
         serialize_event_data(EVENT, &data, &mut buff);
 
         // Verify that the buffer contains the expected serialized data
-        let marker = read_marker(&mut Bytes::new(&buff)).unwrap();
+        let marker = Marker::from_u8(buff[0]);
         assert!(matches!(marker, Marker::FixArray(2)));
 
-        let mut bytes = Bytes::new(&buff);
-        assert_eq!(read_array_len(&mut bytes).unwrap(), 2);
-        assert_str(&mut bytes, EVENT);
-        assert_eq!(read_int::<usize, _>(&mut bytes).unwrap(), 42);
+        let mut reader = Cursor::new(buff);
+        assert_eq!(read_array_len(&mut reader).unwrap(), 2);
+        assert_str(&mut reader, EVENT);
+        assert_eq!(read_int::<usize, _>(&mut reader).unwrap(), 42);
     }
 
     #[test]
@@ -325,14 +326,14 @@ mod tests {
         serialize_event_data(EVENT, &data, &mut buff);
 
         // Verify that the buffer contains the expected serialized data
-        let marker = read_marker(&mut Bytes::new(&buff)).unwrap();
+        let marker = Marker::from_u8(buff[0]);
         assert!(matches!(marker, Marker::FixArray(2)));
 
-        let mut bytes = Bytes::new(&buff);
-        assert_eq!(read_array_len(&mut bytes).unwrap(), 2);
+        let mut reader = Cursor::new(buff);
+        assert_eq!(read_array_len(&mut reader).unwrap(), 2);
 
-        assert_str(&mut bytes, EVENT);
-        assert_str(&mut bytes, "hello");
+        assert_str(&mut reader, EVENT);
+        assert_str(&mut reader, "hello");
     }
 
     #[test]
@@ -347,7 +348,7 @@ mod tests {
         serialize_ack_data(&data, &mut buff);
 
         // Verify that the marker is still an array and nothing changed
-        let marker = read_marker(&mut Bytes::new(&buff)).unwrap();
+        let marker = Marker::from_u8(buff[0]);
         assert!(matches!(marker, Marker::FixArray(2)));
     }
 
@@ -361,7 +362,7 @@ mod tests {
         serialize_ack_data(&data, &mut buff);
 
         // Verify that the buff is now an empty array
-        let marker = read_marker(&mut Bytes::new(&buff)).unwrap();
+        let marker = Marker::from_u8(buff[0]);
         assert!(matches!(marker, Marker::FixArray(0)));
     }
 
@@ -374,7 +375,7 @@ mod tests {
 
         serialize_ack_data(&data, &mut buff);
         // Verify that the integer has been wrapped in an array
-        let marker = read_marker(&mut Bytes::new(&buff)).unwrap();
+        let marker = Marker::from_u8(buff[0]);
         assert_eq!(marker, Marker::FixArray(1));
         assert_eq!(buff, [145, 42]);
     }
@@ -391,7 +392,7 @@ mod tests {
         dbg!(&data, &buff);
 
         // Verify that the string has been wrapped in an array
-        let marker = read_marker(&mut Bytes::new(&buff)).unwrap();
+        let marker = Marker::from_u8(buff[0]);
         assert!(matches!(marker, Marker::FixArray(1)));
     }
 }

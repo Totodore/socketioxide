@@ -6,9 +6,12 @@ use crate::{
     parser::value::ParseError,
     Value,
 };
-use bytes::{Buf, BufMut, Bytes};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use engineioxide::Str;
-use rmp::decode::{read_map_len, RmpRead, ValueReadError};
+use rmp::{
+    decode::{read_map_len, RmpRead, ValueReadError},
+    encode::RmpWrite,
+};
 use rmp_serde::decode::Error as DecodeError;
 
 pub fn deserialize_packet(buff: Bytes) -> Result<Packet<'static>, ParseError> {
@@ -133,7 +136,7 @@ fn read_u32(rd: &mut Cursor<Bytes>) -> Result<u32, DecodeError> {
         .map_err(DecodeError::InvalidDataRead)?;
     Ok(u32::from_be_bytes(buff))
 }
-/// Read a str slice and return the previous position in the buffer
+/// Read a str slice
 fn read_str<'a>(reader: &'a mut Cursor<Bytes>) -> Result<&'a str, DecodeError> {
     let len = rmp::decode::read_str_len(reader)? as usize;
     let start = reader.position() as usize;
@@ -167,12 +170,12 @@ fn read_data_event(bytes: Bytes) -> Result<(Str, Bytes), DecodeError> {
     } else {
         5 // Marker::Array32
     };
-    let mut data = Vec::with_capacity(len_size + reader.remaining());
+    let mut data = BytesMut::with_capacity(len_size + reader.remaining()).writer();
     rmp::encode::write_array_len(&mut data, len).unwrap();
-    debug_assert!(data.len() == len_size);
-    data.put_slice(reader);
+    debug_assert!(data.get_ref().len() == len_size);
+    data.write_bytes(reader).unwrap();
 
-    Ok((event, data.into()))
+    Ok((event, data.into_inner().freeze()))
 }
 
 /// Iterate over the next element
