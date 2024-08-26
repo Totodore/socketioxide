@@ -359,6 +359,7 @@ fn get_size_hint(packet: &Packet<'_>) -> usize {
 /// ```text
 /// ["<event name>", ...<JSON-stringified payload without binary>]
 /// ```
+/// If there is only one element in the array, it will be unwrapped.
 fn deserialize_event_packet(data: &str) -> Result<(String, JsonValue), Error> {
     #[cfg(feature = "tracing")]
     tracing::debug!("Deserializing event packet: {:?}", data);
@@ -366,6 +367,7 @@ fn deserialize_event_packet(data: &str) -> Result<(String, JsonValue), Error> {
         JsonValue::Array(packet) => packet,
         _ => return Err(Error::InvalidEventName),
     };
+    let arrlen = packet.len();
 
     let event = packet
         .first()
@@ -373,7 +375,11 @@ fn deserialize_event_packet(data: &str) -> Result<(String, JsonValue), Error> {
         .as_str()
         .ok_or(Error::InvalidEventName)?
         .to_string();
-    let payload = JsonValue::from_iter(packet.into_iter().skip(1));
+    let payload = if arrlen == 2 {
+        packet.get(1).ok_or(Error::InvalidNamespace)?.clone()
+    } else {
+        JsonValue::from_iter(packet.into_iter().skip(1))
+    };
     Ok((event, payload))
 }
 
@@ -527,7 +533,7 @@ mod test {
         let packet = decode(payload);
 
         assert_eq!(
-            Packet::event("/", "event", json!([{"data": "value"}])),
+            Packet::event("/", "event", json!({"data": "value"})),
             packet
         );
 
@@ -535,7 +541,7 @@ mod test {
         let payload = format!("21{}", json!(["event", { "data": "value" }]));
         let packet = decode(payload);
 
-        let mut comparison_packet = Packet::event("/", "event", json!([{"data": "value"}]));
+        let mut comparison_packet = Packet::event("/", "event", json!({"data": "value"}));
         comparison_packet.inner.set_ack_id(1);
         assert_eq!(packet, comparison_packet);
 
@@ -544,7 +550,7 @@ mod test {
         let packet = decode(payload);
 
         assert_eq!(
-            Packet::event("/admin™", "event", json!([{"data": "value™"}])),
+            Packet::event("/admin™", "event", json!({"data": "value™"})),
             packet
         );
 
@@ -553,7 +559,7 @@ mod test {
         let mut packet = decode(payload);
         packet.inner.set_ack_id(1);
 
-        let mut comparison_packet = Packet::event("/admin™", "event", json!([{"data": "value™"}]));
+        let mut comparison_packet = Packet::event("/admin™", "event", json!({"data": "value™"}));
         comparison_packet.inner.set_ack_id(1);
 
         assert_eq!(packet, comparison_packet);
