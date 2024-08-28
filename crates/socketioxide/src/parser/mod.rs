@@ -3,69 +3,15 @@
 //! The default parser is the [`CommonParser`]
 use bytes::Bytes;
 
-mod common;
-mod msgpack;
-pub mod value;
-
-pub use common::CommonParser;
-pub use msgpack::MsgPackParser;
-pub use value::Value;
+use socketioxide_core::parser::{Parse, SocketIoValue};
 
 use engineioxide::Str;
 use serde::{de::DeserializeOwned, Serialize};
+use socketioxide_parser_common::CommonParser;
+use socketioxide_parser_msgpack::MsgPackParser;
 use value::ParseError;
 
 use crate::packet::Packet;
-
-/// Represent a socket.io payload that can be sent over an engine.io connection
-pub enum TransportPayload {
-    /// A string payload that will be sent as a string engine.io packet
-    Str(engineioxide::Str),
-    /// A binary payload that will be sent as a binary engine.io packet
-    Bytes(bytes::Bytes),
-}
-impl TransportPayload {
-    /// If the payload is a [`TransportPayload::Str`] or returns it
-    /// or None otherwise.
-    pub fn into_str(self) -> Option<engineioxide::Str> {
-        match self {
-            TransportPayload::Str(str) => Some(str),
-            TransportPayload::Bytes(_) => None,
-        }
-    }
-
-    /// If the payload is a [`TransportPayload::Bytes`] or returns it
-    /// or None otherwise.
-    pub fn into_bytes(self) -> Option<bytes::Bytes> {
-        match self {
-            TransportPayload::Str(_) => None,
-            TransportPayload::Bytes(bytes) => Some(bytes),
-        }
-    }
-}
-
-/// All socket.io parser should implement this trait
-pub trait Parse: Default {
-    /// Convert a packet into multiple payloads to be sent
-    fn encode(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>);
-
-    /// Parse a given input string. If the payload needs more adjacent binary packet,
-    /// the partial packet will be kept and a [`Error::NeedsMoreBinaryData`] will be returned
-    fn decode_str(&self, data: Str) -> Result<Packet<'static>, Error>;
-
-    /// Parse a given input binary.
-    fn decode_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error>;
-
-    /// Convert any serializable data to a generic [`Value`]
-    fn to_value<T: Serialize>(&self, data: T) -> Result<Value, ParseError>;
-
-    /// Convert any generic [`Value`] to deserializable data.
-    ///
-    /// The parser will be determined from the value given to deserialize.
-    fn from_value<T: DeserializeOwned>(&self, value: &Value) -> Result<T, ParseError> {
-        value::from_value(value)
-    }
-}
 
 /// All the parser available.
 /// It also implements the [`Parse`] trait and therefore the
@@ -78,6 +24,17 @@ pub enum Parser {
     /// The MsgPack parser
     MsgPack(MsgPackParser),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::error::Error),
+    #[error("msgpack encode error: {0}")]
+    MsgPackEncode(#[from] rmp_serde::encode::Error),
+    #[error("msgpack decode error: {0}")]
+    MsgPackDecode(#[from] rmp_serde::decode::Error),
+}
+
 impl Default for Parser {
     fn default() -> Self {
         Parser::Common(CommonParser::default())
@@ -95,7 +52,9 @@ impl Clone for Parser {
 }
 
 impl Parse for Parser {
-    fn encode(&self, packet: Packet<'_>) -> (TransportPayload, Vec<Bytes>) {
+    type Error = ParseError;
+
+    fn encode(&self, packet: Packet<'_>) -> (SocketIoValue, Vec<Bytes>) {
         match self {
             Parser::Common(p) => p.encode(packet),
             Parser::MsgPack(p) => p.encode(packet),
@@ -121,10 +80,17 @@ impl Parse for Parser {
         packet
     }
 
-    fn to_value<T: Serialize>(&self, data: T) -> Result<Value, ParseError> {
+    fn to_value<T: Serialize>(&self, data: &T) -> Result<SocketIoValue, ParseError> {
         match self {
             Parser::Common(p) => p.to_value(data),
             Parser::MsgPack(p) => p.to_value(data),
+        }
+    }
+
+    fn from_value<T: DeserializeOwned>(&self, value: &SocketIoValue) -> Result<T, Self::Error> {
+        match self {
+            Parser::Common(p) => p.from_value(value),
+            Parser::MsgPack(p) => p.from_value(value),
         }
     }
 }

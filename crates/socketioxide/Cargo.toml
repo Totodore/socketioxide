@@ -14,8 +14,10 @@ readme = "../README.md"
 
 
 [dependencies]
-bytes.workspace = true
 engineioxide = { path = "../engineioxide", version = "0.14.1" }
+socketioxide-core = { path = "../socketioxide-core", version = "0.14.1" }
+
+bytes.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
@@ -30,6 +32,10 @@ itoa.workspace = true
 hyper.workspace = true
 matchit.workspace = true
 pin-project-lite.workspace = true
+
+# Parsers
+socketioxide-parser-common = { path = "../parser-common" }
+socketioxide-parser-msgpack = { path = "../parser-msgpack" }
 
 # Tracing
 tracing = { workspace = true, optional = true }

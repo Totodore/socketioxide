@@ -1,0 +1,18 @@
+[package]
+name = "socketioxide-parser-common"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+bytes.workspace = true
+itoa.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+socketioxide-core = { version = "0.14.1", path = "../socketioxide-core" }
