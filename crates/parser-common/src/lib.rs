@@ -369,7 +369,7 @@ mod test {
         let json = json!(["event", { "data": "value™" }, { "_placeholder": true, "num": 0}]);
         let comparison_packet = |ack, ns: &'static str| {
             let data = to_event_value(
-                &(json!([{"data": "value™"}]), Bytes::from_static(&[1])),
+                &(json!({"data": "value™"}), Bytes::from_static(&[1])),
                 "event",
             );
             Packet {
