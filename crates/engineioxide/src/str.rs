@@ -29,6 +29,9 @@ impl Str {
     }
     /// Creates a [`Str`] instance from a [`Bytes`] slice. It is the caller's responsibility to
     /// ensure that the provided bytes are a valid utf8 string.
+    ///
+    /// # Safety
+    /// It is the caller's responsibility to ensure that the provided bytes are a valid utf8 string.
     pub unsafe fn from_bytes_unchecked(data: Bytes) -> Self {
         Str(data)
     }

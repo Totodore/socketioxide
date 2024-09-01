@@ -68,7 +68,7 @@ impl<'a, 'event, W: io::Write> Compound<'a, 'event, W> {
                 State::First => State::First,
                 State::Rest => State::Rest,
             },
-            ser: &mut (*self.ser).inner,
+            ser: &mut self.ser.inner,
         }
     }
 
@@ -86,7 +86,7 @@ impl<'a, 'event, W: io::Write> Compound<'a, 'event, W> {
                 State::First => State::First,
                 State::Rest => State::Rest,
             },
-            ser: &mut (*self.ser).inner,
+            ser: &mut self.ser.inner,
         };
         f(&mut compound)?;
         self.state = match compound {
@@ -257,7 +257,7 @@ impl<'a, 'event, W: io::Write> Serializer<'event, W> {
         use serde::ser::{SerializeSeq, Serializer};
         if self.is_root {
             self.is_root = false;
-            if let Some(e) = self.event.clone() {
+            if let Some(e) = self.event {
                 let mut seq = self.serialize_seq(len.map(|l| l + 1))?;
                 SerializeSeq::serialize_element(&mut seq, &e)?;
                 Ok(seq)

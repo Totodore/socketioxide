@@ -17,10 +17,10 @@ pub fn serialize_packet(packet: Packet) -> SocketIoValue {
     }
     let bins = match packet.inner {
         PacketData::Connect(Some(data)) => {
-            buffer.put_slice(&data.as_str().unwrap().as_bytes());
-            vec![]
+            buffer.put_slice(data.as_str().unwrap().as_bytes());
+            None
         }
-        PacketData::Disconnect | PacketData::Connect(None) => vec![],
+        PacketData::Disconnect | PacketData::Connect(None) => None,
         PacketData::Event(SocketIoValue::Str((data, bins)), ack) => {
             serialize_ack(&mut buffer, ack);
             serialize_data(&mut buffer, &data);
@@ -39,10 +39,10 @@ pub fn serialize_packet(packet: Packet) -> SocketIoValue {
             }
             let data = serde_json::to_vec(&ErrorMessage { message }).unwrap();
             buffer.put_slice(&data);
-            vec![]
+            None
         }
         PacketData::BinaryEvent(SocketIoValue::Str((data, bins)), ack) => {
-            serialize_attachments(&mut buffer, bins.len());
+            serialize_attachments(&mut buffer, bins.as_ref().map(Vec::len).unwrap_or(0));
             serialize_nsp(&mut buffer, &packet.ns);
             serialize_ack(&mut buffer, ack);
 
@@ -50,7 +50,7 @@ pub fn serialize_packet(packet: Packet) -> SocketIoValue {
             bins
         }
         PacketData::BinaryAck(SocketIoValue::Str((data, bins)), ack) => {
-            serialize_attachments(&mut buffer, bins.len());
+            serialize_attachments(&mut buffer, bins.as_ref().map(Vec::len).unwrap_or(0));
             serialize_nsp(&mut buffer, &packet.ns);
             serialize_ack(&mut buffer, Some(ack));
 
@@ -121,7 +121,12 @@ fn get_size_hint(packet: &Packet) -> usize {
                     .and_then(i64::checked_ilog10)
                     .map(|s| s as usize + ACK_PUNCTUATION_SIZE)
                     .unwrap_or(0)
-                + bin.len().checked_ilog10().unwrap_or(0) as usize
+                + bin
+                    .as_ref()
+                    .map(Vec::len)
+                    .unwrap_or(0)
+                    .checked_ilog10()
+                    .unwrap_or(0) as usize
                 + BINARY_PUNCTUATION_SIZE
         }
         EventAck(SocketIoValue::Str((data, _)), ack) => {
@@ -130,7 +135,12 @@ fn get_size_hint(packet: &Packet) -> usize {
         BinaryAck(SocketIoValue::Str((data, bins)), ack) => {
             data.len()
                 + ack.checked_ilog10().unwrap_or(0) as usize
-                + bins.len().checked_ilog10().unwrap_or(0) as usize
+                + bins
+                    .as_ref()
+                    .map(Vec::len)
+                    .unwrap_or(0)
+                    .checked_ilog10()
+                    .unwrap_or(0) as usize
                 + ACK_PUNCTUATION_SIZE
                 + BINARY_PUNCTUATION_SIZE
         }
@@ -167,7 +177,7 @@ mod tests {
         crate::value::to_value(data, None).unwrap()
     }
     fn to_connect_value(data: &impl serde::Serialize) -> SocketIoValue {
-        SocketIoValue::Str((Str::from(serde_json::to_string(data).unwrap()), vec![]))
+        SocketIoValue::Str((Str::from(serde_json::to_string(data).unwrap()), None))
     }
 
     #[test]

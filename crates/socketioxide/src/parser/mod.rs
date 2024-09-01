@@ -80,16 +80,16 @@ impl Parse for Parser {
         packet
     }
 
-    fn to_value<T: Serialize>(&self, data: &T) -> Result<SocketIoValue, ParseError> {
+    fn encode_value<T: Serialize>(&self, data: &T) -> Result<SocketIoValue, ParseError> {
         match self {
-            Parser::Common(p) => p.to_value(data),
+            Parser::Common(p) => p.encode_value(data),
             Parser::MsgPack(p) => p.to_value(data),
         }
     }
 
-    fn from_value<T: DeserializeOwned>(&self, value: &SocketIoValue) -> Result<T, Self::Error> {
+    fn decode_value<T: DeserializeOwned>(&self, value: &SocketIoValue) -> Result<T, Self::Error> {
         match self {
-            Parser::Common(p) => p.from_value(value),
+            Parser::Common(p) => p.decode_value(value),
             Parser::MsgPack(p) => p.from_value(value),
         }
     }

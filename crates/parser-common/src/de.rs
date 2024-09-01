@@ -40,19 +40,16 @@ pub fn deserialize_packet(
 
     let data = data.slice(reader.position() as usize..);
     dbg!(&data);
+    fn str(data: Str) -> SocketIoValue {
+        SocketIoValue::Str((data, None))
+    }
     let inner = match index {
-        b'0' => PacketData::Connect((!data.is_empty()).then(|| SocketIoValue::Str((data, vec![])))),
+        b'0' => PacketData::Connect((!data.is_empty()).then(|| str(data))),
         b'1' => PacketData::Disconnect,
-        b'2' => PacketData::Event(SocketIoValue::Str((data, vec![])), ack),
-        b'3' => PacketData::EventAck(
-            SocketIoValue::Str((data, vec![])),
-            ack.ok_or(ParseError::InvalidPacketType)?,
-        ),
-        b'5' => PacketData::BinaryEvent(SocketIoValue::Str((data, vec![])), ack),
-        b'6' => PacketData::BinaryAck(
-            SocketIoValue::Str((data, vec![])),
-            ack.ok_or(ParseError::InvalidPacketType)?,
-        ),
+        b'2' => PacketData::Event(str(data), ack),
+        b'3' => PacketData::EventAck(str(data), ack.ok_or(ParseError::InvalidPacketType)?),
+        b'5' => PacketData::BinaryEvent(str(data), ack),
+        b'6' => PacketData::BinaryAck(str(data), ack.ok_or(ParseError::InvalidPacketType)?),
         _ => return Err(ParseError::InvalidPacketType),
     };
     Ok((Packet { inner, ns }, attachments))
@@ -108,19 +105,14 @@ fn read_ack(reader: &mut Cursor<&str>) -> Option<i64> {
         }
     }
 }
-/// Deserialize an event packet from a string, formated as:
-/// ```text
-/// ["<event name>", ...<JSON-stringified payload without binary>]
-/// ```
-/// If there is only one element in the array, it will be unwrapped.
-fn read_event(data: &str) -> Result<Str, ParseError<serde_json::Error>> {
-    Ok(serde_json::from_str::<FirstElement<Str>>(data)?.0)
-}
 
 /// A seed that can be used to deserialize only the 1st element of a sequence
-#[derive(serde::Deserialize)]
-pub struct FirstElement<T>(pub T);
-
+pub struct FirstElement<T>(pub std::marker::PhantomData<T>);
+impl<T> Default for FirstElement<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
 impl<'de, T> serde::de::Visitor<'de> for FirstElement<T>
 where
     T: serde::Deserialize<'de>,
@@ -136,10 +128,21 @@ where
         A: serde::de::SeqAccess<'de>,
     {
         use serde::de::Error;
-        let val = seq
-            .next_element::<T>()?
-            .ok_or(A::Error::custom("first element not found"));
-        while Some(serde::de::IgnoredAny) == seq.next_element()? {}
-        val
+        seq.next_element::<T>()?
+            .ok_or(A::Error::custom("first element not found"))
+    }
+}
+
+impl<'de, T> serde::de::DeserializeSeed<'de> for FirstElement<T>
+where
+    T: serde::Deserialize<'de>,
+{
+    type Value = T;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(self)
     }
 }

@@ -8,7 +8,7 @@ pub use engineioxide::{sid::Sid, Str};
 pub enum SocketIoValue {
     /// A string payload that will be sent as a string engine.io packet.
     /// It can also contain adjacent binary payloads.
-    Str((Str, Vec<bytes::Bytes>)),
+    Str((Str, Option<Vec<bytes::Bytes>>)),
     /// A binary payload that will be sent as a binary engine.io packet
     Bytes(bytes::Bytes),
 }
@@ -31,5 +31,8 @@ impl SocketIoValue {
             SocketIoValue::Str((data, _)) => data.len(),
             SocketIoValue::Bytes(data) => data.len(),
         }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }

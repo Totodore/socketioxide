@@ -64,6 +64,7 @@ impl Parse for CommonParser {
                     | PacketData::BinaryAck(SocketIoValue::Str((_, binaries)), _),
                 ..
             }) => {
+                let binaries = binaries.get_or_insert(Vec::new());
                 binaries.push(data);
                 if self.incoming_binary_cnt.load(Ordering::Relaxed) > binaries.len() {
                     Err(ParseError::NeedsMoreBinaryData)
@@ -75,7 +76,7 @@ impl Parse for CommonParser {
         }
     }
 
-    fn to_value<T: Serialize>(
+    fn encode_value<T: Serialize>(
         &self,
         data: &T,
         event: Option<&str>,
@@ -83,8 +84,12 @@ impl Parse for CommonParser {
         value::to_value(data, event)
     }
 
-    fn from_value<T: DeserializeOwned>(&self, value: SocketIoValue) -> Result<T, Self::Error> {
-        value::from_value(value)
+    fn decode_value<T: DeserializeOwned>(
+        &self,
+        value: SocketIoValue,
+        with_event: bool,
+    ) -> Result<T, Self::Error> {
+        value::from_value(value, with_event)
     }
 }
 
@@ -100,7 +105,7 @@ fn is_bin_packet_complete(packet: &PacketData, incoming_binary_cnt: usize) -> bo
     match &packet {
         PacketData::BinaryEvent(SocketIoValue::Str((_, binaries)), _)
         | PacketData::BinaryAck(SocketIoValue::Str((_, binaries)), _) => {
-            incoming_binary_cnt == binaries.len()
+            incoming_binary_cnt == binaries.as_ref().map(Vec::len).unwrap_or(0)
         }
         _ => true,
     }
@@ -113,14 +118,16 @@ mod test {
     use socketioxide_core::{packet::ConnectPacket, Sid};
 
     fn to_event_value(data: &impl serde::Serialize, event: &str) -> SocketIoValue {
-        CommonParser::default().to_value(data, Some(event)).unwrap()
+        CommonParser::default()
+            .encode_value(data, Some(event))
+            .unwrap()
     }
 
     fn to_value(data: &impl serde::Serialize) -> SocketIoValue {
-        CommonParser::default().to_value(data, None).unwrap()
+        CommonParser::default().encode_value(data, None).unwrap()
     }
     fn to_connect_value(data: &impl serde::Serialize) -> SocketIoValue {
-        SocketIoValue::Str((Str::from(serde_json::to_string(data).unwrap()), vec![]))
+        SocketIoValue::Str((Str::from(serde_json::to_string(data).unwrap()), None))
     }
     fn encode(packet: Packet) -> String {
         match CommonParser::default().encode(packet) {

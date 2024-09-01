@@ -18,7 +18,7 @@ pub trait Parse: Default {
     fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::Error>>;
 
     /// Convert any serializable data to a generic [`Bytes`]
-    fn to_value<T: Serialize>(
+    fn encode_value<T: Serialize>(
         &self,
         data: &T,
         event: Option<&str>,
@@ -27,7 +27,11 @@ pub trait Parse: Default {
     /// Convert any generic [`Bytes`] to deserializable data.
     ///
     /// The parser will be determined from the value given to deserialize.
-    fn from_value<T: DeserializeOwned>(&self, value: SocketIoValue) -> Result<T, Self::Error>;
+    fn decode_value<T: DeserializeOwned>(
+        &self,
+        value: SocketIoValue,
+        with_event: bool,
+    ) -> Result<T, Self::Error>;
 }
 
 /// Errors when parsing/serializing socket.io packets

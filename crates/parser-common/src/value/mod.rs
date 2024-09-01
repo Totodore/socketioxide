@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{SocketIoValue, Str};
 
 use crate::de::FirstElement;
@@ -13,19 +13,24 @@ mod ser;
 /// * If T is something else, the first element of the array will be parsed as the data: `T = data[0]`.
 ///
 /// All adjacent binary data will be inserted into the output data.
-pub fn from_value<T: DeserializeOwned>(value: SocketIoValue) -> serde_json::Result<T> {
+pub fn from_value<T: DeserializeOwned>(
+    value: SocketIoValue,
+    with_event: bool,
+) -> serde_json::Result<T> {
     let (value, bins) = match value {
         SocketIoValue::Str(v) => v,
         SocketIoValue::Bytes(_) => panic!("unexpected binary data"),
     };
     let is_tuple = de::is_tuple::<T>();
     if is_tuple {
-        let mut de = de::Deserializer::new(value.as_str(), bins);
-        T::deserialize(&mut de)
+        de::from_str(value.as_str(), &bins.unwrap_or_default(), with_event)
     } else {
-        dbg!("test {}", std::any::type_name::<FirstElement::<T>>());
-        let mut de = de::Deserializer::new(value.as_str(), bins);
-        FirstElement::<T>::deserialize(&mut de).map(|v| v.0)
+        de::from_str_seed(
+            value.as_str(),
+            &bins.unwrap_or_default(),
+            FirstElement::default(),
+            with_event,
+        )
     }
 }
 
@@ -40,29 +45,69 @@ pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Resu
     }
     let binary = ser.into_binary();
     let data = unsafe { Str::from_bytes_unchecked(Bytes::from(writer)) };
-    Ok(SocketIoValue::Str((data, binary)))
+    Ok(SocketIoValue::Str((
+        data,
+        (!binary.is_empty()).then_some(binary),
+    )))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
     use serde_json::json;
 
     fn to_str(data: impl Serialize, event: Option<&str>) -> Str {
         to_value(&data, event).unwrap().as_str().unwrap().clone()
     }
-    fn from_str<T: DeserializeOwned>(data: impl Serialize) -> T {
-        from_value::<T>(SocketIoValue::Str((
-            serde_json::to_string(&data).unwrap().into(),
-            vec![],
-        )))
+    fn from_str_event<T: DeserializeOwned>(data: impl Serialize) -> T {
+        from_value::<T>(
+            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), None)),
+            true,
+        )
         .unwrap()
     }
-    fn to_str_bin(data: impl Serialize, event: Option<&str>) -> (Str, Vec<Bytes>) {
+    fn from_str_ack<T: DeserializeOwned>(data: impl Serialize) -> T {
+        from_value::<T>(
+            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), None)),
+            false,
+        )
+        .unwrap()
+    }
+    fn to_str_bin(data: impl Serialize, event: Option<&str>) -> (Str, Option<Vec<Bytes>>) {
         match to_value(&data, event).unwrap() {
             SocketIoValue::Str(data) => data,
             SocketIoValue::Bytes(_) => unreachable!(),
         }
+    }
+    fn from_str_event_bin<T: DeserializeOwned>(data: impl Serialize, bins: Vec<Bytes>) -> T {
+        from_value::<T>(
+            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
+            true,
+        )
+        .unwrap()
+    }
+    fn from_str_ack_bin<T: DeserializeOwned>(data: impl Serialize, bins: Vec<Bytes>) -> T {
+        from_value::<T>(
+            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
+            false,
+        )
+        .unwrap()
+    }
+
+    fn placeholder(i: usize) -> serde_json::Value {
+        json!({ "_placeholder": true, "num": i })
+    }
+
+    const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);
+    #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+    struct Data {
+        data: Bytes,
+    }
+    #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+    struct Data2 {
+        data: Vec<Bytes>,
+        test: String,
     }
 
     #[test]
@@ -87,205 +132,166 @@ mod tests {
 
     #[test]
     fn from_value_event() {
-        assert_eq!(from_str::<String>(json!(["event", "hello"])), "hello");
-        // assert_eq!(
-        //     from_str::<(String, usize, usize, usize)>(json!(["event", "hello", 1, 2, 3])),
-        //     ("hello".into(), 1, 2, 3)
-        // );
-        // assert_eq!(
-        //     from_str::<Vec<usize>>(json!(["event", vec![1, 2, 3]])),
-        //     vec![1, 2, 3]
-        // );
-        // #[derive(serde::Deserialize, Debug, PartialEq)]
-        // struct Test {
-        //     test: String,
-        // }
-        // assert_eq!(
-        //     from_str::<Test>(json!(["event", { "test": "null" }])),
-        //     Test {
-        //         test: "null".into()
-        //     }
-        // );
+        assert_eq!(from_str_event::<String>(json!(["event", "hello"])), "hello");
+        assert_eq!(
+            from_str_event::<(String, usize, usize, usize)>(json!(["event", "hello", 1, 2, 3])),
+            ("hello".into(), 1, 2, 3)
+        );
+        assert_eq!(
+            from_str_event::<Vec<usize>>(json!(["event", vec![1, 2, 3]])),
+            vec![1, 2, 3]
+        );
+        #[derive(serde::Deserialize, Debug, PartialEq)]
+        struct Test {
+            test: String,
+        }
+        assert_eq!(
+            from_str_event::<Test>(json!(["event", { "test": "null" }])),
+            Test {
+                test: "null".into()
+            }
+        );
     }
 
     #[test]
     fn to_value_binary() {
-        let data = Bytes::from_static(&[1, 2, 3, 4]);
         assert_eq!(
-            to_str_bin(("hello", data.clone()), Some("event")),
+            to_str_bin(("hello", &BIN), Some("event")),
             (
                 json!(["event", "hello", {"_placeholder": true, "num": 0}])
                     .to_string()
                     .into(),
-                vec![data.clone()]
+                Some(vec![BIN])
             )
         );
-        #[derive(serde::Serialize)]
-        struct Data {
-            data: Bytes,
-        }
+
         assert_eq!(
-            to_str_bin(
-                ("hello", 1, 2, 3, Data { data: data.clone() }),
-                Some("event")
-            ),
+            to_str_bin(("hello", 1, 2, 3, Data { data: BIN }), Some("event")),
             (
-                json!(["event", "hello", 1, 2, 3, {"data": {"_placeholder": true, "num": 0}}])
+                json!(["event", "hello", 1, 2, 3, {"data": placeholder(0)}])
                     .to_string()
                     .into(),
-                vec![data.clone()]
+                Some(vec![BIN])
             )
         );
         assert_eq!(
-            to_str_bin(
-                vec![
-                    Data { data: data.clone() },
-                    Data { data: data.clone() },
-                    Data { data: data.clone() }
-                ],
-                Some("event")
-            ),
+            to_str_bin(vec![Data { data: BIN }; 3], Some("event")),
             (
                 json!(["event", [
-                    { "data": {"_placeholder": true, "num": 0} },
-                    { "data": {"_placeholder": true, "num": 1} },
-                    { "data": {"_placeholder": true, "num": 2} }
+                    {"data": placeholder(0)},
+                    {"data": placeholder(1)},
+                    {"data": placeholder(2)}
                 ]])
                 .to_string()
                 .into(),
-                vec![data.clone(), data.clone(), data.clone()]
+                Some(vec![BIN; 3])
             )
         );
-        #[derive(serde::Serialize)]
-        struct Data2 {
-            data: Vec<Bytes>,
-            test: &'static str,
-        }
+
         assert_eq!(
             to_str_bin(
                 Data2 {
-                    data: vec![data.clone(); 5],
-                    test: "null"
+                    data: vec![BIN; 5],
+                    test: "null".to_string()
                 },
                 Some("event")
             ),
             (
                 json!(["event", { "data": [
-                    {"_placeholder": true, "num": 0},
-                    {"_placeholder": true, "num": 1},
-                    {"_placeholder": true, "num": 2},
-                    {"_placeholder": true, "num": 3},
-                    {"_placeholder": true, "num": 4}
+                    placeholder(0),
+                    placeholder(1),
+                    placeholder(2),
+                    placeholder(3),
+                    placeholder(4)
                 ], "test": "null" }])
                 .to_string()
                 .into(),
-                vec![data; 5]
+                Some(vec![BIN; 5])
             )
         );
     }
 
     #[test]
     fn from_value_binary() {
-        let data = Bytes::from_static(&[1, 2, 3, 4]);
         assert_eq!(
-            to_str_bin(("hello", data.clone()), Some("event")),
-            (
-                json!(["event", "hello", {"_placeholder": true, "num": 0}])
-                    .to_string()
-                    .into(),
-                vec![data.clone()]
-            )
-        );
-        #[derive(serde::Serialize)]
-        struct Data {
-            data: Bytes,
-        }
-        assert_eq!(
-            to_str_bin(
-                ("hello", 1, 2, 3, Data { data: data.clone() }),
-                Some("event")
-            ),
-            (
-                json!(["event", "hello", 1, 2, 3, {"data": {"_placeholder": true, "num": 0}}])
-                    .to_string()
-                    .into(),
-                vec![data.clone()]
-            )
+            from_str_event_bin::<Bytes>(json!(["event", placeholder(0)]), vec![BIN]),
+            BIN
         );
         assert_eq!(
-            to_str_bin(
-                vec![
-                    Data { data: data.clone() },
-                    Data { data: data.clone() },
-                    Data { data: data.clone() }
-                ],
-                Some("event")
+            from_str_event_bin::<(String, Bytes)>(
+                json!(["event", "hello", placeholder(0)]),
+                vec![BIN]
             ),
-            (
+            ("hello".into(), BIN)
+        );
+        assert_eq!(
+            from_str_event_bin::<(String, usize, usize, usize, Data)>(
+                json!(["event", "hello", 1, 2, 3, {"data": placeholder(0)}]),
+                vec![BIN]
+            ),
+            ("hello".to_string(), 1, 2, 3, Data { data: BIN }),
+        );
+        assert_eq!(
+            from_str_event_bin::<Vec<Data>>(
                 json!(["event", [
-                    { "data": {"_placeholder": true, "num": 0} },
-                    { "data": {"_placeholder": true, "num": 1} },
-                    { "data": {"_placeholder": true, "num": 2} }
-                ]])
-                .to_string()
-                .into(),
-                vec![data.clone(), data.clone(), data.clone()]
-            )
-        );
-        #[derive(serde::Serialize)]
-        struct Data2 {
-            data: Vec<Bytes>,
-            test: &'static str,
-        }
-        assert_eq!(
-            to_str_bin(
-                Data2 {
-                    data: vec![data.clone(); 5],
-                    test: "null"
-                },
-                Some("event")
+                    {"data": placeholder(0)},
+                    {"data": placeholder(1)},
+                    {"data": placeholder(2)}
+                ]]),
+                vec![BIN; 3]
             ),
-            (
+            vec![Data { data: BIN }; 3]
+        );
+        assert_eq!(
+            from_str_event_bin::<Data2>(
                 json!(["event", { "data": [
-                    {"_placeholder": true, "num": 0},
-                    {"_placeholder": true, "num": 1},
-                    {"_placeholder": true, "num": 2},
-                    {"_placeholder": true, "num": 3},
-                    {"_placeholder": true, "num": 4}
-                ], "test": "null" }])
-                .to_string()
-                .into(),
-                vec![data; 5]
-            )
-        );
-    }
-
-    #[test]
-    fn to_value_ack() {
-        let data = Bytes::from_static(&[1, 2, 3, 4]);
-
-        assert_eq!(
-            to_str_bin(data.clone(), None),
-            (
-                json!([{ "_placeholder": true, "num": 0 }])
-                    .to_string()
-                    .into(),
-                vec![data.clone()]
-            )
-        );
-        assert_eq!(
-            to_str_bin(("hello", 1, 2, 3, data.clone()), None),
-            (
-                json!(["hello", 1, 2, 3, { "_placeholder": true, "num": 0 }])
-                    .to_string()
-                    .into(),
-                vec![data.clone()]
-            )
+                    placeholder(0),
+                    placeholder(1),
+                    placeholder(2),
+                    placeholder(3),
+                    placeholder(4)
+                ], "test": "null" }]),
+                vec![BIN; 5]
+            ),
+            Data2 {
+                data: vec![BIN; 5],
+                test: "null".to_string()
+            }
         );
     }
 
     #[test]
     fn to_value_binary_ack() {
+        assert_eq!(
+            to_str_bin(BIN, None),
+            (json!([placeholder(0)]).to_string().into(), Some(vec![BIN]))
+        );
+        assert_eq!(
+            to_str_bin(("hello", 1, 2, 3, BIN), None),
+            (
+                json!(["hello", 1, 2, 3, placeholder(0)]).to_string().into(),
+                Some(vec![BIN])
+            )
+        );
+    }
+
+    #[test]
+    fn from_value_binary_ack() {
+        assert_eq!(
+            from_str_ack_bin::<Bytes>(json!([placeholder(0)]), vec![BIN]),
+            BIN
+        );
+        assert_eq!(
+            from_str_ack_bin::<(String, usize, usize, usize, Bytes)>(
+                json!(["hello", 1, 2, 3, placeholder(0)]),
+                vec![BIN]
+            ),
+            ("hello".to_string(), 1, 2, 3, BIN)
+        );
+    }
+
+    #[test]
+    fn to_value_ack() {
         assert_eq!(
             to_str("hello", None).as_str(),
             json!(["hello"]).to_string().as_str()
@@ -293,6 +299,18 @@ mod tests {
         assert_eq!(
             to_str(("hello", 1, 2, 3), None).as_str(),
             json!(["hello", 1, 2, 3]).to_string().as_str()
+        );
+    }
+
+    #[test]
+    fn from_value_ack() {
+        assert_eq!(
+            from_str_ack::<String>(json!(["hello"])),
+            "hello".to_string()
+        );
+        assert_eq!(
+            from_str_ack::<(String, usize, usize, usize)>(json!(["hello", 1, 2, 3])),
+            ("hello".to_string(), 1, 2, 3)
         );
     }
 
@@ -305,7 +323,7 @@ mod tests {
         assert!(de::is_tuple::<[usize; 3]>());
 
         #[derive(Serialize, Deserialize)]
-        struct TupleStruct(&'static str);
+        struct TupleStruct<'a>(&'a str);
         assert!(ser::is_tuple(&TupleStruct("test")));
         assert!(de::is_tuple::<TupleStruct>());
 
