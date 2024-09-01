@@ -5,14 +5,15 @@ use serde::{
     de::{self, Visitor},
     forward_to_deserialize_any,
 };
-use serde_json::Deserializer as JsonDeserializer;
+
+use super::{IsTupleSerde, IsTupleSerdeError};
 
 pub fn from_str<'de, T: de::Deserialize<'de>>(
     data: &'de str,
     binary_payloads: &Vec<Bytes>,
     with_event: bool,
 ) -> Result<T, serde_json::Error> {
-    let inner = &mut JsonDeserializer::from_str(data);
+    let inner = &mut serde_json::Deserializer::from_str(data);
     let de = Deserializer {
         inner,
         binary_payloads,
@@ -27,7 +28,7 @@ pub fn from_str_seed<'de, T: de::DeserializeSeed<'de>>(
     seed: T,
     with_event: bool,
 ) -> Result<T::Value, serde_json::Error> {
-    let inner = &mut JsonDeserializer::from_str(data);
+    let inner = &mut serde_json::Deserializer::from_str(data);
     let de = Deserializer {
         inner,
         binary_payloads,
@@ -237,150 +238,87 @@ impl<'a, 'de, I: Visitor<'de>> Visitor<'de> for WrapperVisitor<'a, I> {
         self.inner.expecting(formatter)
     }
 
-    fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
         self.inner.visit_bool(v)
     }
 
-    fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_i8<E: de::Error>(self, v: i8) -> Result<Self::Value, E> {
         self.inner.visit_i8(v)
     }
 
-    fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_i16<E: de::Error>(self, v: i16) -> Result<Self::Value, E> {
         self.inner.visit_i16(v)
     }
 
-    fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_i32<E: de::Error>(self, v: i32) -> Result<Self::Value, E> {
         self.inner.visit_i32(v)
     }
 
-    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
         self.inner.visit_i64(v)
     }
 
-    fn visit_i128<E>(self, v: i128) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_i128<E: de::Error>(self, v: i128) -> Result<Self::Value, E> {
         self.inner.visit_i128(v)
     }
 
-    fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_u8<E: de::Error>(self, v: u8) -> Result<Self::Value, E> {
         self.inner.visit_u8(v)
     }
 
-    fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_u16<E: de::Error>(self, v: u16) -> Result<Self::Value, E> {
         self.inner.visit_u16(v)
     }
 
-    fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_u32<E: de::Error>(self, v: u32) -> Result<Self::Value, E> {
         self.inner.visit_u32(v)
     }
 
-    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
         self.inner.visit_u64(v)
     }
 
-    fn visit_u128<E>(self, v: u128) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_u128<E: de::Error>(self, v: u128) -> Result<Self::Value, E> {
         self.inner.visit_u128(v)
     }
 
-    fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_f32<E: de::Error>(self, v: f32) -> Result<Self::Value, E> {
         self.inner.visit_f32(v)
     }
 
-    fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_f64<E: de::Error>(self, v: f64) -> Result<Self::Value, E> {
         self.inner.visit_f64(v)
     }
 
-    fn visit_char<E>(self, v: char) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_char<E: de::Error>(self, v: char) -> Result<Self::Value, E> {
         self.inner.visit_char(v)
     }
 
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
         self.inner.visit_str(v)
     }
 
-    fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> Result<Self::Value, E> {
         self.inner.visit_borrowed_str(v)
     }
 
-    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
         self.inner.visit_string(v)
     }
 
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_bytes<E: de::Error>(self, v: &[u8]) -> Result<Self::Value, E> {
         self.inner.visit_bytes(v)
     }
 
-    fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_borrowed_bytes<E: de::Error>(self, v: &'de [u8]) -> Result<Self::Value, E> {
         self.inner.visit_borrowed_bytes(v)
     }
 
-    fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_byte_buf<E: de::Error>(self, v: Vec<u8>) -> Result<Self::Value, E> {
         self.inner.visit_byte_buf(v)
     }
 
-    fn visit_none<E>(self) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
         self.inner.visit_none()
     }
 
@@ -391,44 +329,32 @@ impl<'a, 'de, I: Visitor<'de>> Visitor<'de> for WrapperVisitor<'a, I> {
         self.inner.visit_some(deserializer)
     }
 
-    fn visit_unit<E>(self) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
+    fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
         self.inner.visit_unit()
     }
 
-    fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
+    fn visit_newtype_struct<D: de::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
         self.inner.visit_newtype_struct(deserializer)
     }
 
-    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::SeqAccess<'de>,
-    {
+    fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
         self.inner.visit_seq(WrapperVisitor {
             inner: seq,
             binary_payloads: self.binary_payloads,
         })
     }
 
-    fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::MapAccess<'de>,
-    {
+    fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
         self.inner.visit_map(WrapperVisitor {
             inner: map,
             binary_payloads: self.binary_payloads,
         })
     }
 
-    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::EnumAccess<'de>,
-    {
+    fn visit_enum<A: de::EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
         self.inner.visit_enum(WrapperVisitor {
             inner: data,
             binary_payloads: self.binary_payloads,
@@ -476,10 +402,10 @@ impl<'a, 'de, I: de::EnumAccess<'de>> de::EnumAccess<'de> for WrapperVisitor<'a,
     type Error = I::Error;
     type Variant = I::Variant;
 
-    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
-    where
-        V: de::DeserializeSeed<'de>,
-    {
+    fn variant_seed<V: de::DeserializeSeed<'de>>(
+        self,
+        seed: V,
+    ) -> Result<(V::Value, Self::Variant), Self::Error> {
         self.inner.variant_seed(WrapperSeed {
             seed,
             binary_payloads: self.binary_payloads,
@@ -494,10 +420,10 @@ struct WrapperSeed<'a, S> {
 impl<'a, 'de, S: de::DeserializeSeed<'de>> de::DeserializeSeed<'de> for WrapperSeed<'a, S> {
     type Value = S::Value;
 
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
+    fn deserialize<D: de::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
         self.seed.deserialize(Deserializer {
             skip_first_element: false,
             inner: deserializer,
@@ -590,12 +516,8 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for SeqVisitor<V> {
     }
 }
 
-struct IsTupleDeserializer {
-    is_tuple: bool,
-}
-
-impl<'a, 'de> serde::Deserializer<'de> for &'a mut IsTupleDeserializer {
-    type Error = serde_json::Error;
+impl<'a, 'de> serde::Deserializer<'de> for IsTupleSerde {
+    type Error = super::IsTupleSerdeError;
 
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
@@ -603,53 +525,39 @@ impl<'a, 'de> serde::Deserializer<'de> for &'a mut IsTupleDeserializer {
         struct enum identifier ignored_any bytes byte_buf option
     }
 
-    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        use serde::de::Error;
-        Err(Self::Error::custom(""))
+    fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
+        Err(IsTupleSerdeError(false))
     }
 
-    fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        use serde::de::Error;
-        self.is_tuple = true;
-        Err(Self::Error::custom(""))
+    fn deserialize_tuple<V: Visitor<'de>>(
+        self,
+        _len: usize,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        Err(IsTupleSerdeError(true))
     }
 
-    fn deserialize_tuple_struct<V>(
+    fn deserialize_tuple_struct<V: Visitor<'de>>(
         self,
         _name: &'static str,
         _len: usize,
         _visitor: V,
-    ) -> Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        use serde::de::Error;
-        self.is_tuple = true;
-        Err(Self::Error::custom(""))
+    ) -> Result<V::Value, Self::Error> {
+        Err(IsTupleSerdeError(true))
     }
 
-    fn deserialize_newtype_struct<V>(
+    fn deserialize_newtype_struct<V: Visitor<'de>>(
         self,
         _name: &'static str,
         _visitor: V,
-    ) -> Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        use serde::de::Error;
-        self.is_tuple = true;
-        Err(Self::Error::custom(""))
+    ) -> Result<V::Value, Self::Error> {
+        Err(IsTupleSerdeError(true))
     }
 }
 
 pub fn is_tuple<'de, T: serde::Deserialize<'de>>() -> bool {
-    let mut deser = IsTupleDeserializer { is_tuple: false };
-    T::deserialize(&mut deser).ok();
-    deser.is_tuple
+    match T::deserialize(IsTupleSerde) {
+        Ok(_) => unreachable!(),
+        Err(IsTupleSerdeError(v)) => v,
+    }
 }

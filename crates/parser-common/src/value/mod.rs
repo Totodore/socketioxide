@@ -1,3 +1,5 @@
+use std::fmt;
+
 use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{SocketIoValue, Str};
@@ -36,14 +38,11 @@ pub fn from_value<T: DeserializeOwned>(
 
 /// Serialize any serializable data and an event to a generic [`SocketIoValue`] data.
 pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Result<SocketIoValue> {
-    let mut writer = Vec::new();
-    let mut ser = ser::Serializer::new(&mut writer, event);
-    if ser::is_tuple(data) {
-        data.serialize(&mut ser)?;
+    let (writer, binary) = if ser::is_tuple(data) {
+        ser::into_str(data, event)?
     } else {
-        (data,).serialize(&mut ser)?;
-    }
-    let binary = ser.into_binary();
+        ser::into_str(&(data,), event)?
+    };
     let data = unsafe { Str::from_bytes_unchecked(Bytes::from(writer)) };
     Ok(SocketIoValue::Str((
         data,
@@ -51,6 +50,29 @@ pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Resu
     )))
 }
 
+/// Serializer and deserializer that simply return if the root object is a tuple or not.
+/// It is used with [`de::is_tuple`] and [`ser::is_tuple`].
+/// Thanks to this information we can expand tuple data into multiple arguments
+/// while serializing vectors as a single value.
+struct IsTupleSerde;
+#[derive(Debug)]
+struct IsTupleSerdeError(bool);
+impl fmt::Display for IsTupleSerdeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IsTupleSerializerError: {}", self.0)
+    }
+}
+impl std::error::Error for IsTupleSerdeError {}
+impl serde::ser::Error for IsTupleSerdeError {
+    fn custom<T: fmt::Display>(_msg: T) -> Self {
+        IsTupleSerdeError(false)
+    }
+}
+impl serde::de::Error for IsTupleSerdeError {
+    fn custom<T: fmt::Display>(_msg: T) -> Self {
+        IsTupleSerdeError(false)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
