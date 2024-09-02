@@ -1,45 +1,77 @@
-use super::{value::ParseError, Error, Parse, TransportPayload, Value};
-use crate::packet::Packet;
+use std::fmt;
+
 use bytes::Bytes;
 use de::deserialize_packet;
 use ser::serialize_packet;
-use serde::{Deserialize, Serialize};
+use socketioxide_core::{
+    packet::Packet,
+    parser::{Parse, ParseError},
+    SocketIoValue, Str,
+};
 
 mod de;
 mod ser;
+mod value;
 
 /// The MsgPack parser
 #[derive(Default, Debug, Clone)]
 pub struct MsgPackParser;
 
-#[derive(Debug, Serialize, Deserialize)]
-enum MsgPackPacketData {
-    Value(Value),
-    ConnectError(MsgPackConnectErrorMessage),
+#[derive(Debug)]
+enum Error {
+    Encode(rmp_serde::encode::Error),
+    Decode(rmp_serde::decode::Error),
 }
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MsgPackConnectErrorMessage {
-    message: String,
+impl From<rmp_serde::encode::Error> for Error {
+    fn from(e: rmp_serde::encode::Error) -> Self {
+        Error::Encode(e)
+    }
 }
+impl From<rmp_serde::decode::Error> for Error {
+    fn from(e: rmp_serde::decode::Error) -> Self {
+        Error::Decode(e)
+    }
+}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Encode(e) => write!(f, "encode error: {}", e),
+            Error::Decode(e) => write!(f, "decode error: {}", e),
+        }
+    }
+}
+impl std::error::Error for Error {}
 
 impl Parse for MsgPackParser {
-    fn encode<'a>(&self, packet: Packet<'a>) -> (TransportPayload, Vec<Bytes>) {
+    type Error = Error;
+
+    fn encode(&self, packet: Packet) -> socketioxide_core::SocketIoValue {
         let data = serialize_packet(packet);
-        (TransportPayload::Bytes(data.into()), Vec::new())
+        SocketIoValue::Bytes(data.into())
     }
 
-    fn decode_str(&self, data: engineioxide::Str) -> Result<Packet<'static>, Error> {
-        Err(Error::UnexpectedStringPacket)
+    fn decode_str(&self, _data: Str) -> Result<Packet, ParseError<Self::Error>> {
+        Err(ParseError::UnexpectedStringPacket)
     }
 
-    fn decode_bin(&self, bin: bytes::Bytes) -> Result<Packet<'static>, Error> {
+    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::Error>> {
         Ok(deserialize_packet(bin)?)
     }
 
-    fn to_value<T: Serialize>(&self, data: T) -> Result<Value, ParseError> {
-        let data = rmp_serde::to_vec_named(&data)?;
-        Ok(Value::MsgPack(data.into()))
+    fn encode_value<T: serde::Serialize>(
+        &self,
+        data: &T,
+        event: Option<&str>,
+    ) -> Result<SocketIoValue, Self::Error> {
+        value::to_value(data, event).map_err(Error::Encode)
+    }
+
+    fn decode_value<T: serde::de::DeserializeOwned>(
+        &self,
+        value: socketioxide_core::SocketIoValue,
+        with_event: bool,
+    ) -> Result<T, Self::Error> {
+        value::from_value(value, with_event).map_err(Error::Decode)
     }
 }
 
@@ -49,26 +81,25 @@ impl Parse for MsgPackParser {
 mod tests {
     use std::str::FromStr;
 
-    use engineioxide::sid::Sid;
     use serde_json::json;
-
-    use crate::{packet::ConnectPacket, ProtocolVersion};
+    use socketioxide_core::{packet::ConnectPacket, Sid};
 
     use super::*;
 
-    fn decode(value: &'static [u8]) -> Packet<'static> {
+    fn decode(value: &'static [u8]) -> Packet {
         MsgPackParser::default()
             .decode_bin(Bytes::from_static(value))
             .unwrap()
     }
-    fn encode(packet: Packet<'_>) -> Bytes {
-        match MsgPackParser::default().encode(packet).0 {
-            TransportPayload::Bytes(b) => b,
-            TransportPayload::Str(_) => panic!("implementation should only return bytes"),
+    fn encode(packet: Packet) -> Bytes {
+        match MsgPackParser::default().encode(packet) {
+            SocketIoValue::Bytes(b) => b,
+            SocketIoValue::Str(_) => panic!("implementation should only return bytes"),
         }
     }
-    fn to_msgpack(value: impl serde::Serialize) -> Value {
-        MsgPackParser::default().to_value(value).unwrap()
+
+    fn to_msgpack(value: impl serde::Serialize) -> SocketIoValue {
+        MsgPackParser::default().encode_value(&value, None).unwrap()
     }
 
     #[test]
@@ -81,7 +112,7 @@ mod tests {
 
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
         let sid = to_msgpack(ConnectPacket { sid });
-        let packet = encode(Packet::connect("/", sid, ProtocolVersion::V5));
+        let packet = encode(Packet::connect("/", Some(sid)));
         assert_eq!(DATA, packet.as_ref());
     }
 
@@ -95,7 +126,7 @@ mod tests {
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
         let sid = to_msgpack(ConnectPacket { sid });
         let packet = decode(DATA);
-        assert_eq!(packet, Packet::connect("/", sid, ProtocolVersion::V5));
+        assert_eq!(packet, Packet::connect("/", Some(sid)));
     }
 
     #[test]
@@ -108,7 +139,7 @@ mod tests {
 
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
         let sid = to_msgpack(ConnectPacket { sid });
-        let packet = encode(Packet::connect("/admin™", sid, ProtocolVersion::V5));
+        let packet = encode(Packet::connect("/admin™", Some(sid)));
         assert_eq!(DATA, packet.as_ref());
     }
 
@@ -123,7 +154,7 @@ mod tests {
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
         let sid = to_msgpack(ConnectPacket { sid });
         let packet = decode(DATA);
-        assert_eq!(packet, Packet::connect("/admin™", sid, ProtocolVersion::V5));
+        assert_eq!(packet, Packet::connect("/admin™", Some(sid)));
     }
 
     #[test]

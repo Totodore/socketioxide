@@ -1,56 +1,56 @@
 use bytes::BufMut;
-use rmp::Marker;
-
-use crate::packet::{Packet, PacketData};
+use rmp::{encode, Marker};
+use socketioxide_core::{
+    packet::{Packet, PacketData},
+    SocketIoValue,
+};
 
 /// Manual packet serialization.
-pub fn serialize_packet(packet: Packet<'_>) -> Vec<u8> {
+pub fn serialize_packet(packet: Packet) -> Vec<u8> {
     let mut buff = Vec::new(); // TODO: with_capacity
 
     let map_len = get_packet_map_len(&packet);
-    rmp::encode::write_map_len(&mut buff, map_len).unwrap();
-    rmp::encode::write_str(&mut buff, "type").unwrap();
-    rmp::encode::write_uint(&mut buff, packet.inner.index() as u64).unwrap();
-    rmp::encode::write_str(&mut buff, "nsp").unwrap();
-    rmp::encode::write_str(&mut buff, &packet.ns).unwrap();
+    encode::write_map_len(&mut buff, map_len).unwrap();
+    encode::write_str(&mut buff, "type").unwrap();
+    encode::write_uint(&mut buff, packet.inner.index() as u64).unwrap();
+    encode::write_str(&mut buff, "nsp").unwrap();
+    encode::write_str(&mut buff, &packet.ns).unwrap();
 
     match packet.inner {
-        PacketData::Event(event, data, id) => {
-            rmp::encode::write_str(&mut buff, "data").unwrap();
-            serialize_event_data(&event, &data.to_msgpack().unwrap(), &mut buff);
+        PacketData::Event(SocketIoValue::Bytes(data), id) => {
+            encode::write_str(&mut buff, "data").unwrap();
+            serialize_data(&data, &mut buff);
             if let Some(id) = id {
                 serialize_id(&mut buff, id);
             }
         }
-        PacketData::BinaryEvent(event, bin, id) => {
-            rmp::encode::write_str(&mut buff, "data").unwrap();
-            let value = bin.data.to_msgpack().unwrap();
-            serialize_event_data(&event, &value, &mut buff);
+        PacketData::BinaryEvent(SocketIoValue::Bytes(data), id) => {
+            encode::write_str(&mut buff, "data").unwrap();
+            serialize_data(&data, &mut buff);
 
             if let Some(id) = id {
                 serialize_id(&mut buff, id);
             }
         }
-        PacketData::EventAck(data, id) => {
-            rmp::encode::write_str(&mut buff, "data").unwrap();
-            serialize_ack_data(&data.to_msgpack().unwrap(), &mut buff);
+        PacketData::EventAck(SocketIoValue::Bytes(data), id) => {
+            encode::write_str(&mut buff, "data").unwrap();
+            serialize_data(&data, &mut buff);
             serialize_id(&mut buff, id);
         }
-        PacketData::BinaryAck(bin, id) => {
-            rmp::encode::write_str(&mut buff, "data").unwrap();
-            let value = bin.data.to_msgpack().unwrap();
-            serialize_ack_data(&value, &mut buff);
+        PacketData::BinaryAck(SocketIoValue::Bytes(data), id) => {
+            encode::write_str(&mut buff, "data").unwrap();
+            serialize_data(&data, &mut buff);
             serialize_id(&mut buff, id);
         }
-        PacketData::Connect(Some(data)) => {
-            rmp::encode::write_str(&mut buff, "data").unwrap();
-            buff.put_slice(&data.to_msgpack().unwrap())
+        PacketData::Connect(Some(SocketIoValue::Bytes(data))) => {
+            encode::write_str(&mut buff, "data").unwrap();
+            buff.put_slice(&data)
         }
         PacketData::ConnectError(data) => {
-            rmp::encode::write_str(&mut buff, "data").unwrap();
-            rmp::encode::write_map_len(&mut buff, 1).unwrap();
-            rmp::encode::write_str(&mut buff, "message").unwrap();
-            rmp::encode::write_str(&mut buff, &data).unwrap();
+            encode::write_str(&mut buff, "data").unwrap();
+            encode::write_map_len(&mut buff, 1).unwrap();
+            encode::write_str(&mut buff, "message").unwrap();
+            encode::write_str(&mut buff, &data).unwrap();
         }
         _ => (),
     };
@@ -63,71 +63,39 @@ pub fn serialize_packet(packet: Packet<'_>) -> Vec<u8> {
 /// - `event`: the event name
 /// - `data`: preserialized msgpack data
 /// - `buff`: a output buffer to write into
-fn serialize_event_data(event: &str, data: &[u8], buff: &mut Vec<u8>) {
-    let marker = Marker::from_u8(data[0]);
-    match marker {
-        Marker::FixArray(_) | Marker::Array16 | Marker::Array32 => {
-            let mut cursor = data;
-            let arr_len = rmp::decode::read_array_len(&mut cursor).unwrap();
-            rmp::encode::write_array_len(buff, arr_len + 1).unwrap();
-            rmp::encode::write_str(buff, event).unwrap();
-            buff.put_slice(cursor);
-        }
-        _ => {
-            rmp::encode::write_array_len(buff, 2).unwrap();
-            rmp::encode::write_str(buff, event).unwrap();
-            buff.put_slice(data);
-        }
-    }
+fn serialize_data(data: &[u8], buff: &mut Vec<u8>) {
+    buff.put_slice(data)
 }
 
 fn serialize_id(buff: &mut Vec<u8>, id: i64) {
-    rmp::encode::write_str(buff, "id").unwrap();
-    rmp::encode::write_sint(buff, id).unwrap();
+    encode::write_str(buff, "id").unwrap();
+    encode::write_sint(buff, id).unwrap();
 }
 
-/// Serialize ack data in place to the following form: `[data]`
-fn serialize_ack_data(data: &[u8], buff: &mut Vec<u8>) {
-    let marker = Marker::from_u8(data[0]);
-    match marker {
-        Marker::FixArray(_) | Marker::Array16 | Marker::Array32 => {
-            buff.put_slice(data);
-        }
-        Marker::Null => {
-            rmp::encode::write_array_len(buff, 0).unwrap();
-        }
-        _ => {
-            rmp::encode::write_array_len(buff, 1).unwrap();
-            buff.put_slice(data);
-        }
-    };
-}
-
-fn get_packet_map_len(packet: &Packet<'_>) -> u32 {
+fn get_packet_map_len(packet: &Packet) -> u32 {
     2 + match packet.inner {
         PacketData::Connect(Some(_)) => 1,
         PacketData::Connect(None) => 0,
         PacketData::Disconnect => 0,
-        PacketData::Event(_, _, Some(_)) => 2,
-        PacketData::Event(_, _, None) => 1,
+        PacketData::Event(_, Some(_)) => 2,
+        PacketData::Event(_, None) => 1,
         PacketData::EventAck(_, _) => 2,
         PacketData::ConnectError(_) => 1,
-        PacketData::BinaryEvent(_, _, Some(_)) => 3,
-        PacketData::BinaryEvent(_, _, None) => 2,
+        PacketData::BinaryEvent(_, Some(_)) => 3,
+        PacketData::BinaryEvent(_, None) => 2,
         PacketData::BinaryAck(_, _) => 3,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::MsgPackParser;
+
     use super::*;
-    use crate::packet::BinaryPacket;
-    use crate::parser::MsgPackParser;
-    use crate::parser::Parse;
-    use crate::Value;
     use ::bytes::Bytes;
+    use encode::*;
     use rmp::decode::*;
-    use rmp::encode::*;
+    use socketioxide_core::parser::Parse;
     use std::io::Cursor;
     use std::u8;
 
@@ -137,15 +105,18 @@ mod tests {
         let mut buff = [0; 256];
         assert_eq!(read_str(reader, &mut buff).unwrap(), val);
     }
-    fn to_msgpack(value: impl serde::Serialize) -> Value {
-        MsgPackParser::default().to_value(value).unwrap()
+
+    fn to_value(value: impl serde::Serialize, event: Option<&str>) -> SocketIoValue {
+        MsgPackParser::default()
+            .encode_value(&value, event)
+            .unwrap()
     }
 
     #[test]
     fn serialize_packet_event() {
         let packet = Packet {
             ns: "/test".into(),
-            inner: PacketData::Event("test_event".into(), to_msgpack(vec![1, 2, 3]), Some(42)),
+            inner: PacketData::Event(to_value(vec![1, 2, 3]), Some(42)),
         };
         let index = packet.inner.index();
         let serialized = serialize_packet(packet);
@@ -178,7 +149,7 @@ mod tests {
             inner: PacketData::BinaryEvent(
                 "bin_event".into(),
                 BinaryPacket {
-                    data: to_msgpack((1, 2, 3, &BIN, &BIN)),
+                    data: to_value_event((1, 2, 3, &BIN, &BIN)),
                     bin: vec![],
                 },
                 Some(99),
@@ -220,7 +191,7 @@ mod tests {
     fn serialize_packet_event_ack() {
         let packet = Packet {
             ns: "/ack".into(),
-            inner: PacketData::EventAck(to_msgpack(vec![4, 5, 6]), 100),
+            inner: PacketData::EventAck(to_value_event(vec![4, 5, 6]), 100),
         };
 
         let index = packet.inner.index();
@@ -279,7 +250,7 @@ mod tests {
         const EVENT: &'static str = "test_event";
         let mut buff = Vec::new();
 
-        serialize_event_data(EVENT, &data, &mut buff);
+        serialize_data(EVENT, &data, &mut buff);
 
         // Verify that the buffer contains the expected serialized data
         let marker = Marker::from_u8(buff[0]);
@@ -297,12 +268,12 @@ mod tests {
     fn serialize_event_data_with_non_array() {
         // Test when data is a non-array (e.g., integer)
         let mut data = Vec::new();
-        rmp::encode::write_sint(&mut data, 42).unwrap();
+        encode::write_sint(&mut data, 42).unwrap();
 
         const EVENT: &'static str = "test_event";
         let mut buff = Vec::new();
 
-        serialize_event_data(EVENT, &data, &mut buff);
+        serialize_data(EVENT, &data, &mut buff);
 
         // Verify that the buffer contains the expected serialized data
         let marker = Marker::from_u8(buff[0]);
@@ -318,12 +289,12 @@ mod tests {
     fn serialize_event_data_with_string() {
         // Test when data is a non-array (e.g., string)
         let mut data = Vec::new();
-        rmp::encode::write_str(&mut data, "hello").unwrap();
+        encode::write_str(&mut data, "hello").unwrap();
 
         const EVENT: &'static str = "test_event";
         let mut buff = Vec::new();
 
-        serialize_event_data(EVENT, &data, &mut buff);
+        serialize_data(EVENT, &data, &mut buff);
 
         // Verify that the buffer contains the expected serialized data
         let marker = Marker::from_u8(buff[0]);

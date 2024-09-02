@@ -1,37 +1,36 @@
 use core::str;
-use std::{borrow::Cow, io::Cursor, ops::Range};
+use std::{io::Cursor, ops::Range};
 
-use crate::{
-    packet::{BinaryPacket, Packet, PacketData},
-    parser::value::ParseError,
-    Value,
-};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use engineioxide::Str;
 use rmp::{
-    decode::{read_map_len, RmpRead, ValueReadError},
+    decode::{self, read_map_len, RmpRead, ValueReadError},
     encode::RmpWrite,
 };
 use rmp_serde::decode::Error as DecodeError;
+use socketioxide_core::{
+    packet::{Packet, PacketData},
+    parser::ParseError,
+    SocketIoValue, Str,
+};
 
-pub fn deserialize_packet(buff: Bytes) -> Result<Packet<'static>, ParseError> {
+pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<crate::Error>> {
     let mut reader = Cursor::new(buff);
     let maplen = read_map_len(&mut reader).map_err(|e| {
         use DecodeError::*;
-        match e {
+        let e = match e {
             ValueReadError::InvalidMarkerRead(e) => InvalidMarkerRead(e),
             ValueReadError::InvalidDataRead(e) => InvalidDataRead(e),
             ValueReadError::TypeMismatch(e) => TypeMismatch(e),
-        }
+        };
+        ParseError::ParserError(crate::Error::Decode(e))
     })?;
 
     // Bound check to prevent DoS attacks.
     // other implementations might add some other keys that we don't support
     // Therefore, we limit the number of keys to 20
     if maplen == 0 || maplen > 20 {
-        Err(DecodeError::Uncategorized(format!(
-            "packet length too big or empty: {}",
-            maplen
+        Err(ParseError::ParserError(crate::Error::Decode(
+            DecodeError::Uncategorized(format!("packet length too big or empty: {}", maplen)),
         )))?;
     }
 
@@ -41,50 +40,28 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet<'static>, ParseError> {
     let mut id = None;
 
     for _ in 0..maplen {
-        parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)?;
+        parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)
+            .map_err(crate::Error::Decode)?;
     }
     let buff = reader.into_inner();
+    let data = SocketIoValue::Bytes(buff.slice(data_pos.clone()));
     let inner = match index {
-        0 => PacketData::Connect(
-            (!data_pos.is_empty()).then(|| Value::MsgPack(buff.slice(data_pos))),
-        ),
+        0 => PacketData::Connect((!data_pos.is_empty()).then_some(data)),
         1 => PacketData::Disconnect,
-        2 => {
-            let (event, data) = read_data_event(buff.slice(data_pos))?;
-            PacketData::Event(Cow::Owned(event.into()), Value::MsgPack(data), id)
-        }
-        3 => PacketData::EventAck(
-            Value::MsgPack(buff.slice(data_pos)),
-            id.ok_or(DecodeError::Uncategorized(
-                "event ack id not present".to_string(),
-            ))?,
-        ),
+        2 => PacketData::Event(data, id),
+        3 => PacketData::EventAck(data, id.ok_or(ParseError::InvalidAckId)?),
         4 => {
             #[derive(serde::Deserialize)]
             struct ErrorMessage {
                 message: String,
             }
-            let ErrorMessage { message } = rmp_serde::decode::from_slice(&buff[data_pos])?;
+            let ErrorMessage { message } =
+                rmp_serde::decode::from_slice(&buff[data_pos]).map_err(crate::Error::Decode)?;
             PacketData::ConnectError(message)
         }
-        5 => {
-            let (event, data) = read_data_event(buff.slice(data_pos))?;
-            PacketData::BinaryEvent(
-                Cow::Owned(event.into()),
-                BinaryPacket::new(Value::MsgPack(data), vec![]),
-                id,
-            )
-        }
-        6 => PacketData::BinaryAck(
-            BinaryPacket {
-                data: Value::MsgPack(buff.slice(data_pos)),
-                bin: Vec::new(),
-            },
-            id.ok_or(DecodeError::Uncategorized(
-                "event ack id not present".to_string(),
-            ))?,
-        ),
-        _ => todo!(),
+        5 => PacketData::BinaryEvent(data, id),
+        6 => PacketData::BinaryAck(data, id.ok_or(ParseError::InvalidAckId)?),
+        _ => Err(ParseError::InvalidPacketType)?,
     };
 
     Ok(Packet { inner, ns: nsp })
@@ -101,7 +78,7 @@ fn parse_key_value(
 
     match key {
         "type" => {
-            *index = rmp::decode::read_int::<usize, _>(reader)?;
+            *index = decode::read_int::<usize, _>(reader)?;
         }
         "nsp" => {
             let ns = read_str(reader)?;
@@ -114,7 +91,7 @@ fn parse_key_value(
             *data_pos = start..end;
         }
         "id" => {
-            *id = Some(rmp::decode::read_int::<i64, _>(reader)?);
+            *id = Some(decode::read_int::<i64, _>(reader)?);
         }
         _ => (),
     };
@@ -138,49 +115,16 @@ fn read_u32(rd: &mut Cursor<Bytes>) -> Result<u32, DecodeError> {
 }
 /// Read a str slice
 fn read_str<'a>(reader: &'a mut Cursor<Bytes>) -> Result<&'a str, DecodeError> {
-    let len = rmp::decode::read_str_len(reader)? as usize;
+    let len = decode::read_str_len(reader)? as usize;
     let start = reader.position() as usize;
     let end = start + len;
     reader.advance(len);
     Ok(str::from_utf8(&reader.get_ref()[start..end])?)
 }
 
-/// Parse the data field for event types: `[event, ...data]`.
-/// * The event is returned as a validated slice of the buffer without allocation.
-/// * The data buffer is a newly allocated buffer.
-fn read_data_event(bytes: Bytes) -> Result<(Str, Bytes), DecodeError> {
-    let mut reader = bytes.as_ref();
-    let mut len = rmp::decode::read_array_len(&mut reader)?;
-    if len == 0 {
-        return Err(DecodeError::LengthMismatch(2));
-    }
-
-    let strlen = rmp::decode::read_str_len(&mut reader)? as usize;
-    let start = bytes.len() - reader.len() as usize;
-    let end = start + strlen;
-    str::from_utf8(&bytes[start..end])?; // ensure slice is valid utf8
-    let event = unsafe { Str::from_bytes_unchecked(bytes.slice(start..end)) };
-    reader = &reader[event.len()..];
-
-    len -= 1; // remove the event element
-    let len_size = if len < 16 {
-        1 // Marker::FixArray(len as u8)
-    } else if len <= u16::MAX as u32 {
-        3 // Marker::Array16
-    } else {
-        5 // Marker::Array32
-    };
-    let mut data = BytesMut::with_capacity(len_size + reader.remaining()).writer();
-    rmp::encode::write_array_len(&mut data, len).unwrap();
-    debug_assert!(data.get_ref().len() == len_size);
-    data.write_bytes(reader).unwrap();
-
-    Ok((event, data.into_inner().freeze()))
-}
-
 /// Iterate over the next element
 fn move_to_next_element(reader: &mut Cursor<Bytes>) -> Result<(), DecodeError> {
-    let marker = rmp::decode::read_marker(reader)?;
+    let marker = decode::read_marker(reader)?;
     match marker {
         rmp::Marker::FixPos(_)
         | rmp::Marker::FixNeg(_)
@@ -264,6 +208,7 @@ mod tests {
     use super::*;
     use ::bytes::Bytes;
     use rmp::Marker;
+    use socketioxide_core::SocketIoValue;
 
     fn create_packet_with_type(packet_type: u8, nsp: &'static str, len: u32) -> Vec<u8> {
         let mut data = Vec::new();
@@ -282,7 +227,7 @@ mod tests {
         rmp::encode::write_str(&mut data, "connect_data").unwrap();
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
-        if let PacketData::Connect(Some(Value::MsgPack(data))) = packet.inner {
+        if let PacketData::Connect(Some(SocketIoValue::Bytes(data))) = packet.inner {
             assert!(matches!(
                 rmp_serde::decode::from_slice::<&str>(&data),
                 Ok("connect_data")
@@ -318,7 +263,7 @@ mod tests {
 
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
-        if let PacketData::Event(event_name, Value::MsgPack(data), _) = packet.inner {
+        if let PacketData::Event(SocketIoValue::Bytes(data), _) = packet.inner {
             assert_eq!(event_name, "event_name");
             rmp_serde::decode::from_slice::<(&str,)>(&data).unwrap();
             assert!(matches!(
