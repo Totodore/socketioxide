@@ -1,12 +1,7 @@
 use std::fmt;
 
 use bytes::Bytes;
-use serde::{
-    de::{self, Visitor},
-    forward_to_deserialize_any,
-};
-
-use super::{IsTupleSerde, IsTupleSerdeError};
+use serde::de::{self, Visitor};
 
 pub fn from_str<'de, T: de::Deserialize<'de>>(
     data: &'de str,
@@ -37,7 +32,7 @@ pub fn from_str_seed<'de, T: de::DeserializeSeed<'de>>(
     seed.deserialize(de)
 }
 
-pub struct Deserializer<'a, D> {
+struct Deserializer<'a, D> {
     inner: D,
     binary_payloads: &'a Vec<Bytes>,
     skip_first_element: bool,
@@ -486,12 +481,12 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'a, V> {
     }
 }
 
-pub struct SeqVisitor<V> {
+struct SeqVisitor<V> {
     inner: V,
     skip_first_element: bool,
 }
 impl<V> SeqVisitor<V> {
-    pub fn new(inner: V, skip_first_element: bool) -> Self {
+    fn new(inner: V, skip_first_element: bool) -> Self {
         Self {
             inner,
             skip_first_element,
@@ -513,51 +508,5 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for SeqVisitor<V> {
             let _ = seq.next_element::<&str>()?; // We ignore the event value
         }
         self.inner.visit_seq(seq)
-    }
-}
-
-impl<'a, 'de> serde::Deserializer<'de> for IsTupleSerde {
-    type Error = super::IsTupleSerdeError;
-
-    forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
-        string unit unit_struct seq  map
-        struct enum identifier ignored_any bytes byte_buf option
-    }
-
-    fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
-        Err(IsTupleSerdeError(false))
-    }
-
-    fn deserialize_tuple<V: Visitor<'de>>(
-        self,
-        _len: usize,
-        _visitor: V,
-    ) -> Result<V::Value, Self::Error> {
-        Err(IsTupleSerdeError(true))
-    }
-
-    fn deserialize_tuple_struct<V: Visitor<'de>>(
-        self,
-        _name: &'static str,
-        _len: usize,
-        _visitor: V,
-    ) -> Result<V::Value, Self::Error> {
-        Err(IsTupleSerdeError(true))
-    }
-
-    fn deserialize_newtype_struct<V: Visitor<'de>>(
-        self,
-        _name: &'static str,
-        _visitor: V,
-    ) -> Result<V::Value, Self::Error> {
-        Err(IsTupleSerdeError(true))
-    }
-}
-
-pub fn is_tuple<'de, T: serde::Deserialize<'de>>() -> bool {
-    match T::deserialize(IsTupleSerde) {
-        Ok(_) => unreachable!(),
-        Err(IsTupleSerdeError(v)) => v,
     }
 }

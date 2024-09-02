@@ -1,10 +1,9 @@
-use std::fmt;
-
 use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
-use socketioxide_core::{SocketIoValue, Str};
-
-use crate::de::FirstElement;
+use socketioxide_core::{
+    parser::{is_de_tuple, is_ser_tuple, FirstElement},
+    SocketIoValue, Str,
+};
 
 mod de;
 mod ser;
@@ -23,7 +22,7 @@ pub fn from_value<T: DeserializeOwned>(
         SocketIoValue::Str(v) => v,
         SocketIoValue::Bytes(_) => panic!("unexpected binary data"),
     };
-    let is_tuple = de::is_tuple::<T>();
+    let is_tuple = is_de_tuple::<T>();
     if is_tuple {
         de::from_str(value.as_str(), &bins.unwrap_or_default(), with_event)
     } else {
@@ -38,7 +37,7 @@ pub fn from_value<T: DeserializeOwned>(
 
 /// Serialize any serializable data and an event to a generic [`SocketIoValue`] data.
 pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Result<SocketIoValue> {
-    let (writer, binary) = if ser::is_tuple(data) {
+    let (writer, binary) = if is_ser_tuple(data) {
         ser::into_str(data, event)?
     } else {
         ser::into_str(&(data,), event)?
@@ -50,33 +49,9 @@ pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Resu
     )))
 }
 
-/// Serializer and deserializer that simply return if the root object is a tuple or not.
-/// It is used with [`de::is_tuple`] and [`ser::is_tuple`].
-/// Thanks to this information we can expand tuple data into multiple arguments
-/// while serializing vectors as a single value.
-struct IsTupleSerde;
-#[derive(Debug)]
-struct IsTupleSerdeError(bool);
-impl fmt::Display for IsTupleSerdeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "IsTupleSerializerError: {}", self.0)
-    }
-}
-impl std::error::Error for IsTupleSerdeError {}
-impl serde::ser::Error for IsTupleSerdeError {
-    fn custom<T: fmt::Display>(_msg: T) -> Self {
-        IsTupleSerdeError(false)
-    }
-}
-impl serde::de::Error for IsTupleSerdeError {
-    fn custom<T: fmt::Display>(_msg: T) -> Self {
-        IsTupleSerdeError(false)
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::Deserialize;
     use serde_json::json;
 
     fn to_str(data: impl Serialize, event: Option<&str>) -> Str {
@@ -334,27 +309,5 @@ mod tests {
             from_str_ack::<(String, usize, usize, usize)>(json!(["hello", 1, 2, 3])),
             ("hello".to_string(), 1, 2, 3)
         );
-    }
-
-    #[test]
-    fn is_tuple() {
-        assert!(ser::is_tuple(&(1, 2, 3)));
-        assert!(de::is_tuple::<(usize, usize, usize)>());
-
-        assert!(ser::is_tuple(&[1, 2, 3]));
-        assert!(de::is_tuple::<[usize; 3]>());
-
-        #[derive(Serialize, Deserialize)]
-        struct TupleStruct<'a>(&'a str);
-        assert!(ser::is_tuple(&TupleStruct("test")));
-        assert!(de::is_tuple::<TupleStruct>());
-
-        assert!(!ser::is_tuple(&vec![1, 2, 3]));
-        assert!(!de::is_tuple::<Vec<usize>>());
-
-        #[derive(Serialize, Deserialize)]
-        struct UnitStruct;
-        assert!(!ser::is_tuple(&UnitStruct));
-        assert!(!de::is_tuple::<UnitStruct>());
     }
 }
