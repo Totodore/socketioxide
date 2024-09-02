@@ -14,5 +14,5 @@ license.workspace = true
 bytes.workspace = true
 itoa.workspace = true
 serde.workspace = true
-serde_json = { workspace = true, features = ["raw_value"] }
+serde_json.workspace = true
 socketioxide-core = { version = "0.14.1", path = "../socketioxide-core" }

@@ -144,7 +144,7 @@ fn get_size_hint(packet: &Packet) -> usize {
                 + ACK_PUNCTUATION_SIZE
                 + BINARY_PUNCTUATION_SIZE
         }
-        ConnectError(data) => data.len(),
+        ConnectError(data) => data.len() + "{\"message\":\"\"}".len(),
         data => unreachable!(
             "common parser should only serialize SocketIoValue::Str data: {:?}",
             data
@@ -185,33 +185,39 @@ mod tests {
         let sid = Sid::new();
         let value = to_connect_value(&ConnectPacket { sid });
         let packet = Packet::connect("/", Some(value.clone()));
-        assert_eq!(get_size_hint(&packet), 1);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::connect("/admin", Some(value.clone()));
-        assert_eq!(get_size_hint(&packet), 8);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::connect("admin", None);
-        assert_eq!(get_size_hint(&packet), 8);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
+
+        let packet = Packet::connect_error("/", "test".to_string());
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
+
+        let packet = Packet::connect_error("/admin", "test".to_string());
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::disconnect("/");
-        assert_eq!(get_size_hint(&packet), 1);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::disconnect("/admin");
-        assert_eq!(get_size_hint(&packet), 8);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let basic_payload = to_event_value(&json!({ "data": "value™" }), "event");
         let basic_ack_payload = to_value(&json!("data"));
         let packet = Packet::event("/", basic_payload.clone());
-        assert_eq!(get_size_hint(&packet), 1);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::event("/admin", basic_payload.clone());
-        assert_eq!(get_size_hint(&packet), 8);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::ack("/", basic_ack_payload.clone(), 54);
-        assert_eq!(get_size_hint(&packet), 3);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::ack("/admin", basic_ack_payload.clone(), 54);
-        assert_eq!(get_size_hint(&packet), 10);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let bin_payload = to_event_value(
             &(json!({ "data": "value™" }), Bytes::from_static(&[1])),
@@ -220,15 +226,15 @@ mod tests {
 
         let bin_ack_payload = to_value(&(json!({ "data": "value™" }), Bytes::from_static(&[1])));
         let packet = Packet::bin_event("/", bin_payload.clone());
-        assert_eq!(get_size_hint(&packet), 3);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::bin_event("/admin", bin_payload.clone());
-        assert_eq!(get_size_hint(&packet), 10);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::bin_ack("/", bin_ack_payload.clone(), 54);
-        assert_eq!(get_size_hint(&packet), 5);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
         let packet = Packet::bin_ack("/admin", bin_ack_payload.clone(), 54);
-        assert_eq!(get_size_hint(&packet), 12);
+        assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
     }
 }
