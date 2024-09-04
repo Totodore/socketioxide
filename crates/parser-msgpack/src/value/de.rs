@@ -1,6 +1,6 @@
 use std::fmt;
 
-use serde::de::{self, Visitor};
+use serde::de::{self, IgnoredAny, Visitor};
 
 pub fn from_bytes<'de, T: de::Deserialize<'de>>(
     data: &'de [u8],
@@ -209,7 +209,7 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for SeqVisitor<V> {
         A: serde::de::SeqAccess<'de>,
     {
         if self.skip_first_element {
-            let _ = seq.next_element::<&str>()?; // We ignore the event value
+            let _ = seq.next_element::<IgnoredAny>()?; // We ignore the event value
         }
         self.inner.visit_seq(seq)
     }

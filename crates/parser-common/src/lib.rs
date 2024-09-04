@@ -33,12 +33,13 @@ pub struct CommonParser {
 }
 
 impl Parse for CommonParser {
-    type Error = serde_json::Error;
+    type EncodeError = serde_json::Error;
+    type DecodeError = serde_json::Error;
     fn encode(&self, packet: Packet) -> SocketIoValue {
         ser::serialize_packet(packet)
     }
 
-    fn decode_str(&self, value: Str) -> Result<Packet, ParseError<Self::Error>> {
+    fn decode_str(&self, value: Str) -> Result<Packet, ParseError<Self::DecodeError>> {
         let (packet, incoming_binary_cnt) = de::deserialize_packet(value)?;
         if packet.inner.is_binary() {
             let incoming_binary_cnt = incoming_binary_cnt.ok_or(ParseError::InvalidAttachments)?;
@@ -55,7 +56,7 @@ impl Parse for CommonParser {
         }
     }
 
-    fn decode_bin(&self, data: Bytes) -> Result<Packet, ParseError<Self::Error>> {
+    fn decode_bin(&self, data: Bytes) -> Result<Packet, ParseError<Self::DecodeError>> {
         let packet = &mut *self.partial_bin_packet.lock().unwrap();
         match packet {
             Some(Packet {
@@ -80,7 +81,7 @@ impl Parse for CommonParser {
         &self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<SocketIoValue, Self::Error> {
+    ) -> Result<SocketIoValue, Self::EncodeError> {
         value::to_value(data, event)
     }
 
@@ -88,7 +89,7 @@ impl Parse for CommonParser {
         &self,
         value: SocketIoValue,
         with_event: bool,
-    ) -> Result<T, Self::Error> {
+    ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)
     }
 }

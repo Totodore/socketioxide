@@ -1,10 +1,10 @@
 use core::str;
 use std::{io::Cursor, ops::Range};
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, Bytes};
 use rmp::{
     decode::{self, read_map_len, RmpRead, ValueReadError},
-    encode::RmpWrite,
+    Marker,
 };
 use rmp_serde::decode::Error as DecodeError;
 use socketioxide_core::{
@@ -13,7 +13,7 @@ use socketioxide_core::{
     SocketIoValue, Str,
 };
 
-pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<crate::Error>> {
+pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>> {
     let mut reader = Cursor::new(buff);
     let maplen = read_map_len(&mut reader).map_err(|e| {
         use DecodeError::*;
@@ -22,15 +22,16 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<crate::Error
             ValueReadError::InvalidDataRead(e) => InvalidDataRead(e),
             ValueReadError::TypeMismatch(e) => TypeMismatch(e),
         };
-        ParseError::ParserError(crate::Error::Decode(e))
+        ParseError::ParserError(e)
     })?;
 
     // Bound check to prevent DoS attacks.
     // other implementations might add some other keys that we don't support
     // Therefore, we limit the number of keys to 20
     if maplen == 0 || maplen > 20 {
-        Err(ParseError::ParserError(crate::Error::Decode(
-            DecodeError::Uncategorized(format!("packet length too big or empty: {}", maplen)),
+        Err(DecodeError::Uncategorized(format!(
+            "packet length too big or empty: {}",
+            maplen
         )))?;
     }
 
@@ -40,8 +41,7 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<crate::Error
     let mut id = None;
 
     for _ in 0..maplen {
-        parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)
-            .map_err(crate::Error::Decode)?;
+        parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)?;
     }
     let buff = reader.into_inner();
     let data = SocketIoValue::Bytes(buff.slice(data_pos.clone()));
@@ -55,8 +55,7 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<crate::Error
             struct ErrorMessage {
                 message: String,
             }
-            let ErrorMessage { message } =
-                rmp_serde::decode::from_slice(&buff[data_pos]).map_err(crate::Error::Decode)?;
+            let ErrorMessage { message } = rmp_serde::decode::from_slice(&buff[data_pos])?;
             PacketData::ConnectError(message)
         }
         5 => PacketData::BinaryEvent(data, id),
@@ -91,9 +90,19 @@ fn parse_key_value(
             *data_pos = start..end;
         }
         "id" => {
-            *id = Some(decode::read_int::<i64, _>(reader)?);
+            *id = match reader
+                .get_ref()
+                .get(reader.position() as usize)
+                .map(|b| Marker::from_u8(*b))       //TODO: use remaining_slice when stabilized (issue #86369)
+            {
+                Some(Marker::Null) | None => {
+                    reader.advance(1);
+                    None
+                }
+                Some(_) => Some(decode::read_int::<i64, _>(reader)?),
+            }
         }
-        _ => (),
+        _ => move_to_next_element(reader)?, // Skip the data corresponding to the key
     };
     Ok(())
 }
@@ -208,189 +217,162 @@ mod tests {
     use super::*;
     use ::bytes::Bytes;
     use rmp::Marker;
+    use serde::{Deserialize, Serialize};
+    use serde_json::json;
     use socketioxide_core::SocketIoValue;
 
-    fn create_packet_with_type(packet_type: u8, nsp: &'static str, len: u32) -> Vec<u8> {
-        let mut data = Vec::new();
-        rmp::encode::write_map_len(&mut data, len + 2).unwrap(); // Map length is 1
-        rmp::encode::write_str(&mut data, "type").unwrap();
-        rmp::encode::write_pfix(&mut data, packet_type).unwrap();
-        rmp::encode::write_str(&mut data, "nsp").unwrap();
-        rmp::encode::write_str(&mut data, nsp).unwrap();
-        data
+    const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);
+    #[derive(Serialize)]
+    struct StubPacket<T: serde::Serialize> {
+        r#type: usize,
+        nsp: &'static str,
+        id: Option<i64>,
+        data: T,
+    }
+
+    fn packet(
+        r#type: usize,
+        nsp: &'static str,
+        data: impl serde::Serialize,
+        id: Option<i64>,
+    ) -> Vec<u8> {
+        rmp_serde::to_vec_named(&StubPacket {
+            r#type,
+            nsp,
+            data,
+            id,
+        })
+        .unwrap()
     }
 
     #[test]
     fn deserialize_connect_packet() {
-        let mut data = create_packet_with_type(0, "/", 1);
-        rmp::encode::write_str(&mut data, "data").unwrap();
-        rmp::encode::write_str(&mut data, "connect_data").unwrap();
+        let data = packet(0, "/", "connect_data", None);
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
-
-        if let PacketData::Connect(Some(SocketIoValue::Bytes(data))) = packet.inner {
-            assert!(matches!(
-                rmp_serde::decode::from_slice::<&str>(&data),
-                Ok("connect_data")
-            ));
-        } else {
-            panic!(
-                "Expected PacketData::Connect with data, found: {:?}",
-                packet
-            );
+        match packet {
+            Packet {
+                inner: PacketData::Connect(Some(SocketIoValue::Bytes(data))),
+                ns,
+            } if ns == "/" => assert_eq!(
+                rmp_serde::decode::from_slice::<&str>(&data).unwrap(),
+                "connect_data"
+            ),
+            _ => panic!("invalid packet: {:?}", packet),
         }
     }
 
     #[test]
     fn deserialize_disconnect_packet() {
-        let data = create_packet_with_type(1, "/", 0);
+        let data = packet(1, "/", (), None);
 
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
-
-        if let PacketData::Disconnect = packet.inner {
-            // Successfully deserialized Disconnect packet
-        } else {
-            panic!("Expected PacketData::Disconnect");
+        match packet {
+            Packet {
+                inner: PacketData::Disconnect,
+                ns,
+            } if ns == "/" => (),
+            _ => panic!("invalid packet: {:?}", packet),
         }
     }
 
     #[test]
     fn deserialize_event_packet() {
-        let mut data = create_packet_with_type(2, "/", 1);
-        rmp::encode::write_str(&mut data, "data").unwrap();
-        rmp::encode::write_array_len(&mut data, 2).unwrap(); // Event name and one argument
-        rmp::encode::write_str(&mut data, "event_name").unwrap();
-        rmp::encode::write_str(&mut data, "event_data").unwrap();
-
+        let data = packet(2, "/", ["event_name", "event_data"], None);
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
 
-        if let PacketData::Event(SocketIoValue::Bytes(data), _) = packet.inner {
-            assert_eq!(event_name, "event_name");
-            rmp_serde::decode::from_slice::<(&str,)>(&data).unwrap();
-            assert!(matches!(
-                rmp_serde::decode::from_slice::<(&str,)>(&data),
-                Ok(("event_data",))
-            ));
-        } else {
-            panic!("Expected PacketData::Event");
+        match packet {
+            Packet {
+                inner: PacketData::Event(SocketIoValue::Bytes(data), None),
+                ns,
+            } if ns == "/" => assert_eq!(
+                rmp_serde::decode::from_slice::<(&str, &str)>(&data).unwrap(),
+                ("event_name", "event_data")
+            ),
+            _ => panic!("invalid packet: {:?}", packet),
         }
     }
 
     #[test]
     fn deserialize_event_ack_packet() {
-        let mut data = create_packet_with_type(3, "/", 2);
-        rmp::encode::write_str(&mut data, "data").unwrap();
-        rmp::encode::write_array_len(&mut data, 1).unwrap();
-        rmp::encode::write_str(&mut data, "ack_data").unwrap();
-        rmp::encode::write_str(&mut data, "id").unwrap();
-        rmp::encode::write_sint(&mut data, 123).unwrap();
-
+        let data = packet(3, "/", ["ack_data"], Some(123));
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
-
-        if let PacketData::EventAck(Value::MsgPack(data), id) = packet.inner {
-            assert_eq!(id, 123);
-            assert!(matches!(
-                rmp_serde::decode::from_slice::<(&str,)>(&data),
-                Ok(("ack_data",))
-            ));
-        } else {
-            panic!("Expected PacketData::EventAck");
+        match packet {
+            Packet {
+                inner: PacketData::EventAck(SocketIoValue::Bytes(data), id),
+                ns,
+            } if id == 123 && ns == "/" => {
+                assert_eq!(
+                    rmp_serde::decode::from_slice::<(&str,)>(&data).unwrap(),
+                    ("ack_data",)
+                )
+            }
+            _ => panic!("invalid packet: {:?}", packet),
         }
     }
 
     #[test]
     fn deserialize_connect_error_packet() {
-        let mut data = create_packet_with_type(4, "/", 1);
-        rmp::encode::write_str(&mut data, "data").unwrap();
-        rmp::encode::write_map_len(&mut data, 1).unwrap();
-        rmp::encode::write_str(&mut data, "message").unwrap();
-        rmp::encode::write_str(&mut data, "error_message").unwrap();
-
+        let data = packet(4, "/", json!({ "message": "error_message" }), None);
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
-
-        if let PacketData::ConnectError(error_message) = packet.inner {
-            assert_eq!(error_message, "error_message");
-        } else {
-            panic!("Expected PacketData::ConnectError");
+        match packet {
+            Packet {
+                inner: PacketData::ConnectError(error_message),
+                ns,
+            } => {
+                if ns == "/" {
+                    assert_eq!(error_message, "error_message");
+                }
+            }
+            _ => panic!("invalid packet: {:?}", packet),
         }
     }
 
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+    struct Data {
+        binary_data: Bytes,
+        test: usize,
+    }
     #[test]
     fn deserialize_binary_event_packet() {
-        let mut data = create_packet_with_type(5, "/", 1);
-        rmp::encode::write_str(&mut data, "data").unwrap();
-        rmp::encode::write_array_len(&mut data, 2).unwrap(); // Event name and one argument
-        rmp::encode::write_str(&mut data, "binary_event").unwrap();
-        rmp::encode::write_map_len(&mut data, 2).unwrap(); // { binary_data: [1, 2, 3, 4], test: 1 }
-        rmp::encode::write_str(&mut data, "binary_data").unwrap();
-        rmp::encode::write_bin(&mut data, &[1, 2, 3, 4]).unwrap();
-        rmp::encode::write_str(&mut data, "test").unwrap();
-        rmp::encode::write_sint(&mut data, 1).unwrap();
-
+        let bin_data = Data {
+            binary_data: BIN,
+            test: 1,
+        };
+        let data = packet(5, "/", ("binary_event", bin_data.clone()), None);
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
-
-        if let PacketData::BinaryEvent(
-            event_name,
-            BinaryPacket {
-                data: Value::MsgPack(data),
-                bin,
-            },
-            _,
-        ) = packet.inner
-        {
-            #[derive(serde::Deserialize, Debug)]
-            struct TestStruct {
-                binary_data: Vec<u8>,
-                test: i32,
+        match packet {
+            Packet {
+                inner: PacketData::BinaryEvent(SocketIoValue::Bytes(data), None),
+                ns,
+            } if ns == "/" => {
+                assert_eq!(
+                    rmp_serde::from_slice::<(&str, Data)>(&data).unwrap(),
+                    ("binary_event", bin_data)
+                );
             }
-            dbg!(rmp_serde::decode::from_slice::<(TestStruct,)>(&data).unwrap());
-            assert_eq!(event_name, "binary_event");
-            assert!(matches!(
-                    rmp_serde::decode::from_slice::<(TestStruct,)>(&data),
-                    Ok((TestStruct { binary_data, test },)) if binary_data == [1, 2, 3, 4] && test == 1
-            ));
-            assert!(bin.is_empty());
-        } else {
-            panic!("Expected PacketData::BinaryEvent");
+            _ => panic!("invalid packet: {:?}", packet),
         }
     }
 
     #[test]
     fn deserialize_binary_ack_packet() {
-        let mut data = create_packet_with_type(6, "/", 2);
-        rmp::encode::write_str(&mut data, "data").unwrap();
-        rmp::encode::write_array_len(&mut data, 1).unwrap();
-        rmp::encode::write_map_len(&mut data, 2).unwrap(); // { binary_data: [1, 2, 3, 4], test: 1 }
-        rmp::encode::write_str(&mut data, "binary_data").unwrap();
-        rmp::encode::write_bin(&mut data, &[1, 2, 3, 4]).unwrap();
-        rmp::encode::write_str(&mut data, "test").unwrap();
-        rmp::encode::write_sint(&mut data, 1).unwrap();
-
-        rmp::encode::write_str(&mut data, "id").unwrap();
-        rmp::encode::write_sint(&mut data, 456).unwrap();
-
+        let bin_data = Data {
+            binary_data: BIN,
+            test: 1,
+        };
+        let data = packet(6, "/", [bin_data.clone()], Some(456));
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
-
-        if let PacketData::BinaryAck(
-            BinaryPacket {
-                data: Value::MsgPack(data),
-                bin,
-            },
-            id,
-        ) = packet.inner
-        {
-            #[derive(serde::Deserialize, PartialEq, Debug)]
-            struct TestStruct {
-                binary_data: Vec<u8>,
-                test: i32,
+        match packet {
+            Packet {
+                inner: PacketData::BinaryAck(SocketIoValue::Bytes(data), id),
+                ns,
+            } if ns == "/" && id == 456 => {
+                assert_eq!(
+                    rmp_serde::from_slice::<(Data,)>(&data).unwrap(),
+                    (bin_data.clone(),)
+                )
             }
-            assert_eq!(id, 456);
-            assert!(matches!(
-                    rmp_serde::decode::from_slice(&data),
-                    Ok((TestStruct { binary_data, test },)) if binary_data == [1, 2, 3, 4] && test == 1
-            ));
-            assert!(bin.is_empty());
-        } else {
-            panic!("Expected PacketData::BinaryAck");
+            _ => panic!("invalid packet: {:?}", packet),
         }
     }
 

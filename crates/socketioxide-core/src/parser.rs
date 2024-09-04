@@ -12,23 +12,24 @@ use crate::{packet::Packet, SocketIoValue};
 
 /// All socket.io parser should implement this trait
 pub trait Parse: Default {
-    type Error: std::error::Error;
+    type EncodeError: std::error::Error;
+    type DecodeError: std::error::Error;
     /// Convert a packet into multiple payloads to be sent
     fn encode(&self, packet: Packet) -> SocketIoValue;
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
     /// the partial packet will be kept and a [`Error::NeedsMoreBinaryData`] will be returned
-    fn decode_str(&self, data: Str) -> Result<Packet, ParseError<Self::Error>>;
+    fn decode_str(&self, data: Str) -> Result<Packet, ParseError<Self::DecodeError>>;
 
     /// Parse a given input binary.
-    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::Error>>;
+    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::DecodeError>>;
 
     /// Convert any serializable data to a generic [`Bytes`]
     fn encode_value<T: Serialize>(
         &self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<SocketIoValue, Self::Error>;
+    ) -> Result<SocketIoValue, Self::EncodeError>;
 
     /// Convert any generic [`Bytes`] to deserializable data.
     ///
@@ -37,7 +38,7 @@ pub trait Parse: Default {
         &self,
         value: SocketIoValue,
         with_event: bool,
-    ) -> Result<T, Self::Error>;
+    ) -> Result<T, Self::DecodeError>;
 }
 
 /// Errors when parsing/serializing socket.io packets

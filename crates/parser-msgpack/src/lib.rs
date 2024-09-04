@@ -1,5 +1,3 @@
-use std::fmt;
-
 use bytes::Bytes;
 use de::deserialize_packet;
 use ser::serialize_packet;
@@ -17,44 +15,20 @@ mod value;
 #[derive(Default, Debug, Clone)]
 pub struct MsgPackParser;
 
-#[derive(Debug)]
-enum Error {
-    Encode(rmp_serde::encode::Error),
-    Decode(rmp_serde::decode::Error),
-}
-impl From<rmp_serde::encode::Error> for Error {
-    fn from(e: rmp_serde::encode::Error) -> Self {
-        Error::Encode(e)
-    }
-}
-impl From<rmp_serde::decode::Error> for Error {
-    fn from(e: rmp_serde::decode::Error) -> Self {
-        Error::Decode(e)
-    }
-}
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::Encode(e) => write!(f, "encode error: {}", e),
-            Error::Decode(e) => write!(f, "decode error: {}", e),
-        }
-    }
-}
-impl std::error::Error for Error {}
-
 impl Parse for MsgPackParser {
-    type Error = Error;
+    type EncodeError = rmp_serde::encode::Error;
+    type DecodeError = rmp_serde::decode::Error;
 
     fn encode(&self, packet: Packet) -> socketioxide_core::SocketIoValue {
         let data = serialize_packet(packet);
         SocketIoValue::Bytes(data.into())
     }
 
-    fn decode_str(&self, _data: Str) -> Result<Packet, ParseError<Self::Error>> {
+    fn decode_str(&self, _data: Str) -> Result<Packet, ParseError<Self::DecodeError>> {
         Err(ParseError::UnexpectedStringPacket)
     }
 
-    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::Error>> {
+    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::DecodeError>> {
         Ok(deserialize_packet(bin)?)
     }
 
@@ -62,16 +36,16 @@ impl Parse for MsgPackParser {
         &self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<SocketIoValue, Self::Error> {
-        value::to_value(data, event).map_err(Error::Encode)
+    ) -> Result<SocketIoValue, Self::EncodeError> {
+        value::to_value(data, event)
     }
 
     fn decode_value<T: serde::de::DeserializeOwned>(
         &self,
         value: socketioxide_core::SocketIoValue,
         with_event: bool,
-    ) -> Result<T, Self::Error> {
-        value::from_value(value, with_event).map_err(Error::Decode)
+    ) -> Result<T, Self::DecodeError> {
+        value::from_value(value, with_event)
     }
 }
 
@@ -85,21 +59,25 @@ mod tests {
     use socketioxide_core::{packet::ConnectPacket, Sid};
 
     use super::*;
+    const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);
 
     fn decode(value: &'static [u8]) -> Packet {
-        MsgPackParser::default()
-            .decode_bin(Bytes::from_static(value))
-            .unwrap()
+        MsgPackParser.decode_bin(Bytes::from_static(value)).unwrap()
     }
     fn encode(packet: Packet) -> Bytes {
-        match MsgPackParser::default().encode(packet) {
+        match MsgPackParser.encode(packet) {
             SocketIoValue::Bytes(b) => b,
             SocketIoValue::Str(_) => panic!("implementation should only return bytes"),
         }
     }
-
-    fn to_msgpack(value: impl serde::Serialize) -> SocketIoValue {
-        MsgPackParser::default().encode_value(&value, None).unwrap()
+    fn to_event_value(data: &impl serde::Serialize, event: &str) -> SocketIoValue {
+        MsgPackParser.encode_value(data, Some(event)).unwrap()
+    }
+    fn to_value(data: &impl serde::Serialize) -> SocketIoValue {
+        MsgPackParser.encode_value(data, None).unwrap()
+    }
+    fn to_connect_value(data: &impl serde::Serialize) -> SocketIoValue {
+        SocketIoValue::Bytes(rmp_serde::to_vec_named(data).unwrap().into())
     }
 
     #[test]
@@ -111,7 +89,7 @@ mod tests {
         ];
 
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
-        let sid = to_msgpack(ConnectPacket { sid });
+        let sid = to_connect_value(&ConnectPacket { sid });
         let packet = encode(Packet::connect("/", Some(sid)));
         assert_eq!(DATA, packet.as_ref());
     }
@@ -124,7 +102,7 @@ mod tests {
             103, 86, 113, 106,
         ];
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
-        let sid = to_msgpack(ConnectPacket { sid });
+        let sid = to_connect_value(&ConnectPacket { sid });
         let packet = decode(DATA);
         assert_eq!(packet, Packet::connect("/", Some(sid)));
     }
@@ -138,7 +116,7 @@ mod tests {
         ];
 
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
-        let sid = to_msgpack(ConnectPacket { sid });
+        let sid = to_connect_value(&ConnectPacket { sid });
         let packet = encode(Packet::connect("/admin™", Some(sid)));
         assert_eq!(DATA, packet.as_ref());
     }
@@ -152,7 +130,7 @@ mod tests {
         ];
 
         let sid = Sid::from_str("nwz3C8u7qysvgVqj").unwrap();
-        let sid = to_msgpack(ConnectPacket { sid });
+        let sid = to_connect_value(&ConnectPacket { sid });
         let packet = decode(DATA);
         assert_eq!(packet, Packet::connect("/admin™", Some(sid)));
     }
@@ -198,8 +176,10 @@ mod tests {
             146, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162,
         ];
-        let data = to_msgpack(json!({ "data": "value™" }));
-        let packet = encode(Packet::event("/", "event", data));
+        let packet = encode(Packet::event(
+            "/",
+            to_event_value(&json!({ "data": "value™" }), "event"),
+        ));
         assert_eq!(DATA, packet.as_ref());
     }
 
@@ -210,19 +190,19 @@ mod tests {
             146, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162,
         ];
-        let data = to_msgpack(json!([{ "data": "value™" }]));
+        let data = to_event_value(&json!({ "data": "value™" }), "event");
         let packet = decode(DATA);
-        assert_eq!(packet, Packet::event("/", "event", data));
+        assert_eq!(packet, Packet::event("/", data));
     }
     #[test]
-    fn packet_encode_event_root_ns_empty_data() {
+    fn packet_decode_event_root_ns_empty_data() {
         const DATA: &'static [u8] = &[
             131, 164, 116, 121, 112, 101, 2, 163, 110, 115, 112, 161, 47, 164, 100, 97, 116, 97,
             145, 165, 101, 118, 101, 110, 116,
         ];
-        let data = to_msgpack(json!([]));
+        let data = to_event_value(&[0; 0], "event");
         let packet = decode(DATA);
-        assert_eq!(packet, Packet::event("/", "event", data));
+        assert_eq!(packet, Packet::event("/", data));
     }
 
     #[test]
@@ -232,8 +212,8 @@ mod tests {
             146, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162, 162, 105, 100, 1,
         ];
-        let data = to_msgpack(json!({ "data": "value™" }));
-        let mut packet = Packet::event("/", "event", data);
+        let data = to_event_value(&json!({ "data": "value™" }), "event");
+        let mut packet = Packet::event("/", data);
         packet.inner.set_ack_id(1);
         let packet = encode(packet);
         assert_eq!(DATA, packet.as_ref());
@@ -246,8 +226,8 @@ mod tests {
             146, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162, 162, 105, 100, 1,
         ];
-        let data = to_msgpack(json!([{ "data": "value™" }]));
-        let mut packet_comp = Packet::event("/", "event", data);
+        let data = to_event_value(&json!({ "data": "value™" }), "event");
+        let mut packet_comp = Packet::event("/", data);
         packet_comp.inner.set_ack_id(1);
         let packet = decode(DATA);
         assert_eq!(packet, packet_comp);
@@ -259,8 +239,8 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 146, 165, 101, 118, 101, 110, 116, 129, 164, 100,
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162,
         ];
-        let data = to_msgpack(json!({"data": "value™"}));
-        let packet = encode(Packet::event("/admin™", "event", data));
+        let data = to_event_value(&json!({"data": "value™"}), "event");
+        let packet = encode(Packet::event("/admin™", data));
 
         assert_eq!(DATA, packet.as_ref());
     }
@@ -272,10 +252,10 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 146, 165, 101, 118, 101, 110, 116, 129, 164, 100,
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162,
         ];
-        let data = to_msgpack(json!([{"data": "value™"}]));
+        let data = to_event_value(&json!({"data": "value™"}), "event");
         let packet = decode(DATA);
 
-        assert_eq!(packet, Packet::event("/admin™", "event", data));
+        assert_eq!(packet, Packet::event("/admin™", data));
     }
     #[test]
     fn packet_encode_event_custom_ns_with_ack_id() {
@@ -284,8 +264,8 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 146, 165, 101, 118, 101, 110, 116, 129, 164, 100,
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 162, 105, 100, 1,
         ];
-        let data = to_msgpack(json!([{"data": "value™"}]));
-        let mut packet = Packet::event("/admin™", "event", data);
+        let data = to_event_value(&json!({"data": "value™"}), "event");
+        let mut packet = Packet::event("/admin™", data);
         packet.inner.set_ack_id(1);
         let packet = encode(packet);
         assert_eq!(DATA, packet.as_ref());
@@ -298,8 +278,8 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 146, 165, 101, 118, 101, 110, 116, 129, 164, 100,
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 162, 105, 100, 1,
         ];
-        let data = to_msgpack(json!([{"data": "value™"}]));
-        let mut packet_ref = Packet::event("/admin™", "event", data);
+        let data = to_event_value(&json!({"data": "value™"}), "event");
+        let mut packet_ref = Packet::event("/admin™", data);
         packet_ref.inner.set_ack_id(1);
         let packet = decode(DATA);
         assert_eq!(packet, packet_ref);
@@ -311,7 +291,7 @@ mod tests {
             132, 164, 116, 121, 112, 101, 3, 163, 110, 115, 112, 161, 47, 164, 100, 97, 116, 97,
             145, 164, 100, 97, 116, 97, 162, 105, 100, 54,
         ];
-        let data = to_msgpack(json!("data"));
+        let data = to_value(&"data");
         let packet = encode(Packet::ack("/", data, 54));
         assert_eq!(DATA, packet.as_ref());
     }
@@ -322,7 +302,7 @@ mod tests {
             132, 164, 116, 121, 112, 101, 3, 163, 110, 115, 112, 161, 47, 164, 100, 97, 116, 97,
             145, 164, 100, 97, 116, 97, 162, 105, 100, 54,
         ];
-        let data = to_msgpack(json!(["data"]));
+        let data = to_value(&"data");
         let packet = decode(DATA);
         assert_eq!(packet, Packet::ack("/", data, 54));
     }
@@ -334,7 +314,7 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 145, 164, 100, 97, 116, 97, 162, 105, 100, 54,
         ];
 
-        let data = to_msgpack(json!(["data"]));
+        let data = to_value(&"data");
         let packet = encode(Packet::ack("/admin™", data, 54));
         assert_eq!(DATA, packet.as_ref());
     }
@@ -346,7 +326,7 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 145, 164, 100, 97, 116, 97, 162, 105, 100, 54,
         ];
 
-        let data = to_msgpack(json!(["data"]));
+        let data = to_value(&["data"]);
         let packet = decode(DATA);
         assert_eq!(packet, Packet::ack("/admin™", data, 54));
     }
@@ -358,11 +338,8 @@ mod tests {
             147, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162, 196, 4, 1, 2, 3, 4,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
-        let packet = encode(Packet::event("/", "event", data));
+        let data = to_event_value(&(json!({ "data": "value™" }), BIN), "event");
+        let packet = encode(Packet::event("/", data));
         assert_eq!(DATA, packet.as_ref());
     }
 
@@ -373,12 +350,9 @@ mod tests {
             147, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162, 196, 4, 1, 2, 3, 4,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
+        let data = to_event_value(&(json!({ "data": "value™" }), BIN), "event");
         let packet = decode(DATA);
-        assert_eq!(packet, Packet::event("/", "event", data));
+        assert_eq!(packet, Packet::event("/", data));
     }
 
     #[test]
@@ -388,11 +362,8 @@ mod tests {
             147, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162, 196, 4, 1, 2, 3, 4, 162, 105, 100, 204, 254,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
-        let mut packet = Packet::event("/", "event", data);
+        let data = to_event_value(&(json!({ "data": "value™" }), BIN), "event");
+        let mut packet = Packet::event("/", data);
         packet.inner.set_ack_id(254);
         let packet = encode(packet);
 
@@ -406,11 +377,8 @@ mod tests {
             147, 165, 101, 118, 101, 110, 116, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117,
             101, 226, 132, 162, 196, 4, 1, 2, 3, 4, 162, 105, 100, 204, 254,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
-        let mut packet_ref = Packet::event("/", "event", data);
+        let data = to_event_value(&(json!({ "data": "value™" }), BIN), "event");
+        let mut packet_ref = Packet::event("/", data);
         packet_ref.inner.set_ack_id(254);
         let packet = decode(DATA);
 
@@ -424,8 +392,8 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 147, 165, 101, 118, 101, 110, 116, 129, 164, 100,
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 196, 4, 1, 2, 3, 4,
         ];
-        let data = to_msgpack((json!({"data": "value™"}), Bytes::from_static(&[1, 2, 3, 4])));
-        let packet = encode(Packet::event("/admin™", "event", data));
+        let data = to_event_value(&(json!({"data": "value™"}), BIN), "event");
+        let packet = encode(Packet::event("/admin™", data));
 
         assert_eq!(DATA, packet.as_ref());
     }
@@ -437,10 +405,10 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 147, 165, 101, 118, 101, 110, 116, 129, 164, 100,
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 196, 4, 1, 2, 3, 4,
         ];
-        let data = to_msgpack((json!({"data": "value™"}), Bytes::from_static(&[1, 2, 3, 4])));
+        let data = to_event_value(&(json!({"data": "value™"}), BIN), "event");
         let packet = decode(DATA);
 
-        assert_eq!(packet, Packet::event("/admin™", "event", data));
+        assert_eq!(packet, Packet::event("/admin™", data));
     }
 
     #[test]
@@ -451,8 +419,8 @@ mod tests {
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 196, 4, 1, 2, 3, 4, 162, 105,
             100, 204, 254,
         ];
-        let data = to_msgpack((json!({"data": "value™"}), Bytes::from_static(&[1, 2, 3, 4])));
-        let mut packet = Packet::event("/admin™", "event", data);
+        let data = to_event_value(&(json!({"data": "value™"}), BIN), "event");
+        let mut packet = Packet::event("/admin™", data);
         packet.inner.set_ack_id(254);
         let packet = encode(packet);
         assert_eq!(DATA, packet.as_ref());
@@ -466,8 +434,8 @@ mod tests {
             97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 196, 4, 1, 2, 3, 4, 162, 105,
             100, 204, 254,
         ];
-        let data = to_msgpack((json!({"data": "value™"}), Bytes::from_static(&[1, 2, 3, 4])));
-        let mut packet_ref = Packet::event("/admin™", "event", data);
+        let data = to_event_value(&(json!({"data": "value™"}), BIN), "event");
+        let mut packet_ref = Packet::event("/admin™", data);
         packet_ref.inner.set_ack_id(254);
         let packet = decode(DATA);
         assert_eq!(packet, packet_ref);
@@ -480,10 +448,7 @@ mod tests {
             146, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 196, 4, 1,
             2, 3, 4, 162, 105, 100, 54,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
+        let data = to_value(&(json!({ "data": "value™" }), BIN));
         let packet = encode(Packet::ack("/", data, 54));
         assert_eq!(DATA, packet.as_ref());
     }
@@ -495,10 +460,7 @@ mod tests {
             146, 129, 164, 100, 97, 116, 97, 168, 118, 97, 108, 117, 101, 226, 132, 162, 196, 4, 1,
             2, 3, 4, 162, 105, 100, 54,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
+        let data = to_value(&(json!({ "data": "value™" }), BIN));
         let packet = decode(DATA);
         assert_eq!(packet, Packet::ack("/", data, 54));
     }
@@ -510,10 +472,7 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 146, 129, 164, 100, 97, 116, 97, 168, 118, 97,
             108, 117, 101, 226, 132, 162, 196, 4, 1, 2, 3, 4, 162, 105, 100, 54,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
+        let data = to_value(&(json!({ "data": "value™" }), BIN));
         let packet = encode(Packet::ack("/admin™", data, 54));
 
         assert_eq!(DATA, packet.as_ref());
@@ -526,10 +485,7 @@ mod tests {
             226, 132, 162, 164, 100, 97, 116, 97, 146, 129, 164, 100, 97, 116, 97, 168, 118, 97,
             108, 117, 101, 226, 132, 162, 196, 4, 1, 2, 3, 4, 162, 105, 100, 54,
         ];
-        let data = to_msgpack((
-            json!({ "data": "value™" }),
-            Bytes::from_static(&[1, 2, 3, 4]),
-        ));
+        let data = to_value(&(json!({ "data": "value™" }), BIN));
         let packet = decode(DATA);
 
         assert_eq!(packet, Packet::ack("/admin™", data, 54));

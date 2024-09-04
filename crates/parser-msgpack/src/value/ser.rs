@@ -5,7 +5,7 @@ pub fn into_bytes<T: ser::Serialize>(
     event: Option<&str>,
 ) -> Result<Vec<u8>, rmp_serde::encode::Error> {
     let mut writer = Vec::new();
-    let ser = &mut rmp_serde::Serializer::new(&mut writer);
+    let ser = &mut rmp_serde::Serializer::new(&mut writer).with_struct_map();
     let ser = Serializer { event, ser };
     data.serialize(ser)?;
     Ok(writer)
@@ -153,7 +153,7 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         match self.event {
             Some(e) => {
                 let mut inner = self.ser.serialize_tuple(len + 1)?;
-                SerializeTuple::serialize_element(&mut inner, &e)?;
+                SerializeTuple::serialize_element(&mut inner, e)?;
                 Ok(inner)
             }
             _ => self.ser.serialize_tuple(len),
