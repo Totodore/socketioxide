@@ -1,10 +1,10 @@
 use bytes::{BufMut, BytesMut};
 use socketioxide_core::{
     packet::{Packet, PacketData},
-    SocketIoValue, Str,
+    Str, Value,
 };
 
-pub fn serialize_packet(packet: Packet) -> SocketIoValue {
+pub fn serialize_packet(packet: Packet) -> Value {
     let capacity = get_size_hint(&packet);
     let mut buffer = BytesMut::with_capacity(capacity);
 
@@ -21,13 +21,13 @@ pub fn serialize_packet(packet: Packet) -> SocketIoValue {
             None
         }
         PacketData::Disconnect | PacketData::Connect(None) => None,
-        PacketData::Event(SocketIoValue::Str((data, bins)), ack) => {
+        PacketData::Event(Value::Str((data, bins)), ack) => {
             serialize_ack(&mut buffer, ack);
             serialize_data(&mut buffer, &data);
 
             bins
         }
-        PacketData::EventAck(SocketIoValue::Str((data, bins)), ack) => {
+        PacketData::EventAck(Value::Str((data, bins)), ack) => {
             serialize_ack(&mut buffer, Some(ack));
             serialize_data(&mut buffer, &data);
             bins
@@ -41,7 +41,7 @@ pub fn serialize_packet(packet: Packet) -> SocketIoValue {
             buffer.put_slice(&data);
             None
         }
-        PacketData::BinaryEvent(SocketIoValue::Str((data, bins)), ack) => {
+        PacketData::BinaryEvent(Value::Str((data, bins)), ack) => {
             serialize_attachments(&mut buffer, bins.as_ref().map(Vec::len).unwrap_or(0));
             serialize_nsp(&mut buffer, &packet.ns);
             serialize_ack(&mut buffer, ack);
@@ -49,7 +49,7 @@ pub fn serialize_packet(packet: Packet) -> SocketIoValue {
             serialize_data(&mut buffer, &data);
             bins
         }
-        PacketData::BinaryAck(SocketIoValue::Str((data, bins)), ack) => {
+        PacketData::BinaryAck(Value::Str((data, bins)), ack) => {
             serialize_attachments(&mut buffer, bins.as_ref().map(Vec::len).unwrap_or(0));
             serialize_nsp(&mut buffer, &packet.ns);
             serialize_ack(&mut buffer, Some(ack));
@@ -61,7 +61,7 @@ pub fn serialize_packet(packet: Packet) -> SocketIoValue {
     };
 
     let output = unsafe { Str::from_bytes_unchecked(buffer.freeze()) };
-    SocketIoValue::Str((output, bins))
+    Value::Str((output, bins))
 }
 
 fn serialize_attachments(buffer: &mut BytesMut, attachments: usize) {
@@ -108,14 +108,14 @@ fn get_size_hint(packet: &Packet) -> usize {
         Connect(Some(val)) => val.len(),
         Connect(None) => 0,
         Disconnect => 0,
-        Event(SocketIoValue::Str((data, _)), ack) => {
+        Event(Value::Str((data, _)), ack) => {
             data.len()
                 + ack
                     .and_then(i64::checked_ilog10)
                     .map(|s| s as usize + ACK_PUNCTUATION_SIZE)
                     .unwrap_or(0)
         }
-        BinaryEvent(SocketIoValue::Str((data, bin)), ack) => {
+        BinaryEvent(Value::Str((data, bin)), ack) => {
             data.len()
                 + ack
                     .and_then(i64::checked_ilog10)
@@ -129,10 +129,10 @@ fn get_size_hint(packet: &Packet) -> usize {
                     .unwrap_or(0) as usize
                 + BINARY_PUNCTUATION_SIZE
         }
-        EventAck(SocketIoValue::Str((data, _)), ack) => {
+        EventAck(Value::Str((data, _)), ack) => {
             data.len() + ack.checked_ilog10().unwrap_or(0) as usize + ACK_PUNCTUATION_SIZE
         }
-        BinaryAck(SocketIoValue::Str((data, bins)), ack) => {
+        BinaryAck(Value::Str((data, bins)), ack) => {
             data.len()
                 + ack.checked_ilog10().unwrap_or(0) as usize
                 + bins
@@ -169,15 +169,15 @@ mod tests {
 
     use super::*;
 
-    fn to_event_value(data: &impl serde::Serialize, event: &str) -> SocketIoValue {
+    fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {
         crate::value::to_value(data, Some(event)).unwrap()
     }
 
-    fn to_value(data: &impl serde::Serialize) -> SocketIoValue {
+    fn to_value(data: &impl serde::Serialize) -> Value {
         crate::value::to_value(data, None).unwrap()
     }
-    fn to_connect_value(data: &impl serde::Serialize) -> SocketIoValue {
-        SocketIoValue::Str((Str::from(serde_json::to_string(data).unwrap()), None))
+    fn to_connect_value(data: &impl serde::Serialize) -> Value {
+        Value::Str((Str::from(serde_json::to_string(data).unwrap()), None))
     }
 
     #[test]

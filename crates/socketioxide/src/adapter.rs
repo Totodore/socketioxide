@@ -76,12 +76,12 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     fn del_all(&self, sid: Sid) -> Result<(), Self::Error>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`].
-    fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError>;
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError>;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
     fn broadcast_with_ack(
         &self,
-        packet: Packet<'static>,
+        packet: Packet,
         opts: BroadcastOptions,
         timeout: Option<Duration>,
     ) -> AckInnerStream;
@@ -182,7 +182,7 @@ impl Adapter for LocalAdapter {
         Ok(())
     }
 
-    fn broadcast(&self, packet: Packet<'_>, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+    fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         let sockets = self.apply_opts(opts);
 
         #[cfg(feature = "tracing")]
@@ -200,7 +200,7 @@ impl Adapter for LocalAdapter {
 
     fn broadcast_with_ack(
         &self,
-        packet: Packet<'static>,
+        packet: Packet,
         opts: BroadcastOptions,
         timeout: Option<Duration>,
     ) -> AckInnerStream {

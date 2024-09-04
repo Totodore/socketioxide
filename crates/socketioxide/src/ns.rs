@@ -8,12 +8,12 @@ use crate::{
     errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     packet::{ConnectPacket, Packet, PacketData},
-    parser::Parse,
     socket::{DisconnectReason, Socket},
-    Value,
+    ProtocolVersion,
 };
 use crate::{client::SocketData, errors::AdapterError};
 use engineioxide::{sid::Sid, Str};
+use socketioxide_core::{parser::Parse, Value};
 
 /// A [`Namespace`] constructor used for dynamic namespaces
 /// A namespace constructor only hold a common handler that will be cloned
@@ -95,12 +95,12 @@ impl<A: Adapter> Namespace<A> {
         tracing::trace!(?socket.id, ?self.path, "socket added to namespace");
 
         let protocol = esocket.protocol.into();
-
-        let value = socket
-            .parser()
-            .to_value(ConnectPacket { sid: socket.id })
-            .unwrap();
-        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), value, protocol)) {
+        let payload = ConnectPacket { sid: socket.id };
+        let payload = match protocol {
+            ProtocolVersion::V5 => Some(socket.parser().encode_value(&payload, None).unwrap()),
+            _ => None,
+        };
+        if let Err(_e) = socket.send(Packet::connect(self.path.clone(), payload)) {
             #[cfg(feature = "tracing")]
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);
@@ -128,7 +128,7 @@ impl<A: Adapter> Namespace<A> {
         self.sockets.read().unwrap().values().any(|s| s.id == sid)
     }
 
-    pub fn recv(&self, sid: Sid, packet: PacketData<'_>) -> Result<(), Error> {
+    pub fn recv(&self, sid: Sid, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Connect(_) => unreachable!("connect packets should be handled before"),
             PacketData::ConnectError(_) => Err(Error::InvalidPacketType),

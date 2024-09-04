@@ -8,14 +8,14 @@ use serde::{
     Serialize,
 };
 
-use crate::{packet::Packet, SocketIoValue};
+use crate::{packet::Packet, Value};
 
 /// All socket.io parser should implement this trait
 pub trait Parse: Default {
     type EncodeError: std::error::Error;
     type DecodeError: std::error::Error;
     /// Convert a packet into multiple payloads to be sent
-    fn encode(&self, packet: Packet) -> SocketIoValue;
+    fn encode(&self, packet: Packet) -> Value;
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
     /// the partial packet will be kept and a [`Error::NeedsMoreBinaryData`] will be returned
@@ -29,14 +29,14 @@ pub trait Parse: Default {
         &self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<SocketIoValue, Self::EncodeError>;
+    ) -> Result<Value, Self::EncodeError>;
 
     /// Convert any generic [`Bytes`] to deserializable data.
     ///
     /// The parser will be determined from the value given to deserialize.
     fn decode_value<T: DeserializeOwned>(
         &self,
-        value: SocketIoValue,
+        value: Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError>;
 }

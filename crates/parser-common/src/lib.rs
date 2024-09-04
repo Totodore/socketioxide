@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{
     packet::{Packet, PacketData},
     parser::{Parse, ParseError},
-    SocketIoValue, Str,
+    Str, Value,
 };
 
 mod de;
@@ -35,7 +35,7 @@ pub struct CommonParser {
 impl Parse for CommonParser {
     type EncodeError = serde_json::Error;
     type DecodeError = serde_json::Error;
-    fn encode(&self, packet: Packet) -> SocketIoValue {
+    fn encode(&self, packet: Packet) -> Value {
         ser::serialize_packet(packet)
     }
 
@@ -61,8 +61,8 @@ impl Parse for CommonParser {
         match packet {
             Some(Packet {
                 inner:
-                    PacketData::BinaryEvent(SocketIoValue::Str((_, binaries)), _)
-                    | PacketData::BinaryAck(SocketIoValue::Str((_, binaries)), _),
+                    PacketData::BinaryEvent(Value::Str((_, binaries)), _)
+                    | PacketData::BinaryAck(Value::Str((_, binaries)), _),
                 ..
             }) => {
                 let binaries = binaries.get_or_insert(Vec::new());
@@ -81,13 +81,13 @@ impl Parse for CommonParser {
         &self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<SocketIoValue, Self::EncodeError> {
+    ) -> Result<Value, Self::EncodeError> {
         value::to_value(data, event)
     }
 
     fn decode_value<T: DeserializeOwned>(
         &self,
-        value: SocketIoValue,
+        value: Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)
@@ -104,8 +104,8 @@ impl CommonParser {
 /// Check if the binary packet is complete, it means that all payloads have been received
 fn is_bin_packet_complete(packet: &PacketData, incoming_binary_cnt: usize) -> bool {
     match &packet {
-        PacketData::BinaryEvent(SocketIoValue::Str((_, binaries)), _)
-        | PacketData::BinaryAck(SocketIoValue::Str((_, binaries)), _) => {
+        PacketData::BinaryEvent(Value::Str((_, binaries)), _)
+        | PacketData::BinaryAck(Value::Str((_, binaries)), _) => {
             incoming_binary_cnt == binaries.as_ref().map(Vec::len).unwrap_or(0)
         }
         _ => true,
@@ -118,22 +118,22 @@ mod test {
     use serde_json::json;
     use socketioxide_core::{packet::ConnectPacket, Sid};
 
-    fn to_event_value(data: &impl serde::Serialize, event: &str) -> SocketIoValue {
+    fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {
         CommonParser::default()
             .encode_value(data, Some(event))
             .unwrap()
     }
 
-    fn to_value(data: &impl serde::Serialize) -> SocketIoValue {
+    fn to_value(data: &impl serde::Serialize) -> Value {
         CommonParser::default().encode_value(data, None).unwrap()
     }
-    fn to_connect_value(data: &impl serde::Serialize) -> SocketIoValue {
-        SocketIoValue::Str((Str::from(serde_json::to_string(data).unwrap()), None))
+    fn to_connect_value(data: &impl serde::Serialize) -> Value {
+        Value::Str((Str::from(serde_json::to_string(data).unwrap()), None))
     }
     fn encode(packet: Packet) -> String {
         match CommonParser::default().encode(packet) {
-            SocketIoValue::Str((d, _)) => d.into(),
-            SocketIoValue::Bytes(_) => panic!("testing only returns str"),
+            Value::Str((d, _)) => d.into(),
+            Value::Bytes(_) => panic!("testing only returns str"),
         }
     }
     fn decode(value: String) -> Packet {

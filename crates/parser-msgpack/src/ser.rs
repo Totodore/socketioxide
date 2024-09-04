@@ -2,7 +2,7 @@ use bytes::BufMut;
 use rmp::encode;
 use socketioxide_core::{
     packet::{Packet, PacketData},
-    SocketIoValue,
+    Value,
 };
 
 /// Manual packet serialization.
@@ -17,14 +17,14 @@ pub fn serialize_packet(packet: Packet) -> Vec<u8> {
     encode::write_str(&mut buff, &packet.ns).unwrap();
 
     match packet.inner {
-        PacketData::Event(SocketIoValue::Bytes(data), id) => {
+        PacketData::Event(Value::Bytes(data), id) => {
             encode::write_str(&mut buff, "data").unwrap();
             serialize_data(&data, &mut buff);
             if let Some(id) = id {
                 serialize_id(&mut buff, id);
             }
         }
-        PacketData::BinaryEvent(SocketIoValue::Bytes(data), id) => {
+        PacketData::BinaryEvent(Value::Bytes(data), id) => {
             encode::write_str(&mut buff, "data").unwrap();
             serialize_data(&data, &mut buff);
 
@@ -32,17 +32,17 @@ pub fn serialize_packet(packet: Packet) -> Vec<u8> {
                 serialize_id(&mut buff, id);
             }
         }
-        PacketData::EventAck(SocketIoValue::Bytes(data), id) => {
+        PacketData::EventAck(Value::Bytes(data), id) => {
             encode::write_str(&mut buff, "data").unwrap();
             serialize_data(&data, &mut buff);
             serialize_id(&mut buff, id);
         }
-        PacketData::BinaryAck(SocketIoValue::Bytes(data), id) => {
+        PacketData::BinaryAck(Value::Bytes(data), id) => {
             encode::write_str(&mut buff, "data").unwrap();
             serialize_data(&data, &mut buff);
             serialize_id(&mut buff, id);
         }
-        PacketData::Connect(Some(SocketIoValue::Bytes(data))) => {
+        PacketData::Connect(Some(Value::Bytes(data))) => {
             encode::write_str(&mut buff, "data").unwrap();
             buff.put_slice(&data)
         }
@@ -118,8 +118,8 @@ mod tests {
         .unwrap()
     }
 
-    fn to_value(value: impl serde::Serialize) -> SocketIoValue {
-        SocketIoValue::Bytes(rmp_serde::to_vec_named(&value).unwrap().into())
+    fn to_value(value: impl serde::Serialize) -> Value {
+        Value::Bytes(rmp_serde::to_vec_named(&value).unwrap().into())
     }
 
     #[test]

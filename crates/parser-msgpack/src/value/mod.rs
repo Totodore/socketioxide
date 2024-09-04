@@ -1,7 +1,7 @@
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{
     parser::{is_de_tuple, is_ser_tuple, FirstElement},
-    SocketIoValue,
+    Value,
 };
 
 mod de;
@@ -14,12 +14,12 @@ mod ser;
 ///
 /// All adjacent binary data will be inserted into the output data.
 pub fn from_value<T: DeserializeOwned>(
-    value: SocketIoValue,
+    value: Value,
     with_event: bool,
 ) -> Result<T, rmp_serde::decode::Error> {
     let value = match value {
-        SocketIoValue::Bytes(v) => v,
-        SocketIoValue::Str(_) => panic!("unexpected string data"),
+        Value::Bytes(v) => v,
+        Value::Str(_) => panic!("unexpected string data"),
     };
     if is_de_tuple::<T>() {
         de::from_bytes(&value, with_event)
@@ -32,13 +32,13 @@ pub fn from_value<T: DeserializeOwned>(
 pub fn to_value<T: Serialize>(
     data: &T,
     event: Option<&str>,
-) -> Result<SocketIoValue, rmp_serde::encode::Error> {
+) -> Result<Value, rmp_serde::encode::Error> {
     let data = if is_ser_tuple(data) {
         ser::into_bytes(data, event)?
     } else {
         ser::into_bytes(&(data,), event)?
     };
-    Ok(SocketIoValue::Bytes(data.into()))
+    Ok(Value::Bytes(data.into()))
 }
 
 #[cfg(test)]
@@ -55,20 +55,12 @@ mod tests {
     fn from_bytes_event<T: DeserializeOwned>(data: impl Serialize) -> T {
         println!("{:?}", &to_vec_named(&data).unwrap());
         println!("{:?}", std::any::type_name::<T>());
-        from_value::<T>(
-            SocketIoValue::Bytes(to_vec_named(&data).unwrap().into()),
-            true,
-        )
-        .unwrap()
+        from_value::<T>(Value::Bytes(to_vec_named(&data).unwrap().into()), true).unwrap()
     }
     fn from_bytes_ack<T: DeserializeOwned>(data: impl Serialize) -> T {
         println!("{:?}", &to_vec_named(&data).unwrap());
         println!("{:?}", std::any::type_name::<T>());
-        from_value::<T>(
-            SocketIoValue::Bytes(to_vec_named(&data).unwrap().into()),
-            false,
-        )
-        .unwrap()
+        from_value::<T>(Value::Bytes(to_vec_named(&data).unwrap().into()), false).unwrap()
     }
 
     const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);

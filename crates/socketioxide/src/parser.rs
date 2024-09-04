@@ -1,15 +1,18 @@
 //! Contains all the parser implementations for the socket.io protocol.
 //!
 //! The default parser is the [`CommonParser`]
+
 use bytes::Bytes;
 
-use socketioxide_core::parser::{Parse, ParseError, SocketIoValue};
+use socketioxide_core::{
+    parser::{Parse, ParseError},
+    Value,
+};
 
 use engineioxide::Str;
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_parser_common::CommonParser;
 use socketioxide_parser_msgpack::MsgPackParser;
-use value::ParseError;
 
 use crate::packet::Packet;
 
@@ -42,45 +45,55 @@ impl Clone for Parser {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    Common(<CommonParser as Parse>::Error),
-    MsgPack(<MsgPackParser as Parse>::Error),
+pub enum EncodeError {
+    #[error("common parser: {0}")]
+    Common(<CommonParser as Parse>::EncodeError),
+    #[error("msgpack parser: {0}")]
+    MsgPack(<MsgPackParser as Parse>::EncodeError),
+}
+#[derive(Debug, thiserror::Error)]
+pub enum DecodeError {
+    #[error("common parser: {0}")]
+    Common(#[from] <CommonParser as Parse>::DecodeError),
+    #[error("msgpack parser: {0}")]
+    MsgPack(#[from] <MsgPackParser as Parse>::DecodeError),
 }
 
 impl Parse for Parser {
-    type Error = Error;
+    type EncodeError = EncodeError;
+    type DecodeError = DecodeError;
 
-    fn encode(&self, packet: Packet<'_>) -> (SocketIoValue, Vec<Bytes>) {
+    fn encode(&self, packet: Packet) -> Value {
         match self {
             Parser::Common(p) => p.encode(packet),
             Parser::MsgPack(p) => p.encode(packet),
         }
     }
 
-    fn decode_bin(&self, bin: Bytes) -> Result<Packet<'static>, Error> {
+    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<DecodeError>> {
         let packet = match self {
-            Parser::Common(p) => p.decode_bin(bin),
-            Parser::MsgPack(p) => p.decode_bin(bin),
-        };
+            Parser::Common(p) => p.decode_bin(bin)?,
+            Parser::MsgPack(p) => p.decode_bin(bin)?,
+        }?;
         #[cfg(feature = "tracing")]
         tracing::debug!(?packet, "bin payload decoded:");
-        packet
+        Ok(packet)
     }
-    fn decode_str(&self, data: Str) -> Result<Packet<'static>, Error> {
+    fn decode_str(&self, data: Str) -> Result<Packet, ParseError<DecodeError>> {
         let packet = match self {
-            Parser::Common(p) => p.decode_str(data),
-            Parser::MsgPack(p) => p.decode_str(data),
+            Parser::Common(p) => p.decode_str(data)?,
+            Parser::MsgPack(p) => p.decode_str(data)?,
         };
         #[cfg(feature = "tracing")]
         tracing::debug!(?packet, "str payload decoded:");
-        packet
+        Ok(packet)
     }
 
     fn encode_value<T: Serialize>(
         &self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<SocketIoValue, ParseError> {
+    ) -> Result<Value, EncodeError> {
         match self {
             Parser::Common(p) => p.encode_value(data, event),
             Parser::MsgPack(p) => p.encode_value(data, event),
@@ -89,9 +102,9 @@ impl Parse for Parser {
 
     fn decode_value<T: DeserializeOwned>(
         &self,
-        value: &SocketIoValue,
+        value: Value,
         with_event: bool,
-    ) -> Result<T, Self::Error> {
+    ) -> Result<T, DecodeError> {
         match self {
             Parser::Common(p) => p.decode_value(value, with_event),
             Parser::MsgPack(p) => p.decode_value(value, with_event),

@@ -4,7 +4,7 @@ use ser::serialize_packet;
 use socketioxide_core::{
     packet::Packet,
     parser::{Parse, ParseError},
-    SocketIoValue, Str,
+    Str, Value,
 };
 
 mod de;
@@ -19,9 +19,9 @@ impl Parse for MsgPackParser {
     type EncodeError = rmp_serde::encode::Error;
     type DecodeError = rmp_serde::decode::Error;
 
-    fn encode(&self, packet: Packet) -> socketioxide_core::SocketIoValue {
+    fn encode(&self, packet: Packet) -> socketioxide_core::Value {
         let data = serialize_packet(packet);
-        SocketIoValue::Bytes(data.into())
+        Value::Bytes(data.into())
     }
 
     fn decode_str(&self, _data: Str) -> Result<Packet, ParseError<Self::DecodeError>> {
@@ -36,13 +36,13 @@ impl Parse for MsgPackParser {
         &self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<SocketIoValue, Self::EncodeError> {
+    ) -> Result<Value, Self::EncodeError> {
         value::to_value(data, event)
     }
 
     fn decode_value<T: serde::de::DeserializeOwned>(
         &self,
-        value: socketioxide_core::SocketIoValue,
+        value: socketioxide_core::Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)
@@ -66,18 +66,18 @@ mod tests {
     }
     fn encode(packet: Packet) -> Bytes {
         match MsgPackParser.encode(packet) {
-            SocketIoValue::Bytes(b) => b,
-            SocketIoValue::Str(_) => panic!("implementation should only return bytes"),
+            Value::Bytes(b) => b,
+            Value::Str(_) => panic!("implementation should only return bytes"),
         }
     }
-    fn to_event_value(data: &impl serde::Serialize, event: &str) -> SocketIoValue {
+    fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {
         MsgPackParser.encode_value(data, Some(event)).unwrap()
     }
-    fn to_value(data: &impl serde::Serialize) -> SocketIoValue {
+    fn to_value(data: &impl serde::Serialize) -> Value {
         MsgPackParser.encode_value(data, None).unwrap()
     }
-    fn to_connect_value(data: &impl serde::Serialize) -> SocketIoValue {
-        SocketIoValue::Bytes(rmp_serde::to_vec_named(data).unwrap().into())
+    fn to_connect_value(data: &impl serde::Serialize) -> Value {
+        Value::Bytes(rmp_serde::to_vec_named(data).unwrap().into())
     }
 
     #[test]

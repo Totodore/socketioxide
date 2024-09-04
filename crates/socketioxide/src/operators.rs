@@ -11,13 +11,14 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use engineioxide::sid::Sid;
+use socketioxide_core::parser::Parse;
+use socketioxide_core::Value;
 
 use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
 use crate::errors::{BroadcastError, DisconnectError};
 use crate::extract::SocketRef;
-use crate::parser::value::ParseError;
-use crate::parser::{Parse, Parser};
+use crate::parser::Parser;
 use crate::socket::Socket;
 use crate::SendError;
 use crate::{
@@ -345,10 +346,10 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///         socket.bin(bin).emit("test", [arr]).ok();
     ///     });
     /// });
-    pub fn emit<T: serde::Serialize>(
+    pub fn emit<'a, T: serde::Serialize>(
         mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
+        event: impl AsRef<&'a str>,
+        data: &T,
     ) -> Result<(), SendError<T>> {
         use crate::errors::SocketError;
         use crate::socket::PermitExt;
@@ -420,10 +421,10 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///    });
     /// });
     /// ```
-    pub fn emit_with_ack<T: serde::Serialize, V>(
+    pub fn emit_with_ack<'a, T: serde::Serialize, V>(
         mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
+        event: impl AsRef<&'a str>,
+        data: &T,
     ) -> Result<AckStream<V>, SendError<T>> {
         use crate::errors::SocketError;
         if !self.socket.connected() {
@@ -484,18 +485,17 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 
     /// Creates a packet with the given event and data.
-    fn get_packet(
+    fn get_packet<'a>(
         &mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<Packet<'static>, ParseError> {
+        event: impl AsRef<&'a str>,
+        data: &impl serde::Serialize,
+    ) -> Result<Packet, ParseError> {
         let ns = self.socket.ns.path.clone();
-        let data = self.socket.parser().to_value(data)?;
-        let packet = if self.binary.is_empty() {
-            Packet::event(ns, event.into(), data)
-        } else {
-            let binary = std::mem::take(&mut self.binary);
-            Packet::bin_event(ns, event.into(), data, binary)
+        let event = event.as_ref();
+        let data = self.socket.parser().encode_value(&data, Some(event))?;
+        let packet = match &data {
+            Value::Str((_, bins)) if !bins.is_empty() => Packet::bin_event(ns, data),
+            _ => Packet::event(ns, data),
         };
         Ok(packet)
     }
@@ -901,7 +901,7 @@ impl<A: Adapter> BroadcastOperators<A> {
         &mut self,
         event: impl Into<Cow<'static, str>>,
         data: impl serde::Serialize,
-    ) -> Result<Packet<'static>, ParseError> {
+    ) -> Result<Packet, ParseError> {
         let ns = self.ns.path.clone();
         let data = self.parser.to_value(data)?;
         let packet = if self.binary.is_empty() {

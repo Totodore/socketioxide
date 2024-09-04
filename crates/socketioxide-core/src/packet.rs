@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub use engineioxide::{sid::Sid, Str};
 
-use crate::SocketIoValue;
+use crate::Value;
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
@@ -20,7 +20,7 @@ pub struct Packet {
 
 impl Packet {
     /// Send a connect packet with a default payload for v5 and no payload for v4
-    pub fn connect(ns: impl Into<Str>, value: Option<SocketIoValue>) -> Self {
+    pub fn connect(ns: impl Into<Str>, value: Option<Value>) -> Self {
         Self {
             inner: PacketData::Connect(value),
             ns: ns.into(),
@@ -46,7 +46,7 @@ impl Packet {
     }
 
     /// Create an event packet for the given namespace
-    pub fn event(ns: impl Into<Str>, data: SocketIoValue) -> Self {
+    pub fn event(ns: impl Into<Str>, data: Value) -> Self {
         Self {
             inner: PacketData::Event(data, None),
             ns: ns.into(),
@@ -54,7 +54,7 @@ impl Packet {
     }
 
     /// Create a binary event packet for the given namespace
-    pub fn bin_event(ns: impl Into<Str>, data: SocketIoValue) -> Self {
+    pub fn bin_event(ns: impl Into<Str>, data: Value) -> Self {
         Self {
             inner: PacketData::BinaryEvent(data, None),
             ns: ns.into(),
@@ -62,7 +62,7 @@ impl Packet {
     }
 
     /// Create an ack packet for the given namespace
-    pub fn ack(ns: impl Into<Str>, data: SocketIoValue, ack: i64) -> Self {
+    pub fn ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::EventAck(data, ack),
             ns: ns.into(),
@@ -70,7 +70,7 @@ impl Packet {
     }
 
     /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: impl Into<Str>, data: SocketIoValue, ack: i64) -> Self {
+    pub fn bin_ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {
         Self {
             inner: PacketData::BinaryAck(data, ack),
             ns: ns.into(),
@@ -90,19 +90,19 @@ impl Packet {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PacketData {
     /// Connect packet with optional payload (only used with v5 for response)
-    Connect(Option<SocketIoValue>),
+    Connect(Option<Value>),
     /// Disconnect packet, used to disconnect from a namespace
     Disconnect,
     /// Event packet with optional ack id, to request an ack from the other side
-    Event(SocketIoValue, Option<i64>),
+    Event(Value, Option<i64>),
     /// Event ack packet, to acknowledge an event
-    EventAck(SocketIoValue, i64),
+    EventAck(Value, i64),
     /// Connect error packet, sent when the namespace is invalid
     ConnectError(String),
     /// Binary event packet with optional ack id, to request an ack from the other side
-    BinaryEvent(SocketIoValue, Option<i64>),
+    BinaryEvent(Value, Option<i64>),
     /// Binary ack packet, to acknowledge an event with binary data
-    BinaryAck(SocketIoValue, i64),
+    BinaryAck(Value, i64),
 }
 
 impl PacketData {

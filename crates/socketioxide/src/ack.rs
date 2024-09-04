@@ -148,7 +148,7 @@ impl AckInnerStream {
     /// The [`AckInnerStream`] will wait for the default timeout specified in the config
     /// (5s by default) if no custom timeout is specified.
     pub fn broadcast<A: Adapter>(
-        packet: Packet<'static>,
+        packet: Packet,
         sockets: Vec<SocketRef<A>>,
         duration: Option<Duration>,
     ) -> Self {

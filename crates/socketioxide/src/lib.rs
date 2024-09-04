@@ -302,10 +302,38 @@ pub use errors::{
     AckError, AdapterError, BroadcastError, DisconnectError, NsInsertError, SendError, SocketError,
 };
 pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
-pub use parser::Value;
 pub use socketioxide_core::packet;
 
 mod client;
 mod errors;
 mod io;
 mod ns;
+
+/// Socket.IO protocol version.
+/// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor
+///
+/// **Note**: The socket.io protocol version does not correspond to the engine.io protocol version.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ProtocolVersion {
+    /// The socket.io protocol version 4, only available with the feature flag `v4`
+    V4 = 4,
+    /// The socket.io protocol version 5, enabled by default
+    V5 = 5,
+}
+
+impl From<ProtocolVersion> for engineioxide::ProtocolVersion {
+    fn from(value: ProtocolVersion) -> Self {
+        match value {
+            ProtocolVersion::V4 => Self::V3,
+            ProtocolVersion::V5 => Self::V4,
+        }
+    }
+}
+impl From<engineioxide::ProtocolVersion> for ProtocolVersion {
+    fn from(value: engineioxide::ProtocolVersion) -> Self {
+        match value {
+            engineioxide::ProtocolVersion::V3 => Self::V4,
+            engineioxide::ProtocolVersion::V4 => Self::V5,
+        }
+    }
+}

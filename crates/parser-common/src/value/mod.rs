@@ -2,7 +2,7 @@ use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{
     parser::{is_de_tuple, is_ser_tuple, FirstElement},
-    SocketIoValue, Str,
+    Str, Value,
 };
 
 mod de;
@@ -14,13 +14,10 @@ mod ser;
 /// * If T is something else, the first element of the array will be parsed as the data: `T = data[0]`.
 ///
 /// All adjacent binary data will be inserted into the output data.
-pub fn from_value<T: DeserializeOwned>(
-    value: SocketIoValue,
-    with_event: bool,
-) -> serde_json::Result<T> {
+pub fn from_value<T: DeserializeOwned>(value: Value, with_event: bool) -> serde_json::Result<T> {
     let (value, bins) = match value {
-        SocketIoValue::Str(v) => v,
-        SocketIoValue::Bytes(_) => panic!("unexpected binary data"),
+        Value::Str(v) => v,
+        Value::Bytes(_) => panic!("unexpected binary data"),
     };
     let is_tuple = is_de_tuple::<T>();
     if is_tuple {
@@ -36,17 +33,14 @@ pub fn from_value<T: DeserializeOwned>(
 }
 
 /// Serialize any serializable data and an event to a generic [`SocketIoValue`] data.
-pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Result<SocketIoValue> {
+pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Result<Value> {
     let (writer, binary) = if is_ser_tuple(data) {
         ser::into_str(data, event)?
     } else {
         ser::into_str(&(data,), event)?
     };
     let data = unsafe { Str::from_bytes_unchecked(Bytes::from(writer)) };
-    Ok(SocketIoValue::Str((
-        data,
-        (!binary.is_empty()).then_some(binary),
-    )))
+    Ok(Value::Str((data, (!binary.is_empty()).then_some(binary))))
 }
 
 #[cfg(test)]
@@ -59,34 +53,34 @@ mod tests {
     }
     fn from_str_event<T: DeserializeOwned>(data: impl Serialize) -> T {
         from_value::<T>(
-            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), None)),
+            Value::Str((serde_json::to_string(&data).unwrap().into(), None)),
             true,
         )
         .unwrap()
     }
     fn from_str_ack<T: DeserializeOwned>(data: impl Serialize) -> T {
         from_value::<T>(
-            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), None)),
+            Value::Str((serde_json::to_string(&data).unwrap().into(), None)),
             false,
         )
         .unwrap()
     }
     fn to_str_bin(data: impl Serialize, event: Option<&str>) -> (Str, Option<Vec<Bytes>>) {
         match to_value(&data, event).unwrap() {
-            SocketIoValue::Str(data) => data,
-            SocketIoValue::Bytes(_) => unreachable!(),
+            Value::Str(data) => data,
+            Value::Bytes(_) => unreachable!(),
         }
     }
     fn from_str_event_bin<T: DeserializeOwned>(data: impl Serialize, bins: Vec<Bytes>) -> T {
         from_value::<T>(
-            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
+            Value::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
             true,
         )
         .unwrap()
     }
     fn from_str_ack_bin<T: DeserializeOwned>(data: impl Serialize, bins: Vec<Bytes>) -> T {
         from_value::<T>(
-            SocketIoValue::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
+            Value::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
             false,
         )
         .unwrap()

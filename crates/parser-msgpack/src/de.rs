@@ -10,7 +10,7 @@ use rmp_serde::decode::Error as DecodeError;
 use socketioxide_core::{
     packet::{Packet, PacketData},
     parser::ParseError,
-    SocketIoValue, Str,
+    Str, Value,
 };
 
 pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>> {
@@ -44,7 +44,7 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>
         parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)?;
     }
     let buff = reader.into_inner();
-    let data = SocketIoValue::Bytes(buff.slice(data_pos.clone()));
+    let data = Value::Bytes(buff.slice(data_pos.clone()));
     let inner = match index {
         0 => PacketData::Connect((!data_pos.is_empty()).then_some(data)),
         1 => PacketData::Disconnect,
@@ -219,7 +219,7 @@ mod tests {
     use rmp::Marker;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
-    use socketioxide_core::SocketIoValue;
+    use socketioxide_core::Value;
 
     const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);
     #[derive(Serialize)]
@@ -251,7 +251,7 @@ mod tests {
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
         match packet {
             Packet {
-                inner: PacketData::Connect(Some(SocketIoValue::Bytes(data))),
+                inner: PacketData::Connect(Some(Value::Bytes(data))),
                 ns,
             } if ns == "/" => assert_eq!(
                 rmp_serde::decode::from_slice::<&str>(&data).unwrap(),
@@ -282,7 +282,7 @@ mod tests {
 
         match packet {
             Packet {
-                inner: PacketData::Event(SocketIoValue::Bytes(data), None),
+                inner: PacketData::Event(Value::Bytes(data), None),
                 ns,
             } if ns == "/" => assert_eq!(
                 rmp_serde::decode::from_slice::<(&str, &str)>(&data).unwrap(),
@@ -298,7 +298,7 @@ mod tests {
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
         match packet {
             Packet {
-                inner: PacketData::EventAck(SocketIoValue::Bytes(data), id),
+                inner: PacketData::EventAck(Value::Bytes(data), id),
                 ns,
             } if id == 123 && ns == "/" => {
                 assert_eq!(
@@ -342,7 +342,7 @@ mod tests {
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
         match packet {
             Packet {
-                inner: PacketData::BinaryEvent(SocketIoValue::Bytes(data), None),
+                inner: PacketData::BinaryEvent(Value::Bytes(data), None),
                 ns,
             } if ns == "/" => {
                 assert_eq!(
@@ -364,7 +364,7 @@ mod tests {
         let packet = deserialize_packet(Bytes::from(data)).unwrap();
         match packet {
             Packet {
-                inner: PacketData::BinaryAck(SocketIoValue::Bytes(data), id),
+                inner: PacketData::BinaryAck(Value::Bytes(data), id),
                 ns,
             } if ns == "/" && id == 456 => {
                 assert_eq!(

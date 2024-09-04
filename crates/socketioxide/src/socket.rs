@@ -103,10 +103,10 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 }
 
 pub(crate) trait PermitExt<'a> {
-    fn send(self, packet: Packet<'_>, parser: &Parser);
+    fn send(self, packet: Packet, parser: &Parser);
 }
 impl<'a> PermitExt<'a> for Permit<'a> {
-    fn send(self, packet: Packet<'_>, parser: &Parser) {
+    fn send(self, packet: Packet, parser: &Parser) {
         let (msg, bin_payloads) = parser.encode(packet);
         match msg {
             TransportPayload::Str(msg) if bin_payloads.is_empty() => self.emit(msg),
@@ -657,7 +657,7 @@ impl<A: Adapter> Socket<A> {
         Ok(self.esocket.reserve()?)
     }
 
-    pub(crate) fn send(&self, packet: Packet<'_>) -> Result<(), SocketError<()>> {
+    pub(crate) fn send(&self, packet: Packet) -> Result<(), SocketError<()>> {
         let permit = self.reserve()?;
         permit.send(packet, self.parser());
         Ok(())
@@ -665,7 +665,7 @@ impl<A: Adapter> Socket<A> {
 
     pub(crate) fn send_with_ack_permit(
         &self,
-        mut packet: Packet<'_>,
+        mut packet: Packet,
         permit: Permit<'_>,
     ) -> Receiver<AckResult<Value>> {
         let (tx, rx) = oneshot::channel();
@@ -677,7 +677,7 @@ impl<A: Adapter> Socket<A> {
         rx
     }
 
-    pub(crate) fn send_with_ack(&self, mut packet: Packet<'_>) -> Receiver<AckResult<Value>> {
+    pub(crate) fn send_with_ack(&self, mut packet: Packet) -> Receiver<AckResult<Value>> {
         let (tx, rx) = oneshot::channel();
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;

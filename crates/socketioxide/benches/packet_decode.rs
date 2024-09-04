@@ -7,13 +7,13 @@ use socketioxide::{
     ProtocolVersion, Value,
 };
 
-fn encode(packet: Packet<'_>) -> String {
+fn encode(packet: Packet) -> String {
     match CommonParser::default().encode(black_box(packet)).0 {
         TransportPayload::Str(d) => d.into(),
         TransportPayload::Bytes(_) => panic!("testing only returns str"),
     }
 }
-fn decode(value: String) -> Option<Packet<'static>> {
+fn decode(value: String) -> Option<Packet> {
     CommonParser::default()
         .decode_str(black_box(value.into()))
         .ok()
