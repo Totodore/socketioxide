@@ -21,7 +21,7 @@ use tokio::sync::oneshot::{self, Receiver};
 use crate::extensions::Extensions;
 
 use crate::{
-    ack::{AckInnerStream, AckResponse, AckResult, AckStream},
+    ack::{AckInnerStream, AckResult, AckStream},
     adapter::{Adapter, LocalAdapter, Room},
     errors::{DisconnectError, Error, SendError},
     handler::{
@@ -30,13 +30,17 @@ use crate::{
     },
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators, RoomParam},
-    packet::{BinaryPacket, Packet, PacketData},
-    parser::{Parse, Parser, TransportPayload},
-    AckError, SocketIo, Value,
+    parser::Parser,
+    AckError, SocketIo,
 };
 use crate::{
     client::SocketData,
     errors::{AdapterError, SocketError},
+};
+use socketioxide_core::{
+    packet::{Packet, PacketData},
+    parser::Parse,
+    Value,
 };
 
 pub use engineioxide::sid::Sid;
@@ -103,16 +107,14 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 }
 
 pub(crate) trait PermitExt<'a> {
-    fn send(self, packet: Packet, parser: &Parser);
+    fn send(self, packet: Packet, parser: Parser);
 }
 impl<'a> PermitExt<'a> for Permit<'a> {
-    fn send(self, packet: Packet, parser: &Parser) {
-        let (msg, bin_payloads) = parser.encode(packet);
-        match msg {
-            TransportPayload::Str(msg) if bin_payloads.is_empty() => self.emit(msg),
-            TransportPayload::Str(msg) => self.emit_many(msg, bin_payloads),
-            TransportPayload::Bytes(bin) if bin_payloads.is_empty() => self.emit_binary(bin),
-            TransportPayload::Bytes(bin) => self.emit_many_binary(bin, bin_payloads),
+    fn send(self, packet: Packet, parser: Parser) {
+        match parser.encode(packet) {
+            Value::Str(msg, None) => self.emit(msg),
+            Value::Str(msg, Some(bin_payloads)) => self.emit_many(msg, bin_payloads),
+            Value::Bytes(bin) => self.emit_binary(bin),
         }
     }
 }
@@ -294,13 +296,9 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn emit<T: Serialize>(
-        &self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
-    ) -> Result<(), SendError<T>> {
+    pub fn emit<T: Serialize>(&self, event: impl AsRef<str>, data: &T) -> Result<(), SendError> {
         if !self.connected() {
-            return Err(SendError::Socket(SocketError::Closed(data)));
+            return Err(SendError::Socket(SocketError::Closed));
         }
 
         let permit = match self.reserve() {
@@ -308,13 +306,13 @@ impl<A: Adapter> Socket<A> {
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
-                return Err(e.with_value(data).into());
+                return Err(SendError::Socket(e));
             }
         };
 
         let ns = self.ns.path.clone();
-        let data = self.parser().to_value(data)?;
-        permit.send(Packet::event(ns, event.into(), data), self.parser());
+        let data = self.parser().encode_value(data, Some(event.as_ref()))?;
+        permit.send(Packet::event(ns, data), self.parser());
         Ok(())
     }
 
@@ -371,26 +369,26 @@ impl<A: Adapter> Socket<A> {
     /// ```
     pub fn emit_with_ack<T: Serialize, V: DeserializeOwned>(
         &self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
-    ) -> Result<AckStream<V>, SendError<T>> {
+        event: impl AsRef<str>,
+        data: &T,
+    ) -> Result<AckStream<V>, SendError> {
         if !self.connected() {
-            return Err(SendError::Socket(SocketError::Closed(data)));
+            return Err(SendError::Socket(SocketError::Closed));
         }
         let permit = match self.reserve() {
             Ok(permit) => permit,
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
-                return Err(e.with_value(data).into());
+                return Err(SendError::Socket(e));
             }
         };
         let ns = self.ns.path.clone();
-        let data = self.parser().to_value(data)?;
-        let packet = Packet::event(ns, event.into(), data);
+        let data = self.parser().encode_value(data, Some(event.as_ref()))?;
+        let packet = Packet::event(ns, data);
         let rx = self.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, self.get_io().config().ack_timeout, self.id);
-        Ok(AckStream::<V>::from(stream))
+        Ok(AckStream::<V>::new(stream, self.parser()))
     }
 
     // Room actions
@@ -619,7 +617,7 @@ impl<A: Adapter> Socket<A> {
     /// It will also call the disconnect handler if it is set.
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
         let res = self.send(Packet::disconnect(self.ns.path.clone()));
-        if let Err(SocketError::InternalChannelFull(_)) = res {
+        if let Err(SocketError::InternalChannelFull) = res {
             return Err(DisconnectError::InternalChannelFull);
         }
 
@@ -649,15 +647,15 @@ impl<A: Adapter> Socket<A> {
     }
 
     #[inline]
-    pub(crate) fn parser(&self) -> &Parser {
-        self.esocket.data.parser()
+    pub(crate) fn parser(&self) -> Parser {
+        self.get_io().config().parser
     }
 
-    pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError<()>> {
+    pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError> {
         Ok(self.esocket.reserve()?)
     }
 
-    pub(crate) fn send(&self, packet: Packet) -> Result<(), SocketError<()>> {
+    pub(crate) fn send(&self, packet: Packet) -> Result<(), SocketError> {
         let permit = self.reserve()?;
         permit.send(packet, self.parser());
         Ok(())
@@ -712,12 +710,10 @@ impl<A: Adapter> Socket<A> {
     }
 
     // Receives data from client:
-    pub(crate) fn recv(self: Arc<Self>, packet: PacketData<'_>) -> Result<(), Error> {
+    pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {
-            PacketData::Event(e, data, ack) => self.recv_event(&e, data, ack),
-            PacketData::EventAck(data, ack_id) => self.recv_ack(data, ack_id),
-            PacketData::BinaryEvent(e, packet, ack) => self.recv_bin_event(&e, packet, ack),
-            PacketData::BinaryAck(packet, ack) => self.recv_bin_ack(packet, ack),
+            PacketData::Event(d, ack) | PacketData::BinaryEvent(d, ack) => self.recv_event(d, ack),
+            PacketData::EventAck(d, ack) | PacketData::BinaryAck(d, ack) => self.recv_ack(d, ack),
             PacketData::Disconnect => self
                 .close(DisconnectReason::ClientNSDisconnect)
                 .map_err(Error::from),
@@ -761,43 +757,17 @@ impl<A: Adapter> Socket<A> {
         self.esocket.protocol.into()
     }
 
-    fn recv_event(self: Arc<Self>, e: &str, data: Value, ack: Option<i64>) -> Result<(), Error> {
+    fn recv_event(self: Arc<Self>, data: Value, ack: Option<i64>) -> Result<(), Error> {
+        let e = "event"; // TODO: read event;
         if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
             handler.call(self.clone(), data, vec![], ack);
         }
         Ok(())
     }
 
-    fn recv_bin_event(
-        self: Arc<Self>,
-        e: &str,
-        packet: BinaryPacket,
-        ack: Option<i64>,
-    ) -> Result<(), Error> {
-        if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
-            handler.call(self.clone(), packet.data, packet.bin, ack);
-        }
-        Ok(())
-    }
-
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            let res = AckResponse {
-                data,
-                binary: vec![],
-            };
-            tx.send(Ok(res)).ok();
-        }
-        Ok(())
-    }
-
-    fn recv_bin_ack(self: Arc<Self>, packet: BinaryPacket, ack: i64) -> Result<(), Error> {
-        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
-            let res = AckResponse {
-                data: packet.data,
-                binary: packet.bin,
-            };
-            tx.send(Ok(res)).ok();
+            tx.send(Ok(data)).ok();
         }
         Ok(())
     }
@@ -835,7 +805,6 @@ impl<A: Adapter> Socket<A> {
         )));
         let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
         s.esocket.data.io.set(io).unwrap();
-        s.esocket.data.parser.set(Parser::default()).unwrap();
         s.set_connected(true);
         s
     }
@@ -850,17 +819,21 @@ mod test {
         let sid = Sid::new();
         let ns = Namespace::<LocalAdapter>::new_dummy([sid]);
         let socket: Arc<Socket> = Socket::new_dummy(sid, ns).into();
+        let parser = Parser::default();
         // Saturate the channel
         for _ in 0..1024 {
             socket
-                .send(Packet::event("test", "test", serde_json::Value::Null))
+                .send(Packet::event(
+                    "test",
+                    parser.encode_value(&(), Some("test")).unwrap(),
+                ))
                 .unwrap();
         }
 
-        let ack = socket.emit_with_ack::<_, Value>("test", serde_json::Value::Null);
+        let ack = socket.emit_with_ack::<_, serde_json::Value>("test", &());
         assert!(matches!(
             ack,
-            Err(SendError::Socket(SocketError::InternalChannelFull(_)))
+            Err(SendError::Socket(SocketError::InternalChannelFull))
         ));
     }
 }

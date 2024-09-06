@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::adapter::Adapter;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
-use crate::Value;
+use socketioxide_core::Value;
 
 /// An Extractor that contains a [`Clone`] of a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 /// It implements [`std::ops::Deref`] to access the inner type so you can use it as a normal reference.

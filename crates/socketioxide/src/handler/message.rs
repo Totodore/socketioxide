@@ -73,9 +73,9 @@
 //! ```
 use std::sync::Arc;
 
-use crate::Value;
 use bytes::Bytes;
 use futures_core::Future;
+use socketioxide_core::Value;
 
 use crate::adapter::Adapter;
 use crate::socket::Socket;

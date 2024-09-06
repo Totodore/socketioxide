@@ -10,18 +10,20 @@ use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use matchit::{Match, Router};
+use socketioxide_core::parser::{Parse, ParserState};
+use socketioxide_core::Value;
 use tokio::sync::oneshot;
 
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::ns::NamespaceCtr;
-use crate::parser::{self, Parse, Parser, TransportPayload};
+use crate::parser::{self, ParseError, Parser};
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
     ns::Namespace,
     packet::{Packet, PacketData},
-    SocketIoConfig, Value,
+    SocketIoConfig,
 };
 use crate::{ProtocolVersion, SocketIo};
 
@@ -89,18 +91,15 @@ impl<A: Adapter> Client<A> {
             );
             esocket.close(EIoDisconnectReason::TransportClose);
         } else {
-            let (packet, _) = esocket
-                .data
-                .parser
-                .get()
-                .unwrap()
+            let packet = self
+                .parser()
                 .encode(Packet::connect_error(ns_path, "Invalid namespace"));
             let _ = match packet {
-                TransportPayload::Str(p) => esocket.emit(p).map_err(|_e| {
+                Value::Str(p, _) => esocket.emit(p).map_err(|_e| {
                     #[cfg(feature = "tracing")]
                     tracing::error!("error while sending invalid namespace packet: {}", _e);
                 }),
-                TransportPayload::Bytes(p) => esocket.emit_binary(p).map_err(|_e| {
+                Value::Bytes(p) => esocket.emit_binary(p).map_err(|_e| {
                     #[cfg(feature = "tracing")]
                     tracing::error!("error while sending invalid namespace packet: {}", _e);
                 }),
@@ -194,13 +193,15 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("all namespaces closed");
     }
+
+    pub(crate) fn parser(&self) -> Parser {
+        self.config.parser
+    }
 }
 
 #[derive(Debug)]
 pub struct SocketData<A: Adapter> {
-    /// The parser to decode the socket.io packets
-    pub parser: OnceLock<Parser>,
-
+    pub parser_state: ParserState,
     /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
 
@@ -210,15 +211,8 @@ pub struct SocketData<A: Adapter> {
 impl<A: Adapter> Default for SocketData<A> {
     fn default() -> Self {
         Self {
-            parser: Default::default(),
-            connect_recv_tx: Default::default(),
-            io: OnceLock::new(),
+            ..Default::default()
         }
-    }
-}
-impl<A: Adapter> SocketData<A> {
-    pub fn parser(&self) -> &Parser {
-        self.parser.get().unwrap()
     }
 }
 
@@ -228,7 +222,6 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, socket), fields(sid = socket.id.to_string())))]
     fn on_connect(self: Arc<Self>, socket: Arc<EIoSocket<SocketData<A>>>) {
         socket.data.io.set(SocketIo::from(self.clone())).ok();
-        socket.data.parser.set(self.config.parser.clone()).ok();
 
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket connect");
@@ -278,9 +271,9 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received message: {:?}", msg);
-        let packet = match socket.data.parser().decode_str(msg) {
+        let packet = match self.parser().decode_str(&socket.data.parser_state, msg) {
             Ok(packet) => packet,
-            Err(parser::Error::NeedsMoreBinaryData) => return,
+            Err(ParseError::NeedsMoreBinaryData) => return,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("socket serialization error: {}", _e);
@@ -317,9 +310,8 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received binary: {:?}", &data);
-        let packet = match socket.data.parser().decode_bin(data) {
+        let packet = match self.parser().decode_bin(&socket.data.parser_state, data) {
             Ok(packet) => packet,
-            Err(parser::Error::NeedsMoreBinaryData) => return,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("socket serialization error: {}", _e);
@@ -374,7 +366,6 @@ impl<A: Adapter> Client<A> {
         let (esock, rx) =
             EIoSocket::<SocketData<A>>::new_dummy_piped(sid, Box::new(|_, _| {}), buffer_size);
         esock.data.io.set(SocketIo::from(self.clone())).ok();
-        esock.data.parser.set(Parser::default()).ok();
         let (tx1, mut rx1) = tokio::sync::mpsc::channel(buffer_size);
         tokio::spawn({
             let esock = esock.clone();
@@ -397,13 +388,12 @@ impl<A: Adapter> Client<A> {
                 }
             }
         });
-        let (p, _) = parser::CommonParser::default().encode(Packet {
+        let parser = parser::Parser::default();
+        let val = parser.encode(Packet {
             ns: ns.into(),
-            inner: PacketData::Connect(Some(
-                parser::CommonParser::default().to_value(&auth).unwrap(),
-            )),
+            inner: PacketData::Connect(Some(parser.encode_value(&auth, None).unwrap())),
         });
-        if let TransportPayload::Str(s) = p {
+        if let Value::Str(s, _) = val {
             self.on_message(s, esock.clone());
         }
 

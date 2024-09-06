@@ -14,18 +14,19 @@ mod ser;
 /// * If T is something else, the first element of the array will be parsed as the data: `T = data[0]`.
 ///
 /// All adjacent binary data will be inserted into the output data.
-pub fn from_value<T: DeserializeOwned>(value: Value, with_event: bool) -> serde_json::Result<T> {
+pub fn from_value<T: DeserializeOwned>(value: &Value, with_event: bool) -> serde_json::Result<T> {
     let (value, bins) = match value {
-        Value::Str(v) => v,
+        Value::Str(v, b) => (v, b),
         Value::Bytes(_) => panic!("unexpected binary data"),
     };
+    let empty = Vec::new();
     let is_tuple = is_de_tuple::<T>();
     if is_tuple {
-        de::from_str(value.as_str(), &bins.unwrap_or_default(), with_event)
+        de::from_str(value.as_str(), bins.as_ref().unwrap_or(&empty), with_event)
     } else {
         de::from_str_seed(
             value.as_str(),
-            &bins.unwrap_or_default(),
+            bins.as_ref().unwrap_or(&empty),
             FirstElement::default(),
             with_event,
         )
@@ -40,7 +41,7 @@ pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Resu
         ser::into_str(&(data,), event)?
     };
     let data = unsafe { Str::from_bytes_unchecked(Bytes::from(writer)) };
-    Ok(Value::Str((data, (!binary.is_empty()).then_some(binary))))
+    Ok(Value::Str(data, (!binary.is_empty()).then_some(binary)))
 }
 
 #[cfg(test)]
@@ -53,34 +54,34 @@ mod tests {
     }
     fn from_str_event<T: DeserializeOwned>(data: impl Serialize) -> T {
         from_value::<T>(
-            Value::Str((serde_json::to_string(&data).unwrap().into(), None)),
+            &Value::Str(serde_json::to_string(&data).unwrap().into(), None),
             true,
         )
         .unwrap()
     }
     fn from_str_ack<T: DeserializeOwned>(data: impl Serialize) -> T {
         from_value::<T>(
-            Value::Str((serde_json::to_string(&data).unwrap().into(), None)),
+            &Value::Str(serde_json::to_string(&data).unwrap().into(), None),
             false,
         )
         .unwrap()
     }
     fn to_str_bin(data: impl Serialize, event: Option<&str>) -> (Str, Option<Vec<Bytes>>) {
         match to_value(&data, event).unwrap() {
-            Value::Str(data) => data,
+            Value::Str(data, bins) => (data, bins),
             Value::Bytes(_) => unreachable!(),
         }
     }
     fn from_str_event_bin<T: DeserializeOwned>(data: impl Serialize, bins: Vec<Bytes>) -> T {
         from_value::<T>(
-            Value::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
+            &Value::Str(serde_json::to_string(&data).unwrap().into(), Some(bins)),
             true,
         )
         .unwrap()
     }
     fn from_str_ack_bin<T: DeserializeOwned>(data: impl Serialize, bins: Vec<Bytes>) -> T {
         from_value::<T>(
-            Value::Str((serde_json::to_string(&data).unwrap().into(), Some(bins))),
+            &Value::Str(serde_json::to_string(&data).unwrap().into(), Some(bins)),
             false,
         )
         .unwrap()

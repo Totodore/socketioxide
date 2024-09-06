@@ -41,7 +41,7 @@ pub fn deserialize_packet(
     let data = data.slice(reader.position() as usize..);
     dbg!(&data);
     fn str(data: Str) -> Value {
-        Value::Str((data, None))
+        Value::Str(data, None)
     }
     let inner = match index {
         b'0' => PacketData::Connect((!data.is_empty()).then(|| str(data))),

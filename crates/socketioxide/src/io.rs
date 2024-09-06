@@ -16,7 +16,7 @@ use crate::{
     handler::ConnectHandler,
     layer::SocketIoLayer,
     operators::{BroadcastOperators, RoomParam},
-    parser::{value::ParseError, Parser},
+    parser::{self, Parser},
     service::SocketIoService,
     BroadcastError, DisconnectError,
 };
@@ -682,8 +682,8 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn emit<T: serde::Serialize>(
         &self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
+        event: impl AsRef<str>,
+        data: &T,
     ) -> Result<(), BroadcastError> {
         self.get_default_op().emit(event, data)
     }
@@ -749,9 +749,9 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn emit_with_ack<V>(
         &self,
-        event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<AckStream<V>, ParseError> {
+        event: impl AsRef<str>,
+        data: &impl serde::Serialize,
+    ) -> Result<AckStream<V>, parser::EncodeError> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
@@ -965,7 +965,6 @@ mod tests {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
         let socket = Socket::<SocketData<LocalAdapter>>::new_dummy(sid, Box::new(|_, _| {}));
-        socket.data.parser.set(Parser::default()).unwrap();
         io.0.get_ns("/")
             .unwrap()
             .connect(sid, socket, None)

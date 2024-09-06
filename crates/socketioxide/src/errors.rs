@@ -4,7 +4,7 @@ use tokio::{sync::mpsc::error::TrySendError, time::error::Elapsed};
 
 pub use matchit::InsertError as NsInsertError;
 
-use crate::parser::value::{self, ParseError};
+use crate::parser::{self};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -32,10 +32,10 @@ pub(crate) struct ConnectFail;
 
 /// Error type for ack operations.
 #[derive(thiserror::Error, Debug)]
-pub enum AckError<T> {
+pub enum AckError {
     /// The ack response cannot be parsed
     #[error("cannot deserialize packet from ack response: {0:?}")]
-    Serde(#[from] ParseError),
+    Serde(#[from] parser::DecodeError),
 
     /// The ack response timed out
     #[error("ack timeout error")]
@@ -47,7 +47,7 @@ pub enum AckError<T> {
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(#[from] SocketError<T>),
+    Socket(#[from] SocketError),
 }
 
 /// Error type for broadcast operations.
@@ -55,11 +55,11 @@ pub enum AckError<T> {
 pub enum BroadcastError {
     /// An error occurred while sending packets.
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(Vec<SocketError<()>>),
+    Socket(Vec<SocketError>),
 
     /// An error occurred while serializing the JSON packet.
-    #[error("Error serializing JSON packet: {0:?}")]
-    Serialize(#[from] value::ParseError),
+    #[error("Error serializing packet: {0:?}")]
+    Serialize(#[from] parser::EncodeError),
 
     /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
@@ -67,37 +67,29 @@ pub enum BroadcastError {
 }
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
-pub enum SendError<T> {
+pub enum SendError {
     /// An error occurred while serializing the JSON packet.
-    #[error("Error serializing JSON packet: {0:?}")]
-    Serialize(#[from] value::ParseError),
+    #[error("Error serializing packet: {0:?}")]
+    Serialize(#[from] parser::EncodeError),
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(#[from] SocketError<T>),
+    Socket(#[from] SocketError),
 }
 
 /// Error type when using the underlying engine.io socket
-#[derive(thiserror::Error)]
-pub enum SocketError<T> {
+#[derive(Debug, thiserror::Error)]
+pub enum SocketError {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
     ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     #[error("internal channel full error")]
-    InternalChannelFull(T),
+    InternalChannelFull,
 
     /// The socket is already closed
     #[error("socket closed")]
-    Closed(T),
-}
-impl<T> Debug for SocketError<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InternalChannelFull(_) => f.debug_tuple("InternalChannelFull").finish(),
-            Self::Closed(_) => f.debug_tuple("Closed").finish(),
-        }
-    }
+    Closed,
 }
 
 /// Error type for sending operations.
@@ -124,24 +116,16 @@ impl Display for AdapterError {
     }
 }
 
-impl SocketError<()> {
-    pub(crate) fn with_value<T>(self, value: T) -> SocketError<T> {
-        match self {
-            Self::InternalChannelFull(_) => SocketError::InternalChannelFull(value),
-            Self::Closed(_) => SocketError::Closed(value),
-        }
-    }
-}
-impl<T> From<TrySendError<T>> for SocketError<()> {
+impl<T> From<TrySendError<T>> for SocketError {
     fn from(value: TrySendError<T>) -> Self {
         match value {
-            TrySendError::Full(_) => Self::InternalChannelFull(()),
-            TrySendError::Closed(_) => Self::Closed(()),
+            TrySendError::Full(_) => Self::InternalChannelFull,
+            TrySendError::Closed(_) => Self::Closed,
         }
     }
 }
 
-impl From<Vec<SocketError<()>>> for BroadcastError {
+impl From<Vec<SocketError>> for BroadcastError {
     /// Converts a vector of `SendError` into a `BroadcastError`.
     ///
     /// # Arguments
@@ -151,12 +135,12 @@ impl From<Vec<SocketError<()>>> for BroadcastError {
     /// # Returns
     ///
     /// A `BroadcastError` containing the sending errors.
-    fn from(value: Vec<SocketError<()>>) -> Self {
+    fn from(value: Vec<SocketError>) -> Self {
         Self::Socket(value)
     }
 }
 
-impl<T> From<Elapsed> for AckError<T> {
+impl From<Elapsed> for AckError {
     fn from(_: Elapsed) -> Self {
         Self::Timeout
     }

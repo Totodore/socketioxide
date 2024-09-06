@@ -3,7 +3,7 @@ use de::deserialize_packet;
 use ser::serialize_packet;
 use socketioxide_core::{
     packet::Packet,
-    parser::{Parse, ParseError},
+    parser::{Parse, ParseError, ParserState},
     Str, Value,
 };
 
@@ -12,28 +12,36 @@ mod ser;
 mod value;
 
 /// The MsgPack parser
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct MsgPackParser;
 
 impl Parse for MsgPackParser {
     type EncodeError = rmp_serde::encode::Error;
     type DecodeError = rmp_serde::decode::Error;
 
-    fn encode(&self, packet: Packet) -> socketioxide_core::Value {
+    fn encode(self, packet: Packet) -> socketioxide_core::Value {
         let data = serialize_packet(packet);
         Value::Bytes(data.into())
     }
 
-    fn decode_str(&self, _data: Str) -> Result<Packet, ParseError<Self::DecodeError>> {
+    fn decode_str(
+        self,
+        _: &ParserState,
+        _data: Str,
+    ) -> Result<Packet, ParseError<Self::DecodeError>> {
         Err(ParseError::UnexpectedStringPacket)
     }
 
-    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::DecodeError>> {
+    fn decode_bin(
+        self,
+        _: &ParserState,
+        bin: Bytes,
+    ) -> Result<Packet, ParseError<Self::DecodeError>> {
         Ok(deserialize_packet(bin)?)
     }
 
     fn encode_value<T: serde::Serialize>(
-        &self,
+        self,
         data: &T,
         event: Option<&str>,
     ) -> Result<Value, Self::EncodeError> {
@@ -41,11 +49,15 @@ impl Parse for MsgPackParser {
     }
 
     fn decode_value<T: serde::de::DeserializeOwned>(
-        &self,
-        value: socketioxide_core::Value,
+        self,
+        value: &Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)
+    }
+
+    fn value_none(self) -> Value {
+        Value::Bytes(Bytes::from_static(&[0xc0]))
     }
 }
 
@@ -62,12 +74,14 @@ mod tests {
     const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);
 
     fn decode(value: &'static [u8]) -> Packet {
-        MsgPackParser.decode_bin(Bytes::from_static(value)).unwrap()
+        MsgPackParser
+            .decode_bin(&Default::default(), Bytes::from_static(value))
+            .unwrap()
     }
     fn encode(packet: Packet) -> Bytes {
         match MsgPackParser.encode(packet) {
             Value::Bytes(b) => b,
-            Value::Str(_) => panic!("implementation should only return bytes"),
+            Value::Str(_, _) => panic!("implementation should only return bytes"),
         }
     }
     fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {

@@ -2,16 +2,17 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
-use crate::parser::Parse;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::{DisconnectError, SendError},
     packet::Packet,
     socket::{DisconnectReason, Socket},
-    SocketIo, Value,
+    SocketIo,
 };
 use bytes::Bytes;
 use serde::Serialize;
+use socketioxide_core::parser::Parse;
+use socketioxide_core::Value;
 
 /// An Extractor that returns a reference to a [`Socket`].
 #[derive(Debug)]
@@ -81,7 +82,6 @@ impl<A: Adapter> SocketRef<A> {
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 #[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
-    binary: Vec<Bytes>,
     socket: Arc<Socket<A>>,
     ack_id: Option<i64>,
 }
@@ -98,21 +98,11 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
 }
 impl<A: Adapter> AckSender<A> {
     pub(crate) fn new(socket: Arc<Socket<A>>, ack_id: Option<i64>) -> Self {
-        Self {
-            binary: vec![],
-            socket,
-            ack_id,
-        }
-    }
-
-    /// Add binary data to the ack response.
-    pub fn bin(mut self, bin: impl IntoIterator<Item = impl Into<Bytes>>) -> Self {
-        self.binary = bin.into_iter().map(Into::into).collect();
-        self
+        Self { socket, ack_id }
     }
 
     /// Send the ack response to the client.
-    pub fn send<T: Serialize>(self, data: T) -> Result<(), SendError<T>> {
+    pub fn send<T: Serialize>(self, data: &T) -> Result<(), SendError> {
         use crate::socket::PermitExt;
         if let Some(ack_id) = self.ack_id {
             let permit = match self.socket.reserve() {
@@ -120,15 +110,14 @@ impl<A: Adapter> AckSender<A> {
                 Err(e) => {
                     #[cfg(feature = "tracing")]
                     tracing::debug!("sending error during emit message: {e:?}");
-                    return Err(e.with_value(data).into());
+                    return Err(SendError::Socket(e));
                 }
             };
             let ns = self.socket.ns.path.clone();
-            let data = self.socket.parser().to_value(data)?;
-            let packet = if self.binary.is_empty() {
-                Packet::ack(ns, data, ack_id)
-            } else {
-                Packet::bin_ack(ns, data, self.binary, ack_id)
+            let data = self.socket.parser().encode_value(data, None)?;
+            let packet = match &data {
+                Value::Str(_, Some(bins)) if !bins.is_empty() => Packet::bin_ack(ns, data, ack_id),
+                _ => Packet::ack(ns, data, ack_id),
             };
             permit.send(packet, self.socket.parser());
             Ok(())

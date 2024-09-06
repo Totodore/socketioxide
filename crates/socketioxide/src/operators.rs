@@ -18,7 +18,7 @@ use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
 use crate::errors::{BroadcastError, DisconnectError};
 use crate::extract::SocketRef;
-use crate::parser::Parser;
+use crate::parser::{self, Parser};
 use crate::socket::Socket;
 use crate::SendError;
 use crate::{
@@ -346,22 +346,22 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///         socket.bin(bin).emit("test", [arr]).ok();
     ///     });
     /// });
-    pub fn emit<'a, T: serde::Serialize>(
+    pub fn emit<T: serde::Serialize>(
         mut self,
-        event: impl AsRef<&'a str>,
+        event: impl AsRef<str>,
         data: &T,
-    ) -> Result<(), SendError<T>> {
+    ) -> Result<(), SendError> {
         use crate::errors::SocketError;
         use crate::socket::PermitExt;
         if !self.socket.connected() {
-            return Err(SendError::Socket(SocketError::Closed(data)));
+            return Err(SendError::Socket(SocketError::Closed));
         }
         let permit = match self.socket.reserve() {
             Ok(permit) => permit,
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
-                return Err(e.with_value(data).into());
+                return Err(SendError::Socket(e));
             }
         };
         let packet = self.get_packet(event, data)?;
@@ -421,21 +421,21 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///    });
     /// });
     /// ```
-    pub fn emit_with_ack<'a, T: serde::Serialize, V>(
+    pub fn emit_with_ack<T: serde::Serialize, V>(
         mut self,
-        event: impl AsRef<&'a str>,
+        event: impl AsRef<str>,
         data: &T,
-    ) -> Result<AckStream<V>, SendError<T>> {
+    ) -> Result<AckStream<V>, SendError> {
         use crate::errors::SocketError;
         if !self.socket.connected() {
-            return Err(SendError::Socket(SocketError::Closed(data)));
+            return Err(SendError::Socket(SocketError::Closed));
         }
         let permit = match self.socket.reserve() {
             Ok(permit) => permit,
             Err(e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("sending error during emit message: {e:?}");
-                return Err(e.with_value(data).into());
+                return Err(SendError::Socket(e));
             }
         };
         let timeout = self
@@ -444,7 +444,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         let packet = self.get_packet(event, data)?;
         let rx = self.socket.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, timeout, self.socket.id);
-        Ok(AckStream::<V>::from(stream))
+        Ok(AckStream::<V>::new(stream, self.socket.parser()))
     }
 
     /// Makes all sockets selected with the previous operators join the given room(s).
@@ -485,16 +485,16 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 
     /// Creates a packet with the given event and data.
-    fn get_packet<'a>(
+    fn get_packet(
         &mut self,
-        event: impl AsRef<&'a str>,
+        event: impl AsRef<str>,
         data: &impl serde::Serialize,
-    ) -> Result<Packet, ParseError> {
+    ) -> Result<Packet, parser::EncodeError> {
         let ns = self.socket.ns.path.clone();
         let event = event.as_ref();
         let data = self.socket.parser().encode_value(&data, Some(event))?;
         let packet = match &data {
-            Value::Str((_, bins)) if !bins.is_empty() => Packet::bin_event(ns, data),
+            Value::Str(_, Some(bins)) if !bins.is_empty() => Packet::bin_event(ns, data),
             _ => Packet::event(ns, data),
         };
         Ok(packet)
@@ -733,8 +733,8 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// });
     pub fn emit<T: serde::Serialize>(
         mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: T,
+        event: impl AsRef<str>,
+        data: &T,
     ) -> Result<(), BroadcastError> {
         let packet = self.get_packet(event, data)?;
         if let Err(e) = self.ns.adapter.broadcast(packet, self.opts) {
@@ -805,16 +805,15 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// });
     pub fn emit_with_ack<V>(
         mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<AckStream<V>, ParseError> {
+        event: impl AsRef<str>,
+        data: &impl serde::Serialize,
+    ) -> Result<AckStream<V>, parser::EncodeError> {
         let packet = self.get_packet(event, data)?;
         let stream = self
             .ns
             .adapter
-            .broadcast_with_ack(packet, self.opts, self.timeout)
-            .into();
-        Ok(stream)
+            .broadcast_with_ack(packet, self.opts, self.timeout);
+        Ok(AckStream::new(stream, self.parser))
     }
 
     /// Gets all sockets selected with the previous operators.
@@ -899,16 +898,14 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// Creates a packet with the given event and data.
     fn get_packet(
         &mut self,
-        event: impl Into<Cow<'static, str>>,
-        data: impl serde::Serialize,
-    ) -> Result<Packet, ParseError> {
+        event: impl AsRef<str>,
+        data: &impl serde::Serialize,
+    ) -> Result<Packet, parser::EncodeError> {
         let ns = self.ns.path.clone();
-        let data = self.parser.to_value(data)?;
-        let packet = if self.binary.is_empty() {
-            Packet::event(ns, event.into(), data)
-        } else {
-            let binary = std::mem::take(&mut self.binary);
-            Packet::bin_event(ns, event.into(), data, binary)
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
+        let packet = match &data {
+            Value::Str(_, Some(bins)) if !bins.is_empty() => Packet::bin_event(ns, data),
+            _ => Packet::event(ns, data),
         };
         Ok(packet)
     }

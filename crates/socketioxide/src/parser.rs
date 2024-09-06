@@ -5,7 +5,8 @@
 use bytes::Bytes;
 
 use socketioxide_core::{
-    parser::{Parse, ParseError},
+    packet::Packet,
+    parser::{Parse, ParserState},
     Value,
 };
 
@@ -14,13 +15,11 @@ use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_parser_common::CommonParser;
 use socketioxide_parser_msgpack::MsgPackParser;
 
-use crate::packet::Packet;
-
 /// All the parser available.
 /// It also implements the [`Parse`] trait and therefore the
 /// parser implementation is done over enum delegation.
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Parser {
     /// The default parser
     Common(CommonParser),
@@ -34,16 +33,6 @@ impl Default for Parser {
     }
 }
 
-/// Recreate a new parser of the same type.
-impl Clone for Parser {
-    fn clone(&self) -> Self {
-        match self {
-            Parser::Common(_) => Parser::Common(CommonParser::default()),
-            Parser::MsgPack(_) => Parser::MsgPack(MsgPackParser::default()),
-        }
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
     #[error("common parser: {0}")]
@@ -51,63 +40,84 @@ pub enum EncodeError {
     #[error("msgpack parser: {0}")]
     MsgPack(<MsgPackParser as Parse>::EncodeError),
 }
+
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
     #[error("common parser: {0}")]
-    Common(#[from] <CommonParser as Parse>::DecodeError),
+    Common(<CommonParser as Parse>::DecodeError),
     #[error("msgpack parser: {0}")]
-    MsgPack(#[from] <MsgPackParser as Parse>::DecodeError),
+    MsgPack(<MsgPackParser as Parse>::DecodeError),
 }
+pub type ParseError = socketioxide_core::parser::ParseError<DecodeError>;
 
 impl Parse for Parser {
     type EncodeError = EncodeError;
     type DecodeError = DecodeError;
 
-    fn encode(&self, packet: Packet) -> Value {
+    fn encode(self, packet: Packet) -> Value {
         match self {
             Parser::Common(p) => p.encode(packet),
             Parser::MsgPack(p) => p.encode(packet),
         }
     }
 
-    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<DecodeError>> {
+    fn decode_bin(self, state: &ParserState, bin: Bytes) -> Result<Packet, ParseError> {
         let packet = match self {
-            Parser::Common(p) => p.decode_bin(bin)?,
-            Parser::MsgPack(p) => p.decode_bin(bin)?,
+            Parser::Common(p) => p
+                .decode_bin(state, bin)
+                .map_err(|e| e.wrap_err(DecodeError::Common)),
+            Parser::MsgPack(p) => p
+                .decode_bin(state, bin)
+                .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
         }?;
         #[cfg(feature = "tracing")]
         tracing::debug!(?packet, "bin payload decoded:");
         Ok(packet)
     }
-    fn decode_str(&self, data: Str) -> Result<Packet, ParseError<DecodeError>> {
+    fn decode_str(self, state: &ParserState, data: Str) -> Result<Packet, ParseError> {
         let packet = match self {
-            Parser::Common(p) => p.decode_str(data)?,
-            Parser::MsgPack(p) => p.decode_str(data)?,
-        };
+            Parser::Common(p) => p
+                .decode_str(state, data)
+                .map_err(|e| e.wrap_err(DecodeError::Common)),
+            Parser::MsgPack(p) => p
+                .decode_str(state, data)
+                .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
+        }?;
         #[cfg(feature = "tracing")]
         tracing::debug!(?packet, "str payload decoded:");
         Ok(packet)
     }
 
     fn encode_value<T: Serialize>(
-        &self,
+        self,
         data: &T,
         event: Option<&str>,
     ) -> Result<Value, EncodeError> {
         match self {
-            Parser::Common(p) => p.encode_value(data, event),
-            Parser::MsgPack(p) => p.encode_value(data, event),
+            Parser::Common(p) => p.encode_value(data, event).map_err(EncodeError::Common),
+            Parser::MsgPack(p) => p.encode_value(data, event).map_err(EncodeError::MsgPack),
         }
     }
 
     fn decode_value<T: DeserializeOwned>(
-        &self,
-        value: Value,
+        self,
+        value: &Value,
         with_event: bool,
     ) -> Result<T, DecodeError> {
         match self {
-            Parser::Common(p) => p.decode_value(value, with_event),
-            Parser::MsgPack(p) => p.decode_value(value, with_event),
+            Parser::Common(p) => p
+                .decode_value(value, with_event)
+                .map_err(DecodeError::Common),
+            Parser::MsgPack(p) => p
+                .decode_value(value, with_event)
+                .map_err(DecodeError::MsgPack),
+        }
+    }
+
+    fn value_none(self) -> Value {
+        match self {
+            Parser::Common(p) => p.value_none(),
+            Parser::MsgPack(p) => p.value_none(),
         }
     }
 }

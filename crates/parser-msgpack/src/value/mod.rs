@@ -14,17 +14,17 @@ mod ser;
 ///
 /// All adjacent binary data will be inserted into the output data.
 pub fn from_value<T: DeserializeOwned>(
-    value: Value,
+    value: &Value,
     with_event: bool,
 ) -> Result<T, rmp_serde::decode::Error> {
     let value = match value {
         Value::Bytes(v) => v,
-        Value::Str(_) => panic!("unexpected string data"),
+        Value::Str(_, _) => panic!("unexpected string data"),
     };
     if is_de_tuple::<T>() {
-        de::from_bytes(&value, with_event)
+        de::from_bytes(value, with_event)
     } else {
-        de::from_bytes_seed(&value, FirstElement::default(), with_event)
+        de::from_bytes_seed(value, FirstElement::default(), with_event)
     }
 }
 
@@ -55,12 +55,12 @@ mod tests {
     fn from_bytes_event<T: DeserializeOwned>(data: impl Serialize) -> T {
         println!("{:?}", &to_vec_named(&data).unwrap());
         println!("{:?}", std::any::type_name::<T>());
-        from_value::<T>(Value::Bytes(to_vec_named(&data).unwrap().into()), true).unwrap()
+        from_value::<T>(&Value::Bytes(to_vec_named(&data).unwrap().into()), true).unwrap()
     }
     fn from_bytes_ack<T: DeserializeOwned>(data: impl Serialize) -> T {
         println!("{:?}", &to_vec_named(&data).unwrap());
         println!("{:?}", std::any::type_name::<T>());
-        from_value::<T>(Value::Bytes(to_vec_named(&data).unwrap().into()), false).unwrap()
+        from_value::<T>(&Value::Bytes(to_vec_named(&data).unwrap().into()), false).unwrap()
     }
 
     const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);

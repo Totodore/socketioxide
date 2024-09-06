@@ -1,4 +1,7 @@
-use std::fmt;
+use std::{
+    fmt,
+    sync::{atomic::AtomicUsize, Mutex},
+};
 
 use bytes::Bytes;
 use engineioxide::Str;
@@ -10,23 +13,42 @@ use serde::{
 
 use crate::{packet::Packet, Value};
 
+#[derive(Debug, Default)]
+pub struct ParserState {
+    /// Partial binary packet that is being received
+    /// Stored here until all the binary payloads are received for common parser
+    pub partial_bin_packet: Mutex<Option<Packet>>,
+
+    /// The number of expected binary attachments (used when receiving data for common parser)
+    pub incoming_binary_cnt: AtomicUsize,
+}
+
 /// All socket.io parser should implement this trait
-pub trait Parse: Default {
+/// Parsers should be stateless
+pub trait Parse: Default + Copy {
     type EncodeError: std::error::Error;
     type DecodeError: std::error::Error;
     /// Convert a packet into multiple payloads to be sent
-    fn encode(&self, packet: Packet) -> Value;
+    fn encode(self, packet: Packet) -> Value;
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
     /// the partial packet will be kept and a [`Error::NeedsMoreBinaryData`] will be returned
-    fn decode_str(&self, data: Str) -> Result<Packet, ParseError<Self::DecodeError>>;
+    fn decode_str(
+        self,
+        state: &ParserState,
+        data: Str,
+    ) -> Result<Packet, ParseError<Self::DecodeError>>;
 
     /// Parse a given input binary.
-    fn decode_bin(&self, bin: Bytes) -> Result<Packet, ParseError<Self::DecodeError>>;
+    fn decode_bin(
+        self,
+        state: &ParserState,
+        bin: Bytes,
+    ) -> Result<Packet, ParseError<Self::DecodeError>>;
 
     /// Convert any serializable data to a generic [`Bytes`]
     fn encode_value<T: Serialize>(
-        &self,
+        self,
         data: &T,
         event: Option<&str>,
     ) -> Result<Value, Self::EncodeError>;
@@ -35,10 +57,12 @@ pub trait Parse: Default {
     ///
     /// The parser will be determined from the value given to deserialize.
     fn decode_value<T: DeserializeOwned>(
-        &self,
-        value: Value,
+        self,
+        value: &Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError>;
+
+    fn value_none(self) -> Value;
 }
 
 /// Errors when parsing/serializing socket.io packets
@@ -56,7 +80,7 @@ pub enum ParseError<E: std::error::Error> {
     #[error("invalid event name")]
     InvalidEventName,
 
-    /// Invalid event name
+    /// Invalid data
     #[error("invalid data")]
     InvalidData,
 
@@ -88,6 +112,23 @@ pub enum ParseError<E: std::error::Error> {
 
     #[error("parser error: {0:?}")]
     ParserError(#[from] E),
+}
+impl<E: std::error::Error> ParseError<E> {
+    /// Wrap the [`ParseError::ParserError`] variant with a new error type
+    pub fn wrap_err<E1: std::error::Error>(self, f: impl FnOnce(E) -> E1) -> ParseError<E1> {
+        match self {
+            Self::ParserError(e) => ParseError::ParserError(f(e)),
+            ParseError::InvalidPacketType => ParseError::InvalidPacketType,
+            ParseError::InvalidAckId => ParseError::InvalidAckId,
+            ParseError::InvalidEventName => ParseError::InvalidEventName,
+            ParseError::InvalidData => ParseError::InvalidData,
+            ParseError::InvalidNamespace => ParseError::InvalidNamespace,
+            ParseError::InvalidAttachments => ParseError::InvalidAttachments,
+            ParseError::UnexpectedBinaryPacket => ParseError::UnexpectedBinaryPacket,
+            ParseError::UnexpectedStringPacket => ParseError::UnexpectedStringPacket,
+            ParseError::NeedsMoreBinaryData => ParseError::NeedsMoreBinaryData,
+        }
+    }
 }
 
 /// A seed that can be used to deserialize only the 1st element of a sequence

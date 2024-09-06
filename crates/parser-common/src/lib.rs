@@ -1,14 +1,11 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Mutex,
-};
+use std::sync::atomic::Ordering;
 
 use bytes::Bytes;
 
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{
     packet::{Packet, PacketData},
-    parser::{Parse, ParseError},
+    parser::{Parse, ParseError, ParserState},
     Str, Value,
 };
 
@@ -23,29 +20,28 @@ mod value;
 /// <packet type>[<# of binary attachments>-][<namespace>,][<acknowledgment id>][JSON-stringified payload without binary]
 /// + binary attachments extracted
 /// ```
-#[derive(Debug, Default)]
-pub struct CommonParser {
-    /// Partial binary packet that is being received
-    /// Stored here until all the binary payloads are received
-    pub partial_bin_packet: Mutex<Option<Packet>>,
-    /// The number of expected binary attachments (used when receiving data)
-    pub incoming_binary_cnt: AtomicUsize,
-}
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CommonParser;
 
 impl Parse for CommonParser {
     type EncodeError = serde_json::Error;
     type DecodeError = serde_json::Error;
-    fn encode(&self, packet: Packet) -> Value {
+    fn encode(self, packet: Packet) -> Value {
         ser::serialize_packet(packet)
     }
 
-    fn decode_str(&self, value: Str) -> Result<Packet, ParseError<Self::DecodeError>> {
+    fn decode_str(
+        self,
+        state: &ParserState,
+        value: Str,
+    ) -> Result<Packet, ParseError<Self::DecodeError>> {
         let (packet, incoming_binary_cnt) = de::deserialize_packet(value)?;
         if packet.inner.is_binary() {
             let incoming_binary_cnt = incoming_binary_cnt.ok_or(ParseError::InvalidAttachments)?;
             if !is_bin_packet_complete(&packet.inner, incoming_binary_cnt) {
-                *self.partial_bin_packet.lock().unwrap() = Some(packet);
-                self.incoming_binary_cnt
+                *state.partial_bin_packet.lock().unwrap() = Some(packet);
+                state
+                    .incoming_binary_cnt
                     .store(incoming_binary_cnt, Ordering::Release);
                 Err(ParseError::NeedsMoreBinaryData)
             } else {
@@ -56,18 +52,22 @@ impl Parse for CommonParser {
         }
     }
 
-    fn decode_bin(&self, data: Bytes) -> Result<Packet, ParseError<Self::DecodeError>> {
-        let packet = &mut *self.partial_bin_packet.lock().unwrap();
+    fn decode_bin(
+        self,
+        state: &ParserState,
+        data: Bytes,
+    ) -> Result<Packet, ParseError<Self::DecodeError>> {
+        let packet = &mut *state.partial_bin_packet.lock().unwrap();
         match packet {
             Some(Packet {
                 inner:
-                    PacketData::BinaryEvent(Value::Str((_, binaries)), _)
-                    | PacketData::BinaryAck(Value::Str((_, binaries)), _),
+                    PacketData::BinaryEvent(Value::Str(_, binaries), _)
+                    | PacketData::BinaryAck(Value::Str(_, binaries), _),
                 ..
             }) => {
                 let binaries = binaries.get_or_insert(Vec::new());
                 binaries.push(data);
-                if self.incoming_binary_cnt.load(Ordering::Relaxed) > binaries.len() {
+                if state.incoming_binary_cnt.load(Ordering::Relaxed) > binaries.len() {
                     Err(ParseError::NeedsMoreBinaryData)
                 } else {
                     Ok(packet.take().unwrap())
@@ -78,7 +78,7 @@ impl Parse for CommonParser {
     }
 
     fn encode_value<T: Serialize>(
-        &self,
+        self,
         data: &T,
         event: Option<&str>,
     ) -> Result<Value, Self::EncodeError> {
@@ -86,11 +86,15 @@ impl Parse for CommonParser {
     }
 
     fn decode_value<T: DeserializeOwned>(
-        &self,
-        value: Value,
+        self,
+        value: &Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)
+    }
+
+    fn value_none(self) -> Value {
+        Value::Str(Str::from("{}"), None)
     }
 }
 
@@ -104,8 +108,8 @@ impl CommonParser {
 /// Check if the binary packet is complete, it means that all payloads have been received
 fn is_bin_packet_complete(packet: &PacketData, incoming_binary_cnt: usize) -> bool {
     match &packet {
-        PacketData::BinaryEvent(Value::Str((_, binaries)), _)
-        | PacketData::BinaryAck(Value::Str((_, binaries)), _) => {
+        PacketData::BinaryEvent(Value::Str(_, binaries), _)
+        | PacketData::BinaryAck(Value::Str(_, binaries), _) => {
             incoming_binary_cnt == binaries.as_ref().map(Vec::len).unwrap_or(0)
         }
         _ => true,
@@ -128,16 +132,18 @@ mod test {
         CommonParser::default().encode_value(data, None).unwrap()
     }
     fn to_connect_value(data: &impl serde::Serialize) -> Value {
-        Value::Str((Str::from(serde_json::to_string(data).unwrap()), None))
+        Value::Str(Str::from(serde_json::to_string(data).unwrap()), None)
     }
     fn encode(packet: Packet) -> String {
         match CommonParser::default().encode(packet) {
-            Value::Str((d, _)) => d.into(),
+            Value::Str(d, _) => d.into(),
             Value::Bytes(_) => panic!("testing only returns str"),
         }
     }
     fn decode(value: String) -> Packet {
-        CommonParser::default().decode_str(value.into()).unwrap()
+        CommonParser::default()
+            .decode_str(&Default::default(), value.into())
+            .unwrap()
     }
 
     #[test]
@@ -385,46 +391,54 @@ mod test {
                 ns: ns.into(),
             }
         };
-        let parser = CommonParser::default();
+        let state = ParserState::default();
         let payload = format!("51-{}", json);
         assert!(matches!(
-            parser.decode_str(payload.into()),
+            CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
-        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = CommonParser
+            .decode_bin(&state, Bytes::from_static(&[1]))
+            .unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/"));
 
         // Check with ack ID
-        let parser = CommonParser::default();
+        let state = ParserState::default();
         let payload = format!("51-254{}", json);
         assert!(matches!(
-            parser.decode_str(payload.into()),
+            CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
-        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = CommonParser
+            .decode_bin(&state, Bytes::from_static(&[1]))
+            .unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/"));
 
         // Check with NS
-        let parser = CommonParser::default();
+        let state = ParserState::default();
         let payload = format!("51-/admin™,{}", json);
         assert!(matches!(
-            parser.decode_str(payload.into()),
+            CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
-        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = CommonParser
+            .decode_bin(&state, Bytes::from_static(&[1]))
+            .unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/admin™"));
 
         // Check with ack ID and NS
-        let parser = CommonParser::default();
+        let state = ParserState::default();
         let payload = format!("51-/admin™,254{}", json);
         assert!(matches!(
-            parser.decode_str(payload.into()),
+            CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
-        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = CommonParser
+            .decode_bin(&state, Bytes::from_static(&[1]))
+            .unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/admin™"));
     }
@@ -466,31 +480,35 @@ mod test {
         };
 
         let payload = format!("61-54{}", json);
-        let parser = CommonParser::default();
+        let state = ParserState::default();
         assert!(matches!(
-            parser.decode_str(payload.into()),
+            CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
-        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = CommonParser
+            .decode_bin(&state, Bytes::from_static(&[1]))
+            .unwrap();
 
         assert_eq!(packet, comparison_packet(54, "/"));
 
         // Check with NS
-        let parser = CommonParser::default();
+        let state = ParserState::default();
         let payload = format!("61-/admin™,54{}", json);
         assert!(matches!(
-            parser.decode_str(payload.into()),
+            CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
-        let packet = parser.decode_bin(Bytes::from_static(&[1])).unwrap();
+        let packet = CommonParser
+            .decode_bin(&state, Bytes::from_static(&[1]))
+            .unwrap();
         assert_eq!(packet, comparison_packet(54, "/admin™"));
     }
 
     #[test]
     fn packet_reject_invalid_binary_event() {
         let payload = "5invalid".to_owned();
-        let err = CommonParser::default()
-            .decode_str(payload.into())
+        let err = CommonParser
+            .decode_str(&Default::default(), payload.into())
             .unwrap_err();
 
         assert!(matches!(err, ParseError::InvalidAttachments));

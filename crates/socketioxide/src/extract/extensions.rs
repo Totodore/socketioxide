@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::adapter::Adapter;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
-use crate::Value;
 use bytes::Bytes;
+use socketioxide_core::Value;
 
 #[cfg(feature = "extensions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
