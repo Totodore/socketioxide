@@ -1,6 +1,6 @@
 use serde::ser::{self, SerializeTuple, SerializeTupleStruct};
 
-pub fn into_bytes<T: ser::Serialize>(
+pub fn into_bytes<T: ?Sized + ser::Serialize>(
     data: &T,
     event: Option<&str>,
 ) -> Result<Vec<u8>, rmp_serde::encode::Error> {

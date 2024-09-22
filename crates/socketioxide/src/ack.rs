@@ -432,11 +432,7 @@ mod test {
     async fn broadcast_ack_with_closed_socket() {
         let socket = create_socket();
         let socket2 = create_socket();
-        let packet = get_packet();
-        let mut packet = Packet::event(
-            "/",
-            CommonParser.encode_value(&"test", Some("test")).unwrap(),
-        );
+        let mut packet = get_packet();
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
         let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();

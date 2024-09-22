@@ -45,34 +45,30 @@ impl Packet {
         }
     }
 
-    /// Create an event packet for the given namespace
+    /// Create an event packet for the given namespace.
+    /// If the there is adjacent binary data, it will be a binary packet.
     pub fn event(ns: impl Into<Str>, data: Value) -> Self {
         Self {
-            inner: PacketData::Event(data, None),
+            inner: match data {
+                Value::Str(_, Some(ref bins)) if !bins.is_empty() => {
+                    PacketData::BinaryEvent(data, None)
+                }
+                _ => PacketData::Event(data, None),
+            },
             ns: ns.into(),
         }
     }
 
-    /// Create a binary event packet for the given namespace
-    pub fn bin_event(ns: impl Into<Str>, data: Value) -> Self {
-        Self {
-            inner: PacketData::BinaryEvent(data, None),
-            ns: ns.into(),
-        }
-    }
-
-    /// Create an ack packet for the given namespace
+    /// Create an ack packet for the given namespace.
+    /// If the there is adjacent binary data, it will be a binary packet.
     pub fn ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {
         Self {
-            inner: PacketData::EventAck(data, ack),
-            ns: ns.into(),
-        }
-    }
-
-    /// Create a binary ack packet for the given namespace
-    pub fn bin_ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {
-        Self {
-            inner: PacketData::BinaryAck(data, ack),
+            inner: match data {
+                Value::Str(_, Some(ref bins)) if !bins.is_empty() => {
+                    PacketData::BinaryAck(data, ack)
+                }
+                _ => PacketData::EventAck(data, ack),
+            },
             ns: ns.into(),
         }
     }

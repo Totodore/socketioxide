@@ -225,16 +225,16 @@ mod tests {
         );
 
         let bin_ack_payload = to_value(&(json!({ "data": "value™" }), Bytes::from_static(&[1])));
-        let packet = Packet::bin_event("/", bin_payload.clone());
+        let packet = Packet::event("/", bin_payload.clone());
         assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
-        let packet = Packet::bin_event("/admin", bin_payload.clone());
+        let packet = Packet::event("/admin", bin_payload.clone());
         assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
-        let packet = Packet::bin_ack("/", bin_ack_payload.clone(), 54);
+        let packet = Packet::ack("/", bin_ack_payload.clone(), 54);
         assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
 
-        let packet = Packet::bin_ack("/admin", bin_ack_payload.clone(), 54);
+        let packet = Packet::ack("/admin", bin_ack_payload.clone(), 54);
         assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
     }
 }

@@ -13,7 +13,7 @@ use serde::ser::{
 /// `[event, ...data]`.
 ///
 /// Any binary payload will be replaced with a placeholder object: `{"_placeholder": true, "index": 0}`.
-pub fn into_str<T: ser::Serialize>(
+pub fn into_str<T: ?Sized + ser::Serialize>(
     data: &T,
     event: Option<&str>,
 ) -> Result<(Vec<u8>, Vec<Bytes>), serde_json::Error> {

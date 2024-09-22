@@ -5,8 +5,9 @@ use engineioxide::Packet::*;
 use futures_util::StreamExt;
 use socketioxide::extract::SocketRef;
 use socketioxide::packet::PacketData;
-use socketioxide::parser::{CommonParser, Parse};
 use socketioxide::SocketIo;
+use socketioxide_core::parser::Parse;
+use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 
@@ -18,14 +19,14 @@ pub async fn emit_with_ack() {
     io.ns("/", move |s: SocketRef| async move {
         let res = assert_ok!(s.emit_with_ack::<_, [String; 1]>("test", "foo")).await;
         let ack = assert_ok!(res);
-        assert_ok!(tx.try_send(ack.data));
+        assert_ok!(tx.try_send(ack));
 
         let res = s
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<_, [String; 1]>("test", "foo");
+            .emit_with_ack::<_, [String; 1]>("test", &"foo");
         let res = assert_ok!(res).await;
         let ack = assert_ok!(res);
-        assert_ok!(tx.try_send(ack.data));
+        assert_ok!(tx.try_send(ack));
     });
 
     let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
@@ -52,12 +53,12 @@ pub async fn broadcast_with_ack() {
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
 
     io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
-        let res = io.emit_with_ack::<[String; 1]>("test", "foo");
+        let res = io.emit_with_ack::<_, [String; 1]>("test", "foo");
         let sockets = io.sockets().unwrap();
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
-            assert_ok!(tx.try_send(ack.data));
+            assert_ok!(tx.try_send(ack));
             assert_some!(sockets.iter().find(|s| s.id == id));
             async move {}
         })
@@ -65,11 +66,11 @@ pub async fn broadcast_with_ack() {
 
         let res = io
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<[String; 1]>("test", "foo");
+            .emit_with_ack::<_, [String; 1]>("test", "foo");
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
-            assert_ok!(tx.try_send(ack.data));
+            assert_ok!(tx.try_send(ack));
             assert_some!(sockets.iter().find(|s| s.id == id));
             async move {}
         })
@@ -78,11 +79,11 @@ pub async fn broadcast_with_ack() {
         let res = socket
             .broadcast()
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<[String; 1]>("test", "foo");
+            .emit_with_ack::<_, [String; 1]>("test", "foo");
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
-            assert_ok!(tx.try_send(ack.data));
+            assert_ok!(tx.try_send(ack));
             assert_some!(sockets.iter().find(|s| s.id == id));
             async move {}
         })
@@ -102,8 +103,8 @@ pub async fn broadcast_with_ack() {
                     Message(msg) => msg,
                     msg => panic!("Unexpected message: {:?}", msg),
                 };
-                let ack = match assert_ok!(parser.decode_str(msg)).inner {
-                    PacketData::Event(_, _, Some(ack)) => ack,
+                let ack = match assert_ok!(parser.decode_str(&Default::default(), msg)).inner {
+                    PacketData::Event(_, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };
                 assert_ok!(stx.send(Message(format!("3{}[\"oof\"]", ack).into())).await);

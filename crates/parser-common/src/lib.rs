@@ -77,7 +77,7 @@ impl Parse for CommonParser {
         }
     }
 
-    fn encode_value<T: Serialize>(
+    fn encode_value<T: ?Sized + Serialize>(
         self,
         data: &T,
         event: Option<&str>,
@@ -93,8 +93,27 @@ impl Parse for CommonParser {
         value::from_value(value, with_event)
     }
 
-    fn value_none(self) -> Value {
-        Value::Str(Str::from("{}"), None)
+    fn decode_default<T: DeserializeOwned>(
+        self,
+        value: Option<&Value>,
+    ) -> Result<T, Self::DecodeError> {
+        if let Some(value) = value {
+            let data = value
+                .as_str()
+                .expect("CommonParser only supports string values");
+            serde_json::from_str(data)
+        } else {
+            serde_json::from_str("{}")
+        }
+    }
+
+    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError> {
+        let value = serde_json::to_string(data)?;
+        Ok(Value::Str(Str::from(value), None))
+    }
+
+    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError> {
+        value::read_event(value)
     }
 }
 
@@ -328,7 +347,7 @@ mod test {
         let json = json!(["event", { "data": "value™" }, { "_placeholder": true, "num": 0}]);
 
         let payload = format!("51-{}", json);
-        let packet = encode(Packet::bin_event(
+        let packet = encode(Packet::event(
             "/",
             to_event_value(
                 &(json!({ "data": "value™" }), Bytes::from_static(&[1])),
@@ -340,7 +359,7 @@ mod test {
 
         // Encode with ack ID
         let payload = format!("51-254{}", json);
-        let mut packet = Packet::bin_event(
+        let mut packet = Packet::event(
             "/",
             to_event_value(
                 &(json!({ "data": "value™" }), Bytes::from_static(&[1])),
@@ -354,7 +373,7 @@ mod test {
 
         // Encode with NS
         let payload = format!("51-/admin™,{}", json);
-        let packet = encode(Packet::bin_event(
+        let packet = encode(Packet::event(
             "/admin™",
             to_event_value(
                 &(json!({ "data": "value™" }), Bytes::from_static(&[1])),
@@ -366,7 +385,7 @@ mod test {
 
         // Encode with NS and ack ID
         let payload = format!("51-/admin™,254{}", json);
-        let mut packet = Packet::bin_event(
+        let mut packet = Packet::event(
             "/admin™",
             to_event_value(
                 &(json!({ "data": "value™" }), Bytes::from_static(&[1])),
@@ -449,7 +468,7 @@ mod test {
         let json = json!([{ "data": "value™" }, { "_placeholder": true, "num": 0}]);
 
         let payload = format!("61-54{}", json);
-        let packet = encode(Packet::bin_ack(
+        let packet = encode(Packet::ack(
             "/",
             to_value(&(json!({ "data": "value™" }), Bytes::from_static(&[1]))),
             54,
@@ -459,7 +478,7 @@ mod test {
 
         // Encode with NS
         let payload = format!("61-/admin™,54{}", json);
-        let packet = encode(Packet::bin_ack(
+        let packet = encode(Packet::ack(
             "/admin™",
             to_value(&(json!({ "data": "value™" }), Bytes::from_static(&[1]))),
             54,

@@ -2,23 +2,12 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use crate::handler::{FromConnectParts, FromMessageParts};
-use crate::parser::{self, DecodeError};
-use crate::{adapter::Adapter, parser::ParseError, socket::Socket};
+use crate::parser::DecodeError;
+use crate::{adapter::Adapter, socket::Socket};
 use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use socketioxide_core::parser::Parse;
 use socketioxide_core::Value;
-
-fn from_value<A: Adapter, T: DeserializeOwned>(
-    s: &Arc<Socket<A>>,
-    v: Option<&Value>,
-    from_event: bool,
-) -> Result<T, parser::DecodeError> {
-    let parser = s.parser();
-    let empty = parser.value_none();
-    let v = v.unwrap_or(&empty);
-    parser.decode_value(v, from_event)
-}
 
 /// An Extractor that returns the deserialized data without checking errors.
 /// If a deserialization error occurs, the handler won't be called
@@ -31,7 +20,8 @@ where
 {
     type Error = DecodeError;
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Self::Error> {
-        from_value(s, auth.as_ref(), false).map(Data)
+        let parser = s.parser();
+        parser.decode_default(auth.as_ref()).map(Data)
     }
 }
 
@@ -47,7 +37,8 @@ where
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
-        from_value(s, Some(v), true).map(Data)
+        let parser = s.parser();
+        parser.decode_value(v, true).map(Data)
     }
 }
 
@@ -61,7 +52,8 @@ where
 {
     type Error = Infallible;
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Infallible> {
-        Ok(TryData(from_value(s, auth.as_ref(), false)))
+        let parser = s.parser();
+        Ok(TryData(parser.decode_default(auth.as_ref())))
     }
 }
 impl<T, A> FromMessageParts<A> for TryData<T>
@@ -76,7 +68,8 @@ where
         _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
-        Ok(TryData(from_value(s, Some(v), true)))
+        let parser = s.parser();
+        Ok(TryData(parser.decode_value(v, true)))
     }
 }
 

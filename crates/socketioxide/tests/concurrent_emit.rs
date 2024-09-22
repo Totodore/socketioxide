@@ -15,14 +15,14 @@ pub async fn emit() {
     io.ns("/", move |socket: SocketRef| async move {
         for _ in 0..100 {
             let s = socket.clone();
+            const DATA: (&'static str, Bytes, Bytes) = (
+                "bin",
+                Bytes::from_static(&[1, 2, 3]),
+                Bytes::from_static(&[4, 5, 6]),
+            );
             tokio::task::spawn_blocking(move || {
                 for _ in 0..100 {
-                    s.bin(vec![
-                        Bytes::from_static(&[1, 2, 3]),
-                        Bytes::from_static(&[4, 5, 6]),
-                    ])
-                    .emit("test", "bin")
-                    .unwrap();
+                    s.emit("test", &DATA).unwrap();
                 }
             });
         }

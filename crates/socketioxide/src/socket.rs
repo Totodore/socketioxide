@@ -4,17 +4,15 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
-    sync::Mutex,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
 
-use bytes::Bytes;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::Serialize;
 use tokio::sync::oneshot::{self, Receiver};
 
 #[cfg(feature = "extensions")]
@@ -296,7 +294,11 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     /// ```
-    pub fn emit<T: Serialize>(&self, event: impl AsRef<str>, data: &T) -> Result<(), SendError> {
+    pub fn emit<T: ?Sized + Serialize>(
+        &self,
+        event: impl AsRef<str>,
+        data: &T,
+    ) -> Result<(), SendError> {
         if !self.connected() {
             return Err(SendError::Socket(SocketError::Closed));
         }
@@ -312,6 +314,7 @@ impl<A: Adapter> Socket<A> {
 
         let ns = self.ns.path.clone();
         let data = self.parser().encode_value(data, Some(event.as_ref()))?;
+
         permit.send(Packet::event(ns, data), self.parser());
         Ok(())
     }
@@ -367,7 +370,7 @@ impl<A: Adapter> Socket<A> {
     ///    });
     /// });
     /// ```
-    pub fn emit_with_ack<T: Serialize, V: DeserializeOwned>(
+    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         &self,
         event: impl AsRef<str>,
         data: &T,
@@ -569,23 +572,6 @@ impl<A: Adapter> Socket<A> {
         ConfOperators::new(self).timeout(timeout)
     }
 
-    /// Adds a binary payload to the message.
-    /// # Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// # use std::sync::Arc;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // This will send the binary payload received to all clients in this namespace with the test message
-    ///         socket.bin(bin).emit("test", data);
-    ///     });
-    /// });
-    pub fn bin(&self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> ConfOperators<'_, A> {
-        ConfOperators::new(self).bin(binary)
-    }
-
     /// Broadcasts to all clients without any filtering (except the current socket).
     /// # Example
     /// ```
@@ -758,8 +744,13 @@ impl<A: Adapter> Socket<A> {
     }
 
     fn recv_event(self: Arc<Self>, data: Value, ack: Option<i64>) -> Result<(), Error> {
-        let e = "event"; // TODO: read event;
-        if let Some(handler) = self.message_handlers.read().unwrap().get(e) {
+        let event = self.parser().read_event(&data).map_err(|e| {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(?e, "failed to read event");
+            Error::InvalidEventName
+        })?;
+        dbg!(&event);
+        if let Some(handler) = self.message_handlers.read().unwrap().get(event) {
             handler.call(self.clone(), data, vec![], ack);
         }
         Ok(())

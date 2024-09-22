@@ -97,7 +97,7 @@ impl<A: Adapter> Namespace<A> {
         let protocol = esocket.protocol.into();
         let payload = ConnectPacket { sid: socket.id };
         let payload = match protocol {
-            ProtocolVersion::V5 => Some(socket.parser().encode_value(&payload, None).unwrap()),
+            ProtocolVersion::V5 => Some(socket.parser().encode_default(&payload).unwrap()),
             _ => None,
         };
         if let Err(_e) = socket.send(Packet::connect(self.path.clone(), payload)) {

@@ -2,24 +2,22 @@ mod utils;
 
 use bytes::Bytes;
 use engineioxide::Packet::*;
+use serde::Serialize;
 use socketioxide::{
-    extract::SocketRef,
-    handler::ConnectHandler,
-    packet::Packet,
-    parser::{CommonParser, Parse, TransportPayload},
-    SendError, SocketError, SocketIo,
+    extract::SocketRef, handler::ConnectHandler, packet::Packet, SendError, SocketError, SocketIo,
 };
+use socketioxide_core::{parser::Parse, Value};
+use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
 
-fn create_msg(
-    ns: &'static str,
-    event: &str,
-    data: impl Into<serde_json::Value>,
-) -> engineioxide::Packet {
-    let packet = Packet::event(ns, event, data.into());
-    match CommonParser::default().encode(packet).0 {
-        TransportPayload::Str(data) => Message(data),
-        TransportPayload::Bytes(bin) => Binary(bin),
+fn create_msg(ns: &'static str, event: &str, data: impl Serialize) -> engineioxide::Packet {
+    let parser = CommonParser::default();
+    let packet = Packet::event(ns, parser.encode_value(&data, Some(event)).unwrap());
+    match parser.encode(packet) {
+        Value::Str(data, _) => Message(data),
+        Value::Bytes(_) => unreachable!(),
     }
 }
 async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T>) -> T {
@@ -40,24 +38,22 @@ pub async fn connect_middleware() {
             // Socket should be closed for all emit methods on it
 
             assert!(matches!(
-                s.emit("test", ()),
-                Err(SendError::Socket(SocketError::Closed(())))
+                s.emit("test", &()),
+                Err(SendError::Socket(SocketError::Closed))
             ));
 
             assert!(matches!(
-                s.emit_with_ack::<(), ()>("test", ()),
-                Err(SendError::Socket(SocketError::Closed(())))
+                s.emit_with_ack::<_, ()>("test", &()),
+                Err(SendError::Socket(SocketError::Closed))
             ));
 
             assert!(matches!(
-                s.bin(vec![Bytes::from_static(&[0, 1, 2, 3])])
-                    .emit("test", ()),
-                Err(SendError::Socket(SocketError::Closed(())))
+                s.emit("test", &(0, 1, 2, 3)),
+                Err(SendError::Socket(SocketError::Closed))
             ));
             assert!(matches!(
-                s.bin(vec![Bytes::from_static(&[0, 1, 2, 3])])
-                    .emit_with_ack::<(), ()>("test", ()),
-                Err(SendError::Socket(SocketError::Closed(())))
+                s.emit_with_ack::<_, ()>("test", &Bytes::from_static(&[0, 1, 2, 3])),
+                Err(SendError::Socket(SocketError::Closed))
             ));
 
             tx1.try_send(i).unwrap();

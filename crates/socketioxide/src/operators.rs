@@ -9,10 +9,9 @@
 use std::borrow::Cow;
 use std::{sync::Arc, time::Duration};
 
-use bytes::Bytes;
 use engineioxide::sid::Sid;
+use serde::Serialize;
 use socketioxide_core::parser::Parse;
-use socketioxide_core::Value;
 
 use crate::ack::{AckInnerStream, AckStream};
 use crate::adapter::LocalAdapter;
@@ -107,13 +106,11 @@ impl RoomParam for Sid {
 
 /// Chainable operators to configure the message to be sent.
 pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
-    binary: Vec<Bytes>,
     timeout: Option<Duration>,
     socket: &'a Socket<A>,
 }
 /// Chainable operators to select sockets to send a message to and to configure the message to be sent.
 pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
-    binary: Vec<Bytes>,
     timeout: Option<Duration>,
     ns: Arc<Namespace<A>>,
     parser: Parser,
@@ -127,7 +124,6 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
             ..Default::default()
         };
         Self {
-            binary: conf.binary,
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
             parser: conf.socket.parser().clone(),
@@ -140,7 +136,6 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
 impl<'a, A: Adapter> ConfOperators<'a, A> {
     pub(crate) fn new(sender: &'a Socket<A>) -> Self {
         Self {
-            binary: vec![],
             timeout: None,
             socket: sender,
         }
@@ -289,23 +284,6 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
         self.timeout = Some(timeout);
         self
     }
-
-    /// Adds a binary payload to the message.
-    /// #### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // This will send the binary payload received to all sockets in this namespace with the test message
-    ///         socket.bin(bin).emit("test", data);
-    ///     });
-    /// });
-    pub fn bin(mut self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> Self {
-        self.binary = binary.into_iter().map(Into::into).collect();
-        self
-    }
 }
 
 // ==== impl ConfOperators consume fns ====
@@ -346,7 +324,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///         socket.bin(bin).emit("test", [arr]).ok();
     ///     });
     /// });
-    pub fn emit<T: serde::Serialize>(
+    pub fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
         data: &T,
@@ -421,7 +399,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///    });
     /// });
     /// ```
-    pub fn emit_with_ack<T: serde::Serialize, V>(
+    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         mut self,
         event: impl AsRef<str>,
         data: &T,
@@ -485,26 +463,21 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 
     /// Creates a packet with the given event and data.
-    fn get_packet(
+    fn get_packet<T: ?Sized + Serialize>(
         &mut self,
         event: impl AsRef<str>,
-        data: &impl serde::Serialize,
+        data: &T,
     ) -> Result<Packet, parser::EncodeError> {
         let ns = self.socket.ns.path.clone();
         let event = event.as_ref();
         let data = self.socket.parser().encode_value(&data, Some(event))?;
-        let packet = match &data {
-            Value::Str(_, Some(bins)) if !bins.is_empty() => Packet::bin_event(ns, data),
-            _ => Packet::event(ns, data),
-        };
-        Ok(packet)
+        Ok(Packet::event(ns, data))
     }
 }
 
 impl<A: Adapter> BroadcastOperators<A> {
     pub(crate) fn new(ns: Arc<Namespace<A>>, parser: Parser) -> Self {
         Self {
-            binary: vec![],
             timeout: None,
             ns,
             parser,
@@ -513,7 +486,6 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
     pub(crate) fn from_sock(ns: Arc<Namespace<A>>, sid: Sid, parser: Parser) -> Self {
         Self {
-            binary: vec![],
             timeout: None,
             ns,
             parser,
@@ -672,23 +644,6 @@ impl<A: Adapter> BroadcastOperators<A> {
         self.timeout = Some(timeout);
         self
     }
-
-    /// Adds a binary payload to the message.
-    /// #### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
-    ///         // This will send the binary payload received to all sockets in this namespace with the test message
-    ///         socket.bin(bin).emit("test", data);
-    ///     });
-    /// });
-    pub fn bin(mut self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> Self {
-        self.binary = binary.into_iter().map(Into::into).collect();
-        self
-    }
 }
 
 // ==== impl BroadcastOperators consume fns ====
@@ -731,7 +686,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///         socket.to("room2").emit("test", [arr]).ok();
     ///     });
     /// });
-    pub fn emit<T: serde::Serialize>(
+    pub fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
         data: &T,
@@ -803,10 +758,10 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///         }).await;
     ///     });
     /// });
-    pub fn emit_with_ack<V>(
+    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         mut self,
         event: impl AsRef<str>,
-        data: &impl serde::Serialize,
+        data: &T,
     ) -> Result<AckStream<V>, parser::EncodeError> {
         let packet = self.get_packet(event, data)?;
         let stream = self
@@ -896,17 +851,13 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
 
     /// Creates a packet with the given event and data.
-    fn get_packet(
+    fn get_packet<T: ?Sized + Serialize>(
         &mut self,
         event: impl AsRef<str>,
-        data: &impl serde::Serialize,
+        data: &T,
     ) -> Result<Packet, parser::EncodeError> {
         let ns = self.ns.path.clone();
         let data = self.parser.encode_value(data, Some(event.as_ref()))?;
-        let packet = match &data {
-            Value::Str(_, Some(bins)) if !bins.is_empty() => Packet::bin_event(ns, data),
-            _ => Packet::event(ns, data),
-        };
-        Ok(packet)
+        Ok(Packet::event(ns, data))
     }
 }

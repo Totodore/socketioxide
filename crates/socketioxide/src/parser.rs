@@ -55,13 +55,19 @@ impl Parse for Parser {
     type DecodeError = DecodeError;
 
     fn encode(self, packet: Packet) -> Value {
-        match self {
+        let value = match self {
             Parser::Common(p) => p.encode(packet),
             Parser::MsgPack(p) => p.encode(packet),
-        }
+        };
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?value, "packet encoded:");
+        value
     }
 
     fn decode_bin(self, state: &ParserState, bin: Bytes) -> Result<Packet, ParseError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?bin, ?state, "decoding bin payload:");
+
         let packet = match self {
             Parser::Common(p) => p
                 .decode_bin(state, bin)
@@ -70,11 +76,15 @@ impl Parse for Parser {
                 .decode_bin(state, bin)
                 .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
         }?;
+
         #[cfg(feature = "tracing")]
-        tracing::debug!(?packet, "bin payload decoded:");
+        tracing::trace!(?packet, "bin payload decoded:");
         Ok(packet)
     }
     fn decode_str(self, state: &ParserState, data: Str) -> Result<Packet, ParseError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?data, ?state, "decoding str payload:");
+
         let packet = match self {
             Parser::Common(p) => p
                 .decode_str(state, data)
@@ -83,20 +93,24 @@ impl Parse for Parser {
                 .decode_str(state, data)
                 .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
         }?;
+
         #[cfg(feature = "tracing")]
-        tracing::debug!(?packet, "str payload decoded:");
+        tracing::trace!(?packet, "str payload decoded:");
         Ok(packet)
     }
 
-    fn encode_value<T: Serialize>(
+    fn encode_value<T: ?Sized + Serialize>(
         self,
         data: &T,
         event: Option<&str>,
     ) -> Result<Value, EncodeError> {
-        match self {
+        let value = match self {
             Parser::Common(p) => p.encode_value(data, event).map_err(EncodeError::Common),
             Parser::MsgPack(p) => p.encode_value(data, event).map_err(EncodeError::MsgPack),
-        }
+        };
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?value, "value encoded:");
+        value
     }
 
     fn decode_value<T: DeserializeOwned>(
@@ -104,6 +118,8 @@ impl Parse for Parser {
         value: &Value,
         with_event: bool,
     ) -> Result<T, DecodeError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?value, "decoding value:");
         match self {
             Parser::Common(p) => p
                 .decode_value(value, with_event)
@@ -114,10 +130,27 @@ impl Parse for Parser {
         }
     }
 
-    fn value_none(self) -> Value {
+    fn decode_default<T: DeserializeOwned>(
+        self,
+        value: Option<&Value>,
+    ) -> Result<T, Self::DecodeError> {
         match self {
-            Parser::Common(p) => p.value_none(),
-            Parser::MsgPack(p) => p.value_none(),
+            Parser::Common(p) => p.decode_default(value).map_err(DecodeError::Common),
+            Parser::MsgPack(p) => p.decode_default(value).map_err(DecodeError::MsgPack),
+        }
+    }
+
+    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError> {
+        match self {
+            Parser::Common(p) => p.encode_default(data).map_err(EncodeError::Common),
+            Parser::MsgPack(p) => p.encode_default(data).map_err(EncodeError::MsgPack),
+        }
+    }
+
+    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError> {
+        match self {
+            Parser::Common(p) => p.read_event(value).map_err(DecodeError::Common),
+            Parser::MsgPack(p) => p.read_event(value).map_err(DecodeError::MsgPack),
         }
     }
 }

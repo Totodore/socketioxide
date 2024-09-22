@@ -6,7 +6,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use rmpv::Value;
 use socketioxide::{
-    extract::{AckSender, Bin, Data, SocketRef},
+    extract::{AckSender, Data, SocketRef},
     SocketIo,
 };
 use tokio::net::TcpListener;
@@ -14,36 +14,32 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
-    info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
-    socket.emit("auth", data).ok();
+    info!(?data, ns = socket.ns(), ?socket.id, "Socket.IO connected:");
+    socket.emit("auth", &data).ok();
 
-    socket.on(
-        "message",
-        |socket: SocketRef, Data::<Value>(data), Bin(bin)| {
-            info!("Received event: {:?} {:?}", data, bin);
-            socket.bin(bin).emit("message-back", data).ok();
-        },
-    );
+    socket.on("message", |socket: SocketRef, Data::<Value>(data)| {
+        info!(?data, "Received event:");
+        socket.emit("message-back", &data).ok();
+    });
 
     // keep this handler async to test async message handlers
     socket.on(
         "message-with-ack",
-        |Data::<Value>(data), ack: AckSender, Bin(bin)| async move {
-            info!("Received event: {:?} {:?}", data, bin);
-            ack.bin(bin).send(data).ok();
+        |Data::<Value>(data), ack: AckSender| async move {
+            info!(?data, "Received event:");
+            ack.send(&data).ok();
         },
     );
 
     socket.on(
         "emit-with-ack",
-        |s: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+        |s: SocketRef, Data::<Value>(data)| async move {
             let ack = s
-                .bin(bin)
-                .emit_with_ack::<_, Value>("emit-with-ack", data)
+                .emit_with_ack::<_, Value>("emit-with-ack", &data)
                 .unwrap()
                 .await
                 .unwrap();
-            s.bin(ack.binary).emit("emit-with-ack", ack.data).unwrap();
+            s.emit("emit-with-ack", &ack).unwrap();
         },
     );
 }
@@ -56,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let mut builder = SocketIo::builder()
+    let builder = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .ack_timeout(Duration::from_millis(200))

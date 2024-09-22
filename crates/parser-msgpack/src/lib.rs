@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use de::deserialize_packet;
 use ser::serialize_packet;
+use serde::de::DeserializeOwned;
 use socketioxide_core::{
     packet::Packet,
     parser::{Parse, ParseError, ParserState},
@@ -40,7 +41,7 @@ impl Parse for MsgPackParser {
         Ok(deserialize_packet(bin)?)
     }
 
-    fn encode_value<T: serde::Serialize>(
+    fn encode_value<T: ?Sized + serde::Serialize>(
         self,
         data: &T,
         event: Option<&str>,
@@ -48,7 +49,7 @@ impl Parse for MsgPackParser {
         value::to_value(data, event)
     }
 
-    fn decode_value<T: serde::de::DeserializeOwned>(
+    fn decode_value<T: DeserializeOwned>(
         self,
         value: &Value,
         with_event: bool,
@@ -56,8 +57,27 @@ impl Parse for MsgPackParser {
         value::from_value(value, with_event)
     }
 
-    fn value_none(self) -> Value {
-        Value::Bytes(Bytes::from_static(&[0xc0]))
+    fn decode_default<T: DeserializeOwned>(
+        self,
+        value: Option<&Value>,
+    ) -> Result<T, Self::DecodeError> {
+        if let Some(value) = value {
+            let value = value.as_bytes().expect("value should be bytes");
+            rmp_serde::from_slice(&value)
+        } else {
+            rmp_serde::from_slice(&[0xc0]) // null
+        }
+    }
+
+    fn encode_default<T: ?Sized + serde::Serialize>(
+        self,
+        data: &T,
+    ) -> Result<Value, Self::EncodeError> {
+        rmp_serde::to_vec_named(data).map(|b| Value::Bytes(b.into()))
+    }
+
+    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError> {
+        value::read_event(value)
     }
 }
 

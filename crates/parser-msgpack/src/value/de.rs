@@ -1,6 +1,7 @@
 use std::fmt;
 
-use serde::de::{self, IgnoredAny, Visitor};
+use serde::de::{self, DeserializeSeed, IgnoredAny, Visitor};
+use socketioxide_core::parser::FirstElement;
 
 pub fn from_bytes<'de, T: de::Deserialize<'de>>(
     data: &'de [u8],
@@ -25,6 +26,11 @@ pub fn from_bytes_seed<'de, T: de::DeserializeSeed<'de>>(
         skip_first_element: with_event,
     };
     seed.deserialize(de)
+}
+
+pub fn read_event(data: &[u8]) -> Result<&str, rmp_serde::decode::Error> {
+    let mut de = rmp_serde::Deserializer::new(data);
+    FirstElement::<&str>::default().deserialize(&mut de)
 }
 
 struct Deserializer<D> {

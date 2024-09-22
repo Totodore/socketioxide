@@ -34,7 +34,7 @@ pub fn from_value<T: DeserializeOwned>(value: &Value, with_event: bool) -> serde
 }
 
 /// Serialize any serializable data and an event to a generic [`SocketIoValue`] data.
-pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Result<Value> {
+pub fn to_value<T: ?Sized + Serialize>(data: &T, event: Option<&str>) -> serde_json::Result<Value> {
     let (writer, binary) = if is_ser_tuple(data) {
         ser::into_str(data, event)?
     } else {
@@ -42,6 +42,11 @@ pub fn to_value<T: Serialize>(data: &T, event: Option<&str>) -> serde_json::Resu
     };
     let data = unsafe { Str::from_bytes_unchecked(Bytes::from(writer)) };
     Ok(Value::Str(data, (!binary.is_empty()).then_some(binary)))
+}
+
+pub fn read_event(data: &Value) -> serde_json::Result<&str> {
+    let data = data.as_str().expect("str data for common parser");
+    de::read_event(data)
 }
 
 #[cfg(test)]

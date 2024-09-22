@@ -47,7 +47,7 @@ pub trait Parse: Default + Copy {
     ) -> Result<Packet, ParseError<Self::DecodeError>>;
 
     /// Convert any serializable data to a generic [`Bytes`]
-    fn encode_value<T: Serialize>(
+    fn encode_value<T: ?Sized + Serialize>(
         self,
         data: &T,
         event: Option<&str>,
@@ -62,7 +62,18 @@ pub trait Parse: Default + Copy {
         with_event: bool,
     ) -> Result<T, Self::DecodeError>;
 
-    fn value_none(self) -> Value;
+    /// Convert any raw data to a type with the default serde impl without binary + event tricks.
+    /// This is mainly used for connect payloads.
+    fn decode_default<T: DeserializeOwned>(
+        self,
+        value: Option<&Value>,
+    ) -> Result<T, Self::DecodeError>;
+    /// Convert any type to raw data Str/Bytes with the default serde impl without binary + event tricks.
+    /// This is mainly used for connect payloads.
+    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError>;
+
+    /// Try to read the event name from the given payload data
+    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError>;
 }
 
 /// Errors when parsing/serializing socket.io packets
@@ -153,8 +164,14 @@ where
         A: serde::de::SeqAccess<'de>,
     {
         use serde::de::Error;
-        seq.next_element::<T>()?
-            .ok_or(A::Error::custom("first element not found"))
+        let data = seq
+            .next_element::<T>()?
+            .ok_or(A::Error::custom("first element not found"));
+
+        // Consume the rest of the sequence
+        while let Some(_) = seq.next_element::<serde::de::IgnoredAny>()? {}
+
+        data
     }
 }
 
@@ -403,7 +420,7 @@ impl serde::Serializer for IsTupleSerde {
     }
 }
 
-pub fn is_ser_tuple<T: serde::Serialize>(value: &T) -> bool {
+pub fn is_ser_tuple<T: ?Sized + serde::Serialize>(value: &T) -> bool {
     match value.serialize(IsTupleSerde) {
         Ok(v) | Err(IsTupleSerdeError(v)) => v,
     }
@@ -418,6 +435,7 @@ pub fn is_de_tuple<'de, T: serde::Deserialize<'de>>() -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde::{Deserialize, Serialize};
 
     #[test]
     fn is_tuple() {

@@ -17,7 +17,7 @@ use tokio::sync::oneshot;
 use crate::adapter::Adapter;
 use crate::handler::ConnectHandler;
 use crate::ns::NamespaceCtr;
-use crate::parser::{self, ParseError, Parser};
+use crate::parser::{ParseError, Parser};
 use crate::socket::DisconnectReason;
 use crate::{
     errors::Error,
@@ -211,7 +211,9 @@ pub struct SocketData<A: Adapter> {
 impl<A: Adapter> Default for SocketData<A> {
     fn default() -> Self {
         Self {
-            ..Default::default()
+            parser_state: ParserState::default(),
+            connect_recv_tx: Mutex::new(None),
+            io: OnceLock::new(),
         }
     }
 }
@@ -388,7 +390,7 @@ impl<A: Adapter> Client<A> {
                 }
             }
         });
-        let parser = parser::Parser::default();
+        let parser = crate::parser::Parser::default();
         let val = parser.encode(Packet {
             ns: ns.into(),
             inner: PacketData::Connect(Some(parser.encode_value(&auth, None).unwrap())),

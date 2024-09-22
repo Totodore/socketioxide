@@ -1,32 +1,35 @@
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use engineioxide::sid::Sid;
-use socketioxide::{
-    packet::{ConnectPacket, Packet, PacketData},
-    parser::{CommonParser, Parse, TransportPayload},
-    ProtocolVersion, Value,
+use socketioxide_core::{
+    packet::{ConnectPacket, Packet},
+    parser::Parse,
+    Sid, Value,
 };
+use socketioxide_parser_common::CommonParser;
 
 fn encode(packet: Packet) -> String {
-    match CommonParser::default().encode(black_box(packet)).0 {
-        TransportPayload::Str(d) => d.into(),
-        TransportPayload::Bytes(_) => panic!("testing only returns str"),
+    match CommonParser::default().encode(black_box(packet)) {
+        Value::Str(d, _) => d.into(),
+        Value::Bytes(_) => panic!("testing only returns str"),
     }
 }
 fn to_value<T: serde::Serialize>(data: T) -> Value {
-    Value::Json(serde_json::to_value(data).unwrap())
+    Value::Str(serde_json::to_string(&data).unwrap().into(), None)
+}
+fn to_value_event<T: serde::Serialize>(data: T, event: &str) -> Value {
+    Value::Str(serde_json::to_string(&(event, data)).unwrap().into(), None)
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("socketio_packet/encode");
 
     let connect = CommonParser::default()
-        .to_value(ConnectPacket { sid: Sid::ZERO })
+        .encode_value(&ConnectPacket { sid: Sid::ZERO }, None)
         .unwrap();
 
     group.bench_function("Encode packet connect on /", |b| {
         b.iter_batched(
-            || Packet::connect("/", connect.clone(), ProtocolVersion::V5),
+            || Packet::connect("/", Some(connect.clone())),
             encode,
             BatchSize::SmallInput,
         )
@@ -34,7 +37,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("Encode packet connect on /custom_nsp", |b| {
         b.iter_batched(
-            || Packet::connect("/custom_nsp", connect.clone(), ProtocolVersion::V5),
+            || Packet::connect("/custom_nsp", Some(connect.clone())),
             encode,
             BatchSize::SmallInput,
         )
@@ -45,7 +48,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("Encode packet event on /", |b| {
         b.iter_batched(
-            || Packet::event("/", "event", to_value(DATA)),
+            || Packet::event("/", to_value_event(DATA, "event")),
             encode,
             BatchSize::SmallInput,
         )
@@ -53,7 +56,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("Encode packet event on /custom_nsp", |b| {
         b.iter_batched(
-            || Packet::event("custom_nsp", "event", to_value(DATA)),
+            || Packet::event("custom_nsp", to_value_event(DATA, "event")),
             encode,
             BatchSize::SmallInput,
         )
@@ -62,10 +65,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("Encode packet event with ack on /", |b| {
         b.iter_batched(
             || {
-                let packet = Packet::event("/", "event", to_value(DATA));
-                if let PacketData::Event(_, _, mut ack) = packet.inner {
-                    let _ = ack.insert(black_box(0));
-                }
+                let mut packet = Packet::event("/", to_value_event(DATA, "event"));
+                packet.inner.set_ack_id(0);
                 packet
             },
             encode,
@@ -76,10 +77,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("Encode packet event with ack on /custom_nsp", |b| {
         b.iter_batched(
             || {
-                let packet = Packet::event("/custom_nsp", "event", to_value(DATA));
-                if let PacketData::Event(_, _, mut ack) = packet.inner {
-                    let _ = ack.insert(black_box(0));
-                }
+                let mut packet = Packet::event("/custom_nsp", to_value_event(DATA, "event"));
+                packet.inner.set_ack_id(0);
                 packet
             },
             encode,
@@ -105,7 +104,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("Encode packet binary event (b64) on /", |b| {
         b.iter_batched(
-            || Packet::bin_event("/", "event", to_value(DATA), vec![BINARY.clone()]),
+            || Packet::event("/", to_value_event((DATA, BINARY), "event")),
             encode,
             BatchSize::SmallInput,
         )
@@ -113,7 +112,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("Encode packet binary event (b64) on /custom_nsp", |b| {
         b.iter_batched(
-            || Packet::bin_event("/custom_nsp", "event", to_value(DATA), vec![BINARY.clone()]),
+            || Packet::event("/custom_nsp", to_value_event((DATA, BINARY), "event")),
             encode,
             BatchSize::SmallInput,
         )
@@ -121,7 +120,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("Encode packet binary ack (b64) on /", |b| {
         b.iter_batched(
-            || Packet::bin_ack("/", to_value(DATA), vec![BINARY.clone()], 0),
+            || Packet::ack("/", to_value((DATA, BINARY)), 0),
             encode,
             BatchSize::SmallInput,
         )
@@ -129,7 +128,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("Encode packet binary ack (b64) on /custom_nsp", |b| {
         b.iter_batched(
-            || Packet::bin_ack("/custom_nsp", to_value(DATA), vec![BINARY.clone()], 0),
+            || Packet::ack("/custom_nsp", to_value((DATA, BINARY)), 0),
             encode,
             BatchSize::SmallInput,
         )

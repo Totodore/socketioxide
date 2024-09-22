@@ -1,12 +1,12 @@
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
-use bytes::Bytes;
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
     sid::Sid,
     TransportType,
 };
+use serde::Serialize;
 
 use crate::{
     ack::AckStream,
@@ -628,35 +628,6 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().timeout(timeout)
     }
 
-    /// Adds a binary payload to the message.
-    ///
-    /// Alias for `io.of("/").unwrap().bin(binary_payload)`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use bytes::Bytes;
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
-    /// // except for the room2 with a binary payload
-    /// io.to("room1")
-    ///   .to("room3")
-    ///   .except("room2")
-    ///   .bin(vec![Bytes::from_static(&[1, 2, 3, 4])])
-    ///   .emit("test", ());
-    #[inline]
-    pub fn bin(&self, binary: impl IntoIterator<Item = impl Into<Bytes>>) -> BroadcastOperators<A> {
-        self.get_default_op().bin(binary)
-    }
-
     /// Emits a message to all sockets selected with the previous operators.
     ///
     /// Alias for `io.of("/").unwrap().emit(event, data)`
@@ -680,7 +651,7 @@ impl<A: Adapter> SocketIo<A> {
     ///   .except("room2")
     ///   .emit("Hello World!", ());
     #[inline]
-    pub fn emit<T: serde::Serialize>(
+    pub fn emit<T: ?Sized + Serialize>(
         &self,
         event: impl AsRef<str>,
         data: &T,
@@ -747,10 +718,10 @@ impl<A: Adapter> SocketIo<A> {
     ///     });
     /// });
     #[inline]
-    pub fn emit_with_ack<V>(
+    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         &self,
         event: impl AsRef<str>,
-        data: &impl serde::Serialize,
+        data: &T,
     ) -> Result<AckStream<V>, parser::EncodeError> {
         self.get_default_op().emit_with_ack(event, data)
     }
@@ -965,6 +936,7 @@ mod tests {
         let (_, io) = SocketIo::builder().build_svc();
         io.ns("/", || {});
         let socket = Socket::<SocketData<LocalAdapter>>::new_dummy(sid, Box::new(|_, _| {}));
+        socket.data.io.set(io.clone()).unwrap();
         io.0.get_ns("/")
             .unwrap()
             .connect(sid, socket, None)

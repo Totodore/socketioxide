@@ -115,10 +115,7 @@ impl<A: Adapter> AckSender<A> {
             };
             let ns = self.socket.ns.path.clone();
             let data = self.socket.parser().encode_value(data, None)?;
-            let packet = match &data {
-                Value::Str(_, Some(bins)) if !bins.is_empty() => Packet::bin_ack(ns, data, ack_id),
-                _ => Packet::ack(ns, data, ack_id),
-            };
+            let packet = Packet::ack(ns, data, ack_id);
             permit.send(packet, self.socket.parser());
             Ok(())
         } else {

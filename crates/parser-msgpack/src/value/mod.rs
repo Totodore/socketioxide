@@ -29,7 +29,7 @@ pub fn from_value<T: DeserializeOwned>(
 }
 
 /// Serialize any serializable data and an event to a generic [`SocketIoValue`] data.
-pub fn to_value<T: Serialize>(
+pub fn to_value<T: ?Sized + Serialize>(
     data: &T,
     event: Option<&str>,
 ) -> Result<Value, rmp_serde::encode::Error> {
@@ -39,6 +39,11 @@ pub fn to_value<T: Serialize>(
         ser::into_bytes(&(data,), event)?
     };
     Ok(Value::Bytes(data.into()))
+}
+
+pub fn read_event(data: &Value) -> Result<&str, rmp_serde::decode::Error> {
+    let data = data.as_bytes().expect("bytes data for common parser");
+    de::read_event(data)
 }
 
 #[cfg(test)]

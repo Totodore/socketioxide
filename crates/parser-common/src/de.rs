@@ -20,7 +20,6 @@ pub fn deserialize_packet(
         .contains(&index)
         .then_some(index)
         .ok_or(ParseError::InvalidPacketType)?;
-    dbg!(&data[reader.position() as usize..]);
 
     let attachments: Option<usize> = if index == b'5' || index == b'6' {
         Some(read_attachments(&mut reader).ok_or(ParseError::InvalidAttachments)?)
@@ -34,12 +33,9 @@ pub fn deserialize_packet(
     } else {
         Str::from("/")
     };
-    dbg!(&data[reader.position() as usize..]);
     let ack = read_ack(&mut reader);
-    dbg!(&data[reader.position() as usize..]);
 
     let data = data.slice(reader.position() as usize..);
-    dbg!(&data);
     fn str(data: Str) -> Value {
         Value::Str(data, None)
     }

@@ -2,11 +2,13 @@
 use std::convert::Infallible;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::json;
 use socketioxide::extract::{Data, Extension, MaybeExtension, SocketRef, State, TryData};
 use socketioxide::handler::ConnectHandler;
-use socketioxide::parser::value::ParseError;
-use socketioxide::parser::{CommonParser, Parse};
+use socketioxide::parser::DecodeError;
+use socketioxide_core::parser::Parse;
+use socketioxide_core::Value;
+use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
 
 use engineioxide::Packet as EioPacket;
@@ -27,10 +29,13 @@ async fn timeout_rcv_err<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiv
         .unwrap_err();
 }
 
-fn create_msg(ns: &'static str, event: &str, data: impl Into<serde_json::Value>) -> EioPacket {
+fn create_msg(ns: &'static str, event: &str, data: impl serde::Serialize) -> EioPacket {
     let parser = CommonParser::default();
-    let (payload, _) = parser.encode(Packet::event(ns, event, data.into()));
-    EioPacket::Message(payload.into_str().unwrap())
+    let val = parser.encode_value(&data, Some(event)).unwrap();
+    match parser.encode(Packet::event(ns, val)) {
+        Value::Str(msg, _) => EioPacket::Message(msg),
+        Value::Bytes(_) => unreachable!(),
+    }
 }
 
 #[tokio::test]
@@ -39,9 +44,9 @@ pub async fn state_extractor() {
     let (_, io) = SocketIo::builder().with_state(state).build_svc();
 
     io.ns("/", |socket: SocketRef, State(state): State<i32>| {
-        assert_ok!(socket.emit("state", state));
+        assert_ok!(socket.emit("state", &state));
         socket.on("test", |socket: SocketRef, State(state): State<i32>| {
-            assert_ok!(socket.emit("state", state));
+            assert_ok!(socket.emit("state", &state));
         });
     });
     let res_packet = create_msg("/", "state", state);
@@ -100,7 +105,7 @@ pub async fn data_extractor() {
 #[tokio::test]
 pub async fn try_data_extractor() {
     let (_, io) = SocketIo::new_svc();
-    let (tx, mut rx) = mpsc::channel::<Result<String, ParseError>>(4);
+    let (tx, mut rx) = mpsc::channel::<Result<String, DecodeError>>(4);
     io.ns("/", move |s: SocketRef, TryData(data): TryData<String>| {
         assert_ok!(tx.try_send(data));
         s.on("test", move |TryData(data): TryData<String>| {
@@ -134,10 +139,10 @@ pub async fn extension_extractor() {
     let (_, io) = SocketIo::new_svc();
 
     fn on_test(s: SocketRef, Extension(i): Extension<usize>) {
-        s.emit("from_ev_test", i).unwrap();
+        s.emit("from_ev_test", &i).unwrap();
     }
     fn ns_root(s: SocketRef, Extension(i): Extension<usize>) {
-        s.emit("from_ns", i).unwrap();
+        s.emit("from_ns", &i).unwrap();
         s.on("test", on_test);
     }
     fn set_ext(s: SocketRef) -> Result<(), Infallible> {
@@ -157,7 +162,7 @@ pub async fn extension_extractor() {
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ns\",123]".into())
     );
-    assert_ok!(tx.try_send(create_msg("/", "test", Value::Null)));
+    assert_ok!(tx.try_send(create_msg("/", "test", ())));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ev_test\",123]".into())
@@ -167,7 +172,7 @@ pub async fn extension_extractor() {
     let (tx, mut rx) = io.new_dummy_sock("/test", ()).await;
     assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with('0')));
     timeout_rcv_err(&mut rx).await;
-    assert_ok!(tx.try_send(create_msg("/test", "test", Value::Null)));
+    assert_ok!(tx.try_send(create_msg("/test", "test", ())));
     timeout_rcv_err(&mut rx).await;
 }
 
@@ -176,10 +181,10 @@ pub async fn maybe_extension_extractor() {
     let (_, io) = SocketIo::new_svc();
 
     fn on_test(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
-        s.emit("from_ev_test", i).unwrap();
+        s.emit("from_ev_test", &i).unwrap();
     }
     fn ns_root(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
-        s.emit("from_ns", i).unwrap();
+        s.emit("from_ns", &i).unwrap();
         s.on("test", on_test);
     }
     fn set_ext(s: SocketRef) -> Result<(), Infallible> {
@@ -199,7 +204,7 @@ pub async fn maybe_extension_extractor() {
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ns\",123]".into())
     );
-    assert_ok!(tx.try_send(create_msg("/", "test", Value::Null)));
+    assert_ok!(tx.try_send(create_msg("/", "test", ())));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2[\"from_ev_test\",123]".into())
@@ -212,7 +217,7 @@ pub async fn maybe_extension_extractor() {
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2/test,[\"from_ns\",null]".into())
     );
-    assert_ok!(tx.try_send(create_msg("/test", "test", Value::Null)));
+    assert_ok!(tx.try_send(create_msg("/test", "test", ())));
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2/test,[\"from_ev_test\",null]".into())

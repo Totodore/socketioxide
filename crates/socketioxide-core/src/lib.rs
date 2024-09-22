@@ -3,7 +3,9 @@ pub mod parser;
 
 pub use engineioxide::{sid::Sid, Str};
 
-/// Represent a socket.io payload that can be sent over an engine.io connection
+/// This type has two meanings:
+/// - The elementary type that can be sent over the engine.io wire as a packet.
+/// - The data that can be outputed by a binary parser (e.g. Msgpack) or a string parser (e.g. Common)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// A string payload that will be sent as a string engine.io packet.
