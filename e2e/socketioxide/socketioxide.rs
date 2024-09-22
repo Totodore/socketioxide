@@ -33,9 +33,10 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 
     socket.on(
         "emit-with-ack",
-        |s: SocketRef, Data::<Value>(data)| async move {
+        |s: SocketRef, Data::<[Value; 3]>(data)| async move {
+            info!(?data, "Received event:");
             let ack = s
-                .emit_with_ack::<_, Value>("emit-with-ack", &data)
+                .emit_with_ack::<_, [Value; 3]>("emit-with-ack", &data)
                 .unwrap()
                 .await
                 .unwrap();

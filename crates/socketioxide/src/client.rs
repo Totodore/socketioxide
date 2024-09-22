@@ -314,6 +314,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         tracing::debug!("received binary: {:?}", &data);
         let packet = match self.parser().decode_bin(&socket.data.parser_state, data) {
             Ok(packet) => packet,
+            Err(ParseError::NeedsMoreBinaryData) => return,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("socket serialization error: {}", _e);
