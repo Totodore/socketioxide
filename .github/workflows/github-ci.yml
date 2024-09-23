@@ -207,7 +207,7 @@ jobs:
           ref: ${{ matrix.engineio-version }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 22
 
       - uses: actions/cache@v4
         with:
@@ -249,7 +249,7 @@ jobs:
           path: socket.io-protocol
       - uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 22
       - uses: actions/cache@v4
         with:
           path: |
