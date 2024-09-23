@@ -12,18 +12,18 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-        - uses: actions/checkout@v4
-        - uses: dtolnay/rust-toolchain@master
-          with:
-            toolchain: stable
-            components: rustfmt
-        - run: cargo fmt --all -- --check
-          env:
-            RUSTFLAGS: --cfg=socketioxide_test
-    
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+        env:
+          RUSTFLAGS: --cfg=socketioxide_test
+
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -85,8 +85,8 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ steps.msrv.outputs.version }}
       - uses: dtolnay/rust-toolchain@master
         with:
-            toolchain: ${{ steps.msrv.outputs.version }}
-            components: rustfmt, clippy
+          toolchain: ${{ steps.msrv.outputs.version }}
+          components: rustfmt, clippy
 
       - name: check crates
         run: cargo check -p socketioxide -p engineioxide --all-features
@@ -183,8 +183,7 @@ jobs:
         run: cargo install clippy-sarif sarif-fmt || true
 
       - name: Run rust-clippy
-        run:
-          cargo clippy
+        run: cargo clippy
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
@@ -196,7 +195,7 @@ jobs:
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
-    
+
   engine_io:
     runs-on: ubuntu-latest
     needs: [test]
@@ -215,7 +214,7 @@ jobs:
           ref: ${{ matrix.engineio-version }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 22
 
       - uses: actions/cache@v4
         with:
@@ -226,7 +225,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
-      - name: Install deps & run tests 
+      - name: Install deps & run tests
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
           cargo build -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
@@ -236,7 +235,7 @@ jobs:
         run: cat server.txt
       - name: Client output
         if: always()
-        run:  cat client.txt
+        run: cat client.txt
 
   socket_io:
     runs-on: ubuntu-latest
@@ -256,7 +255,7 @@ jobs:
           path: socket.io-protocol
       - uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 22
       - uses: actions/cache@v4
         with:
           path: |
@@ -266,7 +265,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
-      - name: Install deps & run tests 
+      - name: Install deps & run tests
         run: |
           cd socket.io-protocol/test-suite && npm install && cd ../..
           cargo build -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release
@@ -276,4 +275,4 @@ jobs:
         run: cat server.txt
       - name: Client output
         if: always()
-        run:  cat client.txt
+        run: cat client.txt
