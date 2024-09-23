@@ -25,7 +25,7 @@ futures-util = { version = "0.3.30", default-features = false, features = [
     "std",
 ] }
 tokio = "1.35.0"
-tokio-tungstenite = "0.23.0"
+tokio-tungstenite = "0.24.0"
 serde = { version = "1.0.193", features = ["derive"] }
 smallvec = { version = "1.13.1", features = ["union"] }
 serde_json = "1.0.108"
