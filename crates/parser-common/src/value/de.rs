@@ -48,7 +48,10 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
     type Error = D::Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        self.inner.deserialize_any(visitor)
+        self.inner.deserialize_any(BinaryAnyVisitor {
+            inner: visitor,
+            binary_payloads: self.binary_payloads,
+        })
     }
 
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -342,24 +345,18 @@ impl<'a, 'de, I: Visitor<'de>> Visitor<'de> for WrapperVisitor<'a, I> {
     }
 
     fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
-        self.inner.visit_seq(WrapperVisitor {
-            inner: seq,
-            binary_payloads: self.binary_payloads,
-        })
+        self.inner
+            .visit_seq(WrapperVisitor::new(seq, self.binary_payloads))
     }
 
     fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        self.inner.visit_map(WrapperVisitor {
-            inner: map,
-            binary_payloads: self.binary_payloads,
-        })
+        self.inner
+            .visit_map(WrapperVisitor::new(map, self.binary_payloads))
     }
 
     fn visit_enum<A: de::EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
-        self.inner.visit_enum(WrapperVisitor {
-            inner: data,
-            binary_payloads: self.binary_payloads,
-        })
+        self.inner
+            .visit_enum(WrapperVisitor::new(data, self.binary_payloads))
     }
 }
 
@@ -487,6 +484,10 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'a, V> {
     }
 }
 
+/// This custom [`SeqVisitor`] implementation is used to skip the first element of the sequence
+/// if the `skip_first_element` field is set to `true`.
+///
+/// This is useful when the first element of the sequence is an event value that we want to ignore.
 struct SeqVisitor<V> {
     inner: V,
     skip_first_element: bool,
@@ -514,5 +515,215 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for SeqVisitor<V> {
             let _ = seq.next_element::<IgnoredAny>()?; // We ignore the event value
         }
         self.inner.visit_seq(seq)
+    }
+}
+
+/// A [`de::Deserializer`] that only visit the str key it holds.
+struct PeekKey<'de, E> {
+    phantom: std::marker::PhantomData<E>,
+    key: &'de str,
+}
+impl<'de, E: de::Error> PeekKey<'de, E> {
+    fn new(key: &'de str) -> Self {
+        Self {
+            phantom: std::marker::PhantomData,
+            key,
+        }
+    }
+}
+impl<'de, E: de::Error> de::Deserializer<'de> for PeekKey<'de, E> {
+    type Error = E;
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char
+        string unit unit_struct seq str map tuple tuple_struct newtype_struct
+        struct enum identifier ignored_any bytes byte_buf option
+    }
+
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        visitor.visit_str(self.key)
+    }
+}
+/// A [`de::MapAccess`] implementation that can reinsert the key that
+/// was peeked into the map we were reading from.
+struct PeekKeyMap<'a, 'de, I> {
+    binary_payloads: &'a Vec<Bytes>,
+    inner: I,
+    key: Option<&'de str>,
+}
+impl<'a, 'de, A: de::MapAccess<'de>> de::MapAccess<'de> for PeekKeyMap<'a, 'de, A> {
+    type Error = A::Error;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
+    where
+        K: DeserializeSeed<'de>,
+    {
+        match self.key.take() {
+            Some(key) => seed.deserialize(PeekKey::new(key)).map(Some),
+            None => self.inner.next_key_seed(seed),
+        }
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+    where
+        V: DeserializeSeed<'de>,
+    {
+        self.inner.next_value_seed(WrapperSeed {
+            seed,
+            binary_payloads: self.binary_payloads,
+        })
+    }
+}
+/// The [`BinaryAnyVisitor`] will check if in there is a `_placeholder` key in the map and if so,
+/// it will replace the value with the binary payload at the index specified in the value.
+struct BinaryAnyVisitor<'a, V> {
+    binary_payloads: &'a Vec<Bytes>,
+    inner: V,
+}
+
+impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'a, V> {
+    type Value = V::Value;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a binary payload")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        use serde::de::Error;
+
+        // We only check the first _placeholder key. Thanks to this if it is not present we can just
+        // forward the map to the inner visitor with a custom wrapper as if the key was peeked.
+
+        let key = map.next_key::<&str>()?;
+        match key {
+            Some("_placeholder") if !self.binary_payloads.is_empty() => {
+                match map.next_value::<bool>()? {
+                    true if map.next_key::<&str>()? == Some("num") => {
+                        let idx = map.next_value::<usize>()?;
+                        let payload = self.binary_payloads.get(idx).ok_or_else(|| {
+                            A::Error::custom(format!("binary payload {} not found", idx))
+                        })?;
+                        self.inner.visit_byte_buf(payload.to_vec()) //TODO: payload is copied here
+                    }
+                    _ => Err(A::Error::custom("expected a binary placeholder")),
+                }
+            }
+            _ => self.inner.visit_map(PeekKeyMap {
+                inner: map,
+                binary_payloads: &self.binary_payloads,
+                key,
+            }),
+        }
+    }
+
+    fn visit_borrowed_bytes<E: serde::de::Error>(self, v: &'de [u8]) -> Result<Self::Value, E> {
+        self.inner.visit_borrowed_bytes(v)
+    }
+
+    fn visit_byte_buf<E: serde::de::Error>(self, v: Vec<u8>) -> Result<Self::Value, E> {
+        self.inner.visit_byte_buf(v)
+    }
+
+    fn visit_bytes<E: serde::de::Error>(self, v: &[u8]) -> Result<Self::Value, E> {
+        self.inner.visit_bytes(v)
+    }
+
+    fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
+        self.inner.visit_bool(v)
+    }
+
+    fn visit_i8<E: de::Error>(self, v: i8) -> Result<Self::Value, E> {
+        self.inner.visit_i8(v)
+    }
+
+    fn visit_i16<E: de::Error>(self, v: i16) -> Result<Self::Value, E> {
+        self.inner.visit_i16(v)
+    }
+
+    fn visit_i32<E: de::Error>(self, v: i32) -> Result<Self::Value, E> {
+        self.inner.visit_i32(v)
+    }
+
+    fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+        self.inner.visit_i64(v)
+    }
+
+    fn visit_i128<E: de::Error>(self, v: i128) -> Result<Self::Value, E> {
+        self.inner.visit_i128(v)
+    }
+
+    fn visit_u8<E: de::Error>(self, v: u8) -> Result<Self::Value, E> {
+        self.inner.visit_u8(v)
+    }
+
+    fn visit_u16<E: de::Error>(self, v: u16) -> Result<Self::Value, E> {
+        self.inner.visit_u16(v)
+    }
+
+    fn visit_u32<E: de::Error>(self, v: u32) -> Result<Self::Value, E> {
+        self.inner.visit_u32(v)
+    }
+
+    fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+        self.inner.visit_u64(v)
+    }
+
+    fn visit_u128<E: de::Error>(self, v: u128) -> Result<Self::Value, E> {
+        self.inner.visit_u128(v)
+    }
+
+    fn visit_f32<E: de::Error>(self, v: f32) -> Result<Self::Value, E> {
+        self.inner.visit_f32(v)
+    }
+
+    fn visit_f64<E: de::Error>(self, v: f64) -> Result<Self::Value, E> {
+        self.inner.visit_f64(v)
+    }
+
+    fn visit_char<E: de::Error>(self, v: char) -> Result<Self::Value, E> {
+        self.inner.visit_char(v)
+    }
+
+    fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        self.inner.visit_str(v)
+    }
+
+    fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> Result<Self::Value, E> {
+        self.inner.visit_borrowed_str(v)
+    }
+
+    fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
+        self.inner.visit_string(v)
+    }
+
+    fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+        self.inner.visit_none()
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        self.inner.visit_some(deserializer)
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+        self.inner.visit_unit()
+    }
+
+    fn visit_newtype_struct<D: de::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        self.inner.visit_newtype_struct(deserializer)
+    }
+
+    fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
+        self.inner
+            .visit_seq(WrapperVisitor::new(seq, self.binary_payloads))
+    }
+
+    fn visit_enum<A: de::EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
+        self.inner
+            .visit_enum(WrapperVisitor::new(data, self.binary_payloads))
     }
 }

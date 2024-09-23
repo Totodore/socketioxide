@@ -749,6 +749,8 @@ impl<A: Adapter> Socket<A> {
             tracing::debug!(?e, "failed to read event");
             Error::InvalidEventName
         })?;
+        #[cfg(feature = "tracing")]
+        tracing::debug!(?event, "reading");
         if let Some(handler) = self.message_handlers.read().unwrap().get(event) {
             handler.call(self.clone(), data, vec![], ack);
         }

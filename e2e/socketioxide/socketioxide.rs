@@ -17,7 +17,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     info!(?data, ns = socket.ns(), ?socket.id, "Socket.IO connected:");
     socket.emit("auth", &data).ok();
 
-    socket.on("message", |socket: SocketRef, Data::<Value>(data)| {
+    socket.on("message", |socket: SocketRef, Data::<[Value; 3]>(data)| {
         info!(?data, "Received event:");
         socket.emit("message-back", &data).ok();
     });
@@ -25,7 +25,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     // keep this handler async to test async message handlers
     socket.on(
         "message-with-ack",
-        |Data::<Value>(data), ack: AckSender| async move {
+        |Data::<[Value; 3]>(data), ack: AckSender| async move {
             info!(?data, "Received event:");
             ack.send(&data).ok();
         },
@@ -49,11 +49,12 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
         .with_line_number(true)
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::TRACE)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let builder = SocketIo::builder()
+    #[allow(unused_mut)]
+    let mut builder = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .ack_timeout(Duration::from_millis(200))
@@ -63,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "msgpack")]
     {
         builder = builder.with_parser(socketioxide::parser::Parser::MsgPack(Default::default()));
-    }
+    };
 
     let (svc, io) = builder.build_svc();
 

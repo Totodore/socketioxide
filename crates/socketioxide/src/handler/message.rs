@@ -120,13 +120,14 @@ where
         Box::new(MakeErasedHandler::new(inner))
     }
 }
-
+//TODO: remove bin arr
 impl<A, T, H> ErasedMessageHandler<A> for MakeErasedHandler<H, A, T>
 where
     T: Send + Sync + 'static,
     H: MessageHandler<A, T>,
     A: Adapter,
 {
+    #[tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id))]
     #[inline(always)]
     fn call(&self, s: Arc<Socket<A>>, v: Value, p: Vec<Bytes>, ack_id: Option<i64>) {
         self.handler.call(s, v, p, ack_id);
