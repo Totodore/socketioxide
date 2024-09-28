@@ -44,8 +44,17 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>
         parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)?;
     }
     let buff = reader.into_inner();
-    let data = Value::Bytes(buff.slice(data_pos.clone()));
+    let mut data = buff.slice(data_pos.clone());
+
+    // Current js socket.io msgpack implementation has a weird way to represent "undefined" with zeroed 1-ext.
+    // This is a little workaround to convert this to a proper "undefined" value.
+    if data == Bytes::from_static(&[0xd4, 0x00, 0x00]) {
+        data = Bytes::from_static(&[0xc0]); // nil
+    };
+
+    let data = Value::Bytes(data);
     let inner = match index {
+        // some implementations might completely omit the data field
         0 => PacketData::Connect((!data_pos.is_empty()).then_some(data)),
         1 => PacketData::Disconnect,
         2 => PacketData::Event(data, id),

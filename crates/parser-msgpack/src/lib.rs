@@ -65,7 +65,7 @@ impl Parse for MsgPackParser {
             let value = value.as_bytes().expect("value should be bytes");
             rmp_serde::from_slice(&value)
         } else {
-            rmp_serde::from_slice(&[0xc0]) // null
+            rmp_serde::from_slice(&[0xc0]) // nil value
         }
     }
 
