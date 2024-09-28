@@ -7,10 +7,9 @@ use bytes::Bytes;
 use socketioxide_core::{
     packet::Packet,
     parser::{Parse, ParserState},
-    Value,
+    Str, Value,
 };
 
-use engineioxide::Str;
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_parser_common::CommonParser;
 use socketioxide_parser_msgpack::MsgPackParser;
@@ -60,13 +59,17 @@ impl Parse for Parser {
             Parser::MsgPack(p) => p.encode(packet),
         };
         #[cfg(feature = "tracing")]
-        tracing::trace!(?value, "packet encoded:");
+        match &value {
+            Value::Str(value, bins) => tracing::trace!(?value, ?bins, "packet encoded:"),
+            Value::Bytes(value) => tracing::trace!("packet encoded: {:X}", value),
+        }
+
         value
     }
 
     fn decode_bin(self, state: &ParserState, bin: Bytes) -> Result<Packet, ParseError> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(?bin, ?state, "decoding bin payload:");
+        tracing::trace!(?state, "decoding bin payload: {:X}", bin);
 
         let packet = match self {
             Parser::Common(p) => p
