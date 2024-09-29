@@ -19,7 +19,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 
     socket.on("message", |socket: SocketRef, Data::<[Value; 3]>(data)| {
         info!(?data, "Received event:");
-        socket.emit("message-back", &data).ok();
+        socket.emit("message-back", &data).unwrap();
     });
 
     // keep this handler async to test async message handlers
@@ -27,7 +27,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
         "message-with-ack",
         |Data::<[Value; 3]>(data), ack: AckSender| async move {
             info!(?data, "Received event:");
-            ack.send(&data).ok();
+            ack.send(&data).unwrap();
         },
     );
 
@@ -35,8 +35,8 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
         "emit-with-ack",
         |s: SocketRef, Data::<[Value; 3]>(data)| async move {
             info!(?data, "Received event:");
-            let ack = s
-                .emit_with_ack::<_, [Value; 3]>("emit-with-ack", &data)
+            let ack: [Value; 3] = s
+                .emit_with_ack("emit-with-ack", &data)
                 .unwrap()
                 .await
                 .unwrap();
