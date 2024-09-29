@@ -158,7 +158,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///             .to("room1")
     ///             .to(["room2", "room3"])
     ///             .to(vec![other_rooms])
-    ///             .emit("test", data);
+    ///             .emit("test", &data);
     ///     });
     /// });
     pub fn to(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
@@ -182,7 +182,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///             .within("room1")
     ///             .within(["room2", "room3"])
     ///             .within(vec![other_rooms])
-    ///             .emit("test", data);
+    ///             .emit("test", &data);
     ///     });
     /// });
     pub fn within(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
@@ -205,7 +205,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in the Namespace
     ///         // except for ones in room1 and the current socket
-    ///         socket.broadcast().except("room1").emit("test", data);
+    ///         socket.broadcast().except("room1").emit("test", &data);
     ///     });
     /// });
     pub fn except(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
@@ -222,7 +222,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in this namespace and connected on this node
-    ///         socket.local().emit("test", data);
+    ///         socket.local().emit("test", &data);
     ///     });
     /// });
     pub fn local(self) -> BroadcastOperators<A> {
@@ -238,7 +238,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in this namespace
-    ///         socket.broadcast().emit("test", data);
+    ///         socket.broadcast().emit("test", &data);
     ///     });
     /// });
     pub fn broadcast(self) -> BroadcastOperators<A> {
@@ -261,15 +261,14 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     /// # use std::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2
     ///       // room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .emit_with_ack::<_, Value>("message-back", &data)
     ///             .unwrap()
     ///             .for_each(|(id, ack)| async move {
     ///                match ack {
@@ -312,16 +311,16 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///          // Emit a test message to the client
-    ///         socket.bin(bin.clone()).emit("test", data).ok();
+    ///         socket.emit("test", &data).ok();
     ///
     ///         // Emit a test message with multiple arguments to the client
-    ///         socket.bin(bin.clone()).emit("test", ("world", "hello", 1)).ok();
+    ///         socket.emit("test", &("world", "hello", 1)).ok();
     ///
     ///         // Emit a test message with an array as the first argument
     ///         let arr = [1, 2, 3, 4];
-    ///         socket.bin(bin).emit("test", [arr]).ok();
+    ///         socket.emit("test", &[arr]).ok();
     ///     });
     /// });
     pub fn emit<T: ?Sized + Serialize>(
@@ -390,9 +389,9 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// # use tokio::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.bin(bin).timeout(Duration::from_millis(2)).emit_with_ack::<_, Value>("test", data).unwrap().await {
+    ///         match socket.timeout(Duration::from_millis(2)).emit_with_ack::<_, Value>("test", &data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -513,7 +512,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///             .to("room1")
     ///             .to(["room2", "room3"])
     ///             .to(vec![other_rooms])
-    ///             .emit("test", data);
+    ///             .emit("test", &data);
     ///     });
     /// });
     pub fn to(mut self, rooms: impl RoomParam) -> Self {
@@ -538,7 +537,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///             .within("room1")
     ///             .within(["room2", "room3"])
     ///             .within(vec![other_rooms])
-    ///             .emit("test", data);
+    ///             .emit("test", &data);
     ///     });
     /// });
     pub fn within(mut self, rooms: impl RoomParam) -> Self {
@@ -562,7 +561,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in the Namespace
     ///         // except for ones in room1 and the current socket
-    ///         socket.broadcast().except("room1").emit("test", data);
+    ///         socket.broadcast().except("room1").emit("test", &data);
     ///     });
     /// });
     pub fn except(mut self, rooms: impl RoomParam) -> Self {
@@ -580,7 +579,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in this namespace and connected on this node
-    ///         socket.local().emit("test", data);
+    ///         socket.local().emit("test", &data);
     ///     });
     /// });
     pub fn local(mut self) -> Self {
@@ -597,7 +596,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all sockets in this namespace
-    ///         socket.broadcast().emit("test", data);
+    ///         socket.broadcast().emit("test", &data);
     ///     });
     /// });
     pub fn broadcast(mut self) -> Self {
@@ -621,15 +620,14 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// # use std::time::Duration;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2
     ///       // room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .emit_with_ack::<_, Value>("message-back", &data)
     ///             .unwrap()
     ///             .for_each(|(id, ack)| async move {
     ///                match ack {
@@ -674,16 +672,16 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// # use serde_json::Value;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received
-    ///         socket.to("room1").to("room3").except("room2").bin(bin).emit("test", data);
+    ///         socket.to("room1").to("room3").except("room2").emit("test", &data);
     ///
     ///         // Emit a test message with multiple arguments to the client
-    ///         socket.to("room1").emit("test", ("world", "hello", 1)).ok();
+    ///         socket.to("room1").emit("test", &("world", "hello", 1)).ok();
     ///
     ///         // Emit a test message with an array as the first argument
     ///         let arr = [1, 2, 3, 4];
-    ///         socket.to("room2").emit("test", [arr]).ok();
+    ///         socket.to("room2").emit("test", &[arr]).ok();
     ///     });
     /// });
     pub fn emit<T: ?Sized + Serialize>(
@@ -740,14 +738,13 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// # use futures_util::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message in the room1 and room3 rooms,
     ///         // except for the room2 room with the binary payload received
     ///         let ack_stream = socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
-    ///             .emit_with_ack::<String>("message-back", data)
+    ///             .emit_with_ack::<_, String>("message-back", &data)
     ///             .unwrap();
     ///
     ///         ack_stream.for_each(|(id, ack)| async move {

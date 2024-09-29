@@ -30,8 +30,8 @@
 //!     });
 //!
 //!     // `Bin` extractor must be the last argument because it consumes the rest of the packet
-//!     s.on("binary_event", |s: SocketRef, TryData::<String>(data), Bin(bin)| {
-//!       println!("Socket received event with data: {:?} and binary data: {:?}", data, bin);
+//!     s.on("binary_event", |s: SocketRef, TryData::<String>(data)| {
+//!       println!("Socket received event with data: {:?}", data);
 //!     })
 //! });
 //! ```
@@ -48,8 +48,8 @@
 //!        println!("Socket received event with data: {}", data);
 //!     });
 //!     // `Bin` extractor must be the last argument because it consumes the rest of the packet
-//!     s.on("/binary_event", move |s: SocketRef, TryData::<String>(data), Bin(bin)| async move {
-//!       println!("Socket received event with data: {:?} and binary data: {:?}", data, bin);
+//!     s.on("/binary_event", move |s: SocketRef, TryData::<String>(data)| async move {
+//!       println!("Socket received event with data: {:?}", data);
 //!     })
 //! });
 //! ```

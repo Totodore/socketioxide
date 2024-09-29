@@ -394,7 +394,7 @@ impl<A: Adapter> Client<A> {
         let parser = crate::parser::Parser::default();
         let val = parser.encode(Packet {
             ns: ns.into(),
-            inner: PacketData::Connect(Some(parser.encode_value(&auth, None).unwrap())),
+            inner: PacketData::Connect(Some(parser.encode_default(&auth).unwrap())),
         });
         if let Value::Str(s, _) = val {
             self.on_message(s, esock.clone());

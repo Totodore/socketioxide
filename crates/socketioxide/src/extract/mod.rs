@@ -44,7 +44,8 @@
 //! # use socketioxide::socket::Socket;
 //! # use std::sync::Arc;
 //! # use std::convert::Infallible;
-//! # use socketioxide::{SocketIo, Value};
+//! # use socketioxide::SocketIo;
+//! # use socketioxide_core::Value;
 //!
 //! struct UserId(String);
 //!

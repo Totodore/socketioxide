@@ -183,7 +183,7 @@ impl<A: Adapter> Socket<A> {
     ///     // If you want to manage errors yourself you can use the TryData extractor
     ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
     ///         println!("Received a test message {:?}", data);
-    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
     ///
@@ -205,11 +205,11 @@ impl<A: Adapter> Socket<A> {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
     ///         println!("Received a test message {:?}", data);
     ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
-    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
     /// ```
@@ -283,14 +283,14 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message to the client
-    ///         socket.emit("test", data).ok();
+    ///         socket.emit("test", &data).ok();
     ///
     ///         // Emit a test message with multiple arguments to the client
-    ///         socket.emit("test", ("world", "hello", 1)).ok();
+    ///         socket.emit("test", &("world", "hello", 1)).ok();
     ///
     ///         // Emit a test message with an array as the first argument
     ///         let arr = [1, 2, 3, 4];
-    ///         socket.emit("test", [arr]).ok();
+    ///         socket.emit("test", &[arr]).ok();
     ///     });
     /// });
     /// ```
@@ -363,7 +363,7 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message and wait for an acknowledgement with the timeout specified in the config
-    ///         match socket.emit_with_ack::<_, Value>("test", data).unwrap().await {
+    ///         match socket.emit_with_ack::<_, Value>("test", &data).unwrap().await {
     ///             Ok(ack) => println!("Ack received {:?}", ack),
     ///             Err(err) => println!("Ack error {:?}", err),
     ///         }
@@ -460,7 +460,7 @@ impl<A: Adapter> Socket<A> {
     ///             .to("room1")
     ///             .to(["room2", "room3"])
     ///             .to(vec![other_rooms])
-    ///             .emit("test", data);
+    ///             .emit("test", &data);
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
@@ -484,7 +484,7 @@ impl<A: Adapter> Socket<A> {
     ///             .within("room1")
     ///             .within(["room2", "room3"])
     ///             .within(vec![other_rooms])
-    ///             .emit("test", data);
+    ///             .emit("test", &data);
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
@@ -508,7 +508,7 @@ impl<A: Adapter> Socket<A> {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all clients in the Namespace
     ///         // except for ones in room1 and the current socket
-    ///         socket.broadcast().except("room1").emit("test", data);
+    ///         socket.broadcast().except("room1").emit("test", &data);
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
@@ -526,7 +526,7 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all clients in this namespace and connected on this node
-    ///         socket.local().emit("test", data);
+    ///         socket.local().emit("test", &data);
     ///     });
     /// });
     pub fn local(&self) -> BroadcastOperators<A> {
@@ -550,14 +550,13 @@ impl<A: Adapter> Socket<A> {
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///    socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///       // Emit a test message in the room1 and room3 rooms, except for the room2 room with the binary payload received, wait for 5 seconds for an acknowledgement
     ///       socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
     ///             .timeout(Duration::from_secs(5))
-    ///             .emit_with_ack::<Value>("message-back", data)
+    ///             .emit_with_ack::<_, Value>("message-back", &data)
     ///             .unwrap()
     ///             .for_each(|(sid, ack)| async move {
     ///                match ack {
@@ -582,7 +581,7 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", |socket: SocketRef| {
     ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // This message will be broadcast to all clients in this namespace
-    ///         socket.broadcast().emit("test", data);
+    ///         socket.broadcast().emit("test", &data);
     ///     });
     /// });
     pub fn broadcast(&self) -> BroadcastOperators<A> {

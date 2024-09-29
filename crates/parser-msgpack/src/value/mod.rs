@@ -11,8 +11,6 @@ mod ser;
 /// `[event, ...data`].
 /// * If T is a tuple or a tuple struct, the end of the array will be parsed as the data: `T = (..data)`.
 /// * If T is something else, the first element of the array will be parsed as the data: `T = data[0]`.
-///
-/// All adjacent binary data will be inserted into the output data.
 pub fn from_value<T: DeserializeOwned>(
     value: &Value,
     with_event: bool,

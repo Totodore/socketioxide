@@ -102,7 +102,7 @@ impl<A: Adapter> AckSender<A> {
     }
 
     /// Send the ack response to the client.
-    pub fn send<T: Serialize>(self, data: &T) -> Result<(), SendError> {
+    pub fn send<T: Serialize + ?Sized>(self, data: &T) -> Result<(), SendError> {
         use crate::socket::PermitExt;
         if let Some(ack_id) = self.ack_id {
             let permit = match self.socket.reserve() {

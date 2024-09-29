@@ -313,7 +313,7 @@ impl<A: Adapter> SocketIo<A> {
     ///     // If you want to manage errors yourself you can use the TryData extractor
     ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
     ///         println!("Received a test message {:?}", data);
-    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
     ///
@@ -335,11 +335,11 @@ impl<A: Adapter> SocketIo<A> {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender, Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
     ///         println!("Received a test message {:?}", data);
     ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    ///         ack.bin(bin).send(data).ok(); // The data received is sent back to the client through the ack
-    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
     /// ```
@@ -366,7 +366,7 @@ impl<A: Adapter> SocketIo<A> {
     ///     }
     ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
     ///         println!("Received a test message {:?}", data);
-    ///         socket.emit("test-test", MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
     /// });
     ///
@@ -615,7 +615,7 @@ impl<A: Adapter> SocketIo<A> {
     ///   .to("room3")
     ///   .except("room2")
     ///   .timeout(Duration::from_secs(5))
-    ///   .emit_with_ack::<Value>("message-back", "I expect an ack in 5s!")
+    ///   .emit_with_ack::<_, Value>("message-back", "I expect an ack in 5s!")
     ///   .unwrap()
     ///   .for_each(|(sid, ack)| async move {
     ///      match ack {
@@ -649,7 +649,7 @@ impl<A: Adapter> SocketIo<A> {
     /// io.to("room1")
     ///   .to("room3")
     ///   .except("room2")
-    ///   .emit("Hello World!", ());
+    ///   .emit("Hello World!", &());
     #[inline]
     pub fn emit<T: ?Sized + Serialize>(
         &self,
@@ -699,14 +699,13 @@ impl<A: Adapter> SocketIo<A> {
     /// # use futures_util::stream::StreamExt;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data), Bin(bin)| async move {
+    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
     ///         // Emit a test message in the room1 and room3 rooms,
     ///         // except for the room2 room with the binary payload received
     ///         let ack_stream = socket.to("room1")
     ///             .to("room3")
     ///             .except("room2")
-    ///             .bin(bin)
-    ///             .emit_with_ack::<String>("message-back", data)
+    ///             .emit_with_ack::<_, String>("message-back", &data)
     ///             .unwrap();
     ///
     ///         ack_stream.for_each(|(sid, ack)| async move {
