@@ -1,7 +1,7 @@
+use core::str;
 use std::fmt;
 
-use serde::de::{self, DeserializeSeed, IgnoredAny, Visitor};
-use socketioxide_core::parser::FirstElement;
+use serde::de::{self, IgnoredAny, Visitor};
 
 pub fn from_bytes<'de, T: de::Deserialize<'de>>(
     data: &'de [u8],
@@ -28,9 +28,16 @@ pub fn from_bytes_seed<'de, T: de::DeserializeSeed<'de>>(
     seed.deserialize(de)
 }
 
+/// It will read the first element of the array as the socket.io event.
+/// The event must be a string.
 pub fn read_event(data: &[u8]) -> Result<&str, rmp_serde::decode::Error> {
-    let mut de = rmp_serde::Deserializer::new(data);
-    FirstElement::<&str>::default().deserialize(&mut de)
+    let rd = &mut &data[..];
+    let arrlen = rmp::decode::read_array_len(rd)?;
+    if arrlen < 1 {
+        return Err(rmp_serde::decode::Error::OutOfRange);
+    }
+    let strlen = rmp::decode::read_str_len(rd)? as usize;
+    str::from_utf8(&rd[..strlen]).map_err(rmp_serde::decode::Error::Utf8Error)
 }
 
 struct Deserializer<D> {
