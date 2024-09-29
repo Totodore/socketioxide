@@ -38,7 +38,7 @@ impl Parse for MsgPackParser {
         _: &ParserState,
         bin: Bytes,
     ) -> Result<Packet, ParseError<Self::DecodeError>> {
-        Ok(deserialize_packet(bin)?)
+        deserialize_packet(bin)
     }
 
     fn encode_value<T: ?Sized + serde::Serialize>(
@@ -63,7 +63,7 @@ impl Parse for MsgPackParser {
     ) -> Result<T, Self::DecodeError> {
         if let Some(value) = value {
             let value = value.as_bytes().expect("value should be bytes");
-            rmp_serde::from_slice(&value)
+            rmp_serde::from_slice(value)
         } else {
             rmp_serde::from_slice(&[0xc0]) // nil value
         }
@@ -76,7 +76,7 @@ impl Parse for MsgPackParser {
         rmp_serde::to_vec_named(data).map(|b| Value::Bytes(b.into()))
     }
 
-    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError> {
+    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
         value::read_event(value)
     }
 }

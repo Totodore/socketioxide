@@ -126,7 +126,7 @@ impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
         Self {
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
-            parser: conf.socket.parser().clone(),
+            parser: conf.socket.parser(),
             opts,
         }
     }

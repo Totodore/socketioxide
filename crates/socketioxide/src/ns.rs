@@ -82,7 +82,7 @@ impl<A: Adapter> Namespace<A> {
             tracing::trace!(ns = self.path.as_str(), ?socket.id, "emitting connect_error packet");
 
             let data = e.to_string();
-            if let Err(_e) = socket.send(Packet::connect_error(self.path.clone(), &data)) {
+            if let Err(_e) = socket.send(Packet::connect_error(self.path.clone(), data)) {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("error sending connect_error packet: {:?}, closing conn", _e);
                 esocket.close(engineioxide::DisconnectReason::PacketParsingError);
@@ -98,7 +98,7 @@ impl<A: Adapter> Namespace<A> {
         let payload = ConnectPacket { sid: socket.id };
         let payload = match protocol {
             ProtocolVersion::V5 => Some(socket.parser().encode_default(&payload).unwrap()),
-            _ => None,
+            ProtocolVersion::V4 => None,
         };
         if let Err(_e) = socket.send(Packet::connect(self.path.clone(), payload)) {
             #[cfg(feature = "tracing")]

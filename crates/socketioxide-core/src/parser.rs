@@ -73,7 +73,7 @@ pub trait Parse: Default + Copy {
     fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError>;
 
     /// Try to read the event name from the given payload data
-    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError>;
+    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError>;
 }
 
 /// Errors when parsing/serializing socket.io packets
@@ -169,7 +169,7 @@ where
             .ok_or(A::Error::custom("first element not found"));
 
         // Consume the rest of the sequence
-        while let Some(_) = seq.next_element::<serde::de::IgnoredAny>()? {}
+        while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
 
         data
     }
@@ -213,7 +213,7 @@ impl serde::de::Error for IsTupleSerdeError {
     }
 }
 
-impl<'a, 'de> serde::Deserializer<'de> for IsTupleSerde {
+impl<'de> serde::Deserializer<'de> for IsTupleSerde {
     type Error = IsTupleSerdeError;
 
     serde::forward_to_deserialize_any! {

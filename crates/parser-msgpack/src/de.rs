@@ -132,7 +132,7 @@ fn read_u32(rd: &mut Cursor<Bytes>) -> Result<u32, DecodeError> {
     Ok(u32::from_be_bytes(buff))
 }
 /// Read a str slice
-fn read_str<'a>(reader: &'a mut Cursor<Bytes>) -> Result<&'a str, DecodeError> {
+fn read_str(reader: &mut Cursor<Bytes>) -> Result<&str, DecodeError> {
     let len = decode::read_str_len(reader)? as usize;
     let start = reader.position() as usize;
     let end = start + len;

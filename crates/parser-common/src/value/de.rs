@@ -611,7 +611,7 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'a, V> {
             }
             _ => self.inner.visit_map(PeekKeyMap {
                 inner: map,
-                binary_payloads: &self.binary_payloads,
+                binary_payloads: self.binary_payloads,
                 key,
             }),
         }

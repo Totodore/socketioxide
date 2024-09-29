@@ -45,7 +45,7 @@ struct Deserializer<D> {
     skip_first_element: bool,
 }
 
-impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<D> {
+impl<'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<D> {
     type Error = D::Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {

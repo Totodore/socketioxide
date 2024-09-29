@@ -464,7 +464,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).to(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).to(rooms)
     }
 
     /// Selects all clients in the given rooms.
@@ -488,7 +488,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).within(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).within(rooms)
     }
 
     /// Filters out all clients selected with the previous operators which are in the given rooms.
@@ -512,7 +512,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).except(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).except(rooms)
     }
 
     /// Broadcasts to all clients only connected on this node (when using multiple nodes).
@@ -530,7 +530,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn local(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).local()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).local()
     }
 
     /// Sets a custom timeout when sending a message with an acknowledgement.
@@ -585,7 +585,7 @@ impl<A: Adapter> Socket<A> {
     ///     });
     /// });
     pub fn broadcast(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser().clone()).broadcast()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).broadcast()
     }
 
     /// Get the [`SocketIo`] context related to this socket

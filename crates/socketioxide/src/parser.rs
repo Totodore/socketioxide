@@ -28,25 +28,33 @@ pub enum Parser {
 
 impl Default for Parser {
     fn default() -> Self {
-        Parser::Common(CommonParser::default())
+        Parser::Common(CommonParser)
     }
 }
 
+/// Errors that can occur during value encoding
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
+    /// Common parser error
     #[error("common parser: {0}")]
     Common(<CommonParser as Parse>::EncodeError),
+    /// MsgPack parser error
     #[error("msgpack parser: {0}")]
     MsgPack(<MsgPackParser as Parse>::EncodeError),
 }
 
+/// Errors that can occur during packet decoding or value decoding
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
+    /// Common parser error
     #[error("common parser: {0}")]
     Common(<CommonParser as Parse>::DecodeError),
+    /// MsgPack parser error
     #[error("msgpack parser: {0}")]
     MsgPack(<MsgPackParser as Parse>::DecodeError),
 }
+
+/// Parse errors occurring during packet parsing
 pub type ParseError = socketioxide_core::parser::ParseError<DecodeError>;
 
 impl Parse for Parser {
@@ -150,7 +158,7 @@ impl Parse for Parser {
         }
     }
 
-    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError> {
+    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
         match self {
             Parser::Common(p) => p.read_event(value).map_err(DecodeError::Common),
             Parser::MsgPack(p) => p.read_event(value).map_err(DecodeError::MsgPack),

@@ -112,15 +112,8 @@ impl Parse for CommonParser {
         Ok(Value::Str(Str::from(value), None))
     }
 
-    fn read_event<'a>(self, value: &'a Value) -> Result<&'a str, Self::DecodeError> {
+    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
         value::read_event(value)
-    }
-}
-
-impl CommonParser {
-    /// Create a new [`CommonParser`]. This is the default socket.io packet parser.
-    pub fn new() -> Self {
-        Self::default()
     }
 }
 

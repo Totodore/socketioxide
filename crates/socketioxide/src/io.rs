@@ -854,7 +854,7 @@ impl<A: Adapter> SocketIo<A> {
     /// Returns a new operator on the given namespace
     #[inline(always)]
     fn get_op(&self, path: &str) -> Option<BroadcastOperators<A>> {
-        let parser = self.config().parser.clone();
+        let parser = self.config().parser;
         self.0
             .get_ns(path)
             .map(|ns| BroadcastOperators::new(ns, parser).broadcast())
