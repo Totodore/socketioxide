@@ -86,6 +86,7 @@ where
     H: DisconnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id)))]
     #[inline(always)]
     fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
         self.handler.call(s, reason);

@@ -743,9 +743,9 @@ impl<A: Adapter> Socket<A> {
     }
 
     fn recv_event(self: Arc<Self>, data: Value, ack: Option<i64>) -> Result<(), Error> {
-        let event = self.parser().read_event(&data).map_err(|e| {
+        let event = self.parser().read_event(&data).map_err(|_e| {
             #[cfg(feature = "tracing")]
-            tracing::debug!(?e, "failed to read event");
+            tracing::debug!(?_e, "failed to read event");
             Error::InvalidEventName
         })?;
         #[cfg(feature = "tracing")]
@@ -792,6 +792,7 @@ impl<A: Adapter> Socket<A> {
         let config = SocketIoConfig::default();
         let io = SocketIo::from(Arc::new(Client::<A>::new(
             config,
+            #[cfg(feature = "state")]
             std::default::Default::default(),
         )));
         let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
