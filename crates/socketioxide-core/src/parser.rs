@@ -143,7 +143,7 @@ impl<E: std::error::Error> ParseError<E> {
 }
 
 /// A seed that can be used to deserialize only the 1st element of a sequence
-pub struct FirstElement<T>(pub std::marker::PhantomData<T>);
+pub struct FirstElement<T>(std::marker::PhantomData<T>);
 impl<T> Default for FirstElement<T> {
     fn default() -> Self {
         Self(Default::default())

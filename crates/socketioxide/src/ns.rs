@@ -116,7 +116,7 @@ impl<A: Adapter> Namespace<A> {
     /// Removes a socket from a namespace and propagate the event to the adapter
     pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(?sid, "removing socket from namespace");
+        tracing::trace!(?sid, ?self.path, "removing socket from namespace");
 
         self.sockets.write().unwrap().remove(&sid);
         self.adapter
@@ -183,7 +183,7 @@ impl<A: Adapter> Namespace<A> {
         let _err = self.adapter.close();
         #[cfg(feature = "tracing")]
         if let Err(err) = _err {
-            tracing::debug!(?err, "could not close adapter");
+            tracing::debug!(?err, ?self.path, "could not close adapter");
         }
     }
 }
