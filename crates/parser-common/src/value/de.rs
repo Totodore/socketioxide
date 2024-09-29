@@ -50,6 +50,7 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_any(BinaryAnyVisitor {
             inner: visitor,
+            skip_first_element: self.skip_first_element,
             binary_payloads: self.binary_payloads,
         })
     }
@@ -577,6 +578,7 @@ impl<'a, 'de, A: de::MapAccess<'de>> de::MapAccess<'de> for PeekKeyMap<'a, 'de, 
 /// it will replace the value with the binary payload at the index specified in the value.
 struct BinaryAnyVisitor<'a, V> {
     binary_payloads: &'a Vec<Bytes>,
+    skip_first_element: bool,
     inner: V,
 }
 
@@ -717,7 +719,10 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'a, V> {
         self.inner.visit_newtype_struct(deserializer)
     }
 
-    fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Self::Value, A::Error> {
+    fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        if self.skip_first_element {
+            let _ = seq.next_element::<IgnoredAny>()?;
+        }
         self.inner
             .visit_seq(WrapperVisitor::new(seq, self.binary_payloads))
     }
