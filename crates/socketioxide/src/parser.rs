@@ -126,7 +126,7 @@ impl Parse for Parser {
 
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
-        value: &Value,
+        value: &'de Value,
         with_event: bool,
     ) -> Result<T, DecodeError> {
         #[cfg(feature = "tracing")]
@@ -143,7 +143,7 @@ impl Parse for Parser {
 
     fn decode_default<'de, T: Deserialize<'de>>(
         self,
-        value: Option<&Value>,
+        value: Option<&'de Value>,
     ) -> Result<T, Self::DecodeError> {
         match self {
             Parser::Common(p) => p.decode_default(value).map_err(DecodeError::Common),
