@@ -5,7 +5,7 @@ edition = "2021"
 
 
 [dependencies]
-socketioxide = { path = "../../socketioxide", features = ["state"] }
+socketioxide = { path = "../../crates/socketioxide", features = ["state"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower-http = { version = "0.5.0", features = ["cors", "fs"] }

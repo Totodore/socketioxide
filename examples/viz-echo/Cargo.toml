@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 viz = "0.8.0"
-socketioxide = { path = "../../socketioxide" }
+socketioxide = { path = "../../crates/socketioxide" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true

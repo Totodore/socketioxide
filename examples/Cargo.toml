@@ -1,6 +1,6 @@
 [workspace]
 members = ["*"]
-exclude = ["target"]
+exclude = ["target", "loco-rooms-chat"]
 resolver = "2"
 
 [workspace.dependencies]
