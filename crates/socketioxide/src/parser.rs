@@ -10,7 +10,7 @@ use socketioxide_core::{
     Str, Value,
 };
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use socketioxide_parser_common::CommonParser;
 use socketioxide_parser_msgpack::MsgPackParser;
 
@@ -124,7 +124,7 @@ impl Parse for Parser {
         value
     }
 
-    fn decode_value<T: DeserializeOwned>(
+    fn decode_value<'de, T: Deserialize<'de>>(
         self,
         value: &Value,
         with_event: bool,
@@ -141,7 +141,7 @@ impl Parse for Parser {
         }
     }
 
-    fn decode_default<T: DeserializeOwned>(
+    fn decode_default<'de, T: Deserialize<'de>>(
         self,
         value: Option<&Value>,
     ) -> Result<T, Self::DecodeError> {

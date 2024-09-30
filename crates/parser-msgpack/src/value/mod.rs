@@ -1,4 +1,4 @@
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     parser::{is_de_tuple, is_ser_tuple, FirstElement},
     Value,
@@ -11,8 +11,8 @@ mod ser;
 /// `[event, ...data`].
 /// * If T is a tuple or a tuple struct, the end of the array will be parsed as the data: `T = (..data)`.
 /// * If T is something else, the first element of the array will be parsed as the data: `T = data[0]`.
-pub fn from_value<T: DeserializeOwned>(
-    value: &Value,
+pub fn from_value<'de, T: Deserialize<'de>>(
+    value: &'de Value,
     with_event: bool,
 ) -> Result<T, rmp_serde::decode::Error> {
     let value = match value {
@@ -50,6 +50,7 @@ mod tests {
     use super::*;
     use bytes::Bytes;
     use rmp_serde::to_vec_named;
+    use serde::de::DeserializeOwned;
     use serde_json::json;
 
     fn to_bytes(data: impl Serialize, event: Option<&str>) -> Bytes {

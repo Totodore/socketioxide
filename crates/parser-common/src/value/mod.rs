@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     parser::{is_de_tuple, is_ser_tuple, FirstElement},
     Str, Value,
@@ -14,7 +14,10 @@ mod ser;
 /// * If T is something else, the first element of the array will be parsed as the data: `T = data[0]`.
 ///
 /// All adjacent binary data will be inserted into the output data.
-pub fn from_value<T: DeserializeOwned>(value: &Value, with_event: bool) -> serde_json::Result<T> {
+pub fn from_value<'de, T: Deserialize<'de>>(
+    value: &'de Value,
+    with_event: bool,
+) -> serde_json::Result<T> {
     let (value, bins) = match value {
         Value::Str(v, b) => (v, b),
         Value::Bytes(_) => panic!("unexpected binary data"),
@@ -52,6 +55,7 @@ pub fn read_event(data: &Value) -> serde_json::Result<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::de::DeserializeOwned;
     use serde_json::json;
 
     fn to_str(data: impl Serialize, event: Option<&str>) -> Str {

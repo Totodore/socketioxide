@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use de::deserialize_packet;
 use ser::serialize_packet;
-use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use socketioxide_core::{
     packet::Packet,
     parser::{Parse, ParseError, ParserState},
@@ -49,17 +49,17 @@ impl Parse for MsgPackParser {
         value::to_value(data, event)
     }
 
-    fn decode_value<T: DeserializeOwned>(
+    fn decode_value<'de, T: Deserialize<'de>>(
         self,
-        value: &Value,
+        value: &'de Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)
     }
 
-    fn decode_default<T: DeserializeOwned>(
+    fn decode_default<'de, T: Deserialize<'de>>(
         self,
-        value: Option<&Value>,
+        value: Option<&'de Value>,
     ) -> Result<T, Self::DecodeError> {
         if let Some(value) = value {
             let value = value.as_bytes().expect("value should be bytes");

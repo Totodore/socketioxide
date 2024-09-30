@@ -5,11 +5,7 @@ use std::{
 
 use bytes::Bytes;
 use engineioxide::Str;
-use serde::{
-    de::{DeserializeOwned, Visitor},
-    ser::Impossible,
-    Serialize,
-};
+use serde::{de::Visitor, ser::Impossible, Deserialize, Serialize};
 
 use crate::{packet::Packet, Value};
 
@@ -56,17 +52,17 @@ pub trait Parse: Default + Copy {
     /// Convert any generic [`Bytes`] to deserializable data.
     ///
     /// The parser will be determined from the value given to deserialize.
-    fn decode_value<T: DeserializeOwned>(
+    fn decode_value<'de, T: Deserialize<'de>>(
         self,
-        value: &Value,
+        value: &'de Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError>;
 
     /// Convert any raw data to a type with the default serde impl without binary + event tricks.
     /// This is mainly used for connect payloads.
-    fn decode_default<T: DeserializeOwned>(
+    fn decode_default<'de, T: Deserialize<'de>>(
         self,
-        value: Option<&Value>,
+        value: Option<&'de Value>,
     ) -> Result<T, Self::DecodeError>;
     /// Convert any type to raw data Str/Bytes with the default serde impl without binary + event tricks.
     /// This is mainly used for connect payloads.
