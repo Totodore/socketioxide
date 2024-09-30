@@ -235,8 +235,7 @@ jobs:
     needs: [test]
     strategy:
       matrix:
-        socketio-version: [v4, v5]
-        parser: ["", -msgpack]
+        socketio-version: [v4, v5, v5-msgpack]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -245,7 +244,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: totodore/socket.io-protocol
-          ref: ${{ matrix.socketio-version }}${{ matrix.parser }}
+          ref: ${{ matrix.socketio-version }}
           path: socket.io-protocol
       - uses: actions/setup-node@v4
         with:
@@ -261,11 +260,11 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
       - name: Install deps & run tests
         run: |
-          PARSER=${{ matrix.parser }}
-          PARSER=${PARSER:1}
+          PARSER=echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s
+          VERSION=echo ${{ matrix.socketio-version }} | cut -d'-' -f1
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }},$PARSER --release
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }},$PARSER --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
