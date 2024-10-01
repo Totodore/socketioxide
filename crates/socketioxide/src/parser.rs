@@ -12,6 +12,8 @@ use socketioxide_core::{
 
 use serde::{Deserialize, Serialize};
 use socketioxide_parser_common::CommonParser;
+
+#[cfg(feature = "msgpack")]
 use socketioxide_parser_msgpack::MsgPackParser;
 
 /// All the parser available.
@@ -23,6 +25,7 @@ pub(crate) enum Parser {
     /// The default parser
     Common(CommonParser),
     /// The MsgPack parser
+    #[cfg(feature = "msgpack")]
     MsgPack(MsgPackParser),
 }
 
@@ -39,6 +42,7 @@ pub enum EncodeError {
     #[error("common parser: {0}")]
     Common(<CommonParser as Parse>::EncodeError),
     /// MsgPack parser error
+    #[cfg(feature = "msgpack")]
     #[error("msgpack parser: {0}")]
     MsgPack(<MsgPackParser as Parse>::EncodeError),
 }
@@ -50,6 +54,7 @@ pub enum DecodeError {
     #[error("common parser: {0}")]
     Common(<CommonParser as Parse>::DecodeError),
     /// MsgPack parser error
+    #[cfg(feature = "msgpack")]
     #[error("msgpack parser: {0}")]
     MsgPack(<MsgPackParser as Parse>::DecodeError),
 }
@@ -64,6 +69,7 @@ impl Parse for Parser {
     fn encode(self, packet: Packet) -> Value {
         let value = match self {
             Parser::Common(p) => p.encode(packet),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p.encode(packet),
         };
         #[cfg(feature = "tracing")]
@@ -83,6 +89,7 @@ impl Parse for Parser {
             Parser::Common(p) => p
                 .decode_bin(state, bin)
                 .map_err(|e| e.wrap_err(DecodeError::Common)),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p
                 .decode_bin(state, bin)
                 .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
@@ -100,6 +107,7 @@ impl Parse for Parser {
             Parser::Common(p) => p
                 .decode_str(state, data)
                 .map_err(|e| e.wrap_err(DecodeError::Common)),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p
                 .decode_str(state, data)
                 .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
@@ -117,6 +125,7 @@ impl Parse for Parser {
     ) -> Result<Value, EncodeError> {
         let value = match self {
             Parser::Common(p) => p.encode_value(data, event).map_err(EncodeError::Common),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p.encode_value(data, event).map_err(EncodeError::MsgPack),
         };
         #[cfg(feature = "tracing")]
@@ -135,6 +144,7 @@ impl Parse for Parser {
             Parser::Common(p) => p
                 .decode_value(value, with_event)
                 .map_err(DecodeError::Common),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p
                 .decode_value(value, with_event)
                 .map_err(DecodeError::MsgPack),
@@ -147,6 +157,7 @@ impl Parse for Parser {
     ) -> Result<T, Self::DecodeError> {
         match self {
             Parser::Common(p) => p.decode_default(value).map_err(DecodeError::Common),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p.decode_default(value).map_err(DecodeError::MsgPack),
         }
     }
@@ -154,6 +165,7 @@ impl Parse for Parser {
     fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError> {
         match self {
             Parser::Common(p) => p.encode_default(data).map_err(EncodeError::Common),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p.encode_default(data).map_err(EncodeError::MsgPack),
         }
     }
@@ -161,6 +173,7 @@ impl Parse for Parser {
     fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
         match self {
             Parser::Common(p) => p.read_event(value).map_err(DecodeError::Common),
+            #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p.read_event(value).map_err(DecodeError::MsgPack),
         }
     }

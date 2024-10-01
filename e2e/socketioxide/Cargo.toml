@@ -30,4 +30,4 @@ path = "socketioxide.rs"
 [features]
 v4 = ["socketioxide/v4"]
 v5 = []
-msgpack = []
+msgpack = ["socketioxide/msgpack"]

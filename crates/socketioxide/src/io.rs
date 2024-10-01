@@ -8,6 +8,7 @@ use engineioxide::{
 };
 use serde::Serialize;
 use socketioxide_parser_common::CommonParser;
+#[cfg(feature = "msgpack")]
 use socketioxide_parser_msgpack::MsgPackParser;
 
 use crate::{
@@ -36,6 +37,7 @@ impl ParserConfig {
     }
 
     /// Use a [`MsgPackParser`] to parse incoming and outgoing socket.io packets
+    #[cfg(feature = "msgpack")]
     pub fn msgpack() -> Self {
         ParserConfig(Parser::MsgPack(MsgPackParser))
     }
@@ -184,6 +186,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
     /// Sets a custom [`Parser`] for this [`SocketIoBuilder`]
     #[inline]
+    #[cfg(feature = "msgpack")]
     pub fn with_parser(mut self, parser: ParserConfig) -> Self {
         self.config.parser = parser.0;
         self
