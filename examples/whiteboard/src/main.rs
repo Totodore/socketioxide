@@ -1,4 +1,4 @@
-use serde_json::Value;
+use rmpv::Value;
 use socketioxide::{
     extract::{Data, SocketRef},
     SocketIo,
@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     io.ns("/", |s: SocketRef| {
         s.on("drawing", |s: SocketRef, Data::<Value>(data)| {
-            s.broadcast().emit("drawing", data).unwrap();
+            s.broadcast().emit("drawing", &data).unwrap();
         });
     });
 

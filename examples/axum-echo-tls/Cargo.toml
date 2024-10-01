@@ -9,7 +9,7 @@ axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
-serde_json.workspace = true
+rmpv.workspace = true
 axum-server = { version = "0.6", features = ["tls-rustls"] }
 
 [[bin]]

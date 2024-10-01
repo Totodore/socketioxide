@@ -2,7 +2,7 @@ use std::{net::SocketAddr, path::PathBuf};
 
 use axum::routing::get;
 use axum_server::tls_rustls::RustlsConfig;
-use serde_json::Value;
+use rmpv::Value;
 use socketioxide::{
     extract::{AckSender, Data, SocketRef},
     SocketIo,
@@ -11,24 +11,18 @@ use tracing::info;
 use tracing_subscriber::FmtSubscriber;
 
 fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
-    info!("Socket.IO connected: {:?} {:?}", socket.ns(), socket.id);
-    socket.emit("auth", data).ok();
+    info!(ns = socket.ns(), ?socket.id, "Socket.IO connected");
+    socket.emit("auth", &data).ok();
 
-    socket.on(
-        "message",
-        |socket: SocketRef, Data::<Value>(data)| {
-            info!(?data, "Received event");
-            socket.emit("message-back", &data).ok();
-        },
-    );
+    socket.on("message", |socket: SocketRef, Data::<Value>(data)| {
+        info!(?data, "Received event");
+        socket.emit("message-back", &data).ok();
+    });
 
-    socket.on(
-        "message-with-ack",
-        |Data::<Value>(data), ack: AckSender| {
-            info!(?data, "Received event");
-            ack.send(&data).ok();
-        },
-    );
+    socket.on("message-with-ack", |Data::<Value>(data), ack: AckSender| {
+        info!(?data, "Received event");
+        ack.send(&data).ok();
+    });
 }
 
 #[tokio::main]

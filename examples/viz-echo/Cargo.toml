@@ -9,7 +9,7 @@ socketioxide = { path = "../../crates/socketioxide" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
-serde_json.workspace = true
+rmpv.workspace = true
 
 [[bin]]
 name = "viz-echo"

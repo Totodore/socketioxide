@@ -16,26 +16,26 @@ pub struct Auth {
 
 /// Request/Response Types
 #[derive(Debug, Serialize, Clone)]
-struct UserConnectedRes {
+struct UserConnectedRes<'a> {
     #[serde(rename = "userID")]
-    user_id: Uuid,
-    username: String,
+    user_id: &'a Uuid,
+    username: &'a String,
     connected: bool,
     messages: Vec<Message>,
 }
 
 #[derive(Debug, Serialize, Clone)]
-struct UserDisconnectedRes {
+struct UserDisconnectedRes<'a> {
     #[serde(rename = "userID")]
-    user_id: Uuid,
-    username: String,
+    user_id: &'a Uuid,
+    username: &'a str,
 }
 
-impl UserConnectedRes {
-    fn new(session: &Session, messages: Vec<Message>) -> Self {
+impl<'a> UserConnectedRes<'a> {
+    fn new(session: &'a Session, messages: Vec<Message>) -> Self {
         Self {
-            user_id: session.user_id,
-            username: session.username.clone(),
+            user_id: &session.user_id,
+            username: &session.username,
             connected: session.connected.load(Ordering::SeqCst),
             messages,
         }
@@ -53,21 +53,21 @@ pub fn on_connection(
     State(sessions): State<Sessions>,
     State(msgs): State<Messages>,
 ) {
-    s.emit("session", (*session).clone()).unwrap();
+    s.emit("session", &*session).unwrap();
 
-    let users = sessions
-        .get_all_other_sessions(session.user_id)
-        .into_iter()
+    let other_sessions = sessions.get_all_other_sessions(session.user_id);
+    let users = other_sessions
+        .iter()
         .map(|session| {
             let messages = msgs.get_all_for_user(session.user_id);
-            UserConnectedRes::new(&session, messages)
+            UserConnectedRes::new(session, messages)
         })
         .collect::<Vec<_>>();
 
-    s.emit("users", [users]).unwrap();
+    s.emit("users", &users).unwrap();
 
     let res = UserConnectedRes::new(&session, vec![]);
-    s.broadcast().emit("user connected", res).unwrap();
+    s.broadcast().emit("user connected", &res).unwrap();
 
     s.on(
         "private message",
@@ -80,24 +80,20 @@ pub fn on_connection(
                 to,
                 content,
             };
-            msgs.add(message.clone());
             s.within(to.to_string())
-                .emit("private message", message)
+                .emit("private message", &message)
                 .ok();
+            msgs.add(message);
         },
     );
 
     s.on_disconnect(|s: SocketRef, Extension::<Arc<Session>>(session)| {
         session.set_connected(false);
-        s.broadcast()
-            .emit(
-                "user disconnected",
-                UserDisconnectedRes {
-                    user_id: session.user_id,
-                    username: session.username.clone(),
-                },
-            )
-            .ok();
+        let res = UserDisconnectedRes {
+            user_id: &session.user_id,
+            username: &session.username,
+        };
+        s.broadcast().emit("user disconnected", &res).ok();
     });
 }
 
