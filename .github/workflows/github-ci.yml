@@ -260,8 +260,8 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
       - name: Install deps & run tests
         run: |
-          PARSER=echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s
-          VERSION=echo ${{ matrix.socketio-version }} | cut -d'-' -f1
+          PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
+          VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
           cd socket.io-protocol/test-suite && npm install && cd ../..
           cargo build -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release
           cargo run -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
