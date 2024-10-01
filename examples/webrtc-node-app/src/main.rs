@@ -1,6 +1,6 @@
 use socketioxide::{
     extract::{Data, SocketRef},
-    SocketIo,
+    ParserConfig, SocketIo,
 };
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
@@ -30,7 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    let (layer, io) = SocketIo::new_layer();
+    let (layer, io) = SocketIo::builder()
+        .with_parser(ParserConfig::msgpack())
+        .build_layer();
 
     io.ns("/", |s: SocketRef| {
         s.on("join", |s: SocketRef, Data(room_id): Data<String>| {

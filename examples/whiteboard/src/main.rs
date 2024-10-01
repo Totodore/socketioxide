@@ -1,22 +1,25 @@
 use rmpv::Value;
 use socketioxide::{
     extract::{Data, SocketRef},
-    SocketIo,
+    ParserConfig, SocketIo,
 };
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
-use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::new();
-
-    tracing::subscriber::set_global_default(subscriber)?;
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
 
     info!("Starting server");
 
-    let (layer, io) = SocketIo::new_layer();
+    let (layer, io) = SocketIo::builder()
+        .with_parser(ParserConfig::msgpack())
+        .build_layer();
 
     io.ns("/", |s: SocketRef| {
         s.on("drawing", |s: SocketRef, Data::<Value>(data)| {
