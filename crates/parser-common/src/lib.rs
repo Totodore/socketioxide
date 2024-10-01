@@ -135,25 +135,23 @@ mod test {
     use socketioxide_core::{packet::ConnectPacket, Sid};
 
     fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {
-        CommonParser::default()
-            .encode_value(data, Some(event))
-            .unwrap()
+        CommonParser.encode_value(data, Some(event)).unwrap()
     }
 
     fn to_value(data: &impl serde::Serialize) -> Value {
-        CommonParser::default().encode_value(data, None).unwrap()
+        CommonParser.encode_value(data, None).unwrap()
     }
     fn to_connect_value(data: &impl serde::Serialize) -> Value {
         Value::Str(Str::from(serde_json::to_string(data).unwrap()), None)
     }
     fn encode(packet: Packet) -> String {
-        match CommonParser::default().encode(packet) {
+        match CommonParser.encode(packet) {
             Value::Str(d, _) => d.into(),
             Value::Bytes(_) => panic!("testing only returns str"),
         }
     }
     fn decode(value: String) -> Packet {
-        CommonParser::default()
+        CommonParser
             .decode_str(&Default::default(), value.into())
             .unwrap()
     }

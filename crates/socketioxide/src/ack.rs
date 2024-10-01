@@ -321,9 +321,9 @@ mod test {
     fn value(data: impl serde::Serialize) -> Value {
         CommonParser.encode_value(&data, None).unwrap()
     }
-    impl<T: DeserializeOwned> Into<AckStream<T>> for AckInnerStream {
-        fn into(self) -> AckStream<T> {
-            AckStream::new(self, Parser::default())
+    impl<T: DeserializeOwned> From<AckInnerStream> for AckStream<T> {
+        fn from(val: AckInnerStream) -> Self {
+            Self::new(val, Parser::default())
         }
     }
 

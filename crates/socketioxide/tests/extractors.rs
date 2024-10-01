@@ -32,9 +32,8 @@ async fn timeout_rcv_err<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiv
 }
 
 fn create_msg(ns: &'static str, event: &str, data: impl serde::Serialize) -> EioPacket {
-    let parser = CommonParser::default();
-    let val = parser.encode_value(&data, Some(event)).unwrap();
-    match parser.encode(Packet::event(ns, val)) {
+    let val = CommonParser.encode_value(&data, Some(event)).unwrap();
+    match CommonParser.encode(Packet::event(ns, val)) {
         Value::Str(msg, _) => EioPacket::Message(msg),
         Value::Bytes(_) => unreachable!(),
     }

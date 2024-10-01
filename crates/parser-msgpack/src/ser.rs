@@ -91,7 +91,6 @@ mod tests {
     use ::bytes::Bytes;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
-    use std::u8;
 
     const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);
     #[derive(Serialize, Deserialize)]

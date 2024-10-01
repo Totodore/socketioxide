@@ -97,7 +97,7 @@ pub async fn broadcast_with_ack() {
             let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
             assert_some!(srx.recv().await);
             assert_some!(srx.recv().await);
-            let parser = CommonParser::default();
+            let parser = CommonParser;
             while let Some(msg) = srx.recv().await {
                 let msg = match msg {
                     Message(msg) => msg,

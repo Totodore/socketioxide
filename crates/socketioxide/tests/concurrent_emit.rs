@@ -15,7 +15,7 @@ pub async fn emit() {
     io.ns("/", move |socket: SocketRef| async move {
         for _ in 0..100 {
             let s = socket.clone();
-            const DATA: (&'static str, Bytes, Bytes) = (
+            static DATA: (&str, Bytes, Bytes) = (
                 "bin",
                 Bytes::from_static(&[1, 2, 3]),
                 Bytes::from_static(&[4, 5, 6]),

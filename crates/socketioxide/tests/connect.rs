@@ -9,13 +9,10 @@ use socketioxide::{
 use socketioxide_core::{parser::Parse, Value};
 use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
-use tracing::Level;
-use tracing_subscriber::FmtSubscriber;
 
 fn create_msg(ns: &'static str, event: &str, data: impl Serialize) -> engineioxide::Packet {
-    let parser = CommonParser::default();
-    let packet = Packet::event(ns, parser.encode_value(&data, Some(event)).unwrap());
-    match parser.encode(packet) {
+    let packet = Packet::event(ns, CommonParser.encode_value(&data, Some(event)).unwrap());
+    match CommonParser.encode(packet) {
         Value::Str(data, _) => Message(data),
         Value::Bytes(_) => unreachable!(),
     }

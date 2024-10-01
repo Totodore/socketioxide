@@ -409,8 +409,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_fixmap() {
-        let mut data = Vec::new();
-        data.push(Marker::FixMap(1).to_u8());
+        let mut data = vec![Marker::FixMap(1).to_u8()];
         rmp::encode::write_str(&mut data, "test").unwrap();
         rmp::encode::write_u8(&mut data, 132).unwrap(); // { "test": 132 }
 
@@ -423,8 +422,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_fixarray() {
-        let mut data = Vec::new();
-        data.push(Marker::FixArray(3).to_u8());
+        let mut data = vec![Marker::FixArray(3).to_u8()];
         rmp::encode::write_str(&mut data, "foo").unwrap(); // ["foo"]
         rmp::encode::write_bin(&mut data, &[1, 2, 3]).unwrap();
         rmp::encode::write_bin(&mut data, &[4, 5, 6]).unwrap();
@@ -448,8 +446,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_null() {
-        let mut data = Vec::new();
-        data.push(Marker::Null.to_u8());
+        let data = vec![Marker::Null.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
         move_to_next_element(&mut reader).unwrap();
@@ -459,8 +456,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_reserved() {
-        let mut data = Vec::new();
-        data.push(Marker::Reserved.to_u8());
+        let data = vec![Marker::Reserved.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
         move_to_next_element(&mut reader).unwrap();
@@ -470,8 +466,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_false() {
-        let mut data = Vec::new();
-        data.push(Marker::False.to_u8());
+        let data = vec![Marker::False.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
         move_to_next_element(&mut reader).unwrap();
@@ -481,8 +476,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_true() {
-        let mut data = Vec::new();
-        data.push(Marker::True.to_u8());
+        let data = vec![Marker::True.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
         move_to_next_element(&mut reader).unwrap();
@@ -603,7 +597,7 @@ mod tests {
     #[test]
     pub fn data_bytelen_bin8() {
         let mut data = Vec::new();
-        rmp::encode::write_bin(&mut data, &[b't', b'e', b's', b't']).unwrap();
+        rmp::encode::write_bin(&mut data, b"test").unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
         move_to_next_element(&mut reader).unwrap();
@@ -613,8 +607,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_bin16() {
-        let mut data = Vec::new();
-        data.push(Marker::Bin16.to_u8());
+        let mut data = vec![Marker::Bin16.to_u8()];
         data.extend_from_slice(&[0x00, 0x04, b't', b'e', b's', b't']);
         let len = data.len();
         let mut reader = Cursor::new(data.into());
@@ -625,8 +618,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_bin32() {
-        let mut data = Vec::new();
-        data.push(Marker::Bin32.to_u8());
+        let mut data = vec![Marker::Bin32.to_u8()];
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x04, b't', b'e', b's', b't']);
 
         let len = data.len();
@@ -649,8 +641,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_str16() {
-        let mut data = Vec::new();
-        data.push(Marker::Str16.to_u8());
+        let mut data = vec![Marker::Str16.to_u8()];
         data.extend_from_slice(&[0x00, 0x04, b't', b'e', b's', b't']);
         let len = data.len();
         let mut reader = Cursor::new(data.into());
@@ -661,8 +652,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_str32() {
-        let mut data = Vec::new();
-        data.push(Marker::Str32.to_u8());
+        let mut data = vec![Marker::Str32.to_u8()];
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x04, b't', b'e', b's', b't']);
 
         let len = data.len();
@@ -674,8 +664,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_array16() {
-        let mut data = Vec::new();
-        data.push(Marker::Array16.to_u8());
+        let mut data = vec![Marker::Array16.to_u8()];
         data.extend_from_slice(&[0x00, 0x02]);
         rmp::encode::write_str(&mut data, "foo").unwrap();
         rmp::encode::write_str(&mut data, "foo").unwrap();
@@ -689,8 +678,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_array32() {
-        let mut data = Vec::new();
-        data.push(Marker::Array32.to_u8());
+        let mut data = vec![Marker::Array32.to_u8()];
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x02]);
         rmp::encode::write_str(&mut data, "foo").unwrap();
         rmp::encode::write_str(&mut data, "foo").unwrap();
@@ -704,8 +692,7 @@ mod tests {
 
     #[test]
     pub fn data_bytelen_map16() {
-        let mut data = Vec::new();
-        data.push(Marker::Map16.to_u8());
+        let mut data = vec![Marker::Map16.to_u8()];
         data.extend_from_slice(&[0x00, 0x01]);
         rmp::encode::write_str(&mut data, "foo").unwrap();
         rmp::encode::write_str(&mut data, "foo").unwrap();
@@ -718,8 +705,7 @@ mod tests {
     }
     #[test]
     pub fn data_bytelen_map32() {
-        let mut data = Vec::new();
-        data.push(Marker::Map32.to_u8());
+        let mut data = vec![Marker::Map32.to_u8()];
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
         rmp::encode::write_str(&mut data, "foo").unwrap();
         rmp::encode::write_str(&mut data, "foo").unwrap();
