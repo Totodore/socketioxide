@@ -5,31 +5,31 @@ use socketioxide_core::{
     parser::Parse,
     Sid, Value,
 };
-use socketioxide_parser_common::CommonParser;
+use socketioxide_parser_msgpack::MsgPackParser;
 
-fn encode(packet: Packet) -> String {
-    match CommonParser.encode(black_box(packet)) {
-        Value::Str(d, _) => d.into(),
-        Value::Bytes(_) => panic!("testing only returns str"),
+fn encode(packet: Packet) -> Bytes {
+    match MsgPackParser.encode(black_box(packet)) {
+        Value::Str(_, _) => panic!("testing only returns bytes"),
+        Value::Bytes(d) => d.into(),
     }
 }
-fn decode(value: String) -> Option<Packet> {
-    CommonParser
-        .decode_str(&Default::default(), black_box(value.into()))
+fn decode(value: Bytes) -> Option<Packet> {
+    MsgPackParser
+        .decode_bin(&Default::default(), black_box(value.into()))
         .ok()
 }
 
 fn to_event_value(data: impl serde::Serialize, event: &str) -> Value {
-    CommonParser.encode_value(&data, Some(event)).unwrap()
+    MsgPackParser.encode_value(&data, Some(event)).unwrap()
 }
 
 fn to_value(data: impl serde::Serialize) -> Value {
-    CommonParser.encode_value(&data, None).unwrap()
+    MsgPackParser.encode_value(&data, None).unwrap()
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("parser_common/decode_packet");
-    let connect = CommonParser
+    let mut group = c.benchmark_group("parser_msgpack/decode_packet");
+    let connect = MsgPackParser
         .encode_default(&ConnectPacket { sid: Sid::ZERO })
         .unwrap();
 

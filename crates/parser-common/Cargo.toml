@@ -20,12 +20,22 @@ socketioxide-core = { version = "0.14.1", path = "../socketioxide-core" }
 [dev-dependencies]
 criterion.workspace = true
 
-# [[bench]]
-# name = "packet_encode"
-# path = "benches/packet_encode.rs"
-# harness = false
+[[bench]]
+name = "packet_encode"
+path = "benches/packet_encode.rs"
+harness = false
 
-# [[bench]]
-# name = "packet_decode"
-# path = "benches/packet_decode.rs"
-# harness = false
+[[bench]]
+name = "packet_decode"
+path = "benches/packet_decode.rs"
+harness = false
+
+[[bench]]
+name = "value_decode"
+path = "benches/value_decode.rs"
+harness = false
+
+[[bench]]
+name = "value_encode"
+path = "benches/value_encode.rs"
+harness = false

@@ -55,62 +55,77 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         })
     }
 
+    #[inline]
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_bool(visitor)
     }
 
+    #[inline]
     fn deserialize_i8<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_i8(visitor)
     }
 
+    #[inline]
     fn deserialize_i16<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_i16(visitor)
     }
 
+    #[inline]
     fn deserialize_i32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_i32(visitor)
     }
 
+    #[inline]
     fn deserialize_i64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_i64(visitor)
     }
 
+    #[inline]
     fn deserialize_u8<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_u8(visitor)
     }
 
+    #[inline]
     fn deserialize_u16<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_u16(visitor)
     }
 
+    #[inline]
     fn deserialize_u32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_u32(visitor)
     }
 
+    #[inline]
     fn deserialize_u64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_u64(visitor)
     }
 
+    #[inline]
     fn deserialize_f32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_f32(visitor)
     }
 
+    #[inline]
     fn deserialize_f64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_f64(visitor)
     }
 
+    #[inline]
     fn deserialize_char<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_char(visitor)
     }
 
+    #[inline]
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_str(visitor)
     }
 
+    #[inline]
     fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_string(visitor)
     }
 
+    #[inline]
     fn deserialize_bytes<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_map(BinaryVisitor {
             inner: visitor,
@@ -118,6 +133,7 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         })
     }
 
+    #[inline]
     fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_map(BinaryVisitor {
             inner: visitor,
@@ -125,14 +141,17 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         })
     }
 
+    #[inline]
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_option(visitor)
     }
 
+    #[inline]
     fn deserialize_unit<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_unit(visitor)
     }
 
+    #[inline]
     fn deserialize_unit_struct<V: Visitor<'de>>(
         self,
         name: &'static str,
@@ -141,6 +160,7 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         self.inner.deserialize_unit_struct(name, visitor)
     }
 
+    #[inline]
     fn deserialize_newtype_struct<V: Visitor<'de>>(
         self,
         name: &'static str,
@@ -149,6 +169,7 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         self.inner.deserialize_newtype_struct(name, visitor)
     }
 
+    #[inline]
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_seq(WrapperVisitor::new(
             SeqVisitor::new(visitor, self.skip_first_element),
@@ -156,6 +177,7 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         ))
     }
 
+    #[inline]
     fn deserialize_tuple<V: Visitor<'de>>(
         self,
         len: usize,
@@ -170,6 +192,7 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         )
     }
 
+    #[inline]
     fn deserialize_tuple_struct<V: Visitor<'de>>(
         self,
         name: &'static str,
@@ -186,12 +209,14 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         )
     }
 
+    #[inline]
     fn deserialize_map<V: Visitor<'de>>(mut self, visitor: V) -> Result<V::Value, Self::Error> {
         self.skip_first_element = false;
         self.inner
             .deserialize_map(WrapperVisitor::new(visitor, self.binary_payloads))
     }
 
+    #[inline]
     fn deserialize_struct<V: Visitor<'de>>(
         mut self,
         name: &'static str,
@@ -203,6 +228,7 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         self.inner.deserialize_struct(name, fields, visitor)
     }
 
+    #[inline]
     fn deserialize_enum<V: Visitor<'de>>(
         mut self,
         name: &'static str,
@@ -214,10 +240,12 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
         self.inner.deserialize_enum(name, variants, visitor)
     }
 
+    #[inline]
     fn deserialize_identifier<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_identifier(visitor)
     }
 
+    #[inline]
     fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         self.inner.deserialize_ignored_any(visitor)
     }

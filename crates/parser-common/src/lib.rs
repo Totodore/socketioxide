@@ -77,6 +77,7 @@ impl Parse for CommonParser {
         }
     }
 
+    #[inline]
     fn encode_value<T: ?Sized + Serialize>(
         self,
         data: &T,
@@ -85,6 +86,7 @@ impl Parse for CommonParser {
         value::to_value(data, event)
     }
 
+    #[inline]
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
         value: &'de Value,
@@ -112,6 +114,7 @@ impl Parse for CommonParser {
         Ok(Value::Str(Str::from(value), None))
     }
 
+    #[inline]
     fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
         value::read_event(value)
     }

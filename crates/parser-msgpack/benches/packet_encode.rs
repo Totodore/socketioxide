@@ -5,12 +5,12 @@ use socketioxide_core::{
     parser::Parse,
     Sid, Value,
 };
-use socketioxide_parser_common::CommonParser;
+use socketioxide_parser_msgpack::MsgPackParser;
 
-fn encode(packet: Packet) -> String {
-    match CommonParser.encode(black_box(packet)) {
-        Value::Str(d, _) => d.into(),
-        Value::Bytes(_) => panic!("testing only returns str"),
+fn encode(packet: Packet) -> Bytes {
+    match MsgPackParser.encode(black_box(packet)) {
+        Value::Str(_, _) => panic!("testing only returns str"),
+        Value::Bytes(d) => d,
     }
 }
 fn to_value<T: serde::Serialize>(data: T) -> Value {
@@ -21,9 +21,9 @@ fn to_value_event<T: serde::Serialize>(data: T, event: &str) -> Value {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("parser_common/encode_packet");
+    let mut group = c.benchmark_group("parser_msgpack/encode_packet");
 
-    let connect = CommonParser
+    let connect = MsgPackParser
         .encode_default(&ConnectPacket { sid: Sid::ZERO })
         .unwrap();
 

@@ -81,6 +81,7 @@ impl<'a, I: SerializeSeq> SerializeSeq for Compound<'a, I> {
         })
     }
 
+    #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
         SerializeSeq::end(self.inner)
     }
@@ -99,6 +100,7 @@ impl<'a, I: SerializeTuple> SerializeTuple for Compound<'a, I> {
         })
     }
 
+    #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
         SerializeTuple::end(self.inner)
     }
@@ -117,6 +119,7 @@ impl<I: SerializeTupleStruct> SerializeTupleStruct for Compound<'_, I> {
         })
     }
 
+    #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
         SerializeTupleStruct::end(self.inner)
     }
@@ -135,6 +138,7 @@ impl<I: SerializeTupleVariant> SerializeTupleVariant for Compound<'_, I> {
         })
     }
 
+    #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
         SerializeTupleVariant::end(self.inner)
     }
@@ -247,54 +251,67 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
 
     type SerializeStructVariant = Compound<'a, S::SerializeStructVariant>;
 
+    #[inline]
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_bool(v)
     }
 
+    #[inline]
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_i8(v)
     }
 
+    #[inline]
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_i16(v)
     }
 
+    #[inline]
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_i32(v)
     }
 
+    #[inline]
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_i64(v)
     }
 
+    #[inline]
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_u8(v)
     }
 
+    #[inline]
     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_u16(v)
     }
 
+    #[inline]
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_u32(v)
     }
 
+    #[inline]
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_u64(v)
     }
 
+    #[inline]
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_f32(v)
     }
 
+    #[inline]
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_f64(v)
     }
 
+    #[inline]
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_char(v)
     }
 
+    #[inline]
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_str(v)
     }
@@ -313,10 +330,12 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         SerializeMap::end(map)
     }
 
+    #[inline]
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_none()
     }
 
+    #[inline]
     fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + serde::Serialize,
@@ -324,14 +343,17 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         self.ser.serialize_some(value)
     }
 
+    #[inline]
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_unit()
     }
 
+    #[inline]
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
         self.ser.serialize_unit_struct(name)
     }
 
+    #[inline]
     fn serialize_unit_variant(
         self,
         name: &'static str,
@@ -342,6 +364,7 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
             .serialize_unit_variant(name, variant_index, variant)
     }
 
+    #[inline]
     fn serialize_newtype_struct<T>(
         self,
         name: &'static str,
@@ -353,6 +376,7 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         self.ser.serialize_newtype_struct(name, value)
     }
 
+    #[inline]
     fn serialize_newtype_variant<T>(
         self,
         name: &'static str,
@@ -367,6 +391,7 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
             .serialize_newtype_variant(name, variant_index, variant, value)
     }
 
+    #[inline]
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         self.into_compound(move |ser| ser.serialize_seq(len))
     }
@@ -405,6 +430,7 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         }
     }
 
+    #[inline]
     fn serialize_tuple_variant(
         self,
         name: &'static str,
@@ -417,10 +443,12 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         })
     }
 
+    #[inline]
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         self.into_compound(move |ser| ser.serialize_map(len))
     }
 
+    #[inline]
     fn serialize_struct(
         self,
         name: &'static str,
@@ -429,6 +457,7 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         self.into_compound(move |ser| ser.serialize_struct(name, len))
     }
 
+    #[inline]
     fn serialize_struct_variant(
         self,
         name: &'static str,
