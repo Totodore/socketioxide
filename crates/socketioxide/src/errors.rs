@@ -4,14 +4,11 @@ use tokio::{sync::mpsc::error::TrySendError, time::error::Elapsed};
 
 pub use matchit::InsertError as NsInsertError;
 
-use crate::parser::{self};
+pub use crate::parser::{DecodeError, EncodeError};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("error serializing json packet: {0:?}")]
-    Serialize(#[from] serde_json::Error),
-
     #[error("invalid packet type")]
     InvalidPacketType,
 
@@ -35,7 +32,7 @@ pub(crate) struct ConnectFail;
 pub enum AckError {
     /// The ack response cannot be parsed
     #[error("cannot deserialize packet from ack response: {0:?}")]
-    Serde(#[from] parser::DecodeError),
+    Serde(#[from] DecodeError),
 
     /// The ack response timed out
     #[error("ack timeout error")]
@@ -59,7 +56,7 @@ pub enum BroadcastError {
 
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing packet: {0:?}")]
-    Serialize(#[from] parser::EncodeError),
+    Serialize(#[from] EncodeError),
 
     /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
@@ -70,7 +67,7 @@ pub enum BroadcastError {
 pub enum SendError {
     /// An error occurred while serializing the JSON packet.
     #[error("Error serializing packet: {0:?}")]
-    Serialize(#[from] parser::EncodeError),
+    Serialize(#[from] EncodeError),
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
@@ -155,9 +152,7 @@ impl From<&Error> for Option<EIoDisconnectReason> {
         use EIoDisconnectReason::*;
         match value {
             Error::SocketGone(_) => Some(TransportClose),
-            Error::Serialize(_) | Error::InvalidPacketType | Error::InvalidEventName => {
-                Some(PacketParsingError)
-            }
+            Error::InvalidPacketType | Error::InvalidEventName => Some(PacketParsingError),
             Error::Adapter(_) | Error::InvalidNamespace => None,
         }
     }

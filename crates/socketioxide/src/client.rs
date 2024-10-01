@@ -278,7 +278,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             Err(ParseError::NeedsMoreBinaryData) => return,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("socket serialization error: {}", _e);
+                tracing::debug!("socket deserialization error: {}", _e);
                 socket.close(EIoDisconnectReason::PacketParsingError);
                 return;
             }
@@ -317,7 +317,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             Err(ParseError::NeedsMoreBinaryData) => return,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("socket serialization error: {}", _e);
+                tracing::debug!("socket deserialization error: {}", _e);
                 socket.close(EIoDisconnectReason::PacketParsingError);
                 return;
             }
@@ -406,6 +406,7 @@ impl<A: Adapter> Client<A> {
         (tx1, rx)
     }
 }
+
 #[cfg(test)]
 mod test {
     use super::*;

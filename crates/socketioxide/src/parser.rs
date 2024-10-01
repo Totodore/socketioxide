@@ -19,7 +19,7 @@ use socketioxide_parser_msgpack::MsgPackParser;
 /// parser implementation is done over enum delegation.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
-pub enum Parser {
+pub(crate) enum Parser {
     /// The default parser
     Common(CommonParser),
     /// The MsgPack parser
@@ -55,7 +55,7 @@ pub enum DecodeError {
 }
 
 /// Parse errors occurring during packet parsing
-pub type ParseError = socketioxide_core::parser::ParseError<DecodeError>;
+pub(crate) type ParseError = socketioxide_core::parser::ParseError<DecodeError>;
 
 impl Parse for Parser {
     type EncodeError = EncodeError;

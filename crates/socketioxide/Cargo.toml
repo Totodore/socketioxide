@@ -22,13 +22,11 @@ futures-core.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 serde.workspace = true
-serde_json.workspace = true
 tower.workspace = true
 http.workspace = true
 http-body.workspace = true
 thiserror.workspace = true
 smallvec.workspace = true
-itoa.workspace = true
 hyper.workspace = true
 matchit.workspace = true
 pin-project-lite.workspace = true
@@ -58,6 +56,7 @@ __test_harness = ["engineioxide/__test_harness"]
 engineioxide = { path = "../engineioxide", features = ["v3", "tracing"] }
 tokio-tungstenite.workspace = true
 axum.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",

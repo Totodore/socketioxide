@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde_json::json;
 use socketioxide::extract::{Data, Extension, MaybeExtension, SocketRef, State, TryData};
 use socketioxide::handler::ConnectHandler;
-use socketioxide::parser::DecodeError;
+use socketioxide::DecodeError;
 use socketioxide_core::parser::Parse;
 use socketioxide_core::Value;
 use socketioxide_parser_common::CommonParser;

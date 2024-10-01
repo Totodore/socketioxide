@@ -822,7 +822,7 @@ mod test {
                 .unwrap();
         }
 
-        let ack = socket.emit_with_ack::<_, serde_json::Value>("test", &());
+        let ack = socket.emit_with_ack::<_, ()>("test", &());
         assert!(matches!(
             ack,
             Err(SendError::Socket(SocketError::InternalChannelFull))

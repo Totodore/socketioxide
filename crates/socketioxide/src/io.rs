@@ -7,6 +7,8 @@ use engineioxide::{
     TransportType,
 };
 use serde::Serialize;
+use socketioxide_parser_common::CommonParser;
+use socketioxide_parser_msgpack::MsgPackParser;
 
 use crate::{
     ack::AckStream,
@@ -20,6 +22,24 @@ use crate::{
     service::SocketIoService,
     BroadcastError, DisconnectError,
 };
+
+/// The parser to use to encode and decode socket.io packets
+///
+/// Be sure that the selected parser correspond with the client parser.
+#[derive(Debug, Clone)]
+pub struct ParserConfig(Parser);
+
+impl ParserConfig {
+    /// Use a [`CommonParser`] to parse incoming and outgoing socket.io packets
+    pub fn common() -> Self {
+        ParserConfig(Parser::Common(CommonParser))
+    }
+
+    /// Use a [`MsgPackParser`] to parse incoming and outgoing socket.io packets
+    pub fn msgpack() -> Self {
+        ParserConfig(Parser::MsgPack(MsgPackParser))
+    }
+}
 
 /// Configuration for Socket.IO & Engine.IO
 #[derive(Debug, Clone)]
@@ -38,7 +58,7 @@ pub struct SocketIoConfig {
     pub connect_timeout: Duration,
 
     /// The parser to use to encode and decode socket.io packets
-    pub parser: Parser,
+    pub(crate) parser: Parser,
 }
 
 impl Default for SocketIoConfig {
@@ -164,8 +184,8 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
     /// Sets a custom [`Parser`] for this [`SocketIoBuilder`]
     #[inline]
-    pub fn with_parser(mut self, parser: Parser) -> Self {
-        self.config.parser = parser;
+    pub fn with_parser(mut self, parser: ParserConfig) -> Self {
+        self.config.parser = parser.0;
         self
     }
 

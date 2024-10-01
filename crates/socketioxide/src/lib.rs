@@ -293,21 +293,22 @@ pub mod extract;
 pub mod handler;
 pub mod layer;
 pub mod operators;
-pub mod parser;
 pub mod service;
 pub mod socket;
 
 pub use engineioxide::TransportType;
 pub use errors::{
-    AckError, AdapterError, BroadcastError, DisconnectError, NsInsertError, SendError, SocketError,
+    AckError, AdapterError, BroadcastError, DecodeError, DisconnectError, EncodeError,
+    NsInsertError, SendError, SocketError,
 };
-pub use io::{SocketIo, SocketIoBuilder, SocketIoConfig};
+pub use io::{ParserConfig, SocketIo, SocketIoBuilder, SocketIoConfig};
 pub use socketioxide_core::packet;
 
 mod client;
 mod errors;
 mod io;
 mod ns;
+mod parser;
 
 /// Socket.IO protocol version.
 /// It is accessible with the [`Socket::protocol`](socket::Socket) method or as an extractor
