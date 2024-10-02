@@ -22,6 +22,11 @@ socketioxide-core = { version = "0.14.1", path = "../socketioxide-core" }
 serde_json.workspace = true
 criterion.workspace = true
 
+
+[features]
+fuzzing = ["socketioxide-core/fuzzing"]
+
+
 [[bench]]
 name = "packet_encode"
 path = "benches/packet_encode.rs"

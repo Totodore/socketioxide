@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Serialize};
 use socketioxide_core::{
     parser::{is_de_tuple, is_ser_tuple, FirstElement},
     Str, Value,
@@ -22,7 +22,7 @@ pub fn from_value<'de, T: Deserialize<'de>>(
 ) -> serde_json::Result<T> {
     let (value, bins) = match value {
         Value::Str(v, b) => (v, b),
-        Value::Bytes(_) => panic!("unexpected binary data"),
+        Value::Bytes(_) => return Err(serde_json::Error::custom("unexpected binary data"))?,
     };
     let mut empty = VecDeque::new();
     let is_tuple = is_de_tuple::<T>();

@@ -17,7 +17,7 @@ pub fn from_value<'de, T: Deserialize<'de>>(
 ) -> Result<T, rmp_serde::decode::Error> {
     let value = match value {
         Value::Bytes(v) => v,
-        Value::Str(_, _) => panic!("unexpected string data"),
+        Value::Str(_, _) => return Err(serde::de::Error::custom("unexpected string data")),
     };
     if is_de_tuple::<T>() {
         de::from_bytes(value, with_event)

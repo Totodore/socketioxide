@@ -51,6 +51,24 @@ pub enum Value {
     Bytes(bytes::Bytes),
 }
 
+#[cfg(feature = "fuzzing")]
+impl arbitrary::Arbitrary<'_> for Value {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let res = match u.arbitrary::<bool>()? {
+            true => Value::Bytes(u.arbitrary::<Vec<u8>>()?.into()),
+            false => Value::Str(
+                u.arbitrary::<String>()?.into(),
+                Some(
+                    u.arbitrary_iter::<Vec<u8>>()?
+                        .filter_map(|b| b.ok().map(bytes::Bytes::from))
+                        .collect(),
+                ),
+            ),
+        };
+        Ok(res)
+    }
+}
+
 impl Value {
     /// Convert the value to a str slice if it can or return None
     pub fn as_str(&self) -> Option<&Str> {

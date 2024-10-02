@@ -14,7 +14,7 @@ categories = [
 license = "MIT"
 
 [workspace]
-members = ["crates/*", "e2e/*"]
+members = ["crates/*", "e2e/*", "crates/*/fuzz"]
 default-members = ["crates/*"]
 resolver = "2"
 
