@@ -141,12 +141,16 @@ pub struct ConnectPacket {
 
 #[cfg(test)]
 mod tests {
+
     use super::{Packet, PacketData, Value};
     use bytes::Bytes;
 
     #[test]
     fn should_create_bin_packet_with_adjacent_binary() {
-        let val = Value::Str("test".into(), Some(vec![Bytes::from_static(&[1, 2, 3])]));
+        let val = Value::Str(
+            "test".into(),
+            Some(vec![Bytes::from_static(&[1, 2, 3])].into()),
+        );
         assert!(matches!(
             Packet::event("/", val.clone()).inner,
             PacketData::BinaryEvent(v, None) if v == val));

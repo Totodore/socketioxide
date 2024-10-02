@@ -98,7 +98,7 @@ impl Parse for MsgPackParser {
 
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
-        value: &'de Value,
+        value: &'de mut Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)

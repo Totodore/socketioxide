@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::VecDeque, fmt};
 
 use bytes::Bytes;
 use serde::de::{self, DeserializeSeed, IgnoredAny, Visitor};
@@ -6,7 +6,7 @@ use socketioxide_core::parser::FirstElement;
 
 pub fn from_str<'de, T: de::Deserialize<'de>>(
     data: &'de str,
-    binary_payloads: &Vec<Bytes>,
+    binary_payloads: &mut VecDeque<Bytes>,
     with_event: bool,
 ) -> Result<T, serde_json::Error> {
     let inner = &mut serde_json::Deserializer::from_str(data);
@@ -20,7 +20,7 @@ pub fn from_str<'de, T: de::Deserialize<'de>>(
 
 pub fn from_str_seed<'de, T: de::DeserializeSeed<'de>>(
     data: &'de str,
-    binary_payloads: &Vec<Bytes>,
+    binary_payloads: &mut VecDeque<Bytes>,
     seed: T,
     with_event: bool,
 ) -> Result<T::Value, serde_json::Error> {
@@ -40,7 +40,7 @@ pub fn read_event(data: &str) -> serde_json::Result<&str> {
 
 struct Deserializer<'a, D> {
     inner: D,
-    binary_payloads: &'a Vec<Bytes>,
+    binary_payloads: &'a mut VecDeque<Bytes>,
     skip_first_element: bool,
 }
 
@@ -253,10 +253,10 @@ impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'
 
 struct WrapperVisitor<'a, I> {
     inner: I,
-    binary_payloads: &'a Vec<Bytes>,
+    binary_payloads: &'a mut VecDeque<Bytes>,
 }
 impl<'a, I> WrapperVisitor<'a, I> {
-    fn new(inner: I, binary_payloads: &'a Vec<Bytes>) -> Self {
+    fn new(inner: I, binary_payloads: &'a mut VecDeque<Bytes>) -> Self {
         Self {
             inner,
             binary_payloads,
@@ -442,7 +442,7 @@ impl<'a, 'de, I: de::EnumAccess<'de>> de::EnumAccess<'de> for WrapperVisitor<'a,
 
 struct WrapperSeed<'a, S> {
     seed: S,
-    binary_payloads: &'a Vec<Bytes>,
+    binary_payloads: &'a mut VecDeque<Bytes>,
 }
 impl<'a, 'de, S: de::DeserializeSeed<'de>> de::DeserializeSeed<'de> for WrapperSeed<'a, S> {
     type Value = S::Value;
@@ -460,7 +460,7 @@ impl<'a, 'de, S: de::DeserializeSeed<'de>> de::DeserializeSeed<'de> for WrapperS
 }
 
 struct BinaryVisitor<'a, V> {
-    binary_payloads: &'a Vec<Bytes>,
+    binary_payloads: &'a mut VecDeque<Bytes>,
     inner: V,
 }
 
@@ -492,9 +492,9 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'a, V> {
             | ("num", Val::Num(idx), "_placeholder", Val::Placeholder(true)) => {
                 let payload = self
                     .binary_payloads
-                    .get(idx)
+                    .pop_front()
                     .ok_or_else(|| A::Error::custom(format!("binary payload {} not found", idx)))?;
-                self.inner.visit_byte_buf(payload.to_vec()) //TODO: payload is copied here
+                self.inner.visit_byte_buf(Vec::from(payload))
             }
             _ => Err(A::Error::custom("expected a binary placeholder")),
         }
@@ -575,7 +575,7 @@ impl<'de, E: de::Error> de::Deserializer<'de> for PeekKey<'de, E> {
 /// A [`de::MapAccess`] implementation that can reinsert the key that
 /// was peeked into the map we were reading from.
 struct PeekKeyMap<'a, 'de, I> {
-    binary_payloads: &'a Vec<Bytes>,
+    binary_payloads: &'a mut VecDeque<Bytes>,
     inner: I,
     key: Option<&'de str>,
 }
@@ -605,7 +605,7 @@ impl<'a, 'de, A: de::MapAccess<'de>> de::MapAccess<'de> for PeekKeyMap<'a, 'de, 
 /// The [`BinaryAnyVisitor`] will check if in there is a `_placeholder` key in the map and if so,
 /// it will replace the value with the binary payload at the index specified in the value.
 struct BinaryAnyVisitor<'a, V> {
-    binary_payloads: &'a Vec<Bytes>,
+    binary_payloads: &'a mut VecDeque<Bytes>,
     skip_first_element: bool,
     inner: V,
 }
@@ -629,10 +629,10 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'a, V> {
                 match map.next_value::<bool>()? {
                     true if map.next_key::<&str>()? == Some("num") => {
                         let idx = map.next_value::<usize>()?;
-                        let payload = self.binary_payloads.get(idx).ok_or_else(|| {
+                        let payload = self.binary_payloads.pop_front().ok_or_else(|| {
                             A::Error::custom(format!("binary payload {} not found", idx))
                         })?;
-                        self.inner.visit_byte_buf(payload.to_vec()) //TODO: payload is copied here
+                        self.inner.visit_byte_buf(Vec::from(payload))
                     }
                     _ => Err(A::Error::custom("expected a binary placeholder")),
                 }

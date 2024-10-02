@@ -1,5 +1,5 @@
 //! This module contains a specialized JSON serializer wrapper that can serialize binary payloads as placeholders.
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, collections::VecDeque};
 
 use bytes::Bytes;
 use serde::ser::{
@@ -16,9 +16,9 @@ use serde::ser::{
 pub fn into_str<T: ?Sized + ser::Serialize>(
     data: &T,
     event: Option<&str>,
-) -> Result<(Vec<u8>, Vec<Bytes>), serde_json::Error> {
+) -> Result<(Vec<u8>, VecDeque<Bytes>), serde_json::Error> {
     let mut writer = Vec::new();
-    let binary_payloads = UnsafeCell::new(Vec::new());
+    let binary_payloads = UnsafeCell::new(VecDeque::new());
     let ser = &mut serde_json::Serializer::new(&mut writer);
     let ser = Serializer {
         event,
@@ -36,7 +36,7 @@ struct Serializer<'a, S> {
     /// This field requires UnsafeCell because we need to mutate the vector of binary payloads.
     /// However we can't move &mut around because we need to pass by value every [`Serializer`] when we
     /// instantiate them for new [`Compound`] types.
-    binary_payloads: &'a UnsafeCell<Vec<Bytes>>,
+    binary_payloads: &'a UnsafeCell<VecDeque<Bytes>>,
     is_root: bool,
 }
 
@@ -45,14 +45,14 @@ struct Serializer<'a, S> {
 struct Compound<'a, I> {
     inner: I,
     event: Option<&'a str>,
-    binary_payloads: &'a UnsafeCell<Vec<Bytes>>,
+    binary_payloads: &'a UnsafeCell<VecDeque<Bytes>>,
 }
 
 /// A wrapper around a value that is being serialized.
 struct CompoundWrapper<'a, T> {
     value: T,
     event: Option<&'a str>,
-    binary_payloads: &'a UnsafeCell<Vec<Bytes>>,
+    binary_payloads: &'a UnsafeCell<VecDeque<Bytes>>,
 }
 
 impl<T: ser::Serialize> ser::Serialize for CompoundWrapper<'_, T> {
@@ -320,7 +320,7 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
         use serde::ser::SerializeMap;
         let num = {
             let bins = unsafe { self.binary_payloads.get().as_mut().unwrap() };
-            bins.push(Bytes::copy_from_slice(v)); //TODO: avoid copy ?
+            bins.push_back(Bytes::copy_from_slice(v));
             bins.len() - 1
         };
 

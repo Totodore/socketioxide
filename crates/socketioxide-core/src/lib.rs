@@ -35,6 +35,8 @@
 pub mod packet;
 pub mod parser;
 
+use std::collections::VecDeque;
+
 pub use engineioxide::{sid::Sid, Str};
 
 /// Represents a value that can be sent over the engine.io wire as an engine.io packet
@@ -44,7 +46,7 @@ pub use engineioxide::{sid::Sid, Str};
 pub enum Value {
     /// A string payload that will be sent as a string engine.io packet.
     /// It can also contain adjacent binary payloads.
-    Str(Str, Option<Vec<bytes::Bytes>>),
+    Str(Str, Option<VecDeque<bytes::Bytes>>),
     /// A binary payload that will be sent as a binary engine.io packet
     Bytes(bytes::Bytes),
 }

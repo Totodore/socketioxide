@@ -135,7 +135,7 @@ impl Parse for Parser {
 
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
-        value: &'de Value,
+        value: &'de mut Value,
         with_event: bool,
     ) -> Result<T, DecodeError> {
         #[cfg(feature = "tracing")]

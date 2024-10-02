@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use bytes::{BufMut, BytesMut};
 use socketioxide_core::{
     packet::{Packet, PacketData},
@@ -42,7 +44,7 @@ pub fn serialize_packet(packet: Packet) -> Value {
             None
         }
         PacketData::BinaryEvent(Value::Str(data, bins), ack) => {
-            serialize_attachments(&mut buffer, bins.as_ref().map(Vec::len).unwrap_or(0));
+            serialize_attachments(&mut buffer, bins.as_ref().map(VecDeque::len).unwrap_or(0));
             serialize_nsp(&mut buffer, &packet.ns);
             serialize_ack(&mut buffer, ack);
 
@@ -50,7 +52,7 @@ pub fn serialize_packet(packet: Packet) -> Value {
             bins
         }
         PacketData::BinaryAck(Value::Str(data, bins), ack) => {
-            serialize_attachments(&mut buffer, bins.as_ref().map(Vec::len).unwrap_or(0));
+            serialize_attachments(&mut buffer, bins.as_ref().map(VecDeque::len).unwrap_or(0));
             serialize_nsp(&mut buffer, &packet.ns);
             serialize_ack(&mut buffer, Some(ack));
 
@@ -123,7 +125,7 @@ fn get_size_hint(packet: &Packet) -> usize {
                     .unwrap_or(0)
                 + bin
                     .as_ref()
-                    .map(Vec::len)
+                    .map(VecDeque::len)
                     .unwrap_or(0)
                     .checked_ilog10()
                     .unwrap_or(0) as usize
@@ -137,7 +139,7 @@ fn get_size_hint(packet: &Packet) -> usize {
                 + ack.checked_ilog10().unwrap_or(0) as usize
                 + bins
                     .as_ref()
-                    .map(Vec::len)
+                    .map(VecDeque::len)
                     .unwrap_or(0)
                     .checked_ilog10()
                     .unwrap_or(0) as usize

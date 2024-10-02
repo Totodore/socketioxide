@@ -292,7 +292,7 @@ impl<T: DeserializeOwned> FusedFuture for AckStream<T> {
 }
 
 fn map_ack_response<T: DeserializeOwned>(ack: AckResult<Value>, parser: Parser) -> AckResult<T> {
-    ack.and_then(|v| parser.decode_value(&v, false).map_err(AckError::Serde))
+    ack.and_then(|mut v| parser.decode_value(&mut v, false).map_err(AckError::Serde))
 }
 
 #[cfg(test)]

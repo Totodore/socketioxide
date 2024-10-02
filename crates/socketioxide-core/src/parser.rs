@@ -92,7 +92,7 @@ pub trait Parse: Default + Copy {
     /// * If `T` is not a tuple-like type, the first element of the array will be deserialized (`[data]`).
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
-        value: &'de Value,
+        value: &'de mut Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError>;
 

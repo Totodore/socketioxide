@@ -55,6 +55,7 @@
 //! let svc = EngineIoService::new(Arc::new(MyHandler::default()));
 //! ```
 use std::{
+    collections::VecDeque,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -138,7 +139,7 @@ impl Permit<'_> {
     /// Consume the permit and emit a message with multiple binary data to the client.
     ///
     /// It can be used to ensure atomicity when sending a string packet with adjacent binary packets.
-    pub fn emit_many(self, msg: Str, data: Vec<Bytes>) {
+    pub fn emit_many(self, msg: Str, data: VecDeque<Bytes>) {
         let mut packets = SmallVec::with_capacity(data.len() + 1);
         packets.push(Packet::Message(msg));
         for d in data {

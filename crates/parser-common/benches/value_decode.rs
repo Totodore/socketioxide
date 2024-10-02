@@ -44,7 +44,7 @@ impl NestedDataWithBinaries {
 fn serde_decode<T: DeserializeOwned>(data: &str) -> T {
     serde_json::from_str(black_box(data)).unwrap()
 }
-fn socketio_decode<T: DeserializeOwned>(data: &Value, with_event: bool) -> T {
+fn socketio_decode<T: DeserializeOwned>(data: &mut Value, with_event: bool) -> T {
     CommonParser
         .decode_value(black_box(data), with_event)
         .unwrap()

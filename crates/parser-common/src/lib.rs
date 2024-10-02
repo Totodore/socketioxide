@@ -38,7 +38,7 @@
 //! <packet type>[<# of binary attachments>-][<namespace>,][<acknowledgment id>][JSON-stringified payload without binary]
 //! + binary attachments extracted
 //! ```
-use std::sync::atomic::Ordering;
+use std::{collections::VecDeque, sync::atomic::Ordering};
 
 use bytes::Bytes;
 
@@ -100,8 +100,8 @@ impl Parse for CommonParser {
                     | PacketData::BinaryAck(Value::Str(_, binaries), _),
                 ..
             }) => {
-                let binaries = binaries.get_or_insert(Vec::new());
-                binaries.push(data);
+                let binaries = binaries.get_or_insert(VecDeque::new());
+                binaries.push_back(data);
                 if state.incoming_binary_cnt.load(Ordering::Relaxed) > binaries.len() {
                     Err(ParseError::NeedsMoreBinaryData)
                 } else {
@@ -124,7 +124,7 @@ impl Parse for CommonParser {
     #[inline]
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
-        value: &'de Value,
+        value: &'de mut Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError> {
         value::from_value(value, with_event)
@@ -160,7 +160,7 @@ fn is_bin_packet_complete(packet: &PacketData, incoming_binary_cnt: usize) -> bo
     match &packet {
         PacketData::BinaryEvent(Value::Str(_, binaries), _)
         | PacketData::BinaryAck(Value::Str(_, binaries), _) => {
-            incoming_binary_cnt == binaries.as_ref().map(Vec::len).unwrap_or(0)
+            incoming_binary_cnt == binaries.as_ref().map(VecDeque::len).unwrap_or(0)
         }
         _ => true,
     }
@@ -623,10 +623,11 @@ mod test {
     }
     #[test]
     fn check_is_bin_packet_complete() {
-        let data = PacketData::BinaryEvent(Value::Str("".into(), Some(vec![])), None);
+        let data = PacketData::BinaryEvent(Value::Str("".into(), Some(vec![].into())), None);
         assert!(!is_bin_packet_complete(&data, 2));
         assert!(is_bin_packet_complete(&data, 0));
-        let data = PacketData::BinaryAck(Value::Str("".into(), Some(vec![Bytes::new()])), 12);
+        let data =
+            PacketData::BinaryAck(Value::Str("".into(), Some(vec![Bytes::new()].into())), 12);
         assert!(is_bin_packet_complete(&data, 1));
         assert!(!is_bin_packet_complete(&data, 2));
 
