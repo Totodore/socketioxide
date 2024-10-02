@@ -145,6 +145,13 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+#[rustversion::attr(
+    since(1.78),
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        label = "Invalid extractor"
+    )
+)]
 pub trait FromConnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
     type Error: std::error::Error + Send + 'static;
@@ -160,6 +167,13 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect middlewares.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+#[rustversion::attr(
+    since(1.78),
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        label = "Invalid extractor"
+    )
+)]
 pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// Call the middleware with the given arguments.
     fn call<'a>(

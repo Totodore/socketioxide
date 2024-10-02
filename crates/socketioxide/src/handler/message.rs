@@ -94,8 +94,12 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[diagnostic::on_unimplemented(
-    note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details"
+#[rustversion::attr(
+    since(1.78),
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        label = "Invalid extractor"
+    )
 )]
 pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments
@@ -149,8 +153,12 @@ mod private {
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[diagnostic::on_unimplemented(
-    note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details"
+#[rustversion::attr(
+    since(1.78),
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        label = "Invalid extractor"
+    )
 )]
 pub trait FromMessageParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
@@ -171,8 +179,12 @@ pub trait FromMessageParts<A: Adapter>: Sized {
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[diagnostic::on_unimplemented(
-    note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details"
+#[rustversion::attr(
+    since(1.78),
+    diagnostic::on_unimplemented(
+        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        label = "Invalid extractor"
+    )
 )]
 pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
     /// The error type returned by the extractor
