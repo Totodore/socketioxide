@@ -4,7 +4,6 @@ use std::sync::Arc;
 use crate::handler::{FromConnectParts, FromMessageParts};
 use crate::parser::DecodeError;
 use crate::{adapter::Adapter, socket::Socket};
-use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use socketioxide_core::parser::Parse;
 use socketioxide_core::Value;
@@ -34,7 +33,6 @@ where
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
         let parser = s.parser();
@@ -65,7 +63,6 @@ where
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         let parser = s.parser();

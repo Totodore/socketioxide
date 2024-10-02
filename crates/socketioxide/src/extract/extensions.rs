@@ -4,7 +4,6 @@ use std::sync::Arc;
 use crate::adapter::Adapter;
 use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::socket::{DisconnectReason, Socket};
-use bytes::Bytes;
 use socketioxide_core::Value;
 
 #[cfg(feature = "extensions")]
@@ -85,7 +84,6 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromMessageParts<A> for HttpE
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, ExtensionNotFound<T>> {
         extract_http_extension(s).map(HttpExtension)
@@ -96,7 +94,6 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromMessageParts<A> for Maybe
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(MaybeHttpExtension(extract_http_extension(s).ok()))
@@ -166,7 +163,6 @@ mod extensions_extract {
         fn from_message_parts(
             s: &Arc<Socket<A>>,
             _: &mut Value,
-            _: &mut Vec<Bytes>,
             _: &Option<i64>,
         ) -> Result<Self, ExtensionNotFound<T>> {
             extract_extension(s).map(Extension)
@@ -177,7 +173,6 @@ mod extensions_extract {
         fn from_message_parts(
             s: &Arc<Socket<A>>,
             _: &mut Value,
-            _: &mut Vec<Bytes>,
             _: &Option<i64>,
         ) -> Result<Self, Infallible> {
             Ok(MaybeExtension(extract_extension(s).ok()))

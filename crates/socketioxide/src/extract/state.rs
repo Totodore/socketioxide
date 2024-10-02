@@ -1,5 +1,3 @@
-use bytes::Bytes;
-
 use std::sync::Arc;
 
 use crate::adapter::Adapter;
@@ -84,7 +82,6 @@ impl<A: Adapter, T: Clone + Send + Sync + 'static> FromMessageParts<A> for State
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, StateNotFound<T>> {
         s.get_io()

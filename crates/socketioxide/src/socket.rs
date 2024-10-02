@@ -752,7 +752,7 @@ impl<A: Adapter> Socket<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!(?event, "reading");
         if let Some(handler) = self.message_handlers.read().unwrap().get(event) {
-            handler.call(self.clone(), data, vec![], ack);
+            handler.call(self.clone(), data, ack);
         }
         Ok(())
     }

@@ -9,7 +9,6 @@ use crate::{
     socket::{DisconnectReason, Socket},
     SocketIo,
 };
-use bytes::Bytes;
 use serde::Serialize;
 use socketioxide_core::parser::Parse;
 use socketioxide_core::Value;
@@ -29,7 +28,6 @@ impl<A: Adapter> FromMessageParts<A> for SocketRef<A> {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(SocketRef(s.clone()))
@@ -90,7 +88,6 @@ impl<A: Adapter> FromMessageParts<A> for AckSender<A> {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         ack_id: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(Self::new(s.clone(), *ack_id))
@@ -135,7 +132,6 @@ impl<A: Adapter> FromMessageParts<A> for crate::ProtocolVersion {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.protocol())
@@ -159,7 +155,6 @@ impl<A: Adapter> FromMessageParts<A> for crate::TransportType {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
         Ok(s.transport_type())
@@ -195,7 +190,6 @@ impl<A: Adapter> FromMessageParts<A> for SocketIo<A> {
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         _: &mut Value,
-        _: &mut Vec<Bytes>,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
         Ok(s.get_io().clone())
