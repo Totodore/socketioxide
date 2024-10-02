@@ -314,4 +314,34 @@ mod tests {
             ("hello".to_string(), 1, 2, 3)
         );
     }
+
+    #[test]
+    fn from_value_any_binary() {
+        let data = json!(["event", { "data": "str", "bin": { "_placeholder": true, "num": 0 }, "complex": { "inner": true, "bin2": { "_placeholder": true, "num": 1 } } }]);
+        let comp = rmpv::Value::Map(vec![
+            (
+                rmpv::Value::String("bin".into()),
+                rmpv::Value::Binary(Vec::new()),
+            ),
+            (
+                rmpv::Value::String("complex".into()),
+                rmpv::Value::Map(vec![
+                    (
+                        rmpv::Value::String("bin2".into()),
+                        rmpv::Value::Binary(Vec::new()),
+                    ),
+                    (
+                        rmpv::Value::String("inner".into()),
+                        rmpv::Value::Boolean(true),
+                    ),
+                ]),
+            ),
+            (
+                rmpv::Value::String("data".into()),
+                rmpv::Value::String("str".into()),
+            ),
+        ]);
+        let res: rmpv::Value = from_str_event_bin(data, vec![Bytes::new(), Bytes::new()]);
+        assert_eq!(res, comp);
+    }
 }

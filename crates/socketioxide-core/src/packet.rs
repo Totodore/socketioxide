@@ -138,3 +138,43 @@ pub struct ConnectPacket {
     /// The socket ID
     pub sid: Sid,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Packet, PacketData, Value};
+    use bytes::Bytes;
+
+    #[test]
+    fn should_create_bin_packet_with_adjacent_binary() {
+        let val = Value::Str("test".into(), Some(vec![Bytes::from_static(&[1, 2, 3])]));
+        assert!(matches!(
+            Packet::event("/", val.clone()).inner,
+            PacketData::BinaryEvent(v, None) if v == val));
+
+        assert!(matches!(
+            Packet::ack("/", val.clone(), 120).inner,
+            PacketData::BinaryAck(v, 120) if v == val));
+    }
+
+    #[test]
+    fn should_create_default_packet_with_base_data() {
+        let val = Value::Str("test".into(), None);
+        let val1 = Value::Bytes(Bytes::from_static(b"test"));
+
+        assert!(matches!(
+            Packet::event("/", val.clone()).inner,
+            PacketData::Event(v, None) if v == val));
+
+        assert!(matches!(
+            Packet::ack("/", val.clone(), 120).inner,
+            PacketData::EventAck(v, 120) if v == val));
+
+        assert!(matches!(
+            Packet::event("/", val1.clone()).inner,
+            PacketData::Event(v, None) if v == val1));
+
+        assert!(matches!(
+            Packet::ack("/", val1.clone(), 120).inner,
+            PacketData::EventAck(v, 120) if v == val1));
+    }
+}

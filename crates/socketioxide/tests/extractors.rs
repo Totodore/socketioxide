@@ -14,8 +14,6 @@ use tokio::sync::mpsc;
 use engineioxide::Packet as EioPacket;
 use socketioxide::packet::Packet;
 use socketioxide::SocketIo;
-use tracing::Level;
-use tracing_subscriber::FmtSubscriber;
 mod fixture;
 mod utils;
 
@@ -70,12 +68,6 @@ pub async fn data_extractor() {
     let (_, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<String>(4);
     let tx1 = tx.clone();
-
-    let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .with_max_level(Level::TRACE)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     io.ns("/", move |socket: SocketRef, Data(data): Data<String>| {
         assert_ok!(tx.try_send(data));

@@ -237,4 +237,10 @@ mod tests {
         let packet = Packet::ack("/admin", bin_ack_payload.clone(), 54);
         assert_eq!(get_size_hint(&packet), serialize_packet(packet).len());
     }
+
+    #[test]
+    #[should_panic]
+    fn panic_with_bad_value_type() {
+        serialize_packet(Packet::event("test", Value::Bytes(Bytes::new())));
+    }
 }

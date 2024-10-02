@@ -101,3 +101,30 @@ fn read_ack(reader: &mut Cursor<&str>) -> Option<i64> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use socketioxide_core::parser::ParseError;
+
+    use crate::de::deserialize_packet;
+
+    #[test]
+    fn data_is_empty() {
+        let err = deserialize_packet("".into());
+        assert!(matches!(err, Err(ParseError::InvalidPacketType)));
+    }
+
+    #[test]
+    fn invalid_packet_type() {
+        let err = deserialize_packet("7azdaz".into());
+        assert!(matches!(err, Err(ParseError::InvalidPacketType)));
+        let err = deserialize_packet("8".into());
+        assert!(matches!(err, Err(ParseError::InvalidPacketType)));
+    }
+
+    #[test]
+    fn ns_without_comma_end() {
+        let (packet, _) = deserialize_packet("0/custom".into()).unwrap();
+        assert_eq!(packet.ns, "/custom");
+    }
+}

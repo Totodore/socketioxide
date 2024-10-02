@@ -133,6 +133,10 @@ fn is_bin_packet_complete(packet: &PacketData, incoming_binary_cnt: usize) -> bo
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
+    use crate::is_bin_packet_complete;
+
     use super::*;
     use serde_json::json;
     use socketioxide_core::{packet::ConnectPacket, Sid};
@@ -393,10 +397,14 @@ mod test {
 
     #[test]
     fn packet_decode_binary_event() {
-        let json = json!(["event", { "data": "value™" }, { "_placeholder": true, "num": 0}]);
+        let json = json!(["event", { "data": "value™" },{ "_placeholder": true, "num": 0},{ "_placeholder": true, "num": 1}]);
         let comparison_packet = |ack, ns: &'static str| {
             let data = to_event_value(
-                &(json!({"data": "value™"}), Bytes::from_static(&[1])),
+                &(
+                    json!({"data": "value™"}),
+                    Bytes::from_static(&[1]),
+                    Bytes::from_static(&[2]),
+                ),
                 "event",
             );
             Packet {
@@ -405,52 +413,68 @@ mod test {
             }
         };
         let state = ParserState::default();
-        let payload = format!("51-{}", json);
+        let payload = format!("52-{}", json);
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
+        assert!(matches!(
+            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[1]))
+            .decode_bin(&state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/"));
 
         // Check with ack ID
         let state = ParserState::default();
-        let payload = format!("51-254{}", json);
+        let payload = format!("52-254{}", json);
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
+        assert!(matches!(
+            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[1]))
+            .decode_bin(&state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/"));
 
         // Check with NS
         let state = ParserState::default();
-        let payload = format!("51-/admin™,{}", json);
+        let payload = format!("52-/admin™,{}", json);
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
+        assert!(matches!(
+            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[1]))
+            .decode_bin(&state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/admin™"));
 
         // Check with ack ID and NS
         let state = ParserState::default();
-        let payload = format!("51-/admin™,254{}", json);
+        let payload = format!("52-/admin™,254{}", json);
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
+        assert!(matches!(
+            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[1]))
+            .decode_bin(&state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/admin™"));
@@ -525,5 +549,55 @@ mod test {
             .unwrap_err();
 
         assert!(matches!(err, ParseError::InvalidAttachments));
+    }
+
+    #[test]
+    fn decode_default_none() {
+        // Common parser should deserialize by default to an empty map to match the behavior of the
+        // socket.io client when deserializing incoming connect message without an auth payload.
+        let data: serde_json::Result<HashMap<String, ()>> = CommonParser.decode_default(None);
+        assert!(matches!(data, Ok(d) if d.is_empty()));
+    }
+
+    #[test]
+    fn decode_default_some() {
+        // Common parser should deserialize by default to an empty map to match the behavior of the
+        // socket.io client when deserializing incoming connect message without an auth payload.
+        let data: serde_json::Result<String> =
+            CommonParser.decode_default(Some(&Value::Str("\"test\"".into(), None)));
+        assert!(matches!(data, Ok(d) if d == "test"));
+    }
+
+    #[test]
+    fn encode_default() {
+        let data = CommonParser.encode_default(&20);
+        assert!(matches!(data, Ok(Value::Str(d, None)) if d == "20"));
+    }
+
+    #[test]
+    fn read_event() {
+        let data = Value::Str(r#"["event",{"data":1,"complex":[132,12]}]"#.into(), None);
+        let event = CommonParser.read_event(&data).unwrap();
+        assert_eq!(event, "event");
+    }
+
+    #[test]
+    fn unexpected_bin_packet() {
+        let err = CommonParser.decode_bin(&Default::default(), Bytes::new());
+        assert!(matches!(err, Err(ParseError::UnexpectedBinaryPacket)));
+    }
+    #[test]
+    fn check_is_bin_packet_complete() {
+        let data = PacketData::BinaryEvent(Value::Str("".into(), Some(vec![])), None);
+        assert!(!is_bin_packet_complete(&data, 2));
+        assert!(is_bin_packet_complete(&data, 0));
+        let data = PacketData::BinaryAck(Value::Str("".into(), Some(vec![Bytes::new()])), 12);
+        assert!(is_bin_packet_complete(&data, 1));
+        assert!(!is_bin_packet_complete(&data, 2));
+
+        // any other packet
+        let data = PacketData::Connect(None);
+        assert!(is_bin_packet_complete(&data, 0));
+        assert!(is_bin_packet_complete(&data, 1));
     }
 }

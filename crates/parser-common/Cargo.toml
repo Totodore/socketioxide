@@ -19,6 +19,7 @@ socketioxide-core = { version = "0.14.1", path = "../socketioxide-core" }
 
 [dev-dependencies]
 criterion.workspace = true
+rmpv = { version = "1.3.0", features = ["with-serde"] }
 
 [[bench]]
 name = "packet_encode"
