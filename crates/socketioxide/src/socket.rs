@@ -106,10 +106,19 @@ impl From<EIoDisconnectReason> for DisconnectReason {
 
 pub(crate) trait PermitExt<'a> {
     fn send(self, packet: Packet, parser: Parser);
+    fn send_raw(self, value: Value);
 }
 impl<'a> PermitExt<'a> for Permit<'a> {
     fn send(self, packet: Packet, parser: Parser) {
         match parser.encode(packet) {
+            Value::Str(msg, None) => self.emit(msg),
+            Value::Str(msg, Some(bin_payloads)) => self.emit_many(msg, bin_payloads),
+            Value::Bytes(bin) => self.emit_binary(bin),
+        }
+    }
+
+    fn send_raw(self, value: Value) {
+        match value {
             Value::Str(msg, None) => self.emit(msg),
             Value::Str(msg, Some(bin_payloads)) => self.emit_many(msg, bin_payloads),
             Value::Bytes(bin) => self.emit_binary(bin),
@@ -644,6 +653,11 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn send(&self, packet: Packet) -> Result<(), SocketError> {
         let permit = self.reserve()?;
         permit.send(packet, self.parser());
+        Ok(())
+    }
+    pub(crate) fn send_raw(&self, value: Value) -> Result<(), SocketError> {
+        let permit = self.reserve()?;
+        permit.send_raw(value);
         Ok(())
     }
 

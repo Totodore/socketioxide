@@ -490,6 +490,8 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'a, V> {
         match (key, val, key1, val1) {
             ("_placeholder", Val::Placeholder(true), "num", Val::Num(idx))
             | ("num", Val::Num(idx), "_placeholder", Val::Placeholder(true)) => {
+                // Serde is going through the data in a DFS manner, in the same way that socket.io JS parser encode placeholders.
+                // So we can safely pop the first element of the queue.
                 let payload = self
                     .binary_payloads
                     .pop_front()
@@ -629,6 +631,8 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'a, V> {
                 match map.next_value::<bool>()? {
                     true if map.next_key::<&str>()? == Some("num") => {
                         let idx = map.next_value::<usize>()?;
+                        // Serde is going through the data in a DFS manner, in the same way that socket.io JS parser encode placeholders.
+                        // So we can safely pop the first element of the queue.
                         let payload = self.binary_payloads.pop_front().ok_or_else(|| {
                             A::Error::custom(format!("binary payload {} not found", idx))
                         })?;

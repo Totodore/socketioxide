@@ -183,13 +183,19 @@ impl Adapter for LocalAdapter {
     }
 
     fn broadcast(&self, packet: Packet, opts: BroadcastOptions) -> Result<(), BroadcastError> {
+        use socketioxide_core::parser::Parse;
         let sockets = self.apply_opts(opts);
 
         #[cfg(feature = "tracing")]
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
+        let parser = match sockets.first() {
+            Some(socket) => socket.parser(),
+            None => return Ok(()),
+        };
+        let data = parser.encode(packet);
         let errors: Vec<_> = sockets
             .into_iter()
-            .filter_map(|socket| socket.send(packet.clone()).err())
+            .filter_map(|socket| socket.send_raw(data.clone()).err())
             .collect();
         if errors.is_empty() {
             Ok(())
