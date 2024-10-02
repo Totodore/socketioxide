@@ -12,7 +12,6 @@
 //!     - for [`MessageHandler`]: extracts and deserialize to json the message data
 //! * [`SocketRef`]: extracts a reference to the [`Socket`](crate::socket::Socket)
 //! * [`SocketIo`](crate::SocketIo): extracts a reference to the whole socket.io server context.
-//! * [`Bin`]: extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`]: Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
 //! * [`TransportType`](crate::TransportType): extracts the transport type

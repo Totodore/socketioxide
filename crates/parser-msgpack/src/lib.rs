@@ -1,3 +1,51 @@
+#![warn(
+    clippy::all,
+    clippy::todo,
+    clippy::empty_enum,
+    clippy::mem_forget,
+    clippy::unused_self,
+    clippy::filter_map_next,
+    clippy::needless_continue,
+    clippy::needless_borrow,
+    clippy::match_wildcard_for_single_variants,
+    clippy::if_let_mutex,
+    clippy::mismatched_target_os,
+    clippy::await_holding_lock,
+    clippy::match_on_vec_items,
+    clippy::imprecise_flops,
+    clippy::suboptimal_flops,
+    clippy::lossy_float_literal,
+    clippy::rest_pat_in_fully_bound_structs,
+    clippy::fn_params_excessive_bools,
+    clippy::exit,
+    clippy::inefficient_to_string,
+    clippy::linkedlist,
+    clippy::macro_use_imports,
+    clippy::option_option,
+    clippy::verbose_file_reads,
+    clippy::unnested_or_patterns,
+    rust_2018_idioms,
+    future_incompatible,
+    nonstandard_style,
+    missing_docs
+)]
+
+//! The msgpack parser sub-crate for the socketioxide crate.
+//!
+//! This is a custom parser implementation that can be enable with the `msgpack` feature flag in socketioxide.
+//!
+//! It is used to parse and serialize the msgpack packet format of the socket.io protocol:
+//! ```json
+//! {
+//!   "type": 2,
+//!   "nsp": "/",
+//!   "data": ["event", "foo"],
+//!   "id": 1
+//! }
+//! ```
+//! will be directly converted to the following msgpack binary format:
+//! `84 A4 74 79 70 65 02 A3 6E 73 70 A1 2F A4 64 61 74 61 92 A5 65 76 65 6E 74 A3 66 6F 6F A2 69 64 01`
+
 use bytes::Bytes;
 use de::deserialize_packet;
 use ser::serialize_packet;

@@ -214,7 +214,7 @@ impl<V> SeqVisitor<V> {
 impl<'de, V: Visitor<'de>> Visitor<'de> for SeqVisitor<V> {
     type Value = V::Value;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a sequence")
     }
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>

@@ -1,6 +1,5 @@
 //! Socket.io packet implementation.
 //! The [`Packet`] is the base unit of data that is sent over the engine.io socket.
-//! It should not be used directly except when implementing the [`Adapter`](crate::adapter::Adapter) trait.
 
 use serde::{Deserialize, Serialize};
 
@@ -102,6 +101,7 @@ pub enum PacketData {
 }
 
 impl PacketData {
+    /// Returns the index of the packet type
     pub fn index(&self) -> usize {
         match self {
             PacketData::Connect(_) => 0,

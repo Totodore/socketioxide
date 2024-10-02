@@ -354,13 +354,13 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///
     /// To get acknowledgements, an [`AckStream`] is returned.
     /// It can be used in two ways:
-    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// * As a [`Stream`]: It will yield all the ack responses with their corresponding socket id
     /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
     /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
-    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// * As a [`Future`]: It will yield the first ack response received from the client.
     /// Useful when expecting only one acknowledgement.
     ///
-    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
+    /// If the packet encoding failed an [`EncodeError`] is **immediately** returned.
     ///
     /// If the socket is full or if it has been closed before receiving the acknowledgement,
     /// an [`SendError::Socket`] will be **immediately returned** and the value to send will be given back.
@@ -373,12 +373,12 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
     /// [`Stream`]: futures_core::stream::Stream
     /// [`Future`]: futures_core::future::Future
-    /// [`AckResponse`]: crate::ack::AckResponse
     /// [`AckError`]: crate::AckError
     /// [`AckError::Serde`]: crate::AckError::Serde
     /// [`AckError::Timeout`]: crate::AckError::Timeout
     /// [`AckError::Socket`]: crate::AckError::Socket
     /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`EncodeError`]: crate::EncodeError
     /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
     ///
     /// # Basic example
@@ -706,13 +706,13 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///
     /// To get acknowledgements, an [`AckStream`] is returned.
     /// It can be used in two ways:
-    /// * As a [`Stream`]: It will yield all the [`AckResponse`] with their corresponding socket id
+    /// * As a [`Stream`]: It will yield all the ack responses with their corresponding socket id
     /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
     /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
-    /// * As a [`Future`]: It will yield the first [`AckResponse`] received from the client.
+    /// * As a [`Future`]: It will yield the first ack response received from the client.
     /// Useful when expecting only one acknowledgement.
     ///
-    /// If the packet encoding failed a [`serde_json::Error`] is **immediately** returned.
+    /// If the packet encoding failed an [`EncodeError`] is **immediately** returned.
     ///
     /// If the socket is full or if it has been closed before receiving the acknowledgement,
     /// an [`AckError::Socket`] will be yielded.
@@ -729,6 +729,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// [`AckError::Timeout`]: crate::AckError::Timeout
     /// [`AckError::Socket`]: crate::AckError::Socket
     /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
+    /// [`EncodeError`]: crate::EncodeError
     /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
     ///
     /// # Example

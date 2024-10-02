@@ -1,3 +1,24 @@
+//! Contains all the type and interfaces for the parser sub-crates.
+//!
+//! The parsing system in socketioxide is split in three phases for serialization and deserialization:
+//!
+//! ## Deserialization
+//! * The SocketIO server receives a packet and calls [`Parse::decode_str`] or [`Parse::decode_bin`]
+//! to decode the incoming packet. If a [`ParseError::NeedsMoreBinaryData`] is returned, the server keeps the packet
+//! and waits for new incoming data.
+//! * Once the packet is complete, the server dispatches the packet to the appropriate namespace
+//! and calls [`Parse::read_event`] to route the data to the appropriate event handler.
+//! * If the user-provided handler has a `Data` extractor with a provided `T` type, the server
+//! calls [`Parse::decode_value`] to deserialize the data. This function will handle the event
+//! name as the first argument of the array, as well as variadic arguments.
+//!
+//! ## Serialization
+//! * The user calls emit from the socket or namespace with custom `Serializable` data. The server calls
+//! [`Parse::encode_value`] to convert this to a raw [`Value`] to be included in the packet. The function
+//! will take care of handling the event name as the first argument of the array, along with variadic arguments.
+//! * The server then calls [`Parse::encode`] to convert the payload provided by the user,
+//! along with other metadata (namespace, ack ID, etc.), into a fully serialized packet ready to be sent.
+
 use std::{
     fmt,
     sync::{atomic::AtomicUsize, Mutex},
@@ -9,6 +30,9 @@ use serde::{de::Visitor, ser::Impossible, Deserialize, Serialize};
 
 use crate::{packet::Packet, Value};
 
+/// The parser state that is shared between the parser and the socket.io system.
+/// Used to handle partial binary packets when receiving binary packets that have
+/// adjacent binary attachments
 #[derive(Debug, Default)]
 pub struct ParserState {
     /// Partial binary packet that is being received
@@ -19,56 +43,72 @@ pub struct ParserState {
     pub incoming_binary_cnt: AtomicUsize,
 }
 
-/// All socket.io parser should implement this trait
-/// Parsers should be stateless
+/// All socket.io parser should implement this trait.
+/// Parsers should be stateless.
 pub trait Parse: Default + Copy {
+    /// The error produced when encoding a packet
     type EncodeError: std::error::Error;
+    /// The error produced when decoding a packet
     type DecodeError: std::error::Error;
-    /// Convert a packet into multiple payloads to be sent
+
+    /// Convert a packet into multiple payloads to be sent.
     fn encode(self, packet: Packet) -> Value;
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
-    /// the partial packet will be kept and a [`Error::NeedsMoreBinaryData`] will be returned
+    /// the partial packet will be kept and a [`ParseError::NeedsMoreBinaryData`] will be returned.
     fn decode_str(
         self,
         state: &ParserState,
         data: Str,
     ) -> Result<Packet, ParseError<Self::DecodeError>>;
 
-    /// Parse a given input binary.
+    /// Parse a given input binary. If the payload needs more adjacent binary packet,
+    /// the partial packet is still kept and a [`ParseError::NeedsMoreBinaryData`] will be returned.
     fn decode_bin(
         self,
         state: &ParserState,
         bin: Bytes,
     ) -> Result<Packet, ParseError<Self::DecodeError>>;
 
-    /// Convert any serializable data to a generic [`Bytes`]
+    /// Convert any serializable data to a generic [`Value`] to be later included as a payload in the packet.
+    ///
+    /// * Any data serialized will be wrapped in an array to match the socket.io format (`[data]`).
+    /// * If the data is a tuple-like type the tuple will be expanded in the array (`[...data]`).
+    /// * If provided the event name will be serialized as the first element of the array
+    /// (`[event, ...data]`) or (`[event, data]`).
     fn encode_value<T: ?Sized + Serialize>(
         self,
         data: &T,
         event: Option<&str>,
     ) -> Result<Value, Self::EncodeError>;
 
-    /// Convert any generic [`Bytes`] to deserializable data.
+    /// Convert any generic [`Value`] to a deserializable type.
+    /// It should always be an array (according to the serde model).
     ///
-    /// The parser will be determined from the value given to deserialize.
+    /// * If `with_event` is true, we expect an event str as the first element and we will skip
+    /// it when deserializing data.
+    /// * If `T` is a tuple-like type, all the remaining elements of the array will be
+    /// deserialized (`[...data]`).
+    /// * If `T` is not a tuple-like type, the first element of the array will be deserialized (`[data]`).
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
         value: &'de Value,
         with_event: bool,
     ) -> Result<T, Self::DecodeError>;
 
-    /// Convert any raw data to a type with the default serde impl without binary + event tricks.
+    /// Convert any generic [`Value`] to a type with the default serde impl without binary + event tricks.
     /// This is mainly used for connect payloads.
     fn decode_default<'de, T: Deserialize<'de>>(
         self,
         value: Option<&'de Value>,
     ) -> Result<T, Self::DecodeError>;
-    /// Convert any type to raw data Str/Bytes with the default serde impl without binary + event tricks.
+
+    /// Convert any type to a generic [`Value`] with the default serde impl without binary + event tricks.
     /// This is mainly used for connect payloads.
     fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError>;
 
-    /// Try to read the event name from the given payload data
+    /// Try to read the event name from the given payload data.
+    /// The event name should be the first element of the provided array according to the serde model.
     fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError>;
 }
 
@@ -112,11 +152,14 @@ pub enum ParseError<E: std::error::Error> {
     UnexpectedStringPacket,
 
     /// Needs more binary data before deserialization. It is not exactly an error, it is used for control flow,
-    /// e.g the common parser needs adjacent binary packets and therefore will returns [`NeedsMoreBinaryData`] n times for n adjacent binary packet expected.
+    /// e.g the common parser needs adjacent binary packets and therefore will returns
+    /// `NeedsMoreBinaryData` n times for n adjacent binary packet expected.
+    ///
     /// In this case the user should call again the parser with the next binary payload.
-    #[error("needs more binary data before deserialization")]
+    #[error("needs more binary data for packet completion")]
     NeedsMoreBinaryData,
 
+    /// The inner parser error
     #[error("parser error: {0:?}")]
     ParserError(#[from] E),
 }
@@ -145,13 +188,10 @@ impl<T> Default for FirstElement<T> {
         Self(Default::default())
     }
 }
-impl<'de, T> serde::de::Visitor<'de> for FirstElement<T>
-where
-    T: serde::Deserialize<'de>,
-{
+impl<'de, T: serde::Deserialize<'de>> serde::de::Visitor<'de> for FirstElement<T> {
     type Value = T;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "a sequence in which we care about first element",)
     }
 
@@ -171,10 +211,7 @@ where
     }
 }
 
-impl<'de, T> serde::de::DeserializeSeed<'de> for FirstElement<T>
-where
-    T: serde::Deserialize<'de>,
-{
+impl<'de, T: serde::Deserialize<'de>> serde::de::DeserializeSeed<'de> for FirstElement<T> {
     type Value = T;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -193,7 +230,7 @@ struct IsTupleSerde;
 #[derive(Debug)]
 struct IsTupleSerdeError(bool);
 impl fmt::Display for IsTupleSerdeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "IsTupleSerializerError: {}", self.0)
     }
 }
@@ -416,12 +453,14 @@ impl serde::Serializer for IsTupleSerde {
     }
 }
 
+/// Returns true if the value is a tuple-like type according to the serde model.
 pub fn is_ser_tuple<T: ?Sized + serde::Serialize>(value: &T) -> bool {
     match value.serialize(IsTupleSerde) {
         Ok(v) | Err(IsTupleSerdeError(v)) => v,
     }
 }
 
+/// Returns true if the type is a tuple-like type according to the serde model.
 pub fn is_de_tuple<'de, T: serde::Deserialize<'de>>() -> bool {
     match T::deserialize(IsTupleSerde) {
         Ok(_) => unreachable!(),
@@ -444,7 +483,7 @@ mod test {
         #[derive(Serialize, Deserialize)]
         struct TupleStruct<'a>(&'a str);
         assert!(is_ser_tuple(&TupleStruct("test")));
-        assert!(is_de_tuple::<TupleStruct>());
+        assert!(is_de_tuple::<TupleStruct<'_>>());
 
         assert!(!is_ser_tuple(&vec![1, 2, 3]));
         assert!(!is_de_tuple::<Vec<usize>>());

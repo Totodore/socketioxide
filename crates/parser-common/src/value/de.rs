@@ -267,7 +267,7 @@ impl<'a, I> WrapperVisitor<'a, I> {
 impl<'a, 'de, I: Visitor<'de>> Visitor<'de> for WrapperVisitor<'a, I> {
     type Value = I::Value;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.expecting(formatter)
     }
 
@@ -467,7 +467,7 @@ struct BinaryVisitor<'a, V> {
 impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'a, V> {
     type Value = V::Value;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a binary payload")
     }
 
@@ -533,7 +533,7 @@ impl<V> SeqVisitor<V> {
 impl<'de, V: Visitor<'de>> Visitor<'de> for SeqVisitor<V> {
     type Value = V::Value;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a sequence")
     }
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -613,7 +613,7 @@ struct BinaryAnyVisitor<'a, V> {
 impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'a, V> {
     type Value = V::Value;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a binary payload")
     }
 

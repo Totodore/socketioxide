@@ -153,7 +153,6 @@
 //!     - for [`ConnectHandler`](handler::ConnectHandler): extracts and deserialize to json the auth data
 //!     - for [`MessageHandler`](handler::MessageHandler): extracts and deserialize to json the message data
 //! * [`SocketRef`](extract::SocketRef): extracts a reference to the [`Socket`](socket::Socket)
-//! * [`Bin`](extract::Bin): extract a binary payload for a given message. Because it consumes the event it should be the last argument
 //! * [`AckSender`](extract::AckSender): Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`]: extracts the protocol version of the socket
 //! * [`TransportType`]: extracts the transport type of the socket
@@ -168,7 +167,7 @@
 //! ### Extractor order
 //! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
 //!
-//! For the [`MessageHandler`](handler::MessageHandler), some extractors require to _consume_ the event and therefore only implement the [`FromMessage`](handler::FromMessage) trait, like the [`Bin`](extract::Bin) extractor, therefore they should be the last argument.
+//! For the [`MessageHandler`](handler::MessageHandler), some extractors require to _consume_ the event and therefore only implement the [`FromMessage`](handler::FromMessage) trait.
 //!
 //! Note that any extractors that implement the [`FromMessageParts`](handler::FromMessageParts) also implement by default the [`FromMessage`](handler::FromMessage) trait.
 //!
@@ -215,7 +214,7 @@
 //! you need to wrap it in an array or a tuple.
 //!
 //! #### Emit errors
-//! If the data can't be serialized to json, an [`serde_json::Error`] will be returned.
+//! If the data can't be serialized to json, an [`EncodeError`] will be returned.
 //!
 //! If the socket is disconnected or the internal channel is full,
 //! a [`SendError`] will be returned and the provided data will be given back.
@@ -249,7 +248,7 @@
 //! [`BroadcastOperators::emit_with_ack`]: crate::operators::BroadcastOperators#method.emit_with_ack
 //! [`SocketIo::emit_with_ack`]: SocketIo#method.emit_with_ack
 //! [`AckStream`]: crate::ack::AckStream
-//! [`AckResponse`]: crate::ack::AckResponse
+//! [`EncodeError`]: crate::EncodeError
 //!
 //! ## [State management](#state-management)
 //! There are two ways to manage the state of the server:
