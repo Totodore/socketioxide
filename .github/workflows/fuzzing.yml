@@ -1,0 +1,73 @@
+name: fuzzing
+on: [pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  fuzzing_decode_value:
+    name: Fuzzing decode value
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [parser-common, parser-msgpack]
+    environment: dev
+    runs-on: ubuntu-latest
+    env:
+      TEST_DATA_VERSION: 0.0.2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rustfmt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-fuzzing
+      - run: cargo install cargo-fuzz
+      - name: download corpus data
+        run: |
+          cd crates/${{ matrix.crate }}
+          wget https://github.com/Totodore/socketioxide-fuzzing-corpus/archive/refs/tags/v$TEST_DATA_VERSION.zip
+          unzip v$TEST_DATA_VERSION.zip
+          rm v$TEST_DATA_VERSION.zip
+      - name: cargo fuzz run decode_value
+        run: |
+          cd crates/${{ matrix.crate }}
+          cargo fuzz run decode_value -- -timeout=5 -max_len=2048 -runs=2000000 -only_ascii=1 \
+            socketioxide-fuzzing-corpus-$TEST_DATA_VERSION/corpus-${{ matrix.crate }}
+  fuzzing_decode_packet:
+    name: Fuzzing decode packet
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [parser-common, parser-msgpack]
+        target: [decode_packet_bin, decode_packet_str]
+    environment: dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rustfmt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-fuzzing
+      - run: cargo install cargo-fuzz
+      - name: cargo fuzz run decode_packet
+        run: |
+          cd crates/${{ matrix.crate }}
+          cargo fuzz run ${{ matrix.target }} -- -timeout=5 -max_len=2048 -runs=2000000 -only_ascii=1
