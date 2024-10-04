@@ -76,12 +76,7 @@
 //! impl<A: Adapter> FromMessageParts<A> for UserId {
 //!     type Error = UserIdNotFound;
 //!
-//!     fn from_message_parts(
-//!         s: &Arc<Socket<A>>,
-//!         _: &mut Value,
-//!         _: &mut Vec<Bytes>,
-//!         _: &Option<i64>,
-//!     ) -> Result<Self, UserIdNotFound> {
+//!     fn from_message_parts(s: &Arc<Socket<A>>, _: &mut Value, _: &Option<i64>) -> Result<Self, UserIdNotFound> {
 //!         // In a real app it would be better to parse the query params with a crate like `url`
 //!         let uri = &s.req_parts().uri;
 //!         let uid = uri

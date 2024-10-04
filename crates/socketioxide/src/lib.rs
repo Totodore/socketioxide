@@ -45,6 +45,7 @@
 //! * [Acknowledgements](#acknowledgements)
 //! * [State management](#state-management)
 //! * [Adapters](#adapters)
+//! * [Parsers](#parsers)
 //! * [Feature flags](#feature-flags)
 //!
 //! ## Features
@@ -55,6 +56,7 @@
 //! * Namespaces
 //! * Rooms
 //! * Acknowledgements
+//! * Common and Msgpack parsers
 //! * Polling & Websocket transports
 //!
 //! ## Compatibility
@@ -200,7 +202,7 @@
 //!
 //! ## [Emiting data](#emiting-data)
 //! Data can be emitted to a socket with the [`Socket::emit`](socket::Socket) method. It takes an event name and a data argument.
-//! The data argument can be any type that implements the [`serde::Serialize`] trait.
+//! The data argument is can be any type that implements the [`serde::Serialize`] trait.
 //!
 //! You can emit from the [`SocketIo`] handle or the [`SocketRef`](extract::SocketRef).
 //! The difference is that you can move the [`io`](SocketIo) handle everywhere because it is a cheaply cloneable struct.
@@ -208,15 +210,13 @@
 //!
 //! Moreover the [`io`](SocketIo) handle can emit to any namespace while the [`SocketRef`](extract::SocketRef) can only emit to the namespace of the socket.
 //!
-//! When using any `emit` fn, if you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
-//! Therefore if you want to send an array as the _first_ argument of the payload,
-//! you need to wrap it in an array or a tuple.
+//! When using any `emit` fn, if you provide tuple-like data (tuple, arrays), it will be considered as multiple arguments.
+//! If you send a vector it will be considered as a single argument.
 //!
 //! #### Emit errors
 //! If the data can't be serialized to json, an [`EncodeError`] will be returned.
 //!
-//! If the socket is disconnected or the internal channel is full,
-//! a [`SendError`] will be returned and the provided data will be given back.
+//! If the socket is disconnected or the internal channel is full, a [`SendError`] will be returned.
 //! Moreover, a tracing log will be emitted if the `tracing` feature is enabled.
 //!
 //! #### Emitting with operators
@@ -235,7 +235,7 @@
 //! #### Server acknowledgements
 //! They are implemented with the [`AckSender`](extract::AckSender) extractor.
 //! You can send an ack response with an optional binary payload with the [`AckSender::send`](extract::AckSender) method.
-//! If the client doesn't send an ack response, the [`AckSender::send`](extract::AckSender) method will do nothing.
+//! If the client doesn't send an ack id to respond to, the [`AckSender::send`](extract::AckSender) method will do nothing.
 //!
 //! #### Client acknowledgements
 //! If you want to emit/broadcast a message and await for a/many client(s) acknowledgment(s) you can use:
@@ -274,11 +274,19 @@
 //! By default it uses the [`LocalAdapter`](adapter::LocalAdapter) which is a simple in-memory adapter.
 //! Currently there is no other adapters available but more will be added in the future.
 //!
+//! ## Parsers
+//! This library uses the socket.io common parser which is the default for all the socket.io implementations.
+//! Socketioxide also provided a msgpack parser. It is faster and more efficient than the default parser especially
+//! for binary data or payloads with a lot of numbers.
+//! To enable it, you must enable the [`msgpack`](#feature-flags) feature and then use the
+//! [`with_parser`](SocketIoBuilder#method.with_parser) fn to set the parser to [`ParserConfig::msgpack`](ParserConfig#method.msgpack).
+//!
 //! ## [Feature flags](#feature-flags)
 //! * `v4`: enable support for the socket.io protocol v4
 //! * `tracing`: enable logging with [`tracing`] calls
 //! * `extensions`: enable per-socket state with the [`extensions`] module
 //! * `state`: enable global state management
+//! * `msgpack`: enable msgpack custom parser
 //!
 pub mod adapter;
 

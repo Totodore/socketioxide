@@ -26,7 +26,7 @@ use crate::{
 
 /// The parser to use to encode and decode socket.io packets
 ///
-/// Be sure that the selected parser correspond with the client parser.
+/// Be sure that the selected parser matches the client parser.
 #[derive(Debug, Clone)]
 pub struct ParserConfig(Parser);
 
@@ -37,6 +37,7 @@ impl ParserConfig {
     }
 
     /// Use a [`MsgPackParser`] to parse incoming and outgoing socket.io packets
+    #[cfg_attr(docsrs, doc(cfg(feature = "msgpack")))]
     #[cfg(feature = "msgpack")]
     pub fn msgpack() -> Self {
         ParserConfig(Parser::MsgPack(MsgPackParser))
@@ -185,6 +186,12 @@ impl<A: Adapter> SocketIoBuilder<A> {
     }
 
     /// Sets a custom [`ParserConfig`] for this [`SocketIoBuilder`]
+    /// ```
+    /// # use socketioxide::{SocketIo, ParserConfig};
+    /// let (io, layer) = SocketIo::builder()
+    ///     .with_parser(ParserConfig::msgpack())
+    ///     .build_layer();
+    /// ```
     #[inline]
     pub fn with_parser(mut self, parser: ParserConfig) -> Self {
         self.config.parser = parser.0;

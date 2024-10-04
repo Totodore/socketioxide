@@ -37,11 +37,13 @@ impl Default for Parser {
 
 /// Errors that can occur during value encoding
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EncodeError {
     /// Common parser error
     #[error("common parser: {0}")]
     Common(<CommonParser as Parse>::EncodeError),
     /// MsgPack parser error
+    #[cfg_attr(docsrs, doc(cfg(feature = "msgpack")))]
     #[cfg(feature = "msgpack")]
     #[error("msgpack parser: {0}")]
     MsgPack(<MsgPackParser as Parse>::EncodeError),
@@ -49,11 +51,13 @@ pub enum EncodeError {
 
 /// Errors that can occur during packet decoding or value decoding
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DecodeError {
     /// Common parser error
     #[error("common parser: {0}")]
     Common(<CommonParser as Parse>::DecodeError),
     /// MsgPack parser error
+    #[cfg_attr(docsrs, doc(cfg(feature = "msgpack")))]
     #[cfg(feature = "msgpack")]
     #[error("msgpack parser: {0}")]
     MsgPack(<MsgPackParser as Parse>::DecodeError),
