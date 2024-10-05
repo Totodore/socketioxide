@@ -32,7 +32,7 @@ pub(crate) struct ConnectFail;
 pub enum AckError {
     /// The ack response cannot be parsed
     #[error("cannot deserialize packet from ack response: {0:?}")]
-    Serde(#[from] DecodeError),
+    Decode(#[from] DecodeError),
 
     /// The ack response timed out
     #[error("ack timeout error")]

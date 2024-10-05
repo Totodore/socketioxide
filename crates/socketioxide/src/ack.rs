@@ -292,7 +292,7 @@ impl<T: DeserializeOwned> FusedFuture for AckStream<T> {
 }
 
 fn map_ack_response<T: DeserializeOwned>(ack: AckResult<Value>, parser: Parser) -> AckResult<T> {
-    ack.and_then(|mut v| parser.decode_value(&mut v, false).map_err(AckError::Serde))
+    ack.and_then(|mut v| parser.decode_value(&mut v, false).map_err(AckError::Decode))
 }
 
 #[cfg(test)]
@@ -389,11 +389,11 @@ mod test {
 
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
-            AckError::Serde(_)
+            AckError::Decode(_)
         ));
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
-            AckError::Serde(_)
+            AckError::Decode(_)
         ));
         assert!(stream.next().await.is_none());
     }
@@ -412,7 +412,7 @@ mod test {
 
         assert!(matches!(
             stream.next().await.unwrap().1.unwrap_err(),
-            AckError::Serde(_)
+            AckError::Decode(_)
         ));
         assert!(stream.next().await.is_none());
     }
@@ -425,7 +425,7 @@ mod test {
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(value(true))).unwrap();
 
-        assert!(matches!(stream.await.unwrap_err(), AckError::Serde(_)));
+        assert!(matches!(stream.await.unwrap_err(), AckError::Decode(_)));
     }
 
     #[tokio::test]
