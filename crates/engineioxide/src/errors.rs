@@ -8,8 +8,6 @@ use crate::sid::Sid;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("error serializing json packet: {0:?}")]
-    Serialize(#[from] serde_json::Error),
     #[error("error decoding binary packet from polling request: {0:?}")]
     Base64(#[from] base64::DecodeError),
     #[error("error decoding packet: {0:?}")]

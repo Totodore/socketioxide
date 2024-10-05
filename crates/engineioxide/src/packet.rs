@@ -118,7 +118,7 @@ impl TryInto<String> for Packet {
         match self {
             Packet::Open(open) => {
                 buffer.push('0');
-                buffer.push_str(&serde_json::to_string(&open)?);
+                buffer.push_str(&serde_json::to_string(&open).unwrap());
             }
             Packet::Close => buffer.push('1'),
             Packet::Ping => buffer.push('2'),
