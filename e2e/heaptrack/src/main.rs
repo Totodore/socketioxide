@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 
 fn on_connect(socket: SocketRef) {
     socket.on("ping", |s: SocketRef| {
-        s.emit("pong", ()).ok();
+        s.emit("pong", &()).ok();
     });
 }
 

@@ -32,7 +32,7 @@ async fn on_connect(socket: SocketRef) {
             let _ = socket.leave_all();
             let _ = socket.join(room.clone());
             let messages = store.get(&room).await;
-            let _ = socket.emit("messages", Messages { messages });
+            let _ = socket.emit("messages", &Messages { messages });
         },
     );
 
@@ -49,7 +49,7 @@ async fn on_connect(socket: SocketRef) {
 
             store.insert(&data.room, response.clone()).await;
 
-            let _ = socket.within(data.room).emit("message", response);
+            let _ = socket.within(data.room).emit("message", &response);
         },
     )
 }

@@ -1,0 +1,36 @@
+[package]
+name = "socketioxide-parser-common-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+socketioxide-parser-common = { path = "..", features = ["fuzzing"] }
+socketioxide-core = { path = "../../socketioxide-core", features = ["fuzzing"] }
+serde_json.workspace = true
+bytes.workspace = true
+
+[[bin]]
+name = "decode_packet_str"
+path = "fuzz_targets/decode_packet_str.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_packet_bin"
+path = "fuzz_targets/decode_packet_bin.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_value"
+path = "fuzz_targets/decode_value.rs"
+test = false
+doc = false
+bench = false

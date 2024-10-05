@@ -38,9 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let todos = todos.lock().unwrap().clone();
 
-        // Because variadic args are not supported, array arguments are flattened.
-        // Therefore to send a json array (required for the todomvc app) we need to wrap it in another array.
-        s.emit("todos", [todos]).unwrap();
+        s.emit("todos", &todos).unwrap();
 
         s.on(
             "update-store",
@@ -51,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 todos.clear();
                 todos.extend_from_slice(&new_todos);
 
-                s.broadcast().emit("update-store", [new_todos]).unwrap();
+                s.broadcast().emit("update-store", &new_todos).unwrap();
             },
         );
     });

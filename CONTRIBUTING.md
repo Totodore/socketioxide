@@ -16,7 +16,7 @@ today! As a contributor, here are the guidelines we would like you to follow:
 
 ## <a name="question"></a> Got a Question or Problem?
 
-Please open a discussion on the [Q&A discussions](https://github.com/totodore/socketioxide/discussions) page. 
+Please open a discussion on the [Q&A discussions](https://github.com/totodore/socketioxide/discussions) page.
 We want to keep GitHub Issues for bugs and feature requests. If you open an issue it will be moved to Discussions.
 
 ## <a name="issue"></a> Found a Bug?
@@ -138,11 +138,6 @@ You will need [rustc and cargo](www.rust-lang.org/tools/install).
 
     ```shell
     git clone https://github.com/totodore/socketioxide
-    ```
-2. To test socketioxide don't forget to enable the flag `socketioxide_test` through the `RUSTFLAGS` environment variable:
-
-    ```shell
-    export RUSTFLAGS="--cfg socketioxide_test"
     ```
 2. Depending on what you want to change, clone the [socketio/engine.io-protocol](https://github.com/socketio/engine.io-protocol) repo or the [socketio/socket.io-protocol](https://github.com/socketio/socket.io-protocol) repo or both
     ```shell
