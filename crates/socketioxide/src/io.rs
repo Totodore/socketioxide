@@ -463,8 +463,8 @@ impl<A: Adapter> SocketIo<A> {
     /// If the v4 protocol (legacy) is enabled and the namespace to delete is the default namespace "/".
     /// For v4, the default namespace cannot be deleted. See [official doc](https://socket.io/docs/v3/namespaces/#main-namespace) for more informations.
     #[inline]
-    pub fn delete_ns<'a>(&self, path: impl Into<&'a str>) {
-        self.0.delete_ns(path.into());
+    pub fn delete_ns(&self, path: impl AsRef<str>) {
+        self.0.delete_ns(path.as_ref());
     }
 
     /// Gracefully closes all the connections and drops every sockets
@@ -496,8 +496,8 @@ impl<A: Adapter> SocketIo<A> {
     /// }
     /// ```
     #[inline]
-    pub fn of<'a>(&self, path: impl Into<&'a str>) -> Option<BroadcastOperators<A>> {
-        self.get_op(path.into())
+    pub fn of(&self, path: impl AsRef<str>) -> Option<BroadcastOperators<A>> {
+        self.get_op(path.as_ref())
     }
 
     /// Selects all sockets in the given rooms on the root namespace.
