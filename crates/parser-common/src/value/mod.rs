@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(
             to_str_bin(
                 Data2 {
-                    data: vec![BIN; 5].into(),
+                    data: vec![BIN; 5],
                     test: "null".to_string()
                 },
                 Some("event")
@@ -261,7 +261,7 @@ mod tests {
                 vec![BIN; 5].into()
             ),
             Data2 {
-                data: vec![BIN; 5].into(),
+                data: vec![BIN; 5],
                 test: "null".to_string()
             }
         );

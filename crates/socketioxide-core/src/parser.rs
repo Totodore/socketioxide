@@ -3,20 +3,20 @@
 //! The parsing system in socketioxide is split in three phases for serialization and deserialization:
 //!
 //! ## Deserialization
-//! * The SocketIO server receives a packet and calls [`Parse::decode_str`] or [`Parse::decode_bin`]
+//!   * The SocketIO server receives a packet and calls [`Parse::decode_str`] or [`Parse::decode_bin`]
 //! to decode the incoming packet. If a [`ParseError::NeedsMoreBinaryData`] is returned, the server keeps the packet
 //! and waits for new incoming data.
-//! * Once the packet is complete, the server dispatches the packet to the appropriate namespace
+//!   * Once the packet is complete, the server dispatches the packet to the appropriate namespace
 //! and calls [`Parse::read_event`] to route the data to the appropriate event handler.
-//! * If the user-provided handler has a `Data` extractor with a provided `T` type, the server
+//!   * If the user-provided handler has a `Data` extractor with a provided `T` type, the server
 //! calls [`Parse::decode_value`] to deserialize the data. This function will handle the event
 //! name as the first argument of the array, as well as variadic arguments.
 //!
 //! ## Serialization
-//! * The user calls emit from the socket or namespace with custom `Serializable` data. The server calls
+//!   * The user calls emit from the socket or namespace with custom `Serializable` data. The server calls
 //! [`Parse::encode_value`] to convert this to a raw [`Value`] to be included in the packet. The function
 //! will take care of handling the event name as the first argument of the array, along with variadic arguments.
-//! * The server then calls [`Parse::encode`] to convert the payload provided by the user,
+//!   * The server then calls [`Parse::encode`] to convert the payload provided by the user,
 //! along with other metadata (namespace, ack ID, etc.), into a fully serialized packet ready to be sent.
 
 use std::{
@@ -72,9 +72,9 @@ pub trait Parse: Default + Copy {
 
     /// Convert any serializable data to a generic [`Value`] to be later included as a payload in the packet.
     ///
-    /// * Any data serialized will be wrapped in an array to match the socket.io format (`[data]`).
-    /// * If the data is a tuple-like type the tuple will be expanded in the array (`[...data]`).
-    /// * If provided the event name will be serialized as the first element of the array
+    ///  * Any data serialized will be wrapped in an array to match the socket.io format (`[data]`).
+    ///  * If the data is a tuple-like type the tuple will be expanded in the array (`[...data]`).
+    ///  * If provided the event name will be serialized as the first element of the array
     /// (`[event, ...data]`) or (`[event, data]`).
     fn encode_value<T: ?Sized + Serialize>(
         self,
@@ -85,11 +85,11 @@ pub trait Parse: Default + Copy {
     /// Convert any generic [`Value`] to a deserializable type.
     /// It should always be an array (according to the serde model).
     ///
-    /// * If `with_event` is true, we expect an event str as the first element and we will skip
+    ///   * If `with_event` is true, we expect an event str as the first element and we will skip
     /// it when deserializing data.
-    /// * If `T` is a tuple-like type, all the remaining elements of the array will be
+    ///   * If `T` is a tuple-like type, all the remaining elements of the array will be
     /// deserialized (`[...data]`).
-    /// * If `T` is not a tuple-like type, the first element of the array will be deserialized (`[data]`).
+    ///   * If `T` is not a tuple-like type, the first element of the array will be deserialized (`[data]`).
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
         value: &'de mut Value,
