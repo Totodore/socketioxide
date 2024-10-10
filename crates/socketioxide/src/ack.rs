@@ -132,6 +132,13 @@ pin_project_lite::pin_project! {
 // ==== impl AckInnerStream ====
 
 impl AckInnerStream {
+    /// Creates a new empty [`AckInnerStream`] that will yield no value.
+    pub fn empty() -> Self {
+        AckInnerStream::Stream {
+            rxs: FuturesUnordered::new(),
+        }
+    }
+
     /// Creates a new [`AckInnerStream`] from a [`Packet`] and a list of sockets.
     /// The [`Packet`] is sent to all the sockets and the [`AckInnerStream`] will wait
     /// for an acknowledgement from each socket.

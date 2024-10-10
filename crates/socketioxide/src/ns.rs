@@ -80,13 +80,13 @@ impl<A: Adapter> Namespace<A> {
         parser: Parser,
     ) -> Arc<Self> {
         Arc::new_cyclic(|ns| Self {
-            path,
+            path: path.clone(),
             handler,
             parser,
             sockets: HashMap::new().into(),
             adapter: Arc::new(A::new(
                 adapter_state,
-                CoreLocalAdapter::new(Emitter::new(ns.clone(), parser)),
+                CoreLocalAdapter::new(Emitter::new(ns.clone(), parser, path)),
             )),
         })
     }
@@ -222,20 +222,94 @@ impl<A: Adapter> Namespace<A> {
         }
     }
 }
+/// A type erased emitter to discard the adapter type parameter `A`.
+/// Otherwise it creates a cyclic dependency between the namespace, the emitter and the adapter.
+trait InnerEmitter: Send + Sync + 'static {
+    /// Get all the socket ids in the namespace.
+    fn get_all_sids(&self) -> Vec<Sid>;
+    /// Send data to the list of socket ids.
+    fn send_many(&self, sids: Vec<Sid>, data: Value) -> Result<(), Vec<SocketError>>;
+    /// Send data to the list of socket ids and get a stream of acks.
+    fn send_many_with_ack(
+        &self,
+        sids: Vec<Sid>,
+        packet: Packet,
+        timeout: Option<Duration>,
+    ) -> AckInnerStream;
+    /// Disconnect all the sockets in the list.
+    fn disconnect_many(&self, sid: Vec<Sid>) -> Result<(), Vec<DisconnectError>>;
+}
 
-pub struct Emitter<A: Adapter> {
-    ns: Weak<Namespace<A>>,
+impl<A: Adapter> InnerEmitter for Namespace<A> {
+    fn get_all_sids(&self) -> Vec<Sid> {
+        self.sockets.read().unwrap().keys().copied().collect()
+    }
+
+    fn send_many(&self, sids: Vec<Sid>, data: Value) -> Result<(), Vec<SocketError>> {
+        let sockets = self.sockets.read().unwrap();
+        let errs: Vec<crate::SocketError> = sids
+            .iter()
+            .filter_map(|sid| sockets.get(sid))
+            .filter_map(|socket| socket.send_raw(data.clone()).err())
+            .collect();
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs)
+        }
+    }
+
+    fn send_many_with_ack(
+        &self,
+        sids: Vec<Sid>,
+        packet: Packet,
+        timeout: Option<Duration>,
+    ) -> AckInnerStream {
+        let sockets = self
+            .sockets
+            .read()
+            .unwrap()
+            .values()
+            .filter(|s| sids.contains(&s.id))
+            .cloned()
+            .collect();
+        AckInnerStream::broadcast(packet, sockets, timeout)
+    }
+
+    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<DisconnectError>> {
+        let sockets: Vec<Arc<Socket<A>>> = self
+            .sockets
+            .read()
+            .unwrap()
+            .values()
+            .filter(|s| sids.contains(&s.id))
+            .cloned()
+            .collect();
+        let errs: Vec<crate::DisconnectError> = sockets
+            .into_iter()
+            .filter_map(|socket| socket.disconnect().err())
+            .collect();
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs)
+        }
+    }
+}
+
+pub struct Emitter {
+    ns: Weak<dyn InnerEmitter>,
     parser: Parser,
     path: Str,
 }
-impl<A: Adapter> Emitter<A> {
-    pub(crate) fn new(ns: Weak<Namespace<A>>, parser: Parser) -> Self {
-        let path = ns.upgrade().map(|ns| ns.path.clone()).unwrap_or_default();
+
+impl Emitter {
+    fn new<A: Adapter>(ns: Weak<Namespace<A>>, parser: Parser, path: Str) -> Self {
         Self { ns, parser, path }
     }
 }
 
-impl<A: Adapter> SocketEmitter for Emitter<A> {
+impl SocketEmitter for Emitter {
     type AckError = crate::AckError;
     type AckStream = AckInnerStream;
 
@@ -249,60 +323,22 @@ impl<A: Adapter> SocketEmitter for Emitter<A> {
         packet: Packet,
         timeout: Option<Duration>,
     ) -> Self::AckStream {
-        let sockets = match self.ns.upgrade() {
-            Some(ns) => ns
-                .sockets
-                .read()
-                .unwrap()
-                .values()
-                .filter(|s| sids.contains(&s.id))
-                .cloned()
-                .collect(),
-            None => vec![],
-        };
-        AckInnerStream::broadcast(packet, sockets, timeout)
+        self.ns
+            .upgrade()
+            .map(|ns| ns.send_many_with_ack(sids, packet, timeout))
+            .unwrap_or(AckInnerStream::empty())
     }
 
     fn send_many(&self, sids: Vec<Sid>, data: Value) -> Result<(), Vec<SocketError>> {
         match self.ns.upgrade() {
-            Some(ns) => {
-                let sockets = ns.sockets.read().unwrap();
-                let errs: Vec<crate::SocketError> = sids
-                    .iter()
-                    .filter_map(|sid| sockets.get(sid))
-                    .filter_map(|socket| socket.send_raw(data.clone()).err())
-                    .collect();
-                if errs.is_empty() {
-                    Ok(())
-                } else {
-                    Err(errs)
-                }
-            }
+            Some(ns) => ns.send_many(sids, data),
             None => Ok(()),
         }
     }
 
     fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<DisconnectError>> {
         match self.ns.upgrade() {
-            Some(ns) => {
-                let sockets: Vec<Arc<Socket<A>>> = ns
-                    .sockets
-                    .read()
-                    .unwrap()
-                    .values()
-                    .filter(|s| sids.contains(&s.id))
-                    .cloned()
-                    .collect();
-                let errs: Vec<crate::DisconnectError> = sockets
-                    .into_iter()
-                    .filter_map(|socket| socket.disconnect().err())
-                    .collect();
-                if errs.is_empty() {
-                    Ok(())
-                } else {
-                    Err(errs)
-                }
-            }
+            Some(ns) => ns.disconnect_many(sids),
             None => Ok(()),
         }
     }
@@ -313,7 +349,7 @@ impl<A: Adapter> SocketEmitter for Emitter<A> {
     fn get_all_sids(&self) -> Vec<Sid> {
         self.ns
             .upgrade()
-            .map(|ns| ns.sockets.read().unwrap().keys().copied().collect())
+            .map(|ns| ns.get_all_sids())
             .unwrap_or_default()
     }
 }
