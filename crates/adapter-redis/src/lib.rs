@@ -1,4 +1,37 @@
-use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc, task, time::Duration};
+#![warn(
+    clippy::all,
+    clippy::todo,
+    clippy::empty_enum,
+    clippy::mem_forget,
+    clippy::unused_self,
+    clippy::filter_map_next,
+    clippy::needless_continue,
+    clippy::needless_borrow,
+    clippy::match_wildcard_for_single_variants,
+    clippy::if_let_mutex,
+    clippy::await_holding_lock,
+    clippy::match_on_vec_items,
+    clippy::imprecise_flops,
+    clippy::suboptimal_flops,
+    clippy::lossy_float_literal,
+    clippy::rest_pat_in_fully_bound_structs,
+    clippy::fn_params_excessive_bools,
+    clippy::exit,
+    clippy::inefficient_to_string,
+    clippy::linkedlist,
+    clippy::macro_use_imports,
+    clippy::option_option,
+    clippy::verbose_file_reads,
+    clippy::unnested_or_patterns,
+    rust_2018_idioms,
+    future_incompatible,
+    nonstandard_style,
+    missing_docs
+)]
+
+//! A redis adapter implementation for the socketioxide crate.
+
+use std::{borrow::Cow, fmt, future::Future, pin::Pin, sync::Arc, task, time::Duration};
 
 use drivers::{Driver, MessageStream};
 use futures_core::{FusedStream, Stream};
@@ -15,20 +48,34 @@ use socketioxide_core::{
     Sid, Value,
 };
 
+/// Drivers are an abstraction over the pub/sub backend used by the adapter.
+/// You can use the provided implementation or implement your own.
 pub mod drivers;
 
+/// The adapter config
 #[derive(Debug, Clone)]
 pub struct RedisAdapterConfig {
     request_timeout: Duration,
-    specific_response_chan: bool,
     prefix: Cow<'static, str>,
 }
+
+impl Default for RedisAdapterConfig {
+    fn default() -> Self {
+        Self {
+            request_timeout: Duration::from_secs(5),
+            prefix: Cow::Borrowed("socket.io"),
+        }
+    }
+}
+
+/// The adapter state
 #[derive(Clone)]
 pub struct RedisAdapterState<R> {
     driver: Arc<R>,
     config: RedisAdapterConfig,
 }
 
+/// The redis adapter
 pub struct RedisAdapter<E, R> {
     /// The driver used by the adapter. This is used to communicate with the redis server.
     /// All the redis adapter instances share the same driver.
@@ -39,9 +86,12 @@ pub struct RedisAdapter<E, R> {
     uid: Sid,
     /// The local adapter, used to manage local rooms and socket stores.
     local: CoreLocalAdapter<E>,
+    /// The request channel used to broadcast requests to all the servers.
+    /// format: `{prefix}-request#{path}#`.
+    req_chan: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 enum RequestType {
     Broadcast(Packet),
     BroadcastWithAck(Packet),
@@ -54,8 +104,20 @@ enum ResponseType<E: SocketEmitter> {
     BroadcastWithAck((Sid, Result<Value, E::AckError>)),
     AllRooms(Vec<Room>),
 }
+impl<E: SocketEmitter> fmt::Debug for ResponseType<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResponseType::BroadcastWithAck((sid, res)) => f
+                .debug_tuple("BroadcastWithAck")
+                .field(sid)
+                .field(res)
+                .finish(),
+            ResponseType::AllRooms(rooms) => f.debug_tuple("AllRooms").field(rooms).finish(),
+        }
+    }
+}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Request {
     uid: Sid,
     req_id: Sid,
@@ -70,8 +132,25 @@ struct Response<E: SocketEmitter> {
     req_id: Sid,
     r#type: ResponseType<E>,
 }
+impl<E: SocketEmitter> fmt::Debug for Response<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Response")
+            .field("uid", &self.uid)
+            .field("req_id", &self.req_id)
+            .field("r#type", &self.r#type)
+            .finish()
+    }
+}
+
+impl<D: Driver> RedisAdapterState<D> {
+    /// Create a new redis adapter state.
+    pub fn new(driver: Arc<D>, config: RedisAdapterConfig) -> Self {
+        Self { driver, config }
+    }
+}
 
 pin_project! {
+    /// A stream of acknowledgement messages received from the local and remote servers.
     pub struct AckStream<S> {
         #[pin]
         local: S,
@@ -90,35 +169,48 @@ impl<Err, S: Stream<Item = AckStreamItem<Err>>> Stream for AckStream<S> {
         self.project().local.poll_next(cx)
     }
 }
+
 impl<Err, S: Stream<Item = AckStreamItem<Err>> + FusedStream> FusedStream for AckStream<S> {
     fn is_terminated(&self) -> bool {
         self.local.is_terminated()
     }
 }
+
 impl<E: SocketEmitter, R> RedisAdapter<E, R> {
-    fn get_chan(&self) -> String {
-        format!("{}#{}", self.config.prefix, self.local.path())
-    }
-
-    fn get_req_chan(&self) -> String {
-        format!("{}-request#{}#", self.config.prefix, self.local.path())
-    }
-
     fn get_res_chan(&self, req_id: Sid) -> String {
         let path = self.local.path();
         let prefix = &self.config.prefix;
-        if self.config.specific_response_chan {
-            format!("{}-response#{}#{}#{}", prefix, path, self.uid, req_id)
-        } else {
-            format!("{}-response#{}#", prefix, path)
-        }
+        format!("{}-response#{}#{}#{}#", prefix, path, self.uid, req_id)
     }
 }
 
 impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
+    /// Handle a generic request received from the request channel.
+    fn handle_req(self: &Arc<Self>, item: Vec<u8>) {
+        let req: Request = rmp_serde::from_slice(&item).unwrap();
+        let sid = req.req_id;
+        match req.r#type {
+            RequestType::Broadcast(p) => self.handle_broadcast_req(req.opts, p),
+            RequestType::BroadcastWithAck(p) => {
+                self.clone().handle_broadcast_with_ack_req(sid, req.opts, p)
+            }
+            RequestType::DisconnectSocket => self.handle_disconnect_sockets_req(req),
+            RequestType::AllRooms => self.handle_fetch_rooms_req(req),
+        };
+    }
+
+    #[tracing::instrument(skip(self))]
     fn handle_broadcast_req(&self, opts: BroadcastOptions, packet: Packet) {
-        //TODO: err
-        self.local.broadcast(packet, opts).unwrap();
+        if let Err(e) = self.local.broadcast(packet, opts) {
+            let ns = self.local.path();
+            let uid = self.uid;
+            tracing::warn!(
+                ?uid,
+                ?ns,
+                "remote request broadcast handler errors: {:?}",
+                e
+            );
+        }
     }
 
     fn handle_disconnect_sockets_req(&self, req: Request) {
@@ -151,9 +243,9 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
     }
 
     async fn send_req(&self, req: Request) -> Result<(), R::Error> {
+        tracing::trace!(?req, "sending request");
         let req = rmp_serde::to_vec(&req).unwrap();
-        let chan = self.get_req_chan();
-        self.driver.publish(chan, req).await?;
+        self.driver.publish(&self.req_chan, req).await?;
         Ok(())
     }
 
@@ -161,11 +253,12 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
         &self,
         res: Response<E>,
     ) -> impl Future<Output = Result<(), R::Error>> + Send + 'static {
-        let chan = self.get_res_chan(res.req_id);
+        tracing::trace!(?res, "sending response");
         let req = rmp_serde::to_vec(&res).unwrap();
         let driver = self.driver.clone();
+        let chan = self.get_res_chan(res.req_id);
         async move {
-            driver.publish(chan, req).await?;
+            driver.publish(&chan, req).await?;
             Ok(())
         }
     }
@@ -177,30 +270,23 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     type AckStream = AckStream<E::AckStream>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
+        let req_chan = format!("{}-request#{}#", state.config.prefix, local.path());
         Self {
             local,
             driver: state.driver.clone(),
             config: state.config.clone(),
             uid: Sid::new(),
+            req_chan,
         }
     }
 
     async fn init(self: Arc<Self>) -> Result<(), Self::Error> {
         use futures_util::stream::StreamExt;
-        let chan = format!("{}-request#{}", self.config.prefix, self.local.path());
-        let mut stream = self.driver.subscribe(chan).await?;
+        let mut stream = self.driver.subscribe(self.req_chan.clone()).await?;
+        tracing::trace!(?self.req_chan, "subscribing to request channel");
         tokio::spawn(async move {
             while let Some(item) = stream.next().await {
-                let req: Request = rmp_serde::from_slice(&item).unwrap();
-                let sid = req.req_id;
-                match req.r#type {
-                    RequestType::Broadcast(p) => self.handle_broadcast_req(req.opts, p),
-                    RequestType::BroadcastWithAck(p) => {
-                        self.clone().handle_broadcast_with_ack_req(sid, req.opts, p)
-                    }
-                    RequestType::DisconnectSocket => self.handle_disconnect_sockets_req(req),
-                    RequestType::AllRooms => self.handle_fetch_rooms_req(req),
-                };
+                self.handle_req(item);
             }
         });
         Ok(())
@@ -211,11 +297,16 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
         Ok(())
     }
 
+    /// Get the number of servers by getting the number of subscribers to the request channel.
     async fn server_count(&self) -> Result<u16, Self::Error> {
-        let count = self.driver.num_serv(&self.local.path()).await?;
+        let count = self.driver.num_serv(&self.req_chan).await?;
         Ok(count)
     }
 
+    /// Broadcast a packet to all the servers through the request channel.
+    ///
+    /// Currently, the errors are only returned for the local node.
+    #[tracing::instrument(skip(self))]
     async fn broadcast(
         &self,
         packet: Packet,
@@ -257,7 +348,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
         };
         self.send_req(req).await.unwrap();
 
-        let chan = self.get_ack_chan(req_id);
+        let chan = self.get_res_chan(req_id);
         let remote = self.driver.subscribe(chan).await.unwrap();
         let local = self.local.broadcast_with_ack(packet, opts, timeout);
         Ok(AckStream { local, remote })

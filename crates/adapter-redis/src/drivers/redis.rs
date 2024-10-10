@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 
 use super::{Driver, MessageStream};
 
+/// An error type for the redis driver.
 #[derive(Debug)]
 pub struct RedisError(redis::RedisError);
 
@@ -31,6 +32,7 @@ impl fmt::Display for RedisError {
 }
 impl std::error::Error for RedisError {}
 
+/// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
 #[derive(Clone)]
 pub struct RedisDriver {
     handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
@@ -52,6 +54,7 @@ fn read_msg(msg: redis::PushInfo) -> Option<(String, Vec<u8>)> {
     }
 }
 impl RedisDriver {
+    /// Create a new redis driver from a redis client.
     pub async fn new(client: redis::Client) -> Result<Self, RedisError> {
         let (tx, rx) = mpsc::unbounded_channel();
         let config = redis::AsyncConnectionConfig::new().set_push_sender(tx);
@@ -82,11 +85,11 @@ async fn watch_handler(
 impl Driver for RedisDriver {
     type Error = RedisError;
 
-    fn publish(
+    fn publish<'a>(
         &self,
-        chan: String,
+        chan: &'a str,
         val: Vec<u8>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
         let mut conn = self.conn.clone();
         async move {
             conn.publish::<_, _, redis::Value>(chan, val).await?;

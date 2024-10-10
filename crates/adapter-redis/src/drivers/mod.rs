@@ -5,9 +5,13 @@ use pin_project_lite::pin_project;
 use socketioxide_core::errors::AdapterError;
 use tokio::sync::mpsc;
 
+/// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
 pub mod redis;
 
 pin_project! {
+    /// A stream of messages received from a channel.
+    ///
+    /// Messages are encoded with msgpack.
     #[derive(Debug)]
     pub struct MessageStream {
         #[pin]
@@ -33,17 +37,27 @@ impl Stream for MessageStream {
     }
 }
 
+/// The driver trait can be used to support different pub/sub backends.
 pub trait Driver: Send + Sync + 'static {
+    /// The error type for the driver.
     type Error: std::error::Error + Into<AdapterError> + Send + 'static;
-    fn publish(
+
+    /// Publish a message to a channel.
+    fn publish<'a>(
         &self,
-        chan: String,
+        chan: &'a str,
         val: Vec<u8>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a;
+
+    /// Subscribe to a channel with a pattern, it will return a stream of messages.
     fn subscribe(
         &self,
-        chan: String,
+        pat: String,
     ) -> impl Future<Output = Result<MessageStream, Self::Error>> + Send;
-    fn unsubscribe(&self, chan: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Unsubscribe from a channel.
+    fn unsubscribe(&self, pat: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Returns the number of socket.io servers.
     fn num_serv(&self, chan: &str) -> impl Future<Output = Result<u16, Self::Error>> + Send;
 }

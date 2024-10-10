@@ -26,3 +26,4 @@ socketioxide-core = { version = "0.15.1", path = "../socketioxide-core" }
 tokio.workspace = true
 rmp-serde.workspace = true
 bytes.workspace = true
+tracing.workspace = true

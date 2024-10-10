@@ -1,0 +1,37 @@
+[package]
+name = "redis-adapter-e2e"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
+    "tracing",
+] }
+socketioxide-adapter-redis = { path = "../../crates/adapter-redis" }
+hyper-util = { workspace = true, features = ["tokio"] }
+hyper = { workspace = true, features = ["server", "http1"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+rmpv = { version = "1.3.0", features = ["with-serde"] }
+redis = { version = "0.27.5", features = [
+    "aio",
+    "tokio-comp",
+], default-features = false }
+
+[[bin]]
+name = "redis-adapter-e2e"
+path = "main.rs"
+
+[features]
+v4 = ["socketioxide/v4"]
+v5 = []
