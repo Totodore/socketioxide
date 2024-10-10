@@ -3,30 +3,31 @@
 //! The default adapter is the [`LocalAdapter`], which stores the state in memory.
 //! Other adapters can be made to share the state between multiple servers.
 
-use crate::ns::Emitter;
 use socketioxide_core::{
     adapter::{BroadcastOptions, CoreAdapter, CoreLocalAdapter, SocketEmitter},
     packet::Packet,
 };
 use std::{convert::Infallible, time::Duration};
 
+use crate::ns::Emitter;
+
 /// An adapter is responsible for managing the state of the namespace.
 /// This adapter can be implemented to share the state between multiple servers.
 /// The default adapter is the [`LocalAdapter`], which stores the state in memory.
-pub trait Adapter: CoreAdapter<Emitter<Self>> + Sized {}
-impl<T: CoreAdapter<Emitter<T>>> Adapter for T {}
+pub trait Adapter: CoreAdapter<Emitter> + Sized {}
+impl<T: CoreAdapter<Emitter>> Adapter for T {}
 
 // === LocalAdapter impls ===
 
 /// The default adapter. Store the state in memory.
-pub struct LocalAdapter(CoreLocalAdapter<Emitter<Self>>);
+pub struct LocalAdapter(CoreLocalAdapter<Emitter>);
 
-impl CoreAdapter<Emitter<Self>> for LocalAdapter {
+impl CoreAdapter<Emitter> for LocalAdapter {
     type Error = Infallible;
     type State = ();
-    type AckStream = <Emitter<Self> as SocketEmitter>::AckStream;
+    type AckStream = <Emitter as SocketEmitter>::AckStream;
 
-    fn new(_state: &Self::State, local: CoreLocalAdapter<Emitter<Self>>) -> Self {
+    fn new(_state: &Self::State, local: CoreLocalAdapter<Emitter>) -> Self {
         Self(local)
     }
 
@@ -39,7 +40,7 @@ impl CoreAdapter<Emitter<Self>> for LocalAdapter {
         Ok(self.get_local().broadcast_with_ack(packet, opts, timeout))
     }
 
-    fn get_local(&self) -> &CoreLocalAdapter<Emitter<Self>> {
+    fn get_local(&self) -> &CoreLocalAdapter<Emitter> {
         &self.0
     }
 }

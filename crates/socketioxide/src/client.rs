@@ -60,7 +60,7 @@ impl<A: Adapter> Client<A> {
 
     /// Called when a socket connects to a new namespace
     fn sock_connect(
-        &self,
+        self: &Arc<Self>,
         auth: Option<Value>,
         ns_path: Str,
         esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
@@ -85,8 +85,17 @@ impl<A: Adapter> Client<A> {
             // for the entire lifetime of the Namespace.
             let path = Str::copy_from_slice(&ns_path);
             let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, self.config.parser);
-            self.nsps.write().unwrap().insert(path, ns.clone());
-            tokio::spawn(connect(ns, esocket.clone()));
+            let this = self.clone();
+            let esocket = esocket.clone();
+            tokio::spawn(async move {
+                if let Err(e) = ns.adapter.clone().init().await {
+                    #[cfg(feature = "tracing")]
+                    tracing::error!("adapter error while initializing namespace: {}", e);
+                    return;
+                }
+                this.nsps.write().unwrap().insert(path, ns.clone());
+                connect(ns, esocket).await;
+            });
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
@@ -139,7 +148,7 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Adds a new namespace handler
-    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
+    pub async fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C) -> Result<(), A::Error>
     where
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
@@ -153,7 +162,9 @@ impl<A: Adapter> Client<A> {
             &self.adapter_state,
             self.config.parser,
         );
+        ns.adapter.clone().init().await?;
         self.nsps.write().unwrap().insert(path, ns);
+        Ok(())
     }
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
@@ -278,7 +289,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
         }
     }
 
-    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received message: {:?}", msg);
         let packet = match self.parser().decode_str(&socket.data.parser_state, msg) {
@@ -317,7 +328,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received binary: {:?}", &data);
         let packet = match self.parser().decode_bin(&socket.data.parser_state, data) {

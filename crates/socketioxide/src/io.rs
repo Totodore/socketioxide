@@ -404,12 +404,16 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// ```
     #[inline]
-    pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
+    pub async fn ns<C, T>(
+        &self,
+        path: impl Into<Cow<'static, str>>,
+        callback: C,
+    ) -> Result<(), A::Error>
     where
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
-        self.0.add_ns(path.into(), callback);
+        self.0.add_ns(path.into(), callback).await
     }
 
     /// # Register a [`ConnectHandler`] for the given dynamic namespace.

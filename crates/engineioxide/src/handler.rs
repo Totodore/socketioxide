@@ -60,8 +60,8 @@ pub trait EngineIoHandler: std::fmt::Debug + Send + Sync + 'static {
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason);
 
     /// Called when a message is received from the client.
-    fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>);
+    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>);
 
     /// Called when a binary message is received from the client.
-    fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>);
+    fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<Socket<Self::Data>>);
 }
