@@ -177,11 +177,11 @@
 //! ## Events
 //! There are three types of events:
 //! * The connect event is emitted when a new connection is established. It can be handled with the
-//! [`ConnectHandler`](handler::ConnectHandler) and the `io.ns` method.
+//!   [`ConnectHandler`](handler::ConnectHandler) and the `io.ns` method.
 //! * The message event is emitted when a new message is received. It can be handled with the
-//! [`MessageHandler`](handler::MessageHandler) and the `socket.on` method.
+//!   [`MessageHandler`](handler::MessageHandler) and the `socket.on` method.
 //! * The disconnect event is emitted when a socket is closed. It can be handled with the
-//! [`DisconnectHandler`](handler::DisconnectHandler) and the `socket.on_disconnect` method.
+//!   [`DisconnectHandler`](handler::DisconnectHandler) and the `socket.on_disconnect` method.
 //!
 //! Only one handler can exist for an event so registering a new handler for an event will replace the previous one.
 //!
@@ -191,9 +191,9 @@
 //!
 //! A middleware *must* return a `Result<(), E> where E: Display`.
 //! * If the result is `Ok(())`, the next middleware is called or if there is no more middleware,
-//! the socket is connected and the [`ConnectHandler`](handler::ConnectHandler) is called.
+//!   the socket is connected and the [`ConnectHandler`](handler::ConnectHandler) is called.
 //! * If the result is an error, the namespace connection will be refused and the error will be returned with a
-//! [`connect_error` event and a `message`](https://socket.io/docs/v4/middlewares/#handling-middleware-error) field with the error.
+//!   [`connect_error` event and a `message`](https://socket.io/docs/v4/middlewares/#handling-middleware-error) field with the error.
 //!
 //! <div class="warning">
 //!     Because the socket is not yet connected to the namespace,

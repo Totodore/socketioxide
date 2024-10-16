@@ -274,10 +274,10 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
     /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
-    /// will be returned and the provided data to be send will be given back in the error.
+    ///   will be returned and the provided data to be send will be given back in the error.
     /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
-    /// will be returned and the provided data to be send will be given back in the error.
-    /// See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
+    ///   will be returned and the provided data to be send will be given back in the error.
+    ///   See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
     ///
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     /// [`SendError::Serialize`]: crate::SendError::Serialize
@@ -336,10 +336,10 @@ impl<A: Adapter> Socket<A> {
     /// To get acknowledgements, an [`AckStream`] is returned.
     /// It can be used in two ways:
     /// * As a [`Stream`]: It will yield all the ack responses with their corresponding socket id
-    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
-    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    ///   received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    ///   more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
     /// * As a [`Future`]: It will yield the first ack response received from the client.
-    /// Useful when expecting only one acknowledgement.
+    ///   Useful when expecting only one acknowledgement.
     ///
     /// # Errors
     ///

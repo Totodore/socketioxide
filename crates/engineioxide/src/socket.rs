@@ -166,7 +166,7 @@ pub(crate) type PacketBuf = SmallVec<[Packet; 10]>;
 ///
 /// It handles :
 /// * the packet communication between with the `Engine`
-/// and the user defined [`Handler`](crate::handler::EngineIoHandler).
+///   and the user defined [`Handler`](crate::handler::EngineIoHandler).
 /// * the user defined [`Data`](crate::handler::EngineIoHandler::Data) bound to the socket.
 /// * the heartbeat job that verify that the connection is still up by sending packets periodically.
 pub struct Socket<D>
@@ -196,7 +196,7 @@ where
     /// * From the [encoder](crate::service::encoder) if the transport is polling
     /// * From the fn [`on_ws_req_init`](crate::engine::EngineIo) if the transport is websocket
     /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback.
-    /// Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
+    ///   Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
     ///
     /// The channel is made of a [`SmallVec`] of [`Packet`]s so that adjacent packets can be sent atomically.
     pub(crate) internal_rx: Mutex<PeekableReceiver<PacketBuf>>,

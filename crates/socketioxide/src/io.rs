@@ -694,10 +694,10 @@ impl<A: Adapter> SocketIo<A> {
     /// To get acknowledgements, an [`AckStream`] is returned.
     /// It can be used in two ways:
     /// * As a [`Stream`]: It will yield all the ack responses with their corresponding socket id
-    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
-    /// more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
+    ///   received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    ///   more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
     /// * As a [`Future`]: It will yield the first ack response received from the client.
-    /// Useful when expecting only one acknowledgement.
+    ///   Useful when expecting only one acknowledgement.
     ///
     /// If the packet encoding failed an [`EncodeError`] is **immediately** returned.
     ///

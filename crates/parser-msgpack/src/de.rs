@@ -48,7 +48,7 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>
 
     // Current js socket.io msgpack implementation has a weird way to represent "undefined" with zeroed 1-ext.
     // This is a little workaround to convert this to a proper "undefined" value.
-    if data.as_ref() == &[0xd4, 0x00, 0x00] {
+    if *data == [0xd4, 0x00, 0x00] {
         data = Bytes::from_static(&[0xc0]); // nil
     };
 

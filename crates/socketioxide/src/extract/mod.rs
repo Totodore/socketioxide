@@ -19,7 +19,7 @@
 //! * [`Extension`]: extracts an extension of the given type stored on the called socket by cloning it.
 //! * [`MaybeExtension`]: extracts an extension of the given type if it exists or [`None`] otherwise
 //! * [`HttpExtension`]: extracts an http extension of the given type coming from the request.
-//! (Similar to axum's [`extract::Extension`](https://docs.rs/axum/latest/axum/struct.Extension.html)
+//!   (Similar to axum's [`extract::Extension`](https://docs.rs/axum/latest/axum/struct.Extension.html)
 //! * [`MaybeHttpExtension`]: extracts an http extension of the given type if it exists or [`None`] otherwise.
 //!
 //! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits

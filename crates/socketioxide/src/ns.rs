@@ -68,7 +68,7 @@ impl<A: Adapter> Namespace<A> {
     /// Middlewares are first called to check if the connection is allowed.
     /// * If the handler returns an error, a connect_error packet is sent to the client.
     /// * If the handler returns Ok, a connect packet is sent to the client
-    /// and the handler is called.
+    ///   and the handler is called.
     pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,
@@ -152,7 +152,7 @@ impl<A: Adapter> Namespace<A> {
     /// Closes the entire namespace :
     /// * Closes the adapter
     /// * Closes all the sockets and
-    /// their underlying connections in case of [`DisconnectReason::ClosingServer`]
+    ///   their underlying connections in case of [`DisconnectReason::ClosingServer`]
     /// * Removes all the sockets from the namespace
     ///
     /// This function is using .await points only when called with [`DisconnectReason::ClosingServer`]
