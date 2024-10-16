@@ -350,14 +350,14 @@ impl<A: Adapter> Socket<A> {
     ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
-    /// an [`AckError::Serde`] will be yielded.
+    /// an [`AckError::Decode`] will be yielded.
     ///
     /// [`timeout()`]: crate::operators::ConfOperators#method.timeout
     /// [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
     /// [`Stream`]: futures_core::stream::Stream
     /// [`Future`]: futures_core::future::Future
     /// [`AckError`]: crate::AckError
-    /// [`AckError::Serde`]: crate::AckError::Serde
+    /// [`AckError::Decode`]: crate::AckError::Decode
     /// [`AckError::Timeout`]: crate::AckError::Timeout
     /// [`AckError::Socket`]: crate::AckError::Socket
     /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed

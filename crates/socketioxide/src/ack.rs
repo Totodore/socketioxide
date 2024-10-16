@@ -65,11 +65,9 @@ pin_project_lite::pin_project! {
     /// * As a [`Future`]: It will yield the first ack response received from the client.
     /// Useful when expecting only one acknowledgement.
     ///
-    /// If the packet encoding failed an [`serde_json::Error`] is **immediately** returned.
-    ///
     /// If the client didn't respond before the timeout, the [`AckStream`] will yield
     /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `T`,
-    /// an [`AckError::Serde`] will be yielded.
+    /// an [`AckError::Decode`] will be yielded.
     ///
     /// An [`AckStream`] can be created from:
     /// * The [`SocketRef::emit_with_ack`] method, in this case there will be only one ack response.

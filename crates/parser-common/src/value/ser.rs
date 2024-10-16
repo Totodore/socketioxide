@@ -35,7 +35,8 @@ struct Serializer<'a, S> {
     ser: S,
     /// This field requires UnsafeCell because we need to mutate the vector of binary payloads.
     /// However we can't move &mut around because we need to pass by value every [`Serializer`] when we
-    /// instantiate them for new [`Compound`] types.
+    /// instantiate them for new [`Compound`] types. This remains safe because we only mutate the vector when
+    /// inserting new binary payloads and we never access it in other ways.
     binary_payloads: &'a UnsafeCell<VecDeque<Bytes>>,
     is_root: bool,
 }
@@ -319,6 +320,8 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
         use serde::ser::SerializeMap;
         let num = {
+            // SAFETY: the binary_payloads are only accessed in the context of the current serialization
+            // in a sequential manner. The only mutation place is here, hence it remains safe.
             let bins = unsafe { self.binary_payloads.get().as_mut().unwrap() };
             bins.push_back(Bytes::copy_from_slice(v));
             bins.len() - 1

@@ -146,13 +146,15 @@
 //! the [`FromMessageParts`](handler::FromMessageParts) for the [`MessageHandler`](handler::MessageHandler) and the
 //! [`FromDisconnectParts`](handler::FromDisconnectParts) for the [`DisconnectHandler`](handler::DisconnectHandler).
 //!
-//! Here are some examples of extractors:
-//! * [`Data`](extract::Data): extracts and deserialize to json any data, if a deserialize error occurs the handler won't be called
-//!     - for [`ConnectHandler`](handler::ConnectHandler): extracts and deserialize to json the auth data
-//!     - for [`MessageHandler`](handler::MessageHandler): extracts and deserialize to json the message data
-//! * [`TryData`](extract::TryData): extracts and deserialize to json any data but with a `Result` type in case of error
-//!     - for [`ConnectHandler`](handler::ConnectHandler): extracts and deserialize to json the auth data
-//!     - for [`MessageHandler`](handler::MessageHandler): extracts and deserialize to json the message data
+//! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
+//! * [`Data`]: extracts and deserialize from any receieved data, if a deserialization error occurs the handler won't be called:
+//!     - for [`ConnectHandler`]: extracts and deserialize from the incoming auth data
+//!     - for [`ConnectMiddleware`]: extract and deserialize from the incoming auth data.
+//!       In case of error, the middleware chain stops and a `connect_error` event is sent.
+//!     - for [`MessageHandler`]: extracts and deserialize from the incoming message data
+//! * [`TryData`]: extracts and deserialize from the any received data but with a `Result` type in case of error:
+//!     - for [`ConnectHandler`] and [`ConnectMiddleware`]: extracts and deserialize from the incoming auth data
+//!     - for [`MessageHandler`]: extracts and deserialize from the incoming message data
 //! * [`SocketRef`](extract::SocketRef): extracts a reference to the [`Socket`](socket::Socket)
 //! * [`AckSender`](extract::AckSender): Can be used to send an ack response to the current message event
 //! * [`ProtocolVersion`]: extracts the protocol version of the socket
@@ -202,19 +204,20 @@
 //!
 //! ## [Emiting data](#emiting-data)
 //! Data can be emitted to a socket with the [`Socket::emit`](socket::Socket) method. It takes an event name and a data argument.
-//! The data argument is can be any type that implements the [`serde::Serialize`] trait.
+//! The data argument can be any type that implements the [`serde::Serialize`] trait.
 //!
 //! You can emit from the [`SocketIo`] handle or the [`SocketRef`](extract::SocketRef).
 //! The difference is that you can move the [`io`](SocketIo) handle everywhere because it is a cheaply cloneable struct.
-//! The [`SocketRef`](extract::SocketRef) is a reference to the socket and cannot be cloned.
+//! The [`SocketRef`](extract::SocketRef) is a reference to the socket and you should avoid storing it in your own code (e.g. in HashMap/Vec).
+//! If you do so, you will have to remove the socket reference when the socket is disconnected to avoid memory leaks.
 //!
 //! Moreover the [`io`](SocketIo) handle can emit to any namespace while the [`SocketRef`](extract::SocketRef) can only emit to the namespace of the socket.
 //!
-//! When using any `emit` fn, if you provide tuple-like data (tuple, arrays), it will be considered as multiple arguments.
+//! When using any `emit` fn, if you provide tuple-like data (tuple, arrays), it will be considered as multiple emit arguments.
 //! If you send a vector it will be considered as a single argument.
 //!
 //! #### Emit errors
-//! If the data can't be serialized to json, an [`EncodeError`] will be returned.
+//! If the data can't be serialized, an [`EncodeError`] will be returned.
 //!
 //! If the socket is disconnected or the internal channel is full, a [`SendError`] will be returned.
 //! Moreover, a tracing log will be emitted if the `tracing` feature is enabled.
@@ -241,7 +244,7 @@
 //! If you want to emit/broadcast a message and await for a/many client(s) acknowledgment(s) you can use:
 //! * [`SocketRef::emit_with_ack`] for a single client
 //! * [`BroadcastOperators::emit_with_ack`] for broadcasting or [emit configuration](#emiting-data).
-//! * [`SocketIo::emit_with_ack`] for broadcasting.
+//! * [`SocketIo::emit_with_ack`] for broadcasting to an entire namespace.
 //!
 //! [`SocketRef::emit_with_ack`]: crate::extract::SocketRef#method.emit_with_ack
 //! [`BroadcastOperators::emit_with_ack`]: crate::operators::BroadcastOperators#method.emit_with_ack

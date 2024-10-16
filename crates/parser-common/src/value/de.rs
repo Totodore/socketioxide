@@ -491,7 +491,7 @@ impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'a, V> {
             ("_placeholder", Val::Placeholder(true), "num", Val::Num(idx))
             | ("num", Val::Num(idx), "_placeholder", Val::Placeholder(true)) => {
                 // Serde is going through the data in a DFS manner, in the same way that socket.io JS parser encode placeholders.
-                // So we can safely pop the first element of the queue.
+                // So we can safely pop the first element of the queue. This is more efficient than shifting the queue.
                 let payload = self
                     .binary_payloads
                     .pop_front()

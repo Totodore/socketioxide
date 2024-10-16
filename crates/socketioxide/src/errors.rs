@@ -54,7 +54,7 @@ pub enum BroadcastError {
     #[error("Error sending data through the engine.io socket: {0:?}")]
     Socket(Vec<SocketError>),
 
-    /// An error occurred while serializing the JSON packet.
+    /// An error occurred while serializing the packet.
     #[error("Error serializing packet: {0:?}")]
     Serialize(#[from] EncodeError),
 
@@ -65,7 +65,7 @@ pub enum BroadcastError {
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
 pub enum SendError {
-    /// An error occurred while serializing the JSON packet.
+    /// An error occurred while serializing the packet.
     #[error("Error serializing packet: {0:?}")]
     Serialize(#[from] EncodeError),
 

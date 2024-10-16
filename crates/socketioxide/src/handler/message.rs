@@ -12,7 +12,6 @@
 //! ## Example with sync closures
 //! ```rust
 //! # use socketioxide::SocketIo;
-//! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! io.ns("/", |s: SocketRef| {
@@ -39,7 +38,6 @@
 //! ## Example with async closures
 //! ```rust
 //! # use socketioxide::SocketIo;
-//! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! io.ns("/", |s: SocketRef| {
@@ -57,7 +55,6 @@
 //! ## Example with async non anonymous handler
 //! ```rust
 //! # use socketioxide::SocketIo;
-//! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! // async named event handler
 //! async fn on_event(s: SocketRef, Data(data): Data<serde_json::Value>, ack: AckSender) {

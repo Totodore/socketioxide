@@ -1,15 +1,14 @@
 //! ### Extractors for [`ConnectHandler`], [`ConnectMiddleware`], [`MessageHandler`] and [`DisconnectHandler`](crate::handler::DisconnectHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
-//! * [`Data`]: extracts and deserialize to json any data, if a deserialization error occurs the handler won't be called:
-//!     - for [`ConnectHandler`]: extracts and deserialize to json the auth data
-//!     - for [`ConnectMiddleware`]: extract and deserialize to json the auth data.
-//! In case of error, the middleware chain stops and a `connect_error` event is sent.
-//!     - for [`MessageHandler`]: extracts and deserialize to json the message data
-//! * [`TryData`]: extracts and deserialize to json any data but with a `Result` type in case of error:
-//!     - for [`ConnectHandler`] and [`ConnectMiddleware`]:
-//! extracts and deserialize to json the auth data
-//!     - for [`MessageHandler`]: extracts and deserialize to json the message data
+//! * [`Data`]: extracts and deserialize from any receieved data, if a deserialization error occurs the handler won't be called:
+//!     - for [`ConnectHandler`]: extracts and deserialize from the incoming auth data
+//!     - for [`ConnectMiddleware`]: extract and deserialize from the incoming auth data.
+//!       In case of error, the middleware chain stops and a `connect_error` event is sent.
+//!     - for [`MessageHandler`]: extracts and deserialize from the incoming message data
+//! * [`TryData`]: extracts and deserialize from the any received data but with a `Result` type in case of error:
+//!     - for [`ConnectHandler`] and [`ConnectMiddleware`]: extracts and deserialize from the incoming auth data
+//!     - for [`MessageHandler`]: extracts and deserialize from the incoming message data
 //! * [`SocketRef`]: extracts a reference to the [`Socket`](crate::socket::Socket)
 //! * [`SocketIo`](crate::SocketIo): extracts a reference to the whole socket.io server context.
 //! * [`AckSender`]: Can be used to send an ack response to the current message event

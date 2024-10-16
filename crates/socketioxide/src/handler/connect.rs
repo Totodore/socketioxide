@@ -26,7 +26,6 @@
 //! ## Example with sync closures
 //! ```rust
 //! # use socketioxide::SocketIo;
-//! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! // Here the handler is sync,
@@ -39,7 +38,6 @@
 //! ## Example with async closures
 //! ```rust
 //! # use socketioxide::SocketIo;
-//! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! // Here the handler is async and extract the current socket and the auth payload
@@ -56,7 +54,6 @@
 //! ## Example with async non anonymous functions
 //! ```rust
 //! # use socketioxide::SocketIo;
-//! # use serde_json::Error;
 //! # use socketioxide::extract::*;
 //! async fn handler(s: SocketRef, TryData(auth): TryData<String>) {
 //!     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
