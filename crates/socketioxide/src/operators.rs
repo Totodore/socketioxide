@@ -289,12 +289,19 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
 impl<A: Adapter> ConfOperators<'_, A> {
     /// Emits a message to the client and apply the previous operators on the message.
     ///
-    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// If you provide tuple-like data (tuple, arrays), it will be considered as multiple arguments.
     /// Therefore if you want to send an array as the _first_ argument of the payload,
-    /// you need to wrap it in an array or a tuple.
+    /// you need to wrap it in an array or a tuple. [`Vec`] will be always considered as a single argument though.
+    ///
+    /// ## Emitting binary data
+    /// To emit binary data, you must use a data type that implements [`Serialize`] as binary data.
+    /// Currently if you use `Vec<u8>` it will be considered as a number sequence and not binary data.
+    /// To counter that you must either use a special type like [`Bytes`] or use the [`serde_bytes`] crate.
+    /// If you want to emit generic data that may contains binary, use [`rmpv::Value`] rather
+    /// than [`serde_json::Value`] otherwise the binary data will also be serialized as a number sequence.
     ///
     /// ## Errors
-    /// * When encoding the data into JSON a [`SendError::Serialize`] may be returned.
+    /// * When encoding the data a [`SendError::Serialize`] may be returned.
     /// * If the underlying engine.io connection is closed a [`SendError::Socket(SocketError::Closed)`]
     ///   will be returned and the provided data to be send will be given back in the error.
     /// * If the packet buffer is full, a [`SendError::Socket(SocketError::InternalChannelFull)`]
@@ -304,7 +311,10 @@ impl<A: Adapter> ConfOperators<'_, A> {
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     /// [`SendError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
     /// [`SendError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
-    ///
+    /// [`Bytes`]: bytes::Bytes
+    /// [`serde_bytes`]: https://docs.rs/serde_bytes
+    /// [`rmpv::Value`]: https://docs.rs/rmpv
+    /// [`serde_json::Value`]: https://docs.rs/serde_json/latest/serde_json/value
     /// #### Example
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -323,6 +333,29 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ///         socket.emit("test", &[arr]).ok();
     ///     });
     /// });
+    /// ```
+    ///
+    /// ## Binary Example with the `bytes` crate
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use std::sync::Arc;
+    /// # use bytes::Bytes;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<(String, Bytes, Bytes)>(data)| async move {
+    ///         // Emit a test message to the client
+    ///         socket.emit("test", &data).ok();
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         socket.emit("test", &("world", "hello", Bytes::from_static(&[1, 2, 3, 4]))).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = [1, 2, 3, 4];
+    ///         socket.emit("test", &[arr]).ok();
+    ///     });
+    /// });
+    /// ```
     pub fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
@@ -348,6 +381,8 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 
     /// Emits a message to the client and wait for acknowledgement.
+    ///
+    /// See [`emit()`](#method.emit) for more details on emitting messages.
     ///
     /// The acknowledgement has a timeout specified in the config (5s by default)
     /// (see [`SocketIoBuilder::ack_timeout`]) or with the [`timeout()`] operator.
@@ -648,12 +683,19 @@ impl<A: Adapter> BroadcastOperators<A> {
 impl<A: Adapter> BroadcastOperators<A> {
     /// Emits a message to all sockets selected with the previous operators.
     ///
-    /// If you provide array-like data (tuple, vec, arrays), it will be considered as multiple arguments.
+    /// If you provide tuple-like data (tuple, arrays), it will be considered as multiple arguments.
     /// Therefore if you want to send an array as the _first_ argument of the payload,
-    /// you need to wrap it in an array or a tuple.
+    /// you need to wrap it in an array or a tuple. [`Vec`] will be always considered as a single argument though.
+    ///
+    /// ## Emitting binary data
+    /// To emit binary data, you must use a data type that implements [`Serialize`] as binary data.
+    /// Currently if you use `Vec<u8>` it will be considered as a number sequence and not binary data.
+    /// To counter that you must either use a special type like [`Bytes`] or use the [`serde_bytes`] crate.
+    /// If you want to emit generic data that may contains binary, use [`rmpv::Value`] rather
+    /// than [`serde_json::Value`] otherwise the binary data will also be serialized as a number sequence.
     ///
     /// ## Errors
-    /// * When encoding the data into JSON a [`BroadcastError::Serialize`] may be returned.
+    /// * When encoding the data a [`BroadcastError::Serialize`] may be returned.
     /// * If the underlying engine.io connection is closed for a given socket a [`BroadcastError::Socket(SocketError::Closed)`]
     ///   will be returned.
     /// * If the packet buffer is full for a given socket, a [`BroadcastError::Socket(SocketError::InternalChannelFull)`]
@@ -664,6 +706,10 @@ impl<A: Adapter> BroadcastOperators<A> {
     /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
     /// [`BroadcastError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
     /// [`BroadcastError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
+    /// [`Bytes`]: bytes::Bytes
+    /// [`serde_bytes`]: https://docs.rs/serde_bytes
+    /// [`rmpv::Value`]: https://docs.rs/rmpv
+    /// [`serde_json::Value`]: https://docs.rs/serde_json/latest/serde_json/value
     ///
     /// #### Example
     /// ```
@@ -683,6 +729,29 @@ impl<A: Adapter> BroadcastOperators<A> {
     ///         socket.to("room2").emit("test", &[arr]).ok();
     ///     });
     /// });
+    /// ```
+    ///
+    /// ## Binary Example with the `bytes` crate
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use std::sync::Arc;
+    /// # use bytes::Bytes;
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     socket.on("test", |socket: SocketRef, Data::<(String, Bytes, Bytes)>(data)| async move {
+    ///         // Emit a test message to the client
+    ///         socket.emit("test", &data).ok();
+    ///
+    ///         // Emit a test message with multiple arguments to the client
+    ///         socket.emit("test", &("world", "hello", Bytes::from_static(&[1, 2, 3, 4]))).ok();
+    ///
+    ///         // Emit a test message with an array as the first argument
+    ///         let arr = [1, 2, 3, 4];
+    ///         socket.emit("test", &[arr]).ok();
+    ///     });
+    /// });
+    /// ```
     pub fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
@@ -699,6 +768,8 @@ impl<A: Adapter> BroadcastOperators<A> {
 
     /// Emits a message to all sockets selected with the previous operators and
     /// waits for the acknowledgement(s).
+    ///
+    /// See [`emit()`](#method.emit) for more details on emitting messages.
     ///
     /// The acknowledgement has a timeout specified in the config (5s by default)
     /// (see [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder)) or with the [`timeout()`] operator.
