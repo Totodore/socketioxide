@@ -5,7 +5,7 @@ edition = "2021"
 
 
 [dependencies]
-socketioxide = { path = "../../socketioxide", features = ["state"] }
+socketioxide = { path = "../../crates/socketioxide", features = ["state"] }
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -14,4 +14,3 @@ tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 serde.workspace = true
-serde_json.workspace = true

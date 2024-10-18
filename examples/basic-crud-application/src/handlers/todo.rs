@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::{RwLock, Arc}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use serde::{Deserialize, Serialize};
 use socketioxide::extract::{AckSender, Data, SocketRef, State};
@@ -48,14 +51,14 @@ pub fn create(s: SocketRef, Data(data): Data<PartialTodo>, ack: AckSender, todos
     todos.insert(id, todo.clone());
 
     let res: Response<_> = id.into();
-    ack.send(res).ok();
+    ack.send(&res).ok();
 
-    s.broadcast().emit("todo:created", todo).ok();
+    s.broadcast().emit("todo:created", &todo).ok();
 }
 
 pub async fn read(Data(id): Data<Uuid>, ack: AckSender, todos: State<Todos>) {
     let todo = todos.get(&id).ok_or(Error::NotFound);
-    ack.send(todo).ok();
+    ack.send(&todo).ok();
 }
 
 pub async fn update(s: SocketRef, Data(data): Data<Todo>, ack: AckSender, todos: State<Todos>) {
@@ -64,22 +67,22 @@ pub async fn update(s: SocketRef, Data(data): Data<Todo>, ack: AckSender, todos:
         .ok_or(Error::NotFound)
         .map(|mut todo| {
             todo.inner = data.inner.clone();
-            s.broadcast().emit("todo:updated", data).ok();
+            s.broadcast().emit("todo:updated", &data).ok();
         });
 
-    ack.send(res).ok();
+    ack.send(&res).ok();
 }
 
 pub async fn delete(s: SocketRef, Data(id): Data<Uuid>, ack: AckSender, todos: State<Todos>) {
     let res = todos.remove(&id).ok_or(Error::NotFound).map(|_| {
-        s.broadcast().emit("todo:deleted", id).ok();
+        s.broadcast().emit("todo:deleted", &id).ok();
     });
 
-    ack.send(res).ok();
+    ack.send(&res).ok();
 }
 
 pub async fn list(ack: AckSender, todos: State<Todos>) {
     let res: Response<_> = todos.get_all().into();
     info!("Sending todos: {:?}", res);
-    ack.send(res).ok();
+    ack.send(&res).ok();
 }

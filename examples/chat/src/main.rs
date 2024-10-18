@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s.on(
             "new message",
             |s: SocketRef, Data::<String>(msg), Extension::<Username>(username)| {
-                let msg = Res::Message {
+                let msg = &Res::Message {
                     username,
                     message: msg,
                 };
@@ -79,9 +79,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let num_users = user_cnt.add_user();
                 s.extensions.insert(Username(username.clone()));
-                s.emit("login", Res::Login { num_users }).ok();
+                s.emit("login", &Res::Login { num_users }).ok();
 
-                let res = Res::UserEvent {
+                let res = &Res::UserEvent {
                     num_users,
                     username: Username(username),
                 };
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on("typing", |s: SocketRef, Extension::<Username>(username)| {
             s.broadcast()
-                .emit("typing", Res::Username { username })
+                .emit("typing", &Res::Username { username })
                 .ok();
         });
 
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "stop typing",
             |s: SocketRef, Extension::<Username>(username)| {
                 s.broadcast()
-                    .emit("stop typing", Res::Username { username })
+                    .emit("stop typing", &Res::Username { username })
                     .ok();
             },
         );
@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s.on_disconnect(
             |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| {
                 let num_users = user_cnt.remove_user();
-                let res = Res::UserEvent {
+                let res = &Res::UserEvent {
                     num_users,
                     username,
                 };

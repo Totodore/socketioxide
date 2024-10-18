@@ -14,8 +14,8 @@ categories = [
 license = "MIT"
 
 [workspace]
-members = ["engineioxide", "socketioxide", "e2e/*"]
-default-members = ["engineioxide", "socketioxide"]
+members = ["crates/*", "e2e/*", "crates/*/fuzz"]
+default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -45,5 +45,6 @@ matchit = "0.8.2"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 criterion = { version = "0.5.1", features = [
     "rayon",
+    "html_reports",
 ], default-features = false }
 axum = "0.7.2"
