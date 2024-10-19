@@ -1,0 +1,14 @@
+[package]
+name = "message-middleware"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+socketioxide = { path = "../../socketioxide", features = [
+    "extensions",
+    "state",
+    "tracing",
+] }
+axum.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
