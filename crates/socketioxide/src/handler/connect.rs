@@ -145,7 +145,8 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        note = "Function argument is not a valid socketio extractor.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
         label = "Invalid extractor"
     )
 )]
@@ -167,8 +168,11 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
-        label = "Invalid extractor"
+        note = "This function is not a ConnectMiddleware. Check that:
+* It is a clonable sync or async `FnOnce` that returns `Result<(), E> where E: Display`.
+* All its arguments are valid connect extractors.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
+        label = "Invalid ConnectMiddleware"
     )
 )]
 pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
@@ -190,6 +194,16 @@ pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'stati
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+#[rustversion::attr(
+    since(1.78),
+    diagnostic::on_unimplemented(
+        note = "This function is not a ConnectHandler. Check that:
+* It is a clonable sync or async `FnOnce` that returns nothing.
+* All its arguments are valid connect extractors.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
+        label = "Invalid ConnectHandler"
+    )
+)]
 pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// Call the handler with the given arguments.
     fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>);
