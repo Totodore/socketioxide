@@ -1,3 +1,14 @@
+# 0.15.0
+## socketioxide
+* **(Breaking)**: New parsing system. You can now serialize and deserialize binary data inside your own types.
+It also improve performances by avoiding unnecessary allocations.
+* fix: missing extractor error logs for async message handlers.
+* feat: add custom compiler error for unimplemented handler traits.
+* deps: switch from `tower` to `tower-service` and `tower-layer` subcrates.
+* deps: bump `tokio` to 1.40.
+* deps: bump `http` to 1.1.
+* deps: bump `hyper` to 1.5.
+
 # 0.14.0
 
 ## socketioxide

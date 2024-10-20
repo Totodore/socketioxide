@@ -16,7 +16,7 @@ itoa.workspace = true
 serde.workspace = true
 rmp = "0.8"
 rmp-serde = "1.3.0"
-socketioxide-core = { version = "0.14.1", path = "../socketioxide-core" }
+socketioxide-core = { version = "0.15.0", path = "../socketioxide-core" }
 
 [dev-dependencies]
 serde_json.workspace = true
