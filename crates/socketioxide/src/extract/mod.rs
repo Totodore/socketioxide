@@ -1,4 +1,5 @@
-//! ### Extractors for [`ConnectHandler`], [`ConnectMiddleware`], [`MessageHandler`] and [`DisconnectHandler`](crate::handler::DisconnectHandler).
+//! ### Extractors for [`ConnectHandler`], [`ConnectMiddleware`],
+//! [`MessageHandler`] and [`DisconnectHandler`](crate::handler::DisconnectHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
 //! * [`Data`]: extracts and deserialize from any receieved data, if a deserialization error occurs the handler won't be called:
@@ -22,9 +23,13 @@
 //!   (Similar to axum's [`extract::Extension`](https://docs.rs/axum/latest/axum/struct.Extension.html)
 //! * [`MaybeHttpExtension`]: extracts an http extension of the given type if it exists or [`None`] otherwise.
 //!
-//! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and [`FromDisconnectParts`] traits
-//! When implementing these traits, if you clone the [`Arc<Socket>`](crate::socket::Socket) make sure that it is dropped at least when the socket is disconnected.
-//! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning the socket for common usage.
+//! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and
+//! [`FromDisconnectParts`] traits
+//! When implementing these traits, if you clone the [`Arc<Socket>`](crate::socket::Socket) make sure
+//! that it is dropped at least when the socket is disconnected.
+//! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning
+//! the socket for common usage.
+//! If you want to deserialize the [`Value`] data you must manually call the `Data` extractor to deserialize it.
 //!
 //! [`FromConnectParts`]: crate::handler::FromConnectParts
 //! [`FromMessageParts`]: crate::handler::FromMessageParts
