@@ -1,5 +1,6 @@
 [package]
 name = "socketioxide-core"
+description = "Core of the socketioxide library. Contains basic types and interfaces for the socketioxide crate and the parser sub-crates"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +10,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true
+readme.workspace = true
 
 [dependencies]
 bytes.workspace = true

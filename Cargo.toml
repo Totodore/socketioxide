@@ -12,6 +12,7 @@ categories = [
     "web-programming::websocket",
 ]
 license = "MIT"
+readme = "README.md"
 
 [workspace]
 members = ["crates/*", "e2e/*", "crates/*/fuzz"]
