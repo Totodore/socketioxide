@@ -1,0 +1,21 @@
+[package]
+name = "socketioxide-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+bytes.workspace = true
+engineioxide = { version = "0.14.1", path = "../engineioxide" }
+serde.workspace = true
+thiserror.workspace = true
+arbitrary = { version = "1.3.2", features = ["derive"], optional = true }
+
+[features]
+fuzzing = ["dep:arbitrary"]

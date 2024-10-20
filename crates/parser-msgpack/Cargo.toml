@@ -1,0 +1,48 @@
+[package]
+name = "socketioxide-parser-msgpack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+bytes.workspace = true
+itoa.workspace = true
+serde.workspace = true
+rmp = "0.8"
+rmp-serde = "1.3.0"
+socketioxide-core = { version = "0.14.1", path = "../socketioxide-core" }
+
+[dev-dependencies]
+serde_json.workspace = true
+criterion.workspace = true
+
+
+[features]
+fuzzing = ["socketioxide-core/fuzzing"]
+
+
+[[bench]]
+name = "packet_encode"
+path = "benches/packet_encode.rs"
+harness = false
+
+[[bench]]
+name = "packet_decode"
+path = "benches/packet_decode.rs"
+harness = false
+
+[[bench]]
+name = "value_decode"
+path = "benches/value_decode.rs"
+harness = false
+
+[[bench]]
+name = "value_encode"
+path = "benches/value_encode.rs"
+harness = false
