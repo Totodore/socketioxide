@@ -29,7 +29,7 @@
 //! that it is dropped at least when the socket is disconnected.
 //! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning
 //! the socket for common usage.
-//! If you want to deserialize the [`Value`] data you must manually call the `Data` extractor to deserialize it.
+//! If you want to deserialize the [`Value`](socketioxide_core::Value) data you must manually call the `Data` extractor to deserialize it.
 //!
 //! [`FromConnectParts`]: crate::handler::FromConnectParts
 //! [`FromMessageParts`]: crate::handler::FromMessageParts

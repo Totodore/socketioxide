@@ -29,8 +29,8 @@
     nonstandard_style,
     missing_docs
 )]
-//! Socketioxide is a socket.io server implementation that works as a [`tower`] layer/service.
-//! It integrates nicely with the rest of the [`tower`]/[`tokio`]/[`hyper`](https://docs.rs/hyper/latest/hyper/) ecosystem.
+//! Socketioxide is a socket.io server implementation that works as a tower layer/service.
+//! It integrates nicely with the rest of the [`tower`](https://docs.rs/tower/latest/tower/)/[`tokio`]/[`hyper`](https://docs.rs/hyper/latest/hyper/) ecosystem.
 //!
 //! ## Table of contents
 //! * [Features](#features)
@@ -60,7 +60,7 @@
 //! * Polling & Websocket transports
 //!
 //! ## Compatibility
-//! Because it works as a tower [`layer`](tower::layer)/[`service`](tower::Service) or an hyper [`service`](hyper::service::Service)
+//! Because it works as a tower [`layer`](tower_layer::Layer)/[`service`](tower_service::Service) or an hyper [`service`](hyper::service::Service)
 //! you can use it with any http server frameworks that works with tower/hyper:
 //! * [Axum](https://docs.rs/axum/latest/axum/)
 //! * [Warp](https://docs.rs/warp/latest/warp/) (Not supported with socketioxide >= 0.9.0 as long as warp doesn't migrate to hyper v1)
@@ -105,7 +105,7 @@
 //! }
 //! ```
 //! ## Initialisation
-//! The [`SocketIo`] struct is the main entry point of the library. It is used to create a [`Layer`](tower::layer) or a [`Service`](tower::Service).
+//! The [`SocketIo`] struct is the main entry point of the library. It is used to create a [`Layer`](tower_layer::Layer) or a [`Service`](tower_service::Service).
 //! Later it can be used as the equivalent of the `io` object in the JS API.
 //!
 //! When creating your [`SocketIo`] instance, you can use the builder pattern to configure it with the [`SocketIoBuilder`] struct.

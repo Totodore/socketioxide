@@ -80,7 +80,7 @@ impl Default for SocketIoConfig {
 
 /// A builder to create a [`SocketIo`] instance.
 /// It contains everything to configure the socket.io server with a [`SocketIoConfig`].
-/// It can be used to build either a Tower [`Layer`](tower::layer::Layer) or a [`Service`](tower::Service).
+/// It can be used to build either a Tower [`Layer`](tower_layer::Layer) or a [`Service`](tower_service::Service).
 pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
@@ -291,21 +291,21 @@ impl SocketIo<LocalAdapter> {
 
     /// Creates a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
     /// This service will be a _standalone_ service that return a 404 error for every non-socket.io request.
-    /// It can be used as a [`Service`](tower::Service) (see hyper example)
+    /// It can be used as a [`Service`](tower_service::Service) (see hyper example)
     #[inline(always)]
     pub fn new_svc() -> (SocketIoService<NotFoundService>, SocketIo) {
         Self::builder().build_svc()
     }
 
     /// Creates a new [`SocketIoService`] and a [`SocketIo`] instance with a default config.
-    /// It can be used as a [`Service`](tower::Service) with an inner service
+    /// It can be used as a [`Service`](tower_service::Service) with an inner service
     #[inline(always)]
     pub fn new_inner_svc<S: Clone>(svc: S) -> (SocketIoService<S>, SocketIo) {
         Self::builder().build_with_inner_svc(svc)
     }
 
     /// Builds a [`SocketIoLayer`] and a [`SocketIo`] instance with a default config.
-    /// It can be used as a tower [`Layer`](tower::layer::Layer) (see axum example)
+    /// It can be used as a tower [`Layer`](tower_layer::Layer) (see axum example)
     #[inline(always)]
     pub fn new_layer() -> (SocketIoLayer, SocketIo) {
         Self::builder().build_layer()

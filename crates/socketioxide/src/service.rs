@@ -1,4 +1,4 @@
-//! ## A Tower [`Service`](tower::Service) and Hyper [`Service`](hyper::service::Service) for socket.io so it
+//! ## A Tower [`Service`](tower_service::Service) and Hyper [`Service`](hyper::service::Service) for socket.io so it
 //! can be used with frameworks supporting tower and hyper services.
 //!
 //! #### Example with a raw `hyper` standalone service (most of the time it easier to use a framework like `axum` or `salvo`):
