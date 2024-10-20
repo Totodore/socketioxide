@@ -54,11 +54,11 @@ jobs:
           - crate: engineioxide
             path: crates/engineioxide
           - crate: socketioxide_core
-            path: crates/socketioxide_core
+            path: crates/socketioxide-core
           - crate: socketioxide_parser_common
-            path: crates/parser_common
+            path: crates/parser-common
           - crate: socketioxide_parser_msgpack
-            path: crates/parser_msgpack
+            path: crates/parser-msgpack
           - crate: socketioxide
             path: crates/socketioxide
     steps:

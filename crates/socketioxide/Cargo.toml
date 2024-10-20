@@ -10,7 +10,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true
-readme = "../README.md"
+readme.workspace = true
 
 
 [dependencies]
