@@ -6,13 +6,13 @@ authors = ["Théodore Prévot <"]
 repository = "https://github.com/totodore/socketioxide"
 homepage = "https://github.com/totodore/socketioxide"
 keywords = ["socketio", "tower", "axum", "hyper", "websocket"]
+readme = "README.md"
 categories = [
     "asynchronous",
     "network-programming",
     "web-programming::websocket",
 ]
 license = "MIT"
-readme = "README.md"
 
 [workspace]
 members = ["crates/*", "e2e/*", "crates/*/fuzz"]
