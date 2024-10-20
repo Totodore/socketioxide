@@ -1,4 +1,4 @@
-//! ## A tower [`Service`](tower::Service) for engine.io so it can be used with frameworks supporting tower services
+//! ## A tower [`Service`](tower_service::Service) for engine.io so it can be used with frameworks supporting tower services
 //!
 //!
 //! #### Example with a `hyper` standalone service :
