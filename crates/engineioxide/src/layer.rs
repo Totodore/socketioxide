@@ -27,7 +27,7 @@
 //! // Spawn the axum server
 //! ```
 use std::sync::Arc;
-use tower::Layer;
+use tower_layer::Layer;
 
 use crate::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 

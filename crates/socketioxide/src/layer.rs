@@ -18,7 +18,7 @@
 //! ```
 use std::sync::Arc;
 
-use tower::Layer;
+use tower_layer::Layer;
 
 use crate::{
     adapter::{Adapter, LocalAdapter},
