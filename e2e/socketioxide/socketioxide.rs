@@ -7,7 +7,7 @@ use hyper_util::rt::TokioIo;
 use rmpv::Value;
 use socketioxide::{
     extract::{AckSender, Data, SocketRef},
-    ParserConfig, SocketIo,
+    SocketIo,
 };
 use tokio::net::TcpListener;
 use tracing::{info, Level};
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "msgpack")]
     {
-        builder = builder.with_parser(ParserConfig::msgpack());
+        builder = builder.with_parser(socketioxide::ParserConfig::msgpack());
     };
 
     let (svc, io) = builder.build_svc();
