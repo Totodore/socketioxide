@@ -6,6 +6,7 @@ authors = ["Théodore Prévot <"]
 repository = "https://github.com/totodore/socketioxide"
 homepage = "https://github.com/totodore/socketioxide"
 keywords = ["socketio", "tower", "axum", "hyper", "websocket"]
+readme = "README.md"
 categories = [
     "asynchronous",
     "network-programming",
