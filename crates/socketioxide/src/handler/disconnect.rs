@@ -99,7 +99,8 @@ where
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        note = "This function argument is not a valid socketio extractor.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details\n",
         label = "Invalid extractor"
     )
 )]
@@ -123,8 +124,11 @@ pub trait FromDisconnectParts<A: Adapter>: Sized {
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
-        label = "Invalid extractor"
+        note = "This function is not a DisconnectHandler. Check that:
+* It is a clonable sync or async `FnOnce` that returns nothing.
+* All its arguments are valid disconnect extractors.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
+        label = "Invalid DisconnectHandler"
     )
 )]
 pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
