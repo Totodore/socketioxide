@@ -284,12 +284,20 @@ macro_rules! impl_handler {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &ack_id) {
                         Ok(v) => v,
-                        Err(_) => return,
+                        Err(_e) => {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("Error while extracting data: {}", _e);
+                            return;
+                        },
                     };
                 )*
                 let last = match $last::from_message(s, v, ack_id) {
                     Ok(v) => v,
-                    Err(_) => return,
+                    Err(_e) => {
+                        #[cfg(feature = "tracing")]
+                        tracing::error!("Error while extracting data: {}", _e);
+                        return;
+                    },
                 };
 
                 (self.clone())($($ty,)* last);
