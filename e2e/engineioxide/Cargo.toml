@@ -13,7 +13,7 @@ publish = false
 
 [dependencies]
 bytes.workspace = true
-engineioxide = { path = "../../engineioxide", default-features = false, features = [
+engineioxide = { path = "../../crates/engineioxide", default-features = false, features = [
     "tracing",
 ] }
 hyper-util = { workspace = true, features = ["tokio"] }

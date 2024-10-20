@@ -18,8 +18,6 @@ jobs:
           toolchain: stable
           components: rustfmt
       - run: cargo fmt --all -- --check
-        env:
-          RUSTFLAGS: --cfg=socketioxide_test
 
   test:
     runs-on: ubuntu-latest
@@ -39,8 +37,6 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo test --tests --all-features --workspace
-        env:
-          RUSTFLAGS: --cfg=socketioxide_test
   udeps:
     runs-on: ubuntu-latest
     steps:
@@ -90,8 +86,6 @@ jobs:
 
       - name: check crates
         run: cargo check -p socketioxide -p engineioxide --all-features
-        env:
-          RUSTFLAGS: --cfg=socketioxide_test
 
   feature_set:
     runs-on: ubuntu-latest
@@ -179,16 +173,15 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-clippy
 
-      - name: Install required cargo
+      - name: Install required cargo                                                                                                                                                                                                      │
         run: cargo install clippy-sarif sarif-fmt || true
 
       - name: Run rust-clippy
         run: cargo clippy
           --all-features
+          --tests
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
-        env:
-          RUSTFLAGS: --cfg=socketioxide_test
 
       - name: Upload analysis results to GitHub
         uses: github/codeql-action/upload-sarif@v3
@@ -242,7 +235,7 @@ jobs:
     needs: [test]
     strategy:
       matrix:
-        socketio-version: [v4, v5]
+        socketio-version: [v4, v5, v5-msgpack]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -267,9 +260,11 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
       - name: Install deps & run tests
         run: |
+          PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
+          VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
           cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
