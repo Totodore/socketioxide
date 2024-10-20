@@ -38,7 +38,7 @@ use http::{Request, Response};
 use http_body::Body;
 use http_body_util::Empty;
 use hyper::service::Service as HyperSvc;
-use tower::Service as TowerSvc;
+use tower_service::Service as TowerSvc;
 
 use crate::{
     body::ResponseBody, config::EngineIoConfig, engine::EngineIo, handler::EngineIoHandler,
