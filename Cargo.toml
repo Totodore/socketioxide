@@ -19,32 +19,31 @@ default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bytes = { version = "1.4.0", features = ["serde"] }
-futures-core = "0.3.30"
-futures-util = { version = "0.3.30", default-features = false, features = [
-    "std",
-] }
-tokio = "1.35.0"
-tokio-tungstenite = "0.24.0"
-serde = { version = "1.0.193", features = ["derive"] }
-smallvec = { version = "1.13.1", features = ["union"] }
-serde_json = "1.0.108"
-tower = { version = "0.4.13", default-features = false }
-http = "1.0.0"
-http-body = "1.0.0"
-http-body-util = { version = "0.1.0" }
-thiserror = "1.0.40"
-tracing = "0.1.37"
-itoa = "1.0.10"
-hyper-util.version = "0.1.1"
-hyper = "1.0.3"
-pin-project-lite = "0.2.13"
-matchit = "0.8.2"
+bytes = { version = "1.7", features = ["serde"] }
+futures-core = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = "1.40"
+tokio-tungstenite = "0.24"
+serde = { version = "1.0", features = ["derive"] }
+smallvec = { version = "1.13", features = ["union"] }
+serde_json = "1.0"
+tower-layer = "0.3"
+tower-service = "0.3"
+http = "1.1"
+http-body = "1.0"
+http-body-util = "0.1"
+thiserror = "1.0"
+tracing = "0.1"
+itoa = "1.0"
+hyper-util.version = "0.1"
+hyper = "1.5"
+pin-project-lite = "0.2"
+matchit = "0.8"
 
 # Dev deps
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-criterion = { version = "0.5.1", features = [
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+criterion = { version = "0.5", features = [
     "rayon",
     "html_reports",
 ], default-features = false }
-axum = "0.7.2"
+axum = "0.7"

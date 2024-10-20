@@ -93,8 +93,11 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
-        label = "Invalid extractor"
+        note = "This function is not a MessageHandler. Check that:
+* It is a clonable sync or async `FnOnce` that returns nothing.
+* All its arguments are valid message extractors.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
+        label = "Invalid MessageHandler"
     )
 )]
 pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
@@ -151,7 +154,8 @@ mod private {
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        note = "This function argument is not a valid socketio extractor.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details\n",
         label = "Invalid extractor"
     )
 )]
@@ -176,7 +180,8 @@ pub trait FromMessageParts<A: Adapter>: Sized {
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor. \nSee `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
+        note = "This function argument is not a valid socketio extractor.
+See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details\n",
         label = "Invalid extractor"
     )
 )]
@@ -284,12 +289,20 @@ macro_rules! impl_handler {
                 $(
                     let $ty = match $ty::from_message_parts(&s, &mut v, &ack_id) {
                         Ok(v) => v,
-                        Err(_) => return,
+                        Err(_e) => {
+                            #[cfg(feature = "tracing")]
+                            tracing::error!("Error while extracting data: {}", _e);
+                            return;
+                        },
                     };
                 )*
                 let last = match $last::from_message(s, v, ack_id) {
                     Ok(v) => v,
-                    Err(_) => return,
+                    Err(_e) => {
+                        #[cfg(feature = "tracing")]
+                        tracing::error!("Error while extracting data: {}", _e);
+                        return;
+                    },
                 };
 
                 (self.clone())($($ty,)* last);

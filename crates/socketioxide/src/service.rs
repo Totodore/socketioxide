@@ -51,7 +51,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tower::Service as TowerSvc;
+use tower_service::Service as TowerSvc;
 
 use crate::{
     adapter::{Adapter, LocalAdapter},
