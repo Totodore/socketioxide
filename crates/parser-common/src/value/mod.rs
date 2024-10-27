@@ -44,12 +44,12 @@ pub fn from_value<'de, T: Deserialize<'de>>(
 
 /// Serialize any serializable data and an event to a generic [`SocketIoValue`] data.
 pub fn to_value<T: ?Sized + Serialize>(data: &T, event: Option<&str>) -> serde_json::Result<Value> {
-    let (writer, binary) = if is_ser_tuple(data) {
+    let (buff, binary) = if is_ser_tuple(data) {
         ser::into_str(data, event)?
     } else {
         ser::into_str(&(data,), event)?
     };
-    let data = unsafe { Str::from_bytes_unchecked(Bytes::from(writer)) };
+    let data = unsafe { Str::from_bytes_unchecked(buff) };
     Ok(Value::Str(data, (!binary.is_empty()).then_some(binary)))
 }
 

@@ -1,7 +1,7 @@
 //! This module contains a specialized JSON serializer wrapper that can serialize binary payloads as placeholders.
 use std::{cell::UnsafeCell, collections::VecDeque};
 
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use serde::ser::{
     self, SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
     SerializeTupleStruct, SerializeTupleVariant,
@@ -16,7 +16,7 @@ use serde::ser::{
 pub fn into_str<T: ?Sized + ser::Serialize>(
     data: &T,
     event: Option<&str>,
-) -> Result<(Vec<u8>, VecDeque<Bytes>), serde_json::Error> {
+) -> Result<(Bytes, VecDeque<Bytes>), serde_json::Error> {
     let mut writer = Vec::new();
     let binary_payloads = UnsafeCell::new(VecDeque::new());
     let ser = &mut serde_json::Serializer::new(&mut writer);
@@ -27,7 +27,8 @@ pub fn into_str<T: ?Sized + ser::Serialize>(
         is_root: true,
     };
     data.serialize(ser)?;
-    Ok((writer, binary_payloads.into_inner()))
+    writer.shrink_to_fit();
+    Ok((Bytes::from(writer), binary_payloads.into_inner()))
 }
 
 struct Serializer<'a, S> {
