@@ -26,7 +26,6 @@ tower-layer.workspace = true
 http.workspace = true
 http-body.workspace = true
 thiserror.workspace = true
-smallvec.workspace = true
 hyper.workspace = true
 matchit.workspace = true
 pin-project-lite.workspace = true
