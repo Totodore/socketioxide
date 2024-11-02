@@ -374,7 +374,7 @@ where
             .expect("Pong rx should be locked only once");
 
         #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] heartbeat receiver routine started", self.id);
+        tracing::debug!(sid = ?self.id, "heartbeat receiver routine started");
 
         loop {
             tokio::time::timeout(interval + timeout, heartbeat_rx.recv())
@@ -383,7 +383,7 @@ where
                 .ok_or(Error::HeartbeatTimeout)?;
 
             #[cfg(feature = "tracing")]
-            tracing::debug!("[sid={}] ping received, sending pong", self.id);
+            tracing::trace!(sid = ?self.id, "ping received, sending pong");
             self.internal_tx
                 .try_send(smallvec![Packet::Pong])
                 .map_err(|_| Error::HeartbeatTimeout)?;
