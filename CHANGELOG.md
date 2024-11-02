@@ -1,3 +1,11 @@
+# 0.15.1
+## socketioxide
+* deps: remove smallvec deps
+* doc: fix some links
+
+## engineioxide
+* fix: issue [#390](https://github.com/Totodore/socketioxide/issues/390). First ping was sent twice because of tokio interval behavior defaulting to bursting when interval tick is missed.
+
 # 0.15.0
 ## socketioxide
 * **(Breaking)**: New parsing system. You can now serialize and deserialize binary data inside your own types.
