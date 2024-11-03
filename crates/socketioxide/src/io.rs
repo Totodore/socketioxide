@@ -657,77 +657,8 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().timeout(timeout)
     }
 
-    /// Emits a message to all sockets selected with the previous operators.
-    ///
-    /// If you provide tuple-like data (tuple, arrays), it will be considered as multiple arguments.
-    /// Therefore if you want to send an array as the _first_ argument of the payload,
-    /// you need to wrap it in an array or a tuple. [`Vec`] will be always considered as a single argument though.
-    ///
-    /// ## Emitting binary data
-    /// To emit binary data, you must use a data type that implements [`Serialize`] as binary data.
-    /// Currently if you use `Vec<u8>` it will be considered as a number sequence and not binary data.
-    /// To counter that you must either use a special type like [`Bytes`] or use the [`serde_bytes`] crate.
-    /// If you want to emit generic data that may contains binary, use [`rmpv::Value`] rather
-    /// than [`serde_json::Value`] otherwise the binary data will also be serialized as a number sequence.
-    ///
-    /// ## Errors
-    /// * When encoding the data a [`BroadcastError::Serialize`] may be returned.
-    /// * If the underlying engine.io connection is closed for a given socket a [`BroadcastError::Socket(SocketError::Closed)`]
-    ///   will be returned.
-    /// * If the packet buffer is full for a given socket, a [`BroadcastError::Socket(SocketError::InternalChannelFull)`]
-    ///   will be retured. See [`SocketIoBuilder::max_buffer_size`] option for more infos on internal buffer config
-    ///
-    /// > **Note**: If a error is returned because of a specific socket, the message will still be sent to all other sockets.
-    ///
-    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
-    /// [`BroadcastError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
-    /// [`BroadcastError::Socket(SocketError::InternalChannelFull)`]: crate::SocketError::InternalChannelFull
-    /// [`Bytes`]: bytes::Bytes
-    /// [`serde_bytes`]: https://docs.rs/serde_bytes
-    /// [`rmpv::Value`]: https://docs.rs/rmpv
-    /// [`serde_json::Value`]: https://docs.rs/serde_json/latest/serde_json/value
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
-    /// // except for the room2
-    /// io.to("room1")
-    ///   .to("room3")
-    ///   .except("room2")
-    ///   .emit("Hello World!", &());
-    /// ```
-    ///
-    /// ## Binary Example with the `bytes` crate
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// # use std::sync::Arc;
-    /// # use bytes::Bytes;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<(String, Bytes, Bytes)>(data)| async move {
-    ///         // Emit a test message to the client
-    ///         socket.emit("test", &data).ok();
-    ///
-    ///         // Emit a test message with multiple arguments to the client
-    ///         socket.emit("test", &("world", "hello", Bytes::from_static(&[1, 2, 3, 4]))).ok();
-    ///
-    ///         // Emit a test message with an array as the first argument
-    ///         let arr = [1, 2, 3, 4];
-    ///         socket.emit("test", &[arr]).ok();
-    ///     });
-    /// });
-    /// ```
+    /// _Alias for `io.of("/").unwrap().emit()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/emit.md")]
     #[inline]
     pub fn emit<T: ?Sized + Serialize>(
         &self,
@@ -737,65 +668,8 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().emit(event, data)
     }
 
-    /// Emits a message to all sockets selected with the previous operators and
-    /// waits for the acknowledgement(s).
-    ///
-    /// See [`emit()`](#method.emit) for more details on how to emit data.
-    ///
-    /// To get acknowledgements, an [`AckStream`] is returned.
-    /// It can be used in two ways:
-    /// * As a [`Stream`]: It will yield all the ack responses with their corresponding socket id
-    ///   received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
-    ///   more than one acknowledgement. If you want to get the socket from this id, use [`io::get_socket()`].
-    /// * As a [`Future`]: It will yield the first ack response received from the client.
-    ///   Useful when expecting only one acknowledgement.
-    ///
-    /// If the packet encoding failed an [`EncodeError`] is **immediately** returned.
-    ///
-    /// If the socket is full or if it has been closed before receiving the acknowledgement,
-    /// an [`AckError::Socket`] will be yielded.
-    ///
-    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
-    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `V`,
-    /// an [`AckError::Decode`] will be yielded.
-    ///
-    /// [`timeout()`]: #method.timeout
-    /// [`Stream`]: futures_core::stream::Stream
-    /// [`Future`]: futures_core::future::Future
-    /// [`AckError::Decode`]: crate::AckError::Decode
-    /// [`AckError::Timeout`]: crate::AckError::Timeout
-    /// [`AckError::Socket`]: crate::AckError::Socket
-    /// [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
-    /// [`EncodeError`]: crate::EncodeError
-    /// [`io::get_socket()`]: crate::SocketIo#method.get_socket
-    ///
-    /// # Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// # Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// # use futures_util::stream::StreamExt;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef, Data::<Value>(data)| async move {
-    ///         // Emit a test message in the room1 and room3 rooms,
-    ///         // except for the room2 room with the binary payload received
-    ///         let ack_stream = socket.to("room1")
-    ///             .to("room3")
-    ///             .except("room2")
-    ///             .emit_with_ack::<_, String>("message-back", &data)
-    ///             .unwrap();
-    ///
-    ///         ack_stream.for_each(|(sid, ack)| async move {
-    ///             match ack {
-    ///                 Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
-    ///                 Err(err) => println!("Ack error, socket {} {:?}", sid, err),
-    ///             }
-    ///         }).await;
-    ///     });
-    /// });
+    /// _Alias for `io.of("/").unwrap().emit_with_ack()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/emit_with_ack.md")]
     #[inline]
     pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         &self,
@@ -805,30 +679,8 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().emit_with_ack(event, data)
     }
 
-    /// Gets all sockets selected with the previous operators.
-    ///
-    /// It can be used to retrieve any extension data from the sockets or to make some sockets join other rooms.
-    ///
-    /// Alias for `io.of("/").unwrap().sockets()`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can select all sockets in the room "room1"
-    /// // and for example show all sockets connected to it
-    /// let sockets = io.within("room1").sockets().unwrap();
-    /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
-    /// }
+    /// _Alias for `io.of("/").unwrap().sockets()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/sockets.md")]
     #[inline]
     pub fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
         self.get_default_op().sockets()
