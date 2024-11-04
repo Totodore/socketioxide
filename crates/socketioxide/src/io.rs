@@ -538,57 +538,57 @@ impl<A: Adapter> SocketIo<A> {
     /// _Alias for `io.of("/").unwrap().emit()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/emit.md")]
     #[inline]
-    pub fn emit<T: ?Sized + Serialize>(
+    pub async fn emit<T: ?Sized + Serialize>(
         &self,
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<(), BroadcastError> {
-        self.get_default_op().emit(event, data)
+        self.get_default_op().emit(event, data).await
     }
 
     /// _Alias for `io.of("/").unwrap().emit_with_ack()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/emit_with_ack.md")]
     #[inline]
-    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
+    pub async fn emit_with_ack<T: ?Sized + Serialize, V>(
         &self,
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<AckStream<V>, parser::EncodeError> {
-        self.get_default_op().emit_with_ack(event, data)
+        self.get_default_op().emit_with_ack(event, data).await
     }
 
     /// _Alias for `io.of("/").unwrap().sockets()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/sockets.md")]
     #[inline]
-    pub fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        self.get_default_op().sockets()
+    pub async fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
+        self.get_default_op().sockets().await
     }
 
     /// _Alias for `io.of("/").unwrap().disconnect()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/disconnect.md")]
     #[inline]
-    pub fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
-        self.get_default_op().disconnect()
+    pub async fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
+        self.get_default_op().disconnect().await
     }
 
     /// _Alias for `io.of("/").unwrap().join()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/join.md")]
     #[inline]
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.get_default_op().join(rooms)
+    pub async fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.get_default_op().join(rooms).await
     }
 
     /// _Alias for `io.of("/").unwrap().rooms()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
-        self.get_default_op().rooms()
+    pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.get_default_op().rooms().await
     }
 
     /// _Alias for `io.of("/").unwrap().rooms()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/leave.md")]
     #[inline]
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.get_default_op().leave(rooms)
+    pub async fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.get_default_op().leave(rooms).await
     }
 
     /// _Alias for `io.of("/").unwrap().get_socket()`_. If the **default namespace "/" is not found** this fn will panic!

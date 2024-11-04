@@ -228,18 +228,18 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.socket.join(rooms)
+    pub async fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.socket.join(rooms).await
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.socket.leave(rooms)
+    pub async fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.socket.leave(rooms).await
     }
 
     /// Gets all room names for a given namespace
-    pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
-        self.socket.rooms()
+    pub async fn rooms(self) -> Result<Vec<Room>, A::Error> {
+        self.socket.rooms().await
     }
 
     /// Creates a packet with the given event and data.
@@ -316,13 +316,13 @@ impl<A: Adapter> BroadcastOperators<A> {
 // ==== impl BroadcastOperators consume fns ====
 impl<A: Adapter> BroadcastOperators<A> {
     #[doc = include_str!("../docs/operators/emit.md")]
-    pub fn emit<T: ?Sized + Serialize>(
+    pub async fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<(), BroadcastError> {
         let packet = self.get_packet(event, data)?;
-        if let Err(e) = self.ns.adapter.broadcast(packet, self.opts) {
+        if let Err(e) = self.ns.adapter.broadcast(packet, self.opts).await {
             #[cfg(feature = "tracing")]
             tracing::debug!("broadcast error: {e:?}");
             return Err(e);
@@ -331,7 +331,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
 
     #[doc = include_str!("../docs/operators/emit_with_ack.md")]
-    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
+    pub async fn emit_with_ack<T: ?Sized + Serialize, V>(
         mut self,
         event: impl AsRef<str>,
         data: &T,
@@ -340,33 +340,34 @@ impl<A: Adapter> BroadcastOperators<A> {
         let stream = self
             .ns
             .adapter
-            .broadcast_with_ack(packet, self.opts, self.timeout);
+            .broadcast_with_ack(packet, self.opts, self.timeout)
+            .await;
         Ok(AckStream::new(stream, self.parser))
     }
 
     #[doc = include_str!("../docs/operators/sockets.md")]
-    pub fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        self.ns.adapter.fetch_sockets(self.opts)
+    pub async fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
+        self.ns.adapter.fetch_sockets(self.opts).await
     }
 
     #[doc = include_str!("../docs/operators/disconnect.md")]
-    pub fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
-        self.ns.adapter.disconnect_socket(self.opts)
+    pub async fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
+        self.ns.adapter.disconnect_socket(self.opts).await
     }
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_sockets(self.opts, rooms)
+    pub async fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.add_sockets(self.opts, rooms).await
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del_sockets(self.opts, rooms)
+    pub async fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.del_sockets(self.opts, rooms).await
     }
 
     #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.rooms()
+    pub async fn rooms(self) -> Result<Vec<Room>, A::Error> {
+        self.ns.adapter.rooms().await
     }
 
     #[doc = include_str!("../docs/operators/get_socket.md")]

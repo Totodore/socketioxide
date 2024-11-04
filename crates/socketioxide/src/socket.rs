@@ -3,7 +3,6 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    convert::Infallible,
     fmt::Debug,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
@@ -13,7 +12,6 @@ use std::{
 };
 
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
-use futures_util::FutureExt;
 use serde::Serialize;
 use tokio::sync::oneshot::{self, Receiver};
 
@@ -125,49 +123,6 @@ impl<'a> PermitExt<'a> for Permit<'a> {
             Value::Str(msg, Some(bin_payloads)) => self.emit_many(msg, bin_payloads),
             Value::Bytes(bin) => self.emit_binary(bin),
         }
-    }
-}
-
-/// The [`SocketAsyncOp`] trait allows you to perform asynchronous operations on a socket when using a distributed adapter.
-trait SocketAsyncOp<A: Adapter> {
-    fn get_adapter(&self) -> &A;
-    fn get_id(&self) -> Sid;
-
-    /// Joins the given rooms.
-    ///
-    /// If the room does not exist, it will be created.
-    ///
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.get_adapter().add_all(self.get_id(), rooms).await
-    }
-
-    /// Leaves the given rooms.
-    ///
-    /// If the room does not exist, it will do nothing
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.get_adapter().del(self.get_id(), rooms).await
-    }
-
-    /// Leaves all rooms where the socket is connected.
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    async fn leave_all(&self) -> Result<(), A::Error> {
-        self.get_adapter().del_all(self.get_id()).await
-    }
-
-    /// Gets all rooms where the socket is connected.
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    async fn rooms(&self) -> Result<Vec<Cow<'_, str>>, A::Error> {
-        self.get_adapter().socket_rooms(self.get_id()).await
     }
 }
 
@@ -383,13 +338,13 @@ impl<A: Adapter> Socket<A> {
     // Room actions
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_all(self.id, rooms)
+    pub async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.add_all(self.id, rooms).await
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del(self.id, rooms)
+    pub async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.ns.adapter.del(self.id, rooms).await
     }
 
     /// # Leave all rooms where the socket is connected.
@@ -397,13 +352,13 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave_all(&self) -> Result<(), A::Error> {
-        self.ns.adapter.del_all(self.id)
+    pub async fn leave_all(&self) -> Result<(), A::Error> {
+        self.ns.adapter.del_all(self.id).await
     }
 
     #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.socket_rooms(self.id)
+    pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.ns.adapter.socket_rooms(self.id).await
     }
 
     /// # Return true if the socket is connected to the namespace.
@@ -626,61 +581,6 @@ impl<A: Adapter> Socket<A> {
             tx.send(Ok(data)).ok();
         }
         Ok(())
-    }
-}
-
-macro_rules! now {
-    ($expr:expr) => {
-        $expr.now_or_never().unwrap().unwrap()
-    };
-}
-/// Room actions for local adapter
-impl Socket<LocalAdapter> {
-    /// Joins the given rooms.
-    ///
-    /// If the room does not exist, it will be created.
-    ///
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn join(&self, rooms: impl RoomParam) {
-        now!(self.ns.adapter.add_all(self.id, rooms))
-    }
-
-    /// Leaves the given rooms.
-    ///
-    /// If the room does not exist, it will do nothing
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave(&self, rooms: impl RoomParam) {
-        now!(self.ns.adapter.del(self.id, rooms))
-    }
-
-    /// Leaves all rooms where the socket is connected.
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave_all(&self) {
-        now!(self.ns.adapter.del_all(self.id))
-    }
-
-    /// Gets all rooms where the socket is connected.
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn rooms(&self) -> Vec<Cow<'static, str>> {
-        now!(self.ns.adapter.socket_rooms(self.id))
-    }
-}
-
-impl<A: Adapter> SocketAsyncOp<A> for Socket<A> {
-    fn get_adapter(&self) -> &A {
-        &self.ns.adapter
-    }
-
-    fn get_id(&self) -> Sid {
-        self.id
     }
 }
 
