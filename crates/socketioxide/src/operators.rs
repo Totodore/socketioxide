@@ -141,32 +141,32 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
         }
     }
 
-    #[doc = include_str!("docs/operators/to.md")]
+    #[doc = include_str!("../docs/operators/to.md")]
     pub fn to(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         BroadcastOperators::from(self).to(rooms)
     }
 
-    #[doc = include_str!("docs/operators/within.md")]
+    #[doc = include_str!("../docs/operators/within.md")]
     pub fn within(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         BroadcastOperators::from(self).within(rooms)
     }
 
-    #[doc = include_str!("docs/operators/except.md")]
+    #[doc = include_str!("../docs/operators/except.md")]
     pub fn except(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         BroadcastOperators::from(self).except(rooms)
     }
 
-    #[doc = include_str!("docs/operators/local.md")]
+    #[doc = include_str!("../docs/operators/local.md")]
     pub fn local(self) -> BroadcastOperators<A> {
         BroadcastOperators::from(self).local()
     }
 
-    #[doc = include_str!("docs/operators/broadcast.md")]
+    #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(self) -> BroadcastOperators<A> {
         BroadcastOperators::from(self).broadcast()
     }
 
-    #[doc = include_str!("docs/operators/timeout.md")]
+    #[doc = include_str!("../docs/operators/timeout.md")]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
@@ -175,7 +175,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
 
 // ==== impl ConfOperators consume fns ====
 impl<A: Adapter> ConfOperators<'_, A> {
-    #[doc = include_str!("docs/operators/emit.md")]
+    #[doc = include_str!("../docs/operators/emit.md")]
     pub fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
@@ -200,7 +200,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         Ok(())
     }
 
-    #[doc = include_str!("docs/operators/emit_with_ack.md")]
+    #[doc = include_str!("../docs/operators/emit_with_ack.md")]
     pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         mut self,
         event: impl AsRef<str>,
@@ -227,12 +227,12 @@ impl<A: Adapter> ConfOperators<'_, A> {
         Ok(AckStream::<V>::new(stream, self.socket.parser()))
     }
 
-    #[doc = include_str!("docs/operators/join.md")]
+    #[doc = include_str!("../docs/operators/join.md")]
     pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.socket.join(rooms)
     }
 
-    #[doc = include_str!("docs/operators/leave.md")]
+    #[doc = include_str!("../docs/operators/leave.md")]
     pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.socket.leave(rooms)
     }
@@ -276,37 +276,37 @@ impl<A: Adapter> BroadcastOperators<A> {
         }
     }
 
-    #[doc = include_str!("docs/operators/to.md")]
+    #[doc = include_str!("../docs/operators/to.md")]
     pub fn to(mut self, rooms: impl RoomParam) -> Self {
         self.opts.rooms.extend(rooms.into_room_iter());
         self.broadcast()
     }
 
-    #[doc = include_str!("docs/operators/within.md")]
+    #[doc = include_str!("../docs/operators/within.md")]
     pub fn within(mut self, rooms: impl RoomParam) -> Self {
         self.opts.rooms.extend(rooms.into_room_iter());
         self
     }
 
-    #[doc = include_str!("docs/operators/except.md")]
+    #[doc = include_str!("../docs/operators/except.md")]
     pub fn except(mut self, rooms: impl RoomParam) -> Self {
         self.opts.except.extend(rooms.into_room_iter());
         self.broadcast()
     }
 
-    #[doc = include_str!("docs/operators/local.md")]
+    #[doc = include_str!("../docs/operators/local.md")]
     pub fn local(mut self) -> Self {
         self.opts.flags.insert(BroadcastFlags::Local);
         self
     }
 
-    #[doc = include_str!("docs/operators/broadcast.md")]
+    #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(mut self) -> Self {
         self.opts.flags.insert(BroadcastFlags::Broadcast);
         self
     }
 
-    #[doc = include_str!("docs/operators/timeout.md")]
+    #[doc = include_str!("../docs/operators/timeout.md")]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
@@ -315,7 +315,7 @@ impl<A: Adapter> BroadcastOperators<A> {
 
 // ==== impl BroadcastOperators consume fns ====
 impl<A: Adapter> BroadcastOperators<A> {
-    #[doc = include_str!("docs/operators/emit.md")]
+    #[doc = include_str!("../docs/operators/emit.md")]
     pub fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
@@ -330,7 +330,7 @@ impl<A: Adapter> BroadcastOperators<A> {
         Ok(())
     }
 
-    #[doc = include_str!("docs/operators/emit_with_ack.md")]
+    #[doc = include_str!("../docs/operators/emit_with_ack.md")]
     pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         mut self,
         event: impl AsRef<str>,
@@ -344,32 +344,32 @@ impl<A: Adapter> BroadcastOperators<A> {
         Ok(AckStream::new(stream, self.parser))
     }
 
-    #[doc = include_str!("docs/operators/sockets.md")]
+    #[doc = include_str!("../docs/operators/sockets.md")]
     pub fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
         self.ns.adapter.fetch_sockets(self.opts)
     }
 
-    #[doc = include_str!("docs/operators/disconnect.md")]
+    #[doc = include_str!("../docs/operators/disconnect.md")]
     pub fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
         self.ns.adapter.disconnect_socket(self.opts)
     }
 
-    #[doc = include_str!("docs/operators/join.md")]
+    #[doc = include_str!("../docs/operators/join.md")]
     pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.ns.adapter.add_sockets(self.opts, rooms)
     }
 
-    #[doc = include_str!("docs/operators/leave.md")]
+    #[doc = include_str!("../docs/operators/leave.md")]
     pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.ns.adapter.del_sockets(self.opts, rooms)
     }
 
-    #[doc = include_str!("docs/operators/rooms.md")]
+    #[doc = include_str!("../docs/operators/rooms.md")]
     pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
         self.ns.adapter.rooms()
     }
 
-    #[doc = include_str!("docs/operators/get_socket.md")]
+    #[doc = include_str!("../docs/operators/get_socket.md")]
     pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
         self.ns.get_socket(sid).map(SocketRef::from).ok()
     }

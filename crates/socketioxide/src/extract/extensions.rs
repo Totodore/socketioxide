@@ -41,6 +41,7 @@ fn extract_http_extension<T: Clone + Send + Sync + 'static>(
 
 /// An Extractor that returns a clone extension from the request parts.
 pub struct HttpExtension<T>(pub T);
+
 /// An Extractor that returns a clone extension from the request parts if it exists.
 pub struct MaybeHttpExtension<T>(pub Option<T>);
 

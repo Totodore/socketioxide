@@ -170,12 +170,14 @@ impl<A: Adapter> Socket<A> {
         }
     }
 
-    /// ### Registers a [`MessageHandler`] for the given event.
+    /// # Registers a [`MessageHandler`] for the given event.
     ///
     /// * See the [`message`](crate::handler::message) module doc for more details on message handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
     ///
-    /// #### Simple example with a sync closure:
+    /// _It is recommended for code clarity to define your handler as top level function rather than closures._
+    ///
+    /// # Simple example with a sync closure and a sync fn:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde::{Serialize, Deserialize};
@@ -183,6 +185,10 @@ impl<A: Adapter> Socket<A> {
     /// struct MyData {
     ///     name: String,
     ///     age: u8,
+    /// }
+    /// fn handler(socket: SocketRef, Data(data): Data::<MyData>) {
+    ///     println!("Received a test message {:?}", data);
+    ///     socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
@@ -194,11 +200,13 @@ impl<A: Adapter> Socket<A> {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
+    ///     // Do the same thing but with a sync function
+    ///     socket.on("test_2", handler);
     /// });
     ///
     /// ```
     ///
-    /// #### Example with a closure and an acknowledgement + binary data:
+    /// # Example with a closure and an fn with an acknowledgement + binary data:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde_json::Value;
@@ -207,6 +215,12 @@ impl<A: Adapter> Socket<A> {
     /// struct MyData {
     ///     name: String,
     ///     age: u8,
+    /// }
+    /// async fn handler(socket: SocketRef, Data(data): Data::<MyData>, ack: AckSender) {
+    ///     println!("Received a test message {:?}", data);
+    ///     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    ///     ack.send(&data).ok(); // The data received is sent back to the client through the ack
+    ///     socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
@@ -220,6 +234,8 @@ impl<A: Adapter> Socket<A> {
     ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
     ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
+    ///     // Do the same thing but with a sync function
+    ///     socket.on("test_2", handler);
     /// });
     /// ```
     pub fn on<H, T>(&self, event: impl Into<Cow<'static, str>>, handler: H)
@@ -233,15 +249,18 @@ impl<A: Adapter> Socket<A> {
             .insert(event.into(), MakeErasedHandler::new_message_boxed(handler));
     }
 
-    /// ## Registers a disconnect handler.
+    /// # Register a disconnect handler.
     /// You can register only one disconnect handler per socket. If you register multiple handlers, only the last one will be used.
+    ///
+    /// _It is recommended for code clarity to define your handler as top level function rather than closures._
     ///
     /// * See the [`disconnect`](crate::handler::disconnect) module doc for more details on disconnect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
     ///
     /// The callback will be called when the socket is disconnected from the server or the client or when the underlying connection crashes.
     /// A [`DisconnectReason`] is passed to the callback to indicate the reason for the disconnection.
-    /// ### Example
+    ///
+    /// # Example
     /// ```
     /// # use socketioxide::{SocketIo, socket::DisconnectReason, extract::*};
     /// # use serde_json::Value;
@@ -265,7 +284,7 @@ impl<A: Adapter> Socket<A> {
         self.disconnect_handler.lock().unwrap().replace(handler);
     }
 
-    #[doc = include_str!("docs/operators/emit.md")]
+    #[doc = include_str!("../docs/operators/emit.md")]
     pub fn emit<T: ?Sized + Serialize>(
         &self,
         event: impl AsRef<str>,
@@ -291,7 +310,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    #[doc = include_str!("docs/operators/emit_with_ack.md")]
+    #[doc = include_str!("../docs/operators/emit_with_ack.md")]
     pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         &self,
         event: impl AsRef<str>,
@@ -318,17 +337,18 @@ impl<A: Adapter> Socket<A> {
 
     // Room actions
 
-    #[doc = include_str!("docs/operators/join.md")]
+    #[doc = include_str!("../docs/operators/join.md")]
     pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.ns.adapter.add_all(self.id, rooms)
     }
 
-    #[doc = include_str!("docs/operators/leave.md")]
+    #[doc = include_str!("../docs/operators/leave.md")]
     pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.ns.adapter.del(self.id, rooms)
     }
 
-    /// Leaves all rooms where the socket is connected.
+    /// # Leave all rooms where the socket is connected.
+    ///
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
@@ -336,15 +356,12 @@ impl<A: Adapter> Socket<A> {
         self.ns.adapter.del_all(self.id)
     }
 
-    /// Gets all rooms where the socket is connected.
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    #[doc = include_str!("../docs/operators/rooms.md")]
     pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
         self.ns.adapter.socket_rooms(self.id)
     }
 
-    /// Return true if the socket is connected to the namespace.
+    /// # Return true if the socket is connected to the namespace.
     ///
     /// A socket is considered connected when it has been successfully handshaked with the server
     /// and that all [connect middlewares](crate::handler::connect#middlewares) have been executed.
@@ -354,37 +371,37 @@ impl<A: Adapter> Socket<A> {
 
     // Socket operators
 
-    #[doc = include_str!("docs/operators/to.md")]
+    #[doc = include_str!("../docs/operators/to.md")]
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).to(rooms)
     }
 
-    #[doc = include_str!("docs/operators/within.md")]
+    #[doc = include_str!("../docs/operators/within.md")]
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).within(rooms)
     }
 
-    #[doc = include_str!("docs/operators/except.md")]
+    #[doc = include_str!("../docs/operators/except.md")]
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).except(rooms)
     }
 
-    #[doc = include_str!("docs/operators/local.md")]
+    #[doc = include_str!("../docs/operators/local.md")]
     pub fn local(&self) -> BroadcastOperators<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).local()
     }
 
-    #[doc = include_str!("docs/operators/timeout.md")]
+    #[doc = include_str!("../docs/operators/timeout.md")]
     pub fn timeout(&self, timeout: Duration) -> ConfOperators<'_, A> {
         ConfOperators::new(self).timeout(timeout)
     }
 
-    #[doc = include_str!("docs/operators/broadcast.md")]
+    #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(&self) -> BroadcastOperators<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).broadcast()
     }
 
-    /// Get the [`SocketIo`] context related to this socket
+    /// # Get the [`SocketIo`] context related to this socket
     ///
     /// # Panics
     /// Because [`SocketData::io`] should be immediately set at the creation of the socket.
@@ -393,9 +410,9 @@ impl<A: Adapter> Socket<A> {
         self.esocket.data.io.get().unwrap()
     }
 
-    /// Disconnects the socket from the current namespace,
+    /// # Disconnect the socket from the current namespace,
     ///
-    /// It will also call the disconnect handler if it is set.
+    /// It will also call the disconnect handler if it is set with a [`DisconnectReason::ServerNSDisconnect`].
     pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
         let res = self.send(Packet::disconnect(self.ns.path.clone()));
         if let Err(SocketError::InternalChannelFull) = res {
@@ -406,7 +423,51 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    /// Closes the engine.io connection if it is not already closed.
+    /// # Get the request info made by the client to connect.
+    ///
+    /// It might be used to retrieve the [`http::Extensions`]
+    pub fn req_parts(&self) -> &http::request::Parts {
+        &self.esocket.req_parts
+    }
+
+    /// # Get the [`TransportType`](crate::TransportType) used by the client to connect with this [`Socket`].
+    ///
+    /// It can also be accessed as an extractor
+    /// # Example
+    /// ```
+    /// # use socketioxide::{SocketIo, TransportType, extract::*};
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef, transport: TransportType| {
+    ///     assert_eq!(socket.transport_type(), transport);
+    /// });
+    pub fn transport_type(&self) -> crate::TransportType {
+        self.esocket.transport_type()
+    }
+
+    /// Get the socket.io [`ProtocolVersion`](crate::ProtocolVersion) used by the client to connect with this [`Socket`].
+    ///
+    /// It can also be accessed as an extractor:
+    /// # Example
+    /// ```
+    /// # use socketioxide::{SocketIo, ProtocolVersion, extract::*};
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef, v: ProtocolVersion| {
+    ///     assert_eq!(socket.protocol(), v);
+    /// });
+    pub fn protocol(&self) -> crate::ProtocolVersion {
+        self.esocket.protocol.into()
+    }
+
+    /// # Get the socket namespace path.
+    #[inline]
+    pub fn ns(&self) -> &str {
+        &self.ns.path
+    }
+
+    /// # Close the engine.io connection if it is not already closed.
+    ///
     /// Return a future that resolves when the underlying transport is closed.
     pub(crate) async fn close_underlying_transport(&self) {
         if !self.esocket.is_closed() {
@@ -419,12 +480,6 @@ impl<A: Adapter> Socket<A> {
 
     pub(crate) fn set_connected(&self, connected: bool) {
         self.connected.store(connected, Ordering::SeqCst);
-    }
-
-    /// Gets the current namespace path.
-    #[inline]
-    pub fn ns(&self) -> &str {
-        &self.ns.path
     }
 
     #[inline]
@@ -495,7 +550,7 @@ impl<A: Adapter> Socket<A> {
         Ok(())
     }
 
-    // Receives data from client:
+    /// Receive data from client
     pub(crate) fn recv(self: Arc<Self>, packet: PacketData) -> Result<(), Error> {
         match packet {
             PacketData::Event(d, ack) | PacketData::BinaryEvent(d, ack) => self.recv_event(d, ack),
@@ -505,42 +560,6 @@ impl<A: Adapter> Socket<A> {
                 .map_err(Error::from),
             _ => unreachable!(),
         }
-    }
-
-    /// Gets the request info made by the client to connect
-    ///
-    /// It might be used to retrieve the [`http::Extensions`]
-    pub fn req_parts(&self) -> &http::request::Parts {
-        &self.esocket.req_parts
-    }
-
-    /// Gets the [`TransportType`](crate::TransportType) used by the client to connect with this [`Socket`]
-    ///
-    /// It can also be accessed as an extractor:
-    /// ```
-    /// # use socketioxide::{SocketIo, TransportType, extract::*};
-    ///
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef, transport: TransportType| {
-    ///     assert_eq!(socket.transport_type(), transport);
-    /// });
-    pub fn transport_type(&self) -> crate::TransportType {
-        self.esocket.transport_type()
-    }
-
-    /// Gets the socket.io [`ProtocolVersion`](crate::ProtocolVersion) used by the client to connect with this [`Socket`]
-    ///
-    /// It can also be accessed as an extractor:
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, ProtocolVersion, extract::*};
-    ///
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef, v: ProtocolVersion| {
-    ///     assert_eq!(socket.protocol(), v);
-    /// });
-    pub fn protocol(&self) -> crate::ProtocolVersion {
-        self.esocket.protocol.into()
     }
 
     fn recv_event(self: Arc<Self>, data: Value, ack: Option<i64>) -> Result<(), Error> {
