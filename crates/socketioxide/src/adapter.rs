@@ -50,7 +50,6 @@ pub struct BroadcastOptions {
     pub sid: Option<Sid>,
 }
 
-//TODO: Make an AsyncAdapter trait
 /// An adapter is responsible for managing the state of the server.
 /// This adapter can be implemented to share the state between multiple servers.
 /// The default adapter is the [`LocalAdapter`], which stores the state in memory.
@@ -84,7 +83,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
         rooms: impl RoomParam,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
     /// Removes the socket from all the rooms.
-    fn del_all(&self, sid: Sid) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static;
+    fn del_all(&self, sid: Sid) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`].
     fn broadcast(
@@ -213,7 +212,7 @@ impl Adapter for LocalAdapter {
         future::ready(Ok(()))
     }
 
-    fn del_all(&self, sid: Sid) -> impl Future<Output = Result<(), Infallible>> + Send + 'static {
+    fn del_all(&self, sid: Sid) -> impl Future<Output = Result<(), Infallible>> + Send {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms_map.values_mut() {
             room.remove(&sid);
@@ -221,11 +220,11 @@ impl Adapter for LocalAdapter {
         future::ready(Ok(()))
     }
 
-    async fn broadcast(
+    fn broadcast(
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> Result<(), BroadcastError> {
+    ) -> impl Future<Output = Result<(), BroadcastError>> + Send {
         use socketioxide_core::parser::Parse;
         let sockets = self.apply_opts(opts);
 
@@ -233,7 +232,7 @@ impl Adapter for LocalAdapter {
         tracing::debug!("broadcasting packet to {} sockets", sockets.len());
         let parser = match sockets.first() {
             Some(socket) => socket.parser(),
-            None => return Ok(()),
+            None => return future::ready(Ok(())),
         };
         let data = parser.encode(packet);
         let errors: Vec<_> = sockets
@@ -241,9 +240,9 @@ impl Adapter for LocalAdapter {
             .filter_map(|socket| socket.send_raw(data.clone()).err())
             .collect();
         if errors.is_empty() {
-            Ok(())
+            future::ready(Ok(()))
         } else {
-            Err(errors.into())
+            future::ready(Err(errors.into()))
         }
     }
 

@@ -546,7 +546,7 @@ impl<A: Adapter> Socket<A> {
             handler.call(self.clone(), reason);
         }
 
-        self.ns.remove_socket(self.id)?;
+        self.ns.clone().remove_socket(self.id)?;
         Ok(())
     }
 

@@ -115,17 +115,17 @@ impl<A: Adapter> Namespace<A> {
 
     //TODO: remove error
     /// Removes a socket from a namespace and propagate the event to the adapter
-    pub fn remove_socket(&self, sid: Sid) -> Result<(), AdapterError> {
-        use futures_util::TryFutureExt;
+    pub fn remove_socket(self: Arc<Self>, sid: Sid) -> Result<(), AdapterError> {
         #[cfg(feature = "tracing")]
         tracing::trace!(?sid, ?self.path, "removing socket from namespace");
 
         self.sockets.write().unwrap().remove(&sid);
-        let path = self.path.clone();
-        tokio::task::spawn(self.adapter.del_all(sid).map_err(move |_e| {
-            #[cfg(feature = "tracing")]
-            tracing::warn!(?sid, ?path, "could not notify adapter of socket removal");
-        }));
+        tokio::task::spawn(async move {
+            if let Err(_e) = self.adapter.del_all(sid).await {
+                #[cfg(feature = "tracing")]
+                tracing::warn!(?sid, path = ?self.path, "could not notify adapter of socket removal");
+            }
+        });
 
         Ok(())
     }

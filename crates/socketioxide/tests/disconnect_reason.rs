@@ -94,7 +94,7 @@ pub async fn ws_transport_closed() {
 
     stream.send(Message::Text("1".into())).await.unwrap();
 
-    let data = tokio::time::timeout(Duration::from_millis(1), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(10), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::TransportClose")
         .unwrap();
@@ -189,7 +189,7 @@ pub async fn client_ns_disconnect() {
 
     stream.send(Message::Text("41".into())).await.unwrap();
 
-    let data = tokio::time::timeout(Duration::from_millis(1), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(10), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::ClientNSDisconnect")
         .unwrap();

@@ -47,7 +47,7 @@ struct PrivateMessageReq {
     content: String,
 }
 
-pub fn on_connection(
+pub async fn on_connection(
     s: SocketRef,
     Extension::<Arc<Session>>(session): Extension<Arc<Session>>,
     State(sessions): State<Sessions>,
@@ -67,14 +67,14 @@ pub fn on_connection(
     s.emit("users", &users).unwrap();
 
     let res = UserConnectedRes::new(&session, vec![]);
-    s.broadcast().emit("user connected", &res).unwrap();
+    s.broadcast().emit("user connected", &res).await.unwrap();
 
     s.on(
         "private message",
         |s: SocketRef,
          Data(PrivateMessageReq { to, content }),
          State::<Messages>(msgs),
-         Extension::<Arc<Session>>(session)| {
+         Extension::<Arc<Session>>(session)| async move {
             let message = Message {
                 from: session.user_id,
                 to,
@@ -82,24 +82,27 @@ pub fn on_connection(
             };
             s.within(to.to_string())
                 .emit("private message", &message)
+                .await
                 .ok();
             msgs.add(message);
         },
     );
 
-    s.on_disconnect(|s: SocketRef, Extension::<Arc<Session>>(session)| {
-        session.set_connected(false);
-        let res = UserDisconnectedRes {
-            user_id: &session.user_id,
-            username: &session.username,
-        };
-        s.broadcast().emit("user disconnected", &res).ok();
-    });
+    s.on_disconnect(
+        |s: SocketRef, Extension::<Arc<Session>>(session)| async move {
+            session.set_connected(false);
+            let res = UserDisconnectedRes {
+                user_id: &session.user_id,
+                username: &session.username,
+            };
+            s.broadcast().emit("user disconnected", &res).await.ok();
+        },
+    );
 }
 
 /// Handles the connection of a new user.
 /// Be careful to not emit anything to the user before the authentication is done.
-pub fn authenticate_middleware(
+pub async fn authenticate_middleware(
     s: SocketRef,
     Data(auth): Data<Auth>,
     State(sessions): State<Sessions>,
@@ -116,7 +119,7 @@ pub fn authenticate_middleware(
         session
     };
 
-    s.join(session.user_id.to_string())?;
+    s.join(session.user_id.to_string()).await?;
 
     Ok(())
 }

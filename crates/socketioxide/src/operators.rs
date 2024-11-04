@@ -7,6 +7,7 @@
 //! * [`ConfOperators`]: Chainable operators to configure the message to be sent.
 //! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
 use std::borrow::Cow;
+use std::future::Future;
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
@@ -316,33 +317,37 @@ impl<A: Adapter> BroadcastOperators<A> {
 // ==== impl BroadcastOperators consume fns ====
 impl<A: Adapter> BroadcastOperators<A> {
     #[doc = include_str!("../docs/operators/emit.md")]
-    pub async fn emit<T: ?Sized + Serialize>(
+    pub fn emit<T: ?Sized + Serialize>(
         mut self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> Result<(), BroadcastError> {
-        let packet = self.get_packet(event, data)?;
-        if let Err(e) = self.ns.adapter.broadcast(packet, self.opts).await {
-            #[cfg(feature = "tracing")]
-            tracing::debug!("broadcast error: {e:?}");
-            return Err(e);
+    ) -> impl Future<Output = Result<(), BroadcastError>> + Send {
+        let packet = self.get_packet(event, data);
+        async move {
+            if let Err(e) = self.ns.adapter.broadcast(packet?, self.opts).await {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("broadcast error: {e:?}");
+                return Err(e);
+            }
+            Ok(())
         }
-        Ok(())
     }
 
     #[doc = include_str!("../docs/operators/emit_with_ack.md")]
-    pub async fn emit_with_ack<T: ?Sized + Serialize, V>(
+    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
         mut self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> Result<AckStream<V>, parser::EncodeError> {
-        let packet = self.get_packet(event, data)?;
-        let stream = self
-            .ns
-            .adapter
-            .broadcast_with_ack(packet, self.opts, self.timeout)
-            .await;
-        Ok(AckStream::new(stream, self.parser))
+    ) -> impl Future<Output = Result<AckStream<V>, parser::EncodeError>> + Send {
+        let packet = self.get_packet(event, data);
+        async move {
+            let stream = self
+                .ns
+                .adapter
+                .broadcast_with_ack(packet?, self.opts, self.timeout)
+                .await;
+            Ok(AckStream::new(stream, self.parser))
+        }
     }
 
     #[doc = include_str!("../docs/operators/sockets.md")]
