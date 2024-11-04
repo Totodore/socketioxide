@@ -477,7 +477,8 @@ impl<A: Adapter> SocketIo<A> {
 
     // Chaining operators fns
 
-    /// Selects a specific namespace to perform operations on.
+    /// # Select a specific namespace to perform operations on.
+    ///
     /// Currently you cannot select a dynamic namespace with this method.
     ///
     /// ## Example
@@ -500,158 +501,36 @@ impl<A: Adapter> SocketIo<A> {
         self.get_op(path.as_ref())
     }
 
-    /// Selects all sockets in the given rooms on the root namespace.
-    ///
-    /// Alias for `io.of("/").unwrap().to(rooms)`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can select all sockets in the room "room1"
-    /// // and for example show all sockets connected to it
-    /// let sockets = io.to("room1").sockets().unwrap();
-    /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
-    /// }
+    /// _Alias for `io.of("/").unwrap().to()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/to.md")]
     #[inline]
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         self.get_default_op().to(rooms)
     }
 
-    /// Selects all sockets in the given rooms on the root namespace.
-    ///
-    /// Alias for :
-    /// * `io.of("/").unwrap().within(rooms)`
-    /// * `io.to(rooms)`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can select all sockets in the room "room1"
-    /// // and for example show all sockets connected to it
-    /// let sockets = io.within("room1").sockets().unwrap();
-    /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
-    /// }
+    /// _Alias for `io.of("/").unwrap().within()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/within.md")]
     #[inline]
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         self.get_default_op().within(rooms)
     }
 
-    /// Filters out all sockets selected with the previous operators which are in the given rooms.
-    ///
-    /// Alias for `io.of("/").unwrap().except(rooms)`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    ///     socket.on("register1", |socket: SocketRef| {
-    ///         socket.join("room1");
-    ///     });
-    ///     socket.on("register2", |socket: SocketRef| {
-    ///         socket.join("room2");
-    ///     });
-    /// });
-    ///
-    ///
-    /// // Later in your code you can select all sockets in the root namespace that are not in the room1
-    /// // and for example show all sockets connected to it
-    /// let sockets = io.except("room1").sockets().unwrap();
-    /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
-    /// }
+    /// _Alias for `io.of("/").unwrap().except()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/except.md")]
     #[inline]
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
         self.get_default_op().except(rooms)
     }
 
-    /// Broadcasts to all sockets only connected on this node (when using multiple nodes).
-    /// When using the default in-memory adapter, this operator is a no-op.
-    ///
-    /// Alias for `io.of("/").unwrap().local()`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can select all sockets in the local node and on the root namespace
-    /// // and for example show all sockets connected to it
-    /// let sockets = io.local().sockets().unwrap();
-    /// for socket in sockets {
-    ///   println!("found socket on / ns in room1 with id: {}", socket.id);
-    /// }
+    /// _Alias for `io.of("/").unwrap().local()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/local.md")]
     #[inline]
     pub fn local(&self) -> BroadcastOperators<A> {
         self.get_default_op().local()
     }
 
-    /// Sets a custom timeout when broadcasting a message with an acknowledgement.
-    ///
-    /// Alias for `io.of("/").unwrap().timeout(duration)`
-    ///
-    /// # Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// See [`SocketIoBuilder::ack_timeout`](crate::SocketIoBuilder) for the default timeout.
-    ///
-    /// See [`emit_with_ack()`] for more details on acknowledgements.
-    ///
-    /// [`emit_with_ack()`]: #method.emit_with_ack
-    ///
-    /// # Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use futures_util::stream::StreamExt;
-    /// # use std::time::Duration;
-    /// # use serde_json::Value;
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can emit a test message on the root namespace in the room1 and room3 rooms,
-    /// // except for the room2 and wait for 5 seconds for an acknowledgement
-    /// io.to("room1")
-    ///   .to("room3")
-    ///   .except("room2")
-    ///   .timeout(Duration::from_secs(5))
-    ///   .emit_with_ack::<_, Value>("message-back", "I expect an ack in 5s!")
-    ///   .unwrap()
-    ///   .for_each(|(sid, ack)| async move {
-    ///      match ack {
-    ///          Ok(ack) => println!("Ack received, socket {} {:?}", sid, ack),
-    ///          Err(err) => println!("Ack error, socket {} {:?}", sid, err),
-    ///      }
-    ///   });
+    /// _Alias for `io.of("/").unwrap().timeout()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/timeout.md")]
     #[inline]
     pub fn timeout(&self, timeout: Duration) -> BroadcastOperators<A> {
         self.get_default_op().timeout(timeout)
@@ -686,93 +565,35 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().sockets()
     }
 
-    /// Disconnects all sockets selected with the previous operators.
-    ///
-    /// Alias for `io.of("/").unwrap().disconnect()`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ## Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can disconnect all sockets in the root namespace
-    /// io.disconnect();
+    /// _Alias for `io.of("/").unwrap().disconnect()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/disconnect.md")]
     #[inline]
     pub fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
         self.get_default_op().disconnect()
     }
 
-    /// Makes all sockets selected with the previous operators join the given room(s).
-    ///
-    /// Alias for `io.of("/").unwrap().join(rooms)`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can for example add all sockets on the root namespace to the room1 and room3
-    /// io.join(["room1", "room3"]).unwrap();
+    /// _Alias for `io.of("/").unwrap().join()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/join.md")]
     #[inline]
     pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.get_default_op().join(rooms)
     }
 
-    /// Gets all room names on the current namespace.
-    ///
-    /// Alias for `io.of("/").unwrap().rooms()`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
-    ///     println!("Socket connected on /test namespace with id: {}", socket.id);
-    ///     let rooms = io.rooms().unwrap();
-    ///     println!("All rooms on / namespace: {:?}", rooms);
-    /// });
+    /// _Alias for `io.of("/").unwrap().rooms()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/rooms.md")]
     pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
         self.get_default_op().rooms()
     }
 
-    /// Makes all sockets selected with the previous operators leave the given room(s).
-    ///
-    /// Alias for `io.of("/").unwrap().join(rooms)`
-    ///
-    /// ## Panics
-    /// If the **default namespace "/" is not found** this fn will panic!
-    ///
-    /// ### Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     println!("Socket connected on / namespace with id: {}", socket.id);
-    /// });
-    ///
-    /// // Later in your code you can for example remove all sockets on the root namespace from the room1 and room3
-    /// io.leave(["room1", "room3"]).unwrap();
+    /// _Alias for `io.of("/").unwrap().rooms()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/leave.md")]
     #[inline]
     pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.get_default_op().leave(rooms)
     }
 
-    /// Gets a [`SocketRef`] by the specified [`Sid`].
+    /// _Alias for `io.of("/").unwrap().get_socket()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("docs/operators/get_socket.md")]
     #[inline]
     pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
         self.get_default_op().get_socket(sid)

@@ -364,12 +364,12 @@ impl<A: Adapter> BroadcastOperators<A> {
         self.ns.adapter.del_sockets(self.opts, rooms)
     }
 
-    /// Gets all room names for a given namespace
+    #[doc = include_str!("docs/operators/rooms.md")]
     pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
         self.ns.adapter.rooms()
     }
 
-    /// Gets a [`SocketRef`] by the specified [`Sid`].
+    #[doc = include_str!("docs/operators/get_socket.md")]
     pub fn get_socket(&self, sid: Sid) -> Option<SocketRef<A>> {
         self.ns.get_socket(sid).map(SocketRef::from).ok()
     }
