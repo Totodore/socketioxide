@@ -4,6 +4,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
+    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex, RwLock,
@@ -338,13 +339,19 @@ impl<A: Adapter> Socket<A> {
     // Room actions
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_all(self.id, rooms).await
+    pub fn join(
+        &self,
+        rooms: impl RoomParam,
+    ) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
+        self.ns.adapter.add_all(self.id, rooms)
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del(self.id, rooms).await
+    pub fn leave(
+        &self,
+        rooms: impl RoomParam,
+    ) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
+        self.ns.adapter.del(self.id, rooms)
     }
 
     /// # Leave all rooms where the socket is connected.
@@ -352,13 +359,13 @@ impl<A: Adapter> Socket<A> {
     /// ## Errors
     /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub async fn leave_all(&self) -> Result<(), A::Error> {
-        self.ns.adapter.del_all(self.id).await
+    pub fn leave_all(&self) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
+        self.ns.adapter.del_all(self.id)
     }
 
     #[doc = include_str!("../docs/operators/rooms.md")]
-    pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.socket_rooms(self.id).await
+    pub fn rooms(&self) -> impl Future<Output = Result<Vec<Room>, A::Error>> + Send + '_ {
+        self.ns.adapter.socket_rooms(self.id)
     }
 
     /// # Return true if the socket is connected to the namespace.

@@ -45,9 +45,7 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| {
-    socket.on("test", handler);
-});
+io.ns("/", |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Single-socket example with custom acknowledgment timeout
@@ -65,12 +63,14 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| {
-    socket.on("test", handler);
-});
+io.ns("/", |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Broadcast example
+
+Here the emit method will return a `Future` that must be awaited because socket.io may communicate
+with remote instances if you use horizontal scaling through remote adapters.
+
 ```rust
 # use socketioxide::{SocketIo, extract::*};
 # use serde_json::Value;
@@ -82,6 +82,7 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
         .to("room3")
         .except("room2")
         .emit_with_ack::<_, String>("message-back", &data)
+        .await
         .unwrap();
     ack_stream.for_each(|(id, ack)| async move {
         match ack {

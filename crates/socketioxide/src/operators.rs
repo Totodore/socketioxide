@@ -30,7 +30,7 @@ use crate::{
 /// A trait for types that can be used as a room parameter.
 ///
 /// [`String`], [`Vec<String>`], [`Vec<&str>`], [`&'static str`](str) and const arrays are implemented by default.
-pub trait RoomParam: 'static {
+pub trait RoomParam: Send + 'static {
     /// The type of the iterator returned by `into_room_iter`.
     type IntoIter: Iterator<Item = Room>;
 
@@ -351,7 +351,6 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
 
     #[doc = include_str!("../docs/operators/sockets.md")]
-<<<<<<< HEAD
     pub async fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
         self.ns.adapter.fetch_sockets(self.opts).await
     }
@@ -362,42 +361,20 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub async fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_sockets(self.opts, rooms).await
+    #[allow(clippy::manual_async_fn)] // related to issue: https://github.com/rust-lang/rust-clippy/issues/12664
+    pub fn join(self, rooms: impl RoomParam) -> impl Future<Output = Result<(), A::Error>> + Send {
+        async move { self.ns.adapter.add_sockets(self.opts, rooms).await }
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub async fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del_sockets(self.opts, rooms).await
+    #[allow(clippy::manual_async_fn)] // related to issue: https://github.com/rust-lang/rust-clippy/issues/12664
+    pub fn leave(self, rooms: impl RoomParam) -> impl Future<Output = Result<(), A::Error>> + Send {
+        async move { self.ns.adapter.del_sockets(self.opts, rooms).await }
     }
 
     #[doc = include_str!("../docs/operators/rooms.md")]
     pub async fn rooms(self) -> Result<Vec<Room>, A::Error> {
         self.ns.adapter.rooms().await
-=======
-    pub fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        self.ns.adapter.fetch_sockets(self.opts)
-    }
-
-    #[doc = include_str!("../docs/operators/disconnect.md")]
-    pub fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
-        self.ns.adapter.disconnect_socket(self.opts)
-    }
-
-    #[doc = include_str!("../docs/operators/join.md")]
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_sockets(self.opts, rooms)
-    }
-
-    #[doc = include_str!("../docs/operators/leave.md")]
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del_sockets(self.opts, rooms)
-    }
-
-    #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.rooms()
->>>>>>> feat-adapter-rework
     }
 
     #[doc = include_str!("../docs/operators/get_socket.md")]

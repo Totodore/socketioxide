@@ -18,7 +18,8 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
         .within("room1")
         .within(["room2", "room3"])
         .within(vec![other_rooms])
-        .emit("test", &data);
+        .emit("test", &data)
+        .await;
 }
 
 let (_, io) = SocketIo::new_svc();

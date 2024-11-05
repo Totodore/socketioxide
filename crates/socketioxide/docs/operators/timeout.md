@@ -17,6 +17,7 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
           .except("room2")
           .timeout(Duration::from_secs(5))
           .emit_with_ack::<_, Value>("message-back", &data)
+          .await
           .unwrap()
           .for_each(|(id, ack)| async move {
             match ack {
