@@ -103,7 +103,7 @@ pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(
         &self,
-        rooms: impl RoomParam,
+        opts: BroadcastOptions,
     ) -> impl Future<Output = Result<Vec<Sid>, Self::Error>> + Send;
 
     /// Returns the rooms of the socket.
@@ -264,10 +264,8 @@ impl Adapter for LocalAdapter {
 
     fn sockets(
         &self,
-        rooms: impl RoomParam,
+        opts: BroadcastOptions,
     ) -> impl Future<Output = Result<Vec<Sid>, Infallible>> + Send {
-        let mut opts = BroadcastOptions::default();
-        opts.rooms.extend(rooms.into_room_iter());
         let sockets = self
             .apply_opts(opts)
             .into_iter()
@@ -543,17 +541,21 @@ mod test {
         now!(adapter.add_all(socket1, ["room1", "room3"])).unwrap();
         now!(adapter.add_all(socket2, ["room2", "room3"])).unwrap();
 
-        let sockets = now!(adapter.sockets("room1")).unwrap();
+        let mut opts = BroadcastOptions::default();
+        opts.rooms = hash_set!["room1".into()];
+        let sockets = now!(adapter.sockets(opts.clone())).unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket0));
         assert!(sockets.contains(&socket1));
 
-        let sockets = now!(adapter.sockets("room2")).unwrap();
+        opts.rooms = hash_set!["room2".into()];
+        let sockets = now!(adapter.sockets(opts.clone())).unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket0));
         assert!(sockets.contains(&socket2));
 
-        let sockets = now!(adapter.sockets("room3")).unwrap();
+        opts.rooms = hash_set!["room3".into()];
+        let sockets = now!(adapter.sockets(opts.clone())).unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket1));
         assert!(sockets.contains(&socket2));
@@ -577,7 +579,9 @@ mod test {
         opts.rooms = hash_set!["room5".into()];
         now!(adapter.disconnect_socket(opts)).unwrap();
 
-        let sockets = now!(adapter.sockets("room2")).unwrap();
+        let mut opts = BroadcastOptions::default();
+        opts.rooms.insert("room2".into());
+        let sockets = now!(adapter.sockets(opts.clone())).unwrap();
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket2));
         assert!(sockets.contains(&socket0));
