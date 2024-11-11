@@ -50,12 +50,18 @@ pub struct BroadcastOptions {
     pub sid: Option<Sid>,
 }
 
-/// An adapter is responsible for managing the state of the server.
+pub trait AdapterCtr {
+    type Adapter: Adapter;
+    fn new(&self, ns: Weak<Namespace<Self::Adapter>>) -> Self::Adapter;
+}
+
+/// An adapter is responsible for managing the state of the namespace.
 /// This adapter can be implemented to share the state between multiple servers.
 /// The default adapter is the [`LocalAdapter`], which stores the state in memory.
-pub trait Adapter: std::fmt::Debug + Send + Sync + 'static {
+pub trait Adapter: Send + Sync + 'static {
     /// An error that can occur when using the adapter. The default [`LocalAdapter`] has an [`Infallible`] error.
-    type Error: std::error::Error + Into<AdapterError> + Send + Sync + 'static;
+    type Error: std::error::Error + Into<AdapterError> + Send + 'static;
+    type Ctr: AdapterCtr;
 
     /// Create a new adapter and give the namespace ref to retrieve sockets.
     fn new(ns: Weak<Namespace<Self>>) -> Self
@@ -159,8 +165,17 @@ impl From<Infallible> for AdapterError {
     }
 }
 
+pub struct LocalAdapterCtr;
+impl AdapterCtr for LocalAdapterCtr {
+    type Adapter = LocalAdapter;
+    fn new(&self, ns: Weak<Namespace<Self::Adapter>>) -> Self::Adapter {
+        LocalAdapter::new(ns)
+    }
+}
+
 impl Adapter for LocalAdapter {
     type Error = Infallible;
+    type Ctr = LocalAdapterCtr;
 
     fn new(ns: Weak<Namespace<Self>>) -> Self {
         Self {
@@ -407,18 +422,23 @@ mod test {
         };
     }
 
+    fn create_adapter<const S: usize>(
+        sockets: [Sid; S],
+    ) -> (LocalAdapter, Arc<Namespace<LocalAdapter>>) {
+        let ns = Namespace::new_dummy(sockets);
+        (LocalAdapter::new(Arc::downgrade(&ns)), ns)
+    }
+
     #[tokio::test]
     async fn test_server_count() {
-        let ns = Namespace::new_dummy([]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([]);
         assert_eq!(now!(adapter.server_count()).unwrap(), 1);
     }
 
     #[tokio::test]
     async fn test_add_all() {
         let socket = Sid::new();
-        let ns = Namespace::new_dummy([socket]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket]);
         now!(adapter.add_all(socket, ["room1", "room2"])).unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
@@ -429,8 +449,7 @@ mod test {
     #[tokio::test]
     async fn test_del() {
         let socket = Sid::new();
-        let ns = Namespace::new_dummy([socket]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket]);
         now!(adapter.add_all(socket, ["room1", "room2"])).unwrap();
         now!(adapter.del(socket, "room1")).unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
@@ -442,8 +461,7 @@ mod test {
     #[tokio::test]
     async fn test_del_all() {
         let socket = Sid::new();
-        let ns = Namespace::new_dummy([socket]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket]);
         now!(adapter.add_all(socket, ["room1", "room2"])).unwrap();
         now!(adapter.del_all(socket)).unwrap();
         let rooms_map = adapter.rooms.read().unwrap();
@@ -457,8 +475,7 @@ mod test {
         let sid1 = Sid::new();
         let sid2 = Sid::new();
         let sid3 = Sid::new();
-        let ns = Namespace::new_dummy([sid1, sid2, sid3]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([sid1, sid2, sid3]);
         now!(adapter.add_all(sid1, ["room1", "room2"])).unwrap();
         now!(adapter.add_all(sid2, ["room1"])).unwrap();
         now!(adapter.add_all(sid3, ["room2"])).unwrap();
@@ -475,8 +492,7 @@ mod test {
     #[tokio::test]
     async fn test_add_socket() {
         let socket = Sid::new();
-        let ns = Namespace::new_dummy([socket]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket]);
         now!(adapter.add_all(socket, ["room1"])).unwrap();
 
         let mut opts = BroadcastOptions {
@@ -495,8 +511,7 @@ mod test {
     #[tokio::test]
     async fn test_del_socket() {
         let socket = Sid::new();
-        let ns = Namespace::new_dummy([socket]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket]);
         now!(adapter.add_all(socket, ["room1"])).unwrap();
 
         let mut opts = BroadcastOptions {
@@ -535,8 +550,7 @@ mod test {
         let socket0 = Sid::new();
         let socket1 = Sid::new();
         let socket2 = Sid::new();
-        let ns = Namespace::new_dummy([socket0, socket1, socket2]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket0, socket1, socket2]);
         now!(adapter.add_all(socket0, ["room1", "room2"])).unwrap();
         now!(adapter.add_all(socket1, ["room1", "room3"])).unwrap();
         now!(adapter.add_all(socket2, ["room2", "room3"])).unwrap();
@@ -566,8 +580,7 @@ mod test {
         let socket0 = Sid::new();
         let socket1 = Sid::new();
         let socket2 = Sid::new();
-        let ns = Namespace::new_dummy([socket0, socket1, socket2]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket0, socket1, socket2]);
         now!(adapter.add_all(socket0, ["room1", "room2", "room4"])).unwrap();
         now!(adapter.add_all(socket1, ["room1", "room3", "room5"])).unwrap();
         now!(adapter.add_all(socket2, ["room2", "room3", "room6"])).unwrap();
@@ -591,8 +604,7 @@ mod test {
         let socket0 = Sid::new();
         let socket1 = Sid::new();
         let socket2 = Sid::new();
-        let ns = Namespace::new_dummy([socket0, socket1, socket2]);
-        let adapter = LocalAdapter::new(Arc::downgrade(&ns));
+        let (adapter, _ns) = create_adapter([socket0, socket1, socket2]);
         // Add socket 0 to room1 and room2
         now!(adapter.add_all(socket0, ["room1", "room2"])).unwrap();
         // Add socket 1 to room1 and room3

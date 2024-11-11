@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{borrow::Cow, fmt, sync::Arc, time::Duration};
 
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
@@ -279,7 +279,6 @@ impl Default for SocketIoBuilder {
 /// It can be used as the main handle to access the whole socket.io context.
 ///
 /// You can also use it as an extractor for all your [`handlers`](crate::handler).
-#[derive(Debug)]
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
@@ -625,6 +624,11 @@ impl<A: Adapter> SocketIo<A> {
     }
 }
 
+impl<A: Adapter> fmt::Debug for SocketIo<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SocketIo").field("client", &self.0).finish()
+    }
+}
 impl<A: Adapter> Clone for SocketIo<A> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
