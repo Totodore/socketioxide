@@ -44,10 +44,7 @@ pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
 
 impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
     fn from(conf: ConfOperators<'_, A>) -> Self {
-        let opts = BroadcastOptions {
-            sid: Some(conf.socket.id),
-            ..Default::default()
-        };
+        let opts = BroadcastOptions::new(conf.socket.id);
         Self {
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
@@ -194,10 +191,7 @@ impl<A: Adapter> BroadcastOperators<A> {
             timeout: None,
             ns,
             parser,
-            opts: BroadcastOptions {
-                sid: Some(sid),
-                ..Default::default()
-            },
+            opts: BroadcastOptions::new(sid),
         }
     }
 
@@ -221,13 +215,13 @@ impl<A: Adapter> BroadcastOperators<A> {
 
     #[doc = include_str!("../docs/operators/local.md")]
     pub fn local(mut self) -> Self {
-        self.opts.flags.insert(BroadcastFlags::Local);
+        self.opts.add_flag(BroadcastFlags::Local);
         self
     }
 
     #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(mut self) -> Self {
-        self.opts.flags.insert(BroadcastFlags::Broadcast);
+        self.opts.add_flag(BroadcastFlags::Broadcast);
         self
     }
 

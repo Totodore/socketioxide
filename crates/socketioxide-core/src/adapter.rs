@@ -19,25 +19,42 @@ use crate::{
 pub type Room = Cow<'static, str>;
 
 /// Flags that can be used to modify the behavior of the broadcast methods.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum BroadcastFlags {
     /// Broadcast only to the current server
-    Local,
+    Local = 0x01,
     /// Broadcast to all clients except the sender
-    Broadcast,
+    Broadcast = 0x02,
 }
 
 /// Options that can be used to modify the behavior of the broadcast methods.
 #[derive(Clone, Debug, Default)]
 pub struct BroadcastOptions {
-    /// The flags to apply to the broadcast.
-    pub flags: HashSet<BroadcastFlags>,
+    /// The flags to apply to the broadcast represented as a bitflag.
+    flags: u8,
     /// The rooms to broadcast to.
     pub rooms: HashSet<Room>,
     /// The rooms to exclude from the broadcast.
     pub except: HashSet<Room>,
     /// The socket id of the sender.
     pub sid: Option<Sid>,
+}
+impl BroadcastOptions {
+    /// Add any flags to the options.
+    pub fn add_flag(&mut self, flag: BroadcastFlags) {
+        self.flags |= flag as u8;
+    }
+    /// Check if the options have a flag.
+    pub fn has_flag(&self, flag: BroadcastFlags) -> bool {
+        self.flags & flag as u8 == flag as u8
+    }
+    /// Set the socket id of the sender.
+    pub fn new(sid: Sid) -> Self {
+        Self {
+            sid: Some(sid),
+            ..Default::default()
+        }
+    }
 }
 
 /// A trait for types that can be used as a room parameter.
