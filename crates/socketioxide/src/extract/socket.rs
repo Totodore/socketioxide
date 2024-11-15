@@ -1,17 +1,15 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::{
     adapter::{Adapter, LocalAdapter},
-    errors::{DisconnectError, SendError},
+    handler::{FromConnectParts, FromDisconnectParts, FromMessageParts},
     packet::Packet,
     socket::{DisconnectReason, Socket},
-    SocketIo,
+    DisconnectError, SendError, SocketIo,
 };
 use serde::Serialize;
-use socketioxide_core::parser::Parse;
-use socketioxide_core::Value;
+use socketioxide_core::{parser::Parse, Value};
 
 /// An Extractor that returns a reference to a [`Socket`].
 #[derive(Debug)]
@@ -111,9 +109,9 @@ impl<A: Adapter> AckSender<A> {
                 }
             };
             let ns = self.socket.ns.path.clone();
-            let data = self.socket.parser().encode_value(data, None)?;
+            let data = self.socket.parser.encode_value(data, None)?;
             let packet = Packet::ack(ns, data, ack_id);
-            permit.send(packet, self.socket.parser());
+            permit.send(packet, self.socket.parser);
             Ok(())
         } else {
             Ok(())

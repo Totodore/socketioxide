@@ -18,6 +18,7 @@ engineioxide = { version = "0.15.0", path = "../engineioxide" }
 serde.workspace = true
 thiserror.workspace = true
 arbitrary = { version = "1.3.2", features = ["derive"], optional = true }
+futures-core.workspace = true
 
 [features]
 fuzzing = ["dep:arbitrary"]

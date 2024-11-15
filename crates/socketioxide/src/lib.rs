@@ -340,10 +340,10 @@ pub mod socket;
 
 pub use engineioxide::TransportType;
 pub use errors::{
-    AckError, AdapterError, BroadcastError, DecodeError, DisconnectError, EncodeError,
-    NsInsertError, SendError, SocketError,
+    AckError, BroadcastError, DecodeError, EmitWithAckError, EncodeError, NsInsertError, SendError,
 };
 pub use io::{ParserConfig, SocketIo, SocketIoBuilder, SocketIoConfig};
+pub use socketioxide_core::errors::{AdapterError, DisconnectError, SocketError};
 pub use socketioxide_core::packet;
 
 mod client;
