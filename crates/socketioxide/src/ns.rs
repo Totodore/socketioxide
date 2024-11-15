@@ -276,11 +276,17 @@ impl<A: Adapter> SocketEmitter for Emitter<A> {
     fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<DisconnectError>> {
         match self.ns.upgrade() {
             Some(ns) => {
-                let sockets = ns.sockets.read().unwrap();
-                let errs: Vec<crate::DisconnectError> = sids
-                    .iter()
-                    .filter_map(|sid| sockets.get(sid))
-                    .filter_map(|socket| socket.clone().disconnect().err())
+                let sockets: Vec<Arc<Socket<A>>> = ns
+                    .sockets
+                    .read()
+                    .unwrap()
+                    .values()
+                    .filter(|s| sids.contains(&s.id))
+                    .cloned()
+                    .collect();
+                let errs: Vec<crate::DisconnectError> = sockets
+                    .into_iter()
+                    .filter_map(|socket| socket.disconnect().err())
                     .collect();
                 if errs.is_empty() {
                     Ok(())
