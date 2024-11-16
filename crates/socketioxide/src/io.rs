@@ -7,21 +7,22 @@ use engineioxide::{
     TransportType,
 };
 use serde::Serialize;
+use socketioxide_core::adapter::{Room, RoomParam};
 use socketioxide_parser_common::CommonParser;
 #[cfg(feature = "msgpack")]
 use socketioxide_parser_msgpack::MsgPackParser;
 
 use crate::{
     ack::AckStream,
-    adapter::{Adapter, LocalAdapter, Room},
+    adapter::{Adapter, LocalAdapter},
     client::Client,
     extract::SocketRef,
     handler::ConnectHandler,
     layer::SocketIoLayer,
-    operators::{BroadcastOperators, RoomParam},
-    parser::{self, Parser},
+    operators::BroadcastOperators,
+    parser::Parser,
     service::SocketIoService,
-    BroadcastError, DisconnectError,
+    BroadcastError, DisconnectError, EmitWithAckError,
 };
 
 /// The parser to use to encode and decode socket.io packets
@@ -84,23 +85,24 @@ impl Default for SocketIoConfig {
 pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
-    adapter: std::marker::PhantomData<A>,
+    adapter_state: A::State,
     #[cfg(feature = "state")]
     state: state::TypeMap![Send + Sync],
 }
 
-impl<A: Adapter> SocketIoBuilder<A> {
+impl SocketIoBuilder<LocalAdapter> {
     /// Creates a new [`SocketIoBuilder`] with default config
     pub fn new() -> Self {
         Self {
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
             config: SocketIoConfig::default(),
-            adapter: std::marker::PhantomData,
+            adapter_state: (),
             #[cfg(feature = "state")]
             state: std::default::Default::default(),
         }
     }
-
+}
+impl<A: Adapter> SocketIoBuilder<A> {
     /// The path to listen for socket.io requests on.
     ///
     /// Defaults to "/socket.io".
@@ -199,11 +201,11 @@ impl<A: Adapter> SocketIoBuilder<A> {
     }
 
     /// Set a custom [`Adapter`] for this [`SocketIoBuilder`]
-    pub fn with_adapter<B: Adapter>(self) -> SocketIoBuilder<B> {
+    pub fn with_adapter<B: Adapter>(self, adapter_state: B::State) -> SocketIoBuilder<B> {
         SocketIoBuilder {
             config: self.config,
             engine_config_builder: self.engine_config_builder,
-            adapter: std::marker::PhantomData,
+            adapter_state,
             #[cfg(feature = "state")]
             state: self.state,
         }
@@ -229,6 +231,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
         let (layer, client) = SocketIoLayer::from_config(
             self.config,
+            self.adapter_state,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -244,6 +247,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         let (svc, client) = SocketIoService::with_config_inner(
             NotFoundService,
             self.config,
+            self.adapter_state,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -262,6 +266,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         let (svc, client) = SocketIoService::with_config_inner(
             svc,
             self.config,
+            self.adapter_state,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -554,7 +559,7 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> Result<AckStream<V>, parser::EncodeError> {
+    ) -> Result<AckStream<V>, EmitWithAckError> {
         self.get_default_op().emit_with_ack(event, data).await
     }
 

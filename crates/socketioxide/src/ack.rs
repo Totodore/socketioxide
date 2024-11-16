@@ -5,6 +5,7 @@
 //! - [`AckStream`]: A [`Stream`]/[`Future`] of data received from the client.
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -16,11 +17,7 @@ use serde::de::DeserializeOwned;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
 use crate::{
-    adapter::Adapter,
-    errors::{AckError, SocketError},
-    extract::SocketRef,
-    packet::Packet,
-    parser::Parser,
+    adapter::Adapter, errors::AckError, packet::Packet, parser::Parser, socket::Socket, SocketError,
 };
 use socketioxide_core::{parser::Parse, Value};
 pub(crate) type AckResult<T> = Result<T, AckError>;
@@ -138,7 +135,7 @@ impl AckInnerStream {
     /// (5s by default) if no custom timeout is specified.
     pub fn broadcast<A: Adapter>(
         packet: Packet,
-        sockets: Vec<SocketRef<A>>,
+        sockets: Vec<Arc<Socket<A>>>,
         duration: Option<Duration>,
     ) -> Self {
         let rxs = FuturesUnordered::new();

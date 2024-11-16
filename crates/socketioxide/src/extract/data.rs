@@ -39,8 +39,7 @@ where
 {
     type Error = DecodeError;
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Self::Error> {
-        let parser = s.parser();
-        parser.decode_default(auth.as_ref()).map(Data)
+        s.parser.decode_default(auth.as_ref()).map(Data)
     }
 }
 
@@ -55,8 +54,7 @@ where
         v: &mut Value,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
-        let parser = s.parser();
-        parser.decode_value(v, true).map(Data)
+        s.parser.decode_value(v, true).map(Data)
     }
 }
 
@@ -90,8 +88,7 @@ where
 {
     type Error = Infallible;
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Infallible> {
-        let parser = s.parser();
-        Ok(TryData(parser.decode_default(auth.as_ref())))
+        Ok(TryData(s.parser.decode_default(auth.as_ref())))
     }
 }
 impl<T, A> FromMessageParts<A> for TryData<T>
@@ -105,8 +102,7 @@ where
         v: &mut Value,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
-        let parser = s.parser();
-        Ok(TryData(parser.decode_value(v, true)))
+        Ok(TryData(s.parser.decode_value(v, true)))
     }
 }
 

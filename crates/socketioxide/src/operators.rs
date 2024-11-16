@@ -6,104 +6,28 @@
 //! There is two types of operators:
 //! * [`ConfOperators`]: Chainable operators to configure the message to be sent.
 //! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
-use std::borrow::Cow;
 use std::future::Future;
 use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
 use serde::Serialize;
-use socketioxide_core::parser::Parse;
 
-use crate::ack::{AckInnerStream, AckStream};
-use crate::adapter::LocalAdapter;
-use crate::errors::{BroadcastError, DisconnectError};
-use crate::extract::SocketRef;
-use crate::parser::{self, Parser};
-use crate::socket::Socket;
-use crate::SendError;
 use crate::{
-    adapter::{Adapter, BroadcastFlags, BroadcastOptions, Room},
+    ack::{AckInnerStream, AckStream},
+    adapter::Adapter,
+    adapter::LocalAdapter,
+    extract::SocketRef,
     ns::Namespace,
     packet::Packet,
+    parser::{self, Parser},
+    socket::Socket,
+    BroadcastError, DisconnectError, EmitWithAckError, SendError,
 };
 
-/// A trait for types that can be used as a room parameter.
-///
-/// [`String`], [`Vec<String>`], [`Vec<&str>`], [`&'static str`](str) and const arrays are implemented by default.
-pub trait RoomParam: Send + 'static {
-    /// The type of the iterator returned by `into_room_iter`.
-    type IntoIter: Iterator<Item = Room>;
-
-    /// Convert `self` into an iterator of rooms.
-    fn into_room_iter(self) -> Self::IntoIter;
-}
-
-impl RoomParam for Room {
-    type IntoIter = std::iter::Once<Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        std::iter::once(self)
-    }
-}
-impl RoomParam for String {
-    type IntoIter = std::iter::Once<Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        std::iter::once(Cow::Owned(self))
-    }
-}
-impl RoomParam for Vec<String> {
-    type IntoIter = std::iter::Map<std::vec::IntoIter<String>, fn(String) -> Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(Cow::Owned)
-    }
-}
-impl RoomParam for Vec<&'static str> {
-    type IntoIter = std::iter::Map<std::vec::IntoIter<&'static str>, fn(&'static str) -> Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(Cow::Borrowed)
-    }
-}
-
-impl RoomParam for Vec<Room> {
-    type IntoIter = std::vec::IntoIter<Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter()
-    }
-}
-impl RoomParam for &'static str {
-    type IntoIter = std::iter::Once<Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        std::iter::once(Cow::Borrowed(self))
-    }
-}
-impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
-    type IntoIter =
-        std::iter::Map<std::array::IntoIter<&'static str, COUNT>, fn(&'static str) -> Room>;
-
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(Cow::Borrowed)
-    }
-}
-impl<const COUNT: usize> RoomParam for [String; COUNT] {
-    type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(Cow::Owned)
-    }
-}
-impl RoomParam for Sid {
-    type IntoIter = std::iter::Once<Room>;
-    #[inline(always)]
-    fn into_room_iter(self) -> Self::IntoIter {
-        std::iter::once(Cow::Owned(self.to_string()))
-    }
-}
+use socketioxide_core::{
+    adapter::{BroadcastFlags, BroadcastOptions, Room, RoomParam},
+    parser::Parse,
+};
 
 /// Chainable operators to configure the message to be sent.
 pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
@@ -120,14 +44,11 @@ pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
 
 impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
     fn from(conf: ConfOperators<'_, A>) -> Self {
-        let opts = BroadcastOptions {
-            sid: Some(conf.socket.id),
-            ..Default::default()
-        };
+        let opts = BroadcastOptions::new(conf.socket.id);
         Self {
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
-            parser: conf.socket.parser(),
+            parser: conf.socket.parser,
             opts,
         }
     }
@@ -182,8 +103,8 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<(), SendError> {
-        use crate::errors::SocketError;
         use crate::socket::PermitExt;
+        use crate::SocketError;
         if !self.socket.connected() {
             return Err(SendError::Socket(SocketError::Closed));
         }
@@ -196,7 +117,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
             }
         };
         let packet = self.get_packet(event, data)?;
-        permit.send(packet, self.socket.parser());
+        permit.send(packet, self.socket.parser);
 
         Ok(())
     }
@@ -207,7 +128,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<AckStream<V>, SendError> {
-        use crate::errors::SocketError;
+        use crate::SocketError;
         if !self.socket.connected() {
             return Err(SendError::Socket(SocketError::Closed));
         }
@@ -225,7 +146,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         let packet = self.get_packet(event, data)?;
         let rx = self.socket.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, timeout, self.socket.id);
-        Ok(AckStream::<V>::new(stream, self.socket.parser()))
+        Ok(AckStream::<V>::new(stream, self.socket.parser))
     }
 
     #[doc = include_str!("../docs/operators/join.md")]
@@ -251,7 +172,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
     ) -> Result<Packet, parser::EncodeError> {
         let ns = self.socket.ns.path.clone();
         let event = event.as_ref();
-        let data = self.socket.parser().encode_value(&data, Some(event))?;
+        let data = self.socket.parser.encode_value(&data, Some(event))?;
         Ok(Packet::event(ns, data))
     }
 }
@@ -270,10 +191,7 @@ impl<A: Adapter> BroadcastOperators<A> {
             timeout: None,
             ns,
             parser,
-            opts: BroadcastOptions {
-                sid: Some(sid),
-                ..Default::default()
-            },
+            opts: BroadcastOptions::new(sid),
         }
     }
 
@@ -297,13 +215,13 @@ impl<A: Adapter> BroadcastOperators<A> {
 
     #[doc = include_str!("../docs/operators/local.md")]
     pub fn local(mut self) -> Self {
-        self.opts.flags.insert(BroadcastFlags::Local);
+        self.opts.add_flag(BroadcastFlags::Local);
         self
     }
 
     #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(mut self) -> Self {
-        self.opts.flags.insert(BroadcastFlags::Broadcast);
+        self.opts.add_flag(BroadcastFlags::Broadcast);
         self
     }
 
@@ -327,7 +245,7 @@ impl<A: Adapter> BroadcastOperators<A> {
             if let Err(e) = self.ns.adapter.broadcast(packet?, self.opts).await {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("broadcast error: {e:?}");
-                return Err(e);
+                return Err(BroadcastError::Socket(e));
             }
             Ok(())
         }
@@ -338,21 +256,31 @@ impl<A: Adapter> BroadcastOperators<A> {
         mut self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> impl Future<Output = Result<AckStream<V>, parser::EncodeError>> + Send {
+    ) -> impl Future<Output = Result<AckStream<V>, EmitWithAckError>> + Send {
         let packet = self.get_packet(event, data);
         async move {
             let stream = self
                 .ns
                 .adapter
                 .broadcast_with_ack(packet?, self.opts, self.timeout)
-                .await;
+                .await
+                .map_err(|e| EmitWithAckError::Adapter(Box::new(e)))?;
             Ok(AckStream::new(stream, self.parser))
         }
     }
 
     #[doc = include_str!("../docs/operators/sockets.md")]
     pub async fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        self.ns.adapter.fetch_sockets(self.opts).await
+        let sockets = self
+            .ns
+            .adapter
+            .sockets(self.opts)
+            .await?
+            .into_iter()
+            .filter_map(|id| self.ns.get_socket(id).ok())
+            .map(SocketRef::from)
+            .collect();
+        Ok(sockets)
     }
 
     #[doc = include_str!("../docs/operators/disconnect.md")]
