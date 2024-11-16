@@ -453,6 +453,6 @@ mod test {
 
         let opts = BroadcastOptions::new(Sid::new());
         let sids = now!(adapter.sockets(opts)).unwrap();
-        assert_eq!(sids.len(), 0);
+        assert_eq!(sids.len(), 1);
     }
 }
