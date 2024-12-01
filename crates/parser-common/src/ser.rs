@@ -53,7 +53,7 @@ pub fn serialize_packet(packet: Packet) -> Value {
             }
             serialize_ack(&mut buffer, *ack);
             serialize_data(&mut buffer, data);
-            bins.clone()  // Clone binary attachments only when needed
+            bins.clone() // Clone binary attachments only when needed
         }
         PacketData::EventAck(Value::Str(data, bins), ack) => {
             // Acknowledgments are similar to events but always include ack ID
@@ -148,7 +148,7 @@ fn serialize_data(buffer: &mut BytesMut, data: &str) {
 /// This avoids buffer reallocations during serialization
 fn get_size_hint(packet: &Packet) -> usize {
     use PacketData::*;
-    
+
     // Constants for various protocol elements
     const PACKET_INDEX_SIZE: usize = 1;
     const BINARY_PUNCTUATION_SIZE: usize = 2;
@@ -213,7 +213,7 @@ fn get_size_hint(packet: &Packet) -> usize {
     } else {
         packet.ns.len() + NS_PUNCTUATION_SIZE + 1 // Add 1 for leading slash
     };
-    
+
     // Total size combines all components
     data_size + nsp_size + PACKET_INDEX_SIZE
 }
@@ -222,10 +222,10 @@ fn get_size_hint(packet: &Packet) -> usize {
 #[cfg(test)]
 mod tests {
     // Test imports
+    use super::*;
     use bytes::Bytes;
     use serde_json::json;
     use socketioxide_core::{packet::ConnectPacket, Sid};
-    use super::*;
 
     // Helper functions to create test values
     fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {
@@ -235,7 +235,7 @@ mod tests {
     fn to_value(data: &impl serde::Serialize) -> Value {
         crate::value::to_value(data, None).unwrap()
     }
-    
+
     fn to_connect_value(data: &impl serde::Serialize) -> Value {
         Value::Str(Str::from(serde_json::to_string(data).unwrap()), None)
     }
