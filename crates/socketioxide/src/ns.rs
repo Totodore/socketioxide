@@ -17,7 +17,7 @@ use crate::{
 };
 use engineioxide::{sid::Sid, Str};
 use socketioxide_core::{
-    adapter::SocketEmitter,
+    adapter::{CoreLocalAdapter, SocketEmitter},
     errors::{DisconnectError, SocketError},
     parser::Parse,
     Value,
@@ -54,13 +54,7 @@ impl<A: Adapter> NamespaceCtr<A> {
         adapter_state: &A::State,
         parser: Parser,
     ) -> Arc<Namespace<A>> {
-        Arc::new_cyclic(|ns| Namespace {
-            path,
-            handler: self.handler.boxed_clone(),
-            parser,
-            sockets: HashMap::new().into(),
-            adapter: A::new(adapter_state, Emitter::new(ns.clone(), parser)),
-        })
+        Namespace::new_boxed(path, self.handler.boxed_clone(), adapter_state, parser)
     }
 }
 
@@ -75,12 +69,25 @@ impl<A: Adapter> Namespace<A> {
         C: ConnectHandler<A, T> + Send + Sync + 'static,
         T: Send + Sync + 'static,
     {
+        let handler = MakeErasedHandler::new_ns_boxed(handler);
+        Self::new_boxed(path, handler, adapter_state, parser)
+    }
+
+    fn new_boxed(
+        path: Str,
+        handler: BoxedConnectHandler<A>,
+        adapter_state: &A::State,
+        parser: Parser,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|ns| Self {
             path,
-            handler: MakeErasedHandler::new_ns_boxed(handler),
+            handler,
             parser,
             sockets: HashMap::new().into(),
-            adapter: A::new(adapter_state, Emitter::new(ns.clone(), parser)),
+            adapter: A::new(
+                adapter_state,
+                CoreLocalAdapter::new(Emitter::new(ns.clone(), parser)),
+            ),
         })
     }
 
@@ -219,10 +226,12 @@ impl<A: Adapter> Namespace<A> {
 pub struct Emitter<A: Adapter> {
     ns: Weak<Namespace<A>>,
     parser: Parser,
+    path: Str,
 }
 impl<A: Adapter> Emitter<A> {
     pub(crate) fn new(ns: Weak<Namespace<A>>, parser: Parser) -> Self {
-        Self { ns, parser }
+        let path = ns.upgrade().map(|ns| ns.path.clone()).unwrap_or_default();
+        Self { ns, parser, path }
     }
 }
 
@@ -298,11 +307,8 @@ impl<A: Adapter> SocketEmitter for Emitter<A> {
         }
     }
 
-    fn path(&self) -> Str {
-        self.ns
-            .upgrade()
-            .map(|ns| ns.path.clone())
-            .unwrap_or_default()
+    fn path(&self) -> &Str {
+        &self.path
     }
     fn get_all_sids(&self) -> Vec<Sid> {
         self.ns

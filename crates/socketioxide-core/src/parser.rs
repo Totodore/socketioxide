@@ -467,8 +467,10 @@ pub fn is_de_tuple<'de, T: serde::Deserialize<'de>>() -> bool {
         Err(IsTupleSerdeError(v)) => v,
     }
 }
+
+#[doc(hidden)]
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use serde::{Deserialize, Serialize};
 
@@ -492,5 +494,84 @@ mod test {
         struct UnitStruct;
         assert!(!is_ser_tuple(&UnitStruct));
         assert!(!is_de_tuple::<UnitStruct>());
+    }
+
+    /// A stub parser that always returns an error. Only used for testing.
+    #[derive(Debug, Default, Clone, Copy)]
+    pub struct StubParser;
+
+    /// A stub error that is used for testing.
+    pub struct StubError;
+
+    impl std::fmt::Debug for StubError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("StubError")
+        }
+    }
+    impl std::fmt::Display for StubError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("StubError")
+        }
+    }
+    impl std::error::Error for StubError {}
+
+    /// === impl StubParser ===
+    impl Parse for StubParser {
+        type EncodeError = StubError;
+        type DecodeError = StubError;
+
+        fn encode(self, _: Packet) -> Value {
+            Value::Bytes(Bytes::new())
+        }
+
+        fn decode_str(
+            self,
+            _: &ParserState,
+            _: Str,
+        ) -> Result<Packet, ParseError<Self::DecodeError>> {
+            Err(ParseError::ParserError(StubError))
+        }
+
+        fn decode_bin(
+            self,
+            _: &ParserState,
+            _: bytes::Bytes,
+        ) -> Result<Packet, ParseError<Self::DecodeError>> {
+            Err(ParseError::ParserError(StubError))
+        }
+
+        fn encode_value<T: ?Sized + serde::Serialize>(
+            self,
+            _: &T,
+            _: Option<&str>,
+        ) -> Result<Value, Self::EncodeError> {
+            Err(StubError)
+        }
+
+        fn decode_value<'de, T: serde::Deserialize<'de>>(
+            self,
+            _: &'de mut Value,
+            _: bool,
+        ) -> Result<T, Self::DecodeError> {
+            Err(StubError)
+        }
+
+        fn decode_default<'de, T: serde::Deserialize<'de>>(
+            self,
+            _: Option<&'de Value>,
+        ) -> Result<T, Self::DecodeError> {
+            Err(StubError)
+        }
+
+        fn encode_default<T: ?Sized + serde::Serialize>(
+            self,
+            _: &T,
+        ) -> Result<Value, Self::EncodeError> {
+            Err(StubError)
+        }
+
+        fn read_event(self, _: &Value) -> Result<&str, Self::DecodeError> {
+            Ok("")
+        }
     }
 }
