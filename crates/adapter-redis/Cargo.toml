@@ -14,8 +14,11 @@ readme.workspace = true
 
 [dependencies]
 socketioxide-core = { version = "0.15.1", path = "../socketioxide-core" }
-socketioxide = { version = "0.15.1", path = "../socketioxide" }
 redis = { version = "0.27.5", features = [
     "aio",
     "tokio-comp",
 ], default-features = false }
+futures-core.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+pin-project-lite.workspace = true
