@@ -38,9 +38,9 @@ pub struct BroadcastOptions {
     /// The flags to apply to the broadcast represented as a bitflag.
     flags: u8,
     /// The rooms to broadcast to.
-    pub rooms: HashSet<Room>,
+    pub rooms: Vec<Room>,
     /// The rooms to exclude from the broadcast.
-    pub except: HashSet<Room>,
+    pub except: Vec<Room>,
     /// The socket id of the sender.
     pub sid: Option<Sid>,
 }
@@ -421,6 +421,11 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     pub fn path(&self) -> &Str {
         self.sockets.path()
     }
+
+    /// Get the parser of the namespace.
+    pub fn parser(&self) -> impl Parse + '_ {
+        self.sockets.parser()
+    }
 }
 
 impl<E: SocketEmitter> CoreLocalAdapter<E> {
@@ -455,7 +460,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         }
     }
 
-    fn get_except_sids(&self, except: &HashSet<Room>) -> HashSet<Sid> {
+    fn get_except_sids(&self, except: &Vec<Room>) -> HashSet<Sid> {
         let mut except_sids = HashSet::new();
         let rooms_map = self.rooms.read().unwrap();
         for room in except {
@@ -477,11 +482,6 @@ mod test {
     };
 
     use super::*;
-    macro_rules! hash_set {
-        {$($v: expr),* $(,)?} => {
-            std::collections::HashSet::from([$($v,)*])
-        };
-    }
 
     struct StubSockets {
         sockets: HashSet<Sid>,
@@ -599,7 +599,7 @@ mod test {
         adapter.add_all(socket, ["room1"]);
 
         let mut opts = BroadcastOptions::new(socket);
-        opts.rooms = hash_set!["room1".into()];
+        opts.rooms = vec!["room1".into()];
         adapter.add_sockets(opts, "room2");
         let rooms_map = adapter.rooms.read().unwrap();
 
@@ -615,7 +615,7 @@ mod test {
         adapter.add_all(socket, ["room1"]);
 
         let mut opts = BroadcastOptions::new(socket);
-        opts.rooms = hash_set!["room1".into()];
+        opts.rooms = vec!["room1".into()];
         adapter.add_sockets(opts, "room2");
 
         {
@@ -627,7 +627,7 @@ mod test {
         }
 
         let mut opts = BroadcastOptions::new(socket);
-        opts.rooms = hash_set!["room1".into()];
+        opts.rooms = vec!["room1".into()];
         adapter.del_sockets(opts, "room2");
 
         {
@@ -650,19 +650,19 @@ mod test {
         adapter.add_all(socket2, ["room2", "room3"]);
 
         let mut opts = BroadcastOptions::default();
-        opts.rooms = hash_set!["room1".into()];
+        opts.rooms = vec!["room1".into()];
         let sockets = adapter.sockets(opts.clone());
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket0));
         assert!(sockets.contains(&socket1));
 
-        opts.rooms = hash_set!["room2".into()];
+        opts.rooms = vec!["room2".into()];
         let sockets = adapter.sockets(opts.clone());
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket0));
         assert!(sockets.contains(&socket2));
 
-        opts.rooms = hash_set!["room3".into()];
+        opts.rooms = vec!["room3".into()];
         let sockets = adapter.sockets(opts.clone());
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket1));
@@ -680,11 +680,11 @@ mod test {
         adapter.add_all(socket2, ["room2", "room3", "room6"]);
 
         let mut opts = BroadcastOptions::new(socket0);
-        opts.rooms = hash_set!["room5".into()];
+        opts.rooms = vec!["room5".into()];
         adapter.disconnect_socket(opts).unwrap();
 
         let mut opts = BroadcastOptions::default();
-        opts.rooms.insert("room2".into());
+        opts.rooms.push("room2".into());
         let sockets = adapter.sockets(opts.clone());
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket2));
@@ -705,8 +705,8 @@ mod test {
 
         // socket 2 is the sender
         let mut opts = BroadcastOptions::new(socket2);
-        opts.rooms = hash_set!["room1".into()];
-        opts.except = hash_set!["room2".into()];
+        opts.rooms = vec!["room1".into()];
+        opts.except = vec!["room2".into()];
         let sids = adapter.sockets(opts);
         assert_eq!(sids.len(), 1);
         assert_eq!(sids[0], socket1);
@@ -721,7 +721,7 @@ mod test {
 
         let mut opts = BroadcastOptions::new(socket2);
         opts.add_flag(BroadcastFlags::Broadcast);
-        opts.except = hash_set!["room2".into()];
+        opts.except = vec!["room2".into()];
         let sids = adapter.sockets(opts);
         assert_eq!(sids.len(), 1);
 
