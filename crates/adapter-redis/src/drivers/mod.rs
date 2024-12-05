@@ -5,7 +5,7 @@ use pin_project_lite::pin_project;
 use socketioxide_core::{errors::AdapterError, Str};
 use tokio::sync::mpsc;
 
-mod redis;
+pub mod redis;
 
 pin_project! {
     #[derive(Debug)]

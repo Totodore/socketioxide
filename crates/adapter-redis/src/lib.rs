@@ -1,23 +1,25 @@
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
-    future::Future,
-    sync::{Arc, OnceLock, RwLock},
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
 use drivers::{Driver, MessageStream};
+use serde::{Deserialize, Serialize};
 use socketioxide_core::{
-    adapter::{BroadcastOptions, CoreAdapter, Room, RoomParam, SocketEmitter},
-    errors::{DisconnectError, SocketError},
+    adapter::{
+        BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, Room, RoomParam,
+        SocketEmitter,
+    },
+    errors::SocketError,
     packet::Packet,
     Sid,
 };
 
-mod drivers;
+pub mod drivers;
 
 #[derive(Debug, Clone)]
-struct RedisAdapterConfig {
+pub struct RedisAdapterConfig {
     request_timeout: Duration,
     specific_response_chan: bool,
     prefix: Cow<'static, str>,
@@ -28,13 +30,39 @@ struct RedisAdapterState<R> {
     config: RedisAdapterConfig,
 }
 
-struct RedisAdapter<E, R> {
-    sockets: E,
+pub struct RedisAdapter<E, R> {
     driver: Arc<R>,
     config: RedisAdapterConfig,
-    rooms: RwLock<HashMap<Room, HashSet<Sid>>>,
     rx: OnceLock<MessageStream>,
     uid: Sid,
+    local: CoreLocalAdapter<E>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SendOptions {
+    rooms: Vec<Room>,
+    except: Vec<Sid>,
+    flags: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+enum RequestType {
+    Sockets = 0,
+    AllRooms = 1,
+    RemoteJoin = 2,
+    RemoteLeave = 3,
+    RemoteDisconnect = 4,
+    RemoveFetch = 5,
+    ServerSideEmit = 6,
+    Broadcast,
+    BroadcastClientCount,
+    BroadcastAck,
+}
+#[derive(Serialize, Deserialize)]
+struct Request {
+    uid: Sid,
+    req_id: Sid,
+    r#type: RequestType,
 }
 
 impl<E: SocketEmitter, R> RedisAdapter<E, R> {
@@ -42,12 +70,12 @@ impl<E: SocketEmitter, R> RedisAdapter<E, R> {
         format!(
             "{}-request#{}#{}#",
             self.config.prefix,
-            self.sockets.path(),
+            self.local.path(),
             room
         )
     }
     fn get_res_channel(&self, room: &str) -> String {
-        let path = self.sockets.path();
+        let path = self.local.path();
         let prefix = &self.config.prefix;
         if self.config.specific_response_chan {
             format!("{}-response#{}#{}#{}#", prefix, path, room, self.uid)
@@ -61,19 +89,18 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     type Error = R::Error;
     type State = RedisAdapterState<R>;
 
-    fn new(state: &Self::State, sockets: E) -> Self {
+    fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
         Self {
-            sockets,
+            local,
             driver: state.driver.clone(),
             config: state.config.clone(),
-            rooms: RwLock::new(HashMap::new()),
             rx: OnceLock::new(),
             uid: Sid::new(),
         }
     }
 
     async fn init(&self) -> Result<(), Self::Error> {
-        let rx = self.driver.subscribe(self.sockets.path()).await?;
+        let rx = self.driver.subscribe(self.local.path().clone()).await?;
         self.rx
             .set(rx)
             .expect("init fn on adapter should be called only once");
@@ -81,93 +108,32 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
-        self.driver.unsubscribe(&self.sockets.path()).await?;
+        self.driver.unsubscribe(&self.local.path()).await?;
         Ok(())
     }
 
     async fn server_count(&self) -> Result<u16, Self::Error> {
-        let count = self.driver.num_serv(&self.sockets.path()).await?;
+        let count = self.driver.num_serv(&self.local.path()).await?;
         Ok(count)
     }
 
-    async fn add_all(
-        &self,
-        sid: socketioxide_core::Sid,
-        rooms: impl RoomParam,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn del(
-        &self,
-        sid: socketioxide_core::Sid,
-        rooms: impl RoomParam,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        todo!()
-    }
-
-    fn del_all(
-        &self,
-        sid: socketioxide_core::Sid,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        todo!()
-    }
-
-    fn broadcast(
+    async fn broadcast(
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> impl Future<Output = Result<(), Vec<SocketError>>> + Send {
-        todo!()
+    ) -> Result<(), Vec<SocketError>> {
+        if !opts.has_flag(BroadcastFlags::Local) {
+            let opts = SendOptions {
+                rooms: opts.rooms,
+                except: opts.except,
+                flags: opts.flags.bits(),
+            };
+        }
+
+        self.local.broadcast(packet, opts);
     }
 
-    fn broadcast_with_ack(
-        &self,
-        packet: Packet,
-        opts: BroadcastOptions,
-        timeout: Option<std::time::Duration>,
-    ) -> impl Future<Output = Result<E::AckStream, Self::Error>> + Send {
-        todo!()
-    }
-
-    fn sockets(
-        &self,
-        opts: BroadcastOptions,
-    ) -> impl Future<Output = Result<Vec<Sid>, Self::Error>> + Send {
-        todo!()
-    }
-
-    fn socket_rooms(
-        &self,
-        sid: socketioxide_core::Sid,
-    ) -> impl Future<Output = Result<Vec<Room>, Self::Error>> + Send {
-        todo!()
-    }
-
-    fn add_sockets(
-        &self,
-        opts: BroadcastOptions,
-        rooms: impl RoomParam,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        todo!()
-    }
-
-    fn del_sockets(
-        &self,
-        opts: BroadcastOptions,
-        rooms: impl RoomParam,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        todo!()
-    }
-
-    fn disconnect_socket(
-        &self,
-        opts: BroadcastOptions,
-    ) -> impl Future<Output = Result<(), Vec<DisconnectError>>> + Send {
-        todo!()
-    }
-
-    fn rooms(&self) -> impl Future<Output = Result<Vec<Room>, Self::Error>> + Send {
-        todo!()
+    fn get_local(&self) -> &CoreLocalAdapter<E> {
+        &self.local
     }
 }

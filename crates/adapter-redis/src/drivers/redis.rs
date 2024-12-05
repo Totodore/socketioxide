@@ -31,7 +31,7 @@ impl fmt::Display for RedisError {
 impl std::error::Error for RedisError {}
 
 #[derive(Clone)]
-struct RedisDriver {
+pub struct RedisDriver {
     handlers: Arc<RwLock<HashMap<Str, mpsc::UnboundedSender<String>>>>,
     conn: MultiplexedConnection,
 }
@@ -51,7 +51,7 @@ fn read_msg(msg: redis::PushInfo) -> Option<(String, String)> {
     }
 }
 impl RedisDriver {
-    pub async fn build(client: redis::Client) -> Result<Self, RedisError> {
+    pub async fn new(client: redis::Client) -> Result<Self, RedisError> {
         let (tx, rx) = mpsc::unbounded_channel();
         let config = redis::AsyncConnectionConfig::new().set_push_sender(tx);
         let conn = client

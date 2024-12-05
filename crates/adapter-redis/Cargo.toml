@@ -22,3 +22,4 @@ futures-core.workspace = true
 tokio.workspace = true
 futures-util.workspace = true
 pin-project-lite.workspace = true
+serde.workspace = true
