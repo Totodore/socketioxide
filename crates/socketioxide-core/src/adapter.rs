@@ -6,12 +6,13 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error as StdError,
     future::{self, Future},
-    sync::RwLock,
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
 use engineioxide::{sid::Sid, Str};
-use futures_core::Stream;
+use futures_core::{FusedStream, Stream};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
@@ -34,7 +35,7 @@ pub enum BroadcastFlags {
 }
 
 /// Options that can be used to modify the behavior of the broadcast methods.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct BroadcastOptions {
     /// The flags to apply to the broadcast represented as a bitflag.
     flags: u8,
@@ -54,6 +55,12 @@ impl BroadcastOptions {
     pub fn has_flag(&self, flag: BroadcastFlags) -> bool {
         self.flags & flag as u8 == flag as u8
     }
+
+    /// get the flags of the options.
+    pub fn flags(&self) -> u8 {
+        self.flags
+    }
+
     /// Set the socket id of the sender.
     pub fn new(sid: Sid) -> Self {
         Self {
@@ -141,14 +148,16 @@ impl RoomParam for Sid {
     }
 }
 
+/// A item yield by the ack stream.
+pub type AckStreamItem<E> = (Sid, Result<Value, E>);
 /// The [`SocketEmitter`] will be implmented by the socketioxide library.
 /// It is simply used as an abstraction to allow the adapter to communicate
 /// with the socket server without the need to depend on the socketioxide lib.
 pub trait SocketEmitter: Send + Sync + 'static {
     /// An error that can occur when sending data an acknowledgment.
-    type AckError: StdError + Send + 'static;
+    type AckError: StdError + Send + Serialize + DeserializeOwned + 'static;
     /// A stream that emits the acknowledgments of multiple sockets.
-    type AckStream: Stream<Item = (Sid, Result<Value, Self::AckError>)> + Send + 'static;
+    type AckStream: Stream<Item = AckStreamItem<Self::AckError>> + FusedStream + Send + 'static;
 
     /// Get all the socket ids in the namespace.
     fn get_all_sids(&self) -> Vec<Sid>;
@@ -178,12 +187,14 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
     /// A shared state between all the namespace [`CoreAdapter`].
     /// This can be used to share a connection for example.
     type State: Send + Sync + 'static;
+    /// A stream that emits the acknowledgments of multiple sockets.
+    type AckStream: Stream<Item = AckStreamItem<E::AckError>> + FusedStream + Send + 'static;
 
     /// Creates a new adapter with the given state and socket server.
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self;
 
     /// Initializes the adapter.
-    fn init(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
+    fn init(self: Arc<Self>) -> impl Future<Output = Result<(), Self::Error>> + Send {
         future::ready(Ok(()))
     }
 
@@ -227,17 +238,17 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         future::ready(self.get_local().broadcast(packet, opts))
     }
 
-    /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
+    /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`]
+    /// and return a stream of ack responses.
+    ///
+    /// This method does not have default implementation because GAT cannot have default impls.
+    /// https://github.com/rust-lang/rust/issues/29661
     fn broadcast_with_ack(
         &self,
         packet: Packet,
         opts: BroadcastOptions,
         timeout: Option<Duration>,
-    ) -> impl Future<Output = Result<E::AckStream, Self::Error>> + Send {
-        future::ready(Ok(self
-            .get_local()
-            .broadcast_with_ack(packet, opts, timeout)))
-    }
+    ) -> impl Future<Output = Result<Self::AckStream, Self::Error>> + Send;
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     fn sockets(
@@ -478,7 +489,6 @@ mod test {
 
     use smallvec::smallvec;
     use std::{
-        convert::Infallible,
         pin::Pin,
         task::{Context, Poll},
     };
@@ -501,14 +511,27 @@ mod test {
 
     struct StubAckStream;
     impl Stream for StubAckStream {
-        type Item = (Sid, Result<Value, Infallible>);
+        type Item = (Sid, Result<Value, StubError>);
         fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             Poll::Ready(None)
         }
     }
+    impl FusedStream for StubAckStream {
+        fn is_terminated(&self) -> bool {
+            true
+        }
+    }
+    #[derive(Debug, Serialize, Deserialize)]
+    struct StubError;
+    impl std::fmt::Display for StubError {
+        fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            Ok(())
+        }
+    }
+    impl std::error::Error for StubError {}
 
     impl SocketEmitter for StubSockets {
-        type AckError = Infallible;
+        type AckError = StubError;
         type AckStream = StubAckStream;
 
         fn get_all_sids(&self) -> Vec<Sid> {

@@ -40,13 +40,14 @@ pub mod parser;
 use std::collections::VecDeque;
 
 pub use engineioxide::{sid::Sid, Str};
+use serde::{Deserialize, Serialize};
 
 /// Represents a value that can be sent over the engine.io wire as an engine.io packet
 /// or the data that can be outputed by a binary parser (e.g. [`MsgPackParser`](../socketioxide_parser_msgpack/index.html))
 /// or a string parser (e.g. [`CommonParser`](../socketioxide_parser_common/index.html))).
 ///
 /// If you want to deserialize this value to a specific type. You should manually call the `Data` extractor.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     /// A string payload that will be sent as a string engine.io packet.
     /// It can also contain adjacent binary payloads.

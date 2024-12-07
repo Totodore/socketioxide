@@ -559,7 +559,7 @@ impl<A: Adapter> SocketIo<A> {
         &self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> Result<AckStream<V>, EmitWithAckError> {
+    ) -> Result<AckStream<V, A>, EmitWithAckError> {
         self.get_default_op().emit_with_ack(event, data).await
     }
 

@@ -17,7 +17,12 @@ use serde::de::DeserializeOwned;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
 use crate::{
-    adapter::Adapter, errors::AckError, packet::Packet, parser::Parser, socket::Socket, SocketError,
+    adapter::{Adapter, LocalAdapter},
+    errors::AckError,
+    packet::Packet,
+    parser::Parser,
+    socket::Socket,
+    SocketError,
 };
 use socketioxide_core::{parser::Parse, Value};
 pub(crate) type AckResult<T> = Result<T, AckError>;
@@ -97,9 +102,9 @@ pin_project_lite::pin_project! {
     /// });
     /// ```
     #[must_use = "futures and streams do nothing unless you `.await` or poll them"]
-    pub struct AckStream<T> {
+    pub struct AckStream<T, A: Adapter = LocalAdapter> {
         #[pin]
-        inner: AckInnerStream,
+        inner: A::AckStream,
         parser: Parser,
         _marker: std::marker::PhantomData<T>,
     }
@@ -207,33 +212,9 @@ impl FusedStream for AckInnerStream {
     }
 }
 
-impl Future for AckInnerStream {
-    type Output = AckResult<Value>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.as_mut().poll_next(cx) {
-            Poll::Ready(Some(v)) => Poll::Ready(v.1),
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(None) => {
-                unreachable!("stream should at least yield 1 value")
-            }
-        }
-    }
-}
-
-impl FusedFuture for AckInnerStream {
-    fn is_terminated(&self) -> bool {
-        use AckInnerStream::*;
-        match self {
-            Stream { rxs, .. } => rxs.is_terminated(),
-            Fut { polled, .. } => *polled,
-        }
-    }
-}
-
 // ==== impl AckStream ====
-impl<T> AckStream<T> {
-    pub(crate) fn new(inner: AckInnerStream, parser: Parser) -> Self {
+impl<T, A: Adapter> AckStream<T, A> {
+    pub(crate) fn new(inner: A::AckStream, parser: Parser) -> Self {
         AckStream {
             inner,
             parser,
@@ -242,7 +223,7 @@ impl<T> AckStream<T> {
     }
 }
 
-impl<T: DeserializeOwned> Stream for AckStream<T> {
+impl<T: DeserializeOwned, A: Adapter> Stream for AckStream<T, A> {
     type Item = (Sid, AckResult<T>);
 
     #[inline]
@@ -260,30 +241,33 @@ impl<T: DeserializeOwned> Stream for AckStream<T> {
     }
 }
 
-impl<T: DeserializeOwned> FusedStream for AckStream<T> {
+impl<T: DeserializeOwned, A: Adapter> FusedStream for AckStream<T, A> {
     #[inline(always)]
     fn is_terminated(&self) -> bool {
         FusedStream::is_terminated(&self.inner)
     }
 }
 
-impl<T: DeserializeOwned> Future for AckStream<T> {
+impl<T: DeserializeOwned, A: Adapter> Future for AckStream<T, A> {
     type Output = AckResult<T>;
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let parser = self.parser;
-        self.project()
-            .inner
-            .poll(cx)
-            .map(|v| map_ack_response(v, parser))
+        match self.project().inner.poll_next(cx) {
+            Poll::Ready(Some(v)) => Poll::Ready(map_ack_response(v.1, parser)),
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => {
+                unreachable!("stream should at least yield 1 value")
+            }
+        }
     }
 }
 
-impl<T: DeserializeOwned> FusedFuture for AckStream<T> {
+impl<T: DeserializeOwned, A: Adapter> FusedFuture for AckStream<T, A> {
     #[inline(always)]
     fn is_terminated(&self) -> bool {
-        FusedFuture::is_terminated(&self.inner)
+        FusedStream::is_terminated(&self.inner)
     }
 }
 
@@ -317,7 +301,7 @@ mod test {
     fn value(data: impl serde::Serialize) -> Value {
         CommonParser.encode_value(&data, None).unwrap()
     }
-    impl<T: DeserializeOwned> From<AckInnerStream> for AckStream<T> {
+    impl<T: DeserializeOwned> From<AckInnerStream> for AckStream<T, LocalAdapter> {
         fn from(val: AckInnerStream) -> Self {
             Self::new(val, Parser::default())
         }
@@ -330,7 +314,8 @@ mod test {
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
-        let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
+        let stream: AckStream<String, LocalAdapter> =
+            AckInnerStream::broadcast(packet, socks, None).into();
 
         let res_packet = Packet::ack("test", value("test"), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
@@ -347,7 +332,7 @@ mod test {
     async fn ack_stream() {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(value("test"))).unwrap();
 
@@ -361,7 +346,7 @@ mod test {
     async fn ack_fut() {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(value("test"))).unwrap();
 
@@ -375,7 +360,8 @@ mod test {
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
-        let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
+        let stream: AckStream<String, LocalAdapter> =
+            AckInnerStream::broadcast(packet, socks, None).into();
 
         let res_packet = Packet::ack("test", value(132), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
@@ -398,7 +384,7 @@ mod test {
     async fn ack_stream_with_deserialize_error() {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(value(true))).unwrap();
         assert_eq!(stream.size_hint().0, 1);
@@ -417,7 +403,7 @@ mod test {
     async fn ack_fut_with_deserialize_error() {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         tx.send(Ok(value(true))).unwrap();
 
@@ -431,7 +417,8 @@ mod test {
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
-        let stream: AckStream<String> = AckInnerStream::broadcast(packet, socks, None).into();
+        let stream: AckStream<String, LocalAdapter> =
+            AckInnerStream::broadcast(packet, socks, None).into();
 
         let res_packet = Packet::ack("test", value("test"), 1);
         socket.clone().recv(res_packet.inner.clone()).unwrap();
@@ -453,7 +440,7 @@ mod test {
     async fn ack_stream_with_closed_socket() {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         drop(tx);
 
@@ -469,7 +456,7 @@ mod test {
     async fn ack_fut_with_closed_socket() {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_secs(1), sid).into();
         drop(tx);
 
@@ -486,7 +473,7 @@ mod test {
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
         let socks = vec![socket.clone().into(), socket2.clone().into()];
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::broadcast(packet, socks, Some(Duration::from_millis(10))).into();
 
         socket
@@ -507,7 +494,7 @@ mod test {
     async fn ack_stream_with_timeout() {
         let (_tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_millis(10), sid).into();
 
         futures_util::pin_mut!(stream);
@@ -522,7 +509,7 @@ mod test {
     async fn ack_fut_with_timeout() {
         let (_tx, rx) = tokio::sync::oneshot::channel();
         let sid = Sid::new();
-        let stream: AckStream<String> =
+        let stream: AckStream<String, LocalAdapter> =
             AckInnerStream::send(rx, Duration::from_millis(10), sid).into();
 
         assert!(matches!(stream.await.unwrap_err(), AckError::Timeout));

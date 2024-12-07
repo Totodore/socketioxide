@@ -1,11 +1,12 @@
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
+use serde::{Deserialize, Serialize};
 use socketioxide_core::errors::{AdapterError, SocketError};
 use std::fmt::Debug;
 use tokio::time::error::Elapsed;
 
 pub use matchit::InsertError as NsInsertError;
 
-pub use crate::parser::{DecodeError, EncodeError};
+pub use crate::parser::ParserError;
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -29,19 +30,15 @@ pub enum Error {
 pub(crate) struct ConnectFail;
 
 /// Error type for ack operations.
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 pub enum AckError {
     /// The ack response cannot be parsed
     #[error("cannot deserialize packet from ack response: {0:?}")]
-    Decode(#[from] DecodeError),
+    Decode(#[from] ParserError),
 
     /// The ack response timed out
     #[error("ack timeout error")]
     Timeout,
-
-    /// An error happened while broadcasting to other socket.io nodes
-    #[error("adapter error: {0}")]
-    Adapter(#[from] AdapterError),
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
@@ -57,7 +54,7 @@ pub enum BroadcastError {
 
     /// An error occurred while serializing the packet.
     #[error("Error serializing packet: {0:?}")]
-    Serialize(#[from] EncodeError),
+    Serialize(#[from] ParserError),
 
     /// An error occured while broadcasting to other nodes.
     #[error("Adapter error: {0}")]
@@ -68,7 +65,7 @@ pub enum BroadcastError {
 pub enum SendError {
     /// An error occurred while serializing the packet.
     #[error("Error serializing packet: {0:?}")]
-    Serialize(#[from] EncodeError),
+    Serialize(#[from] ParserError),
 
     /// Error sending/receiving data through the engine.io socket
     #[error("Error sending data through the engine.io socket: {0:?}")]
@@ -80,7 +77,7 @@ pub enum SendError {
 pub enum EmitWithAckError {
     /// An error occurred while encoding the data.
     #[error("Error encoding data: {0:?}")]
-    Encode(#[from] EncodeError),
+    Encode(#[from] ParserError),
     /// An error occurred while broadcasting to other nodes.
     #[error("Adapter error: {0:?}")]
     Adapter(#[from] Box<dyn std::error::Error + Send>),

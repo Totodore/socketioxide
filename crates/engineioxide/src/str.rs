@@ -100,6 +100,11 @@ impl From<Str> for String {
         unsafe { String::from_utf8_unchecked(vec) }
     }
 }
+impl From<Str> for Vec<u8> {
+    fn from(value: Str) -> Self {
+        Vec::from(value.0)
+    }
+}
 impl Serialize for Str {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

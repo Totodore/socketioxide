@@ -31,7 +31,7 @@ pub struct NamespaceCtr<A: Adapter> {
 }
 pub struct Namespace<A: Adapter> {
     pub path: Str,
-    pub(crate) adapter: A,
+    pub(crate) adapter: Arc<A>,
     parser: Parser,
     handler: BoxedConnectHandler<A>,
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
@@ -84,10 +84,10 @@ impl<A: Adapter> Namespace<A> {
             handler,
             parser,
             sockets: HashMap::new().into(),
-            adapter: A::new(
+            adapter: Arc::new(A::new(
                 adapter_state,
                 CoreLocalAdapter::new(Emitter::new(ns.clone(), parser)),
-            ),
+            )),
         })
     }
 
