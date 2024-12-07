@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, task};
 
 use futures_core::Stream;
 use pin_project_lite::pin_project;
-use socketioxide_core::{errors::AdapterError, Value};
+use socketioxide_core::errors::AdapterError;
 use tokio::sync::mpsc;
 
 pub mod redis;
@@ -11,7 +11,14 @@ pin_project! {
     #[derive(Debug)]
     pub struct MessageStream {
         #[pin]
-        rx: mpsc::UnboundedReceiver<Vec<u8>>,
+        rx: mpsc::Receiver<Vec<u8>>,
+    }
+}
+
+impl MessageStream {
+    pub(crate) fn new_empty() -> Self {
+        let (_, rx) = mpsc::channel(0);
+        Self { rx }
     }
 }
 

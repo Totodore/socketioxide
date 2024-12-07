@@ -1,27 +1,17 @@
-use std::{
-    borrow::Cow,
-    fmt,
-    pin::Pin,
-    sync::{Arc, OnceLock},
-    task,
-    time::Duration,
-};
+use std::{borrow::Cow, pin::Pin, sync::Arc, task, time::Duration};
 
-use bytes::Bytes;
 use drivers::{Driver, MessageStream};
 use futures_core::{FusedStream, Stream};
 use futures_util::StreamExt;
 use pin_project_lite::pin_project;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 use socketioxide_core::{
     adapter::{
-        AckStreamItem, BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, Room,
-        RoomParam, SocketEmitter,
+        AckStreamItem, BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter,
+        SocketEmitter,
     },
-    errors::SocketError,
+    errors::{DisconnectError, SocketError},
     packet::Packet,
-    parser::Parse,
     Sid,
 };
 
@@ -52,37 +42,28 @@ pub struct RedisAdapter<E, R> {
 
 #[derive(Serialize, Deserialize)]
 enum RequestType {
-    Broadcast,
-    BroadcastWithAck,
+    Broadcast(Packet),
+    BroadcastWithAck(Packet),
+    DisconnectSockets,
 }
+
 #[derive(Serialize, Deserialize)]
 struct Request {
     uid: Sid,
     req_id: Sid,
     r#type: RequestType,
     opts: BroadcastOptions,
-    packet: Packet,
-}
-#[derive(Debug)]
-struct BoxedError(Box<dyn std::error::Error + Send + Sync>);
-impl fmt::Display for BoxedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl std::error::Error for BoxedError {}
-impl Serialize for BoxedError {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.to_string().serialize(serializer)
-    }
 }
 
 pin_project! {
     pub struct AckStream<S> {
         #[pin]
-        local: S
+        local: S,
+        #[pin]
+        remote: MessageStream
     }
 }
+
 impl<Err, S: Stream<Item = AckStreamItem<Err>>> Stream for AckStream<S> {
     type Item = AckStreamItem<Err>;
 
@@ -108,21 +89,34 @@ impl<E: SocketEmitter, R> RedisAdapter<E, R> {
         format!("{}-ack#{}#{}#{}", prefix, path, self.uid, req_id)
     }
 }
+
 impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
-    fn handle_broadcast_req(&self, req: Request) {
+    fn handle_broadcast_req(&self, opts: BroadcastOptions, packet: Packet) {
         //TODO: err
-        self.local.broadcast(req.packet, req.opts).unwrap();
+        self.local.broadcast(packet, opts).unwrap();
     }
-    fn handle_broadcast_with_ack_req(self: Arc<Self>, req: Request) {
-        let stream = self.local.broadcast_with_ack(req.packet, req.opts, None);
+
+    fn handle_disconnect_sockets_req(&self, req: Request) {
+        self.local.disconnect_socket(req.opts).unwrap();
+    }
+
+    fn handle_broadcast_with_ack_req(self: Arc<Self>, id: Sid, opts: BroadcastOptions, p: Packet) {
+        let stream = self.local.broadcast_with_ack(p, opts, None);
         tokio::spawn(async move {
             futures_util::pin_mut!(stream);
             while let Some(ack) = stream.next().await {
                 let ack = rmp_serde::to_vec(&ack).unwrap();
-                let chan = self.get_ack_chan(req.req_id);
+                let chan = self.get_ack_chan(id);
                 self.driver.publish(chan, ack).await.unwrap();
             }
         });
+    }
+
+    async fn send_req(&self, req: Request) -> Result<(), R::Error> {
+        let req = rmp_serde::to_vec(&req).unwrap();
+        let chan = self.get_req_chan();
+        self.driver.publish(chan, req).await?;
+        Ok(())
     }
 }
 
@@ -147,11 +141,13 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
         tokio::spawn(async move {
             while let Some(item) = stream.next().await {
                 let req: Request = rmp_serde::from_slice(&item).unwrap();
+                let sid = req.req_id;
                 match req.r#type {
-                    RequestType::Broadcast => self.handle_broadcast_req(req),
-                    RequestType::BroadcastWithAck => {
-                        self.clone().handle_broadcast_with_ack_req(req)
+                    RequestType::Broadcast(p) => self.handle_broadcast_req(req.opts, p),
+                    RequestType::BroadcastWithAck(p) => {
+                        self.clone().handle_broadcast_with_ack_req(sid, req.opts, p)
                     }
+                    RequestType::DisconnectSockets => self.handle_disconnect_sockets_req(req),
                 };
             }
         });
@@ -175,15 +171,12 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     ) -> Result<(), Vec<SocketError>> {
         if !opts.has_flag(BroadcastFlags::Local) {
             let req = Request {
-                r#type: RequestType::Broadcast,
+                r#type: RequestType::Broadcast(packet.clone()),
                 uid: self.uid,
                 req_id: Sid::new(),
                 opts: opts.clone(),
-                packet: packet.clone(),
             };
-            let req = rmp_serde::to_vec(&req).unwrap();
-            let chan = self.get_req_chan();
-            self.driver.publish(chan, req).await.unwrap();
+            self.send_req(req).await.unwrap();
         }
 
         self.local.broadcast(packet, opts)?;
@@ -198,26 +191,37 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     ) -> Result<Self::AckStream, Self::Error> {
         if opts.has_flag(BroadcastFlags::Local) {
             let local = self.local.broadcast_with_ack(packet, opts, timeout);
-            return Ok(AckStream { local });
+            return Ok(AckStream {
+                local,
+                remote: MessageStream::new_empty(),
+            });
         }
         let req_id = Sid::new();
         let req = Request {
-            r#type: RequestType::Broadcast,
+            r#type: RequestType::Broadcast(packet.clone()),
             uid: self.uid,
             req_id,
             opts: opts.clone(),
-            packet: packet.clone(),
         };
-        let req = rmp_serde::to_vec(&req).unwrap();
-
-        let chan = self.get_req_chan();
-        self.driver.publish(chan, req).await.unwrap();
+        self.send_req(req).await.unwrap();
 
         let chan = self.get_ack_chan(req_id);
-        let stream = self.driver.subscribe(chan).await.unwrap();
-        //TODO: combine streams
+        let remote = self.driver.subscribe(chan).await.unwrap();
         let local = self.local.broadcast_with_ack(packet, opts, timeout);
-        Ok(AckStream { local })
+        Ok(AckStream { local, remote })
+    }
+
+    async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>> {
+        let req = Request {
+            r#type: RequestType::DisconnectSockets,
+            uid: self.uid,
+            req_id: Sid::new(),
+            opts: opts.clone(),
+        };
+        self.send_req(req).await.unwrap();
+        self.local.disconnect_socket(opts)?;
+
+        Ok(())
     }
 
     fn get_local(&self) -> &CoreLocalAdapter<E> {

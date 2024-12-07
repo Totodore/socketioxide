@@ -32,7 +32,7 @@ impl std::error::Error for RedisError {}
 
 #[derive(Clone)]
 pub struct RedisDriver {
-    handlers: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
     conn: MultiplexedConnection,
 }
 
@@ -67,12 +67,12 @@ impl RedisDriver {
 /// Watch for messages from the redis connection and send them to the appropriate channel
 async fn watch_handler(
     mut rx: mpsc::UnboundedReceiver<redis::PushInfo>,
-    handlers: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
 ) {
     while let Some(info) = rx.recv().await {
         if let Some((chan, msg)) = read_msg(info) {
             if let Some(tx) = handlers.read().unwrap().get(chan.as_str()) {
-                tx.send(msg).ok();
+                tx.try_send(msg).ok();
             }
         }
     }
@@ -91,7 +91,7 @@ impl Driver for RedisDriver {
 
     async fn subscribe(&self, chan: String) -> Result<MessageStream, Self::Error> {
         self.conn.clone().subscribe(chan.as_str()).await?;
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(255);
         self.handlers.write().unwrap().insert(chan, tx);
         Ok(MessageStream { rx })
     }
