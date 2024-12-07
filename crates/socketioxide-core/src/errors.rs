@@ -1,7 +1,9 @@
 //! All the errors that can be returned by the library. Mostly when using the [adapter](crate::adapter) module.
 use std::{convert::Infallible, fmt};
+
+use serde::{Deserialize, Serialize};
 /// Error type when using the underlying engine.io socket
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Serialize, Deserialize)]
 pub enum SocketError {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
@@ -13,10 +15,6 @@ pub enum SocketError {
     /// The socket is already closed
     #[error("socket closed")]
     Closed,
-
-    /// An error occured while broadcasting to other nodes.
-    #[error("adapter error: {0:?}")]
-    Adapter(#[from] AdapterError),
 }
 
 /// Error type for the [`Adapter`](crate::adapter::Adapter) trait.

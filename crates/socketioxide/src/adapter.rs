@@ -4,8 +4,11 @@
 //! Other adapters can be made to share the state between multiple servers.
 
 use crate::ns::Emitter;
-use socketioxide_core::adapter::{CoreAdapter, CoreLocalAdapter};
-use std::convert::Infallible;
+use socketioxide_core::{
+    adapter::{BroadcastOptions, CoreAdapter, CoreLocalAdapter, SocketEmitter},
+    packet::Packet,
+};
+use std::{convert::Infallible, time::Duration};
 
 /// An adapter is responsible for managing the state of the namespace.
 /// This adapter can be implemented to share the state between multiple servers.
@@ -21,9 +24,19 @@ pub struct LocalAdapter(CoreLocalAdapter<Emitter<Self>>);
 impl CoreAdapter<Emitter<Self>> for LocalAdapter {
     type Error = Infallible;
     type State = ();
+    type AckStream = <Emitter<Self> as SocketEmitter>::AckStream;
 
     fn new(_state: &Self::State, local: CoreLocalAdapter<Emitter<Self>>) -> Self {
         Self(local)
+    }
+
+    async fn broadcast_with_ack(
+        &self,
+        packet: Packet,
+        opts: BroadcastOptions,
+        timeout: Option<Duration>,
+    ) -> Result<Self::AckStream, Self::Error> {
+        Ok(self.get_local().broadcast_with_ack(packet, opts, timeout))
     }
 
     fn get_local(&self) -> &CoreLocalAdapter<Emitter<Self>> {

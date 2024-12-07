@@ -11,6 +11,7 @@ use std::{sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
 use serde::Serialize;
+use socketioxide_core::parser::ParserError;
 
 use crate::{
     ack::{AckInnerStream, AckStream},
@@ -19,7 +20,7 @@ use crate::{
     extract::SocketRef,
     ns::Namespace,
     packet::Packet,
-    parser::{self, Parser},
+    parser::Parser,
     socket::Socket,
     BroadcastError, DisconnectError, EmitWithAckError, SendError,
 };
@@ -169,7 +170,7 @@ impl<A: Adapter> ConfOperators<'_, A> {
         &mut self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> Result<Packet, parser::EncodeError> {
+    ) -> Result<Packet, ParserError> {
         let ns = self.socket.ns.path.clone();
         let event = event.as_ref();
         let data = self.socket.parser.encode_value(&data, Some(event))?;
@@ -256,7 +257,7 @@ impl<A: Adapter> BroadcastOperators<A> {
         mut self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> impl Future<Output = Result<AckStream<V>, EmitWithAckError>> + Send {
+    ) -> impl Future<Output = Result<AckStream<V, A>, EmitWithAckError>> + Send {
         let packet = self.get_packet(event, data);
         async move {
             let stream = self
@@ -315,7 +316,7 @@ impl<A: Adapter> BroadcastOperators<A> {
         &mut self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> Result<Packet, parser::EncodeError> {
+    ) -> Result<Packet, ParserError> {
         let ns = self.ns.path.clone();
         let data = self.parser.encode_value(data, Some(event.as_ref()))?;
         Ok(Packet::event(ns, data))

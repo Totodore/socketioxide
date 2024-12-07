@@ -19,7 +19,7 @@ serde.workspace = true
 thiserror.workspace = true
 arbitrary = { version = "1.3.2", features = ["derive"], optional = true }
 futures-core.workspace = true
-smallvec.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
 tracing = { workspace = true, optional = true }
 
 [features]

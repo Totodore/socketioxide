@@ -45,7 +45,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     packet::{Packet, PacketData},
-    parser::{Parse, ParseError, ParserState},
+    parser::{Parse, ParseError, ParserError, ParserState},
     Str, Value,
 };
 
@@ -59,17 +59,11 @@ mod value;
 pub struct CommonParser;
 
 impl Parse for CommonParser {
-    type EncodeError = serde_json::Error;
-    type DecodeError = serde_json::Error;
     fn encode(self, packet: Packet) -> Value {
         ser::serialize_packet(packet)
     }
 
-    fn decode_str(
-        self,
-        state: &ParserState,
-        value: Str,
-    ) -> Result<Packet, ParseError<Self::DecodeError>> {
+    fn decode_str(self, state: &ParserState, value: Str) -> Result<Packet, ParseError> {
         let (packet, incoming_binary_cnt) = de::deserialize_packet(value)?;
         if packet.inner.is_binary() {
             let incoming_binary_cnt = incoming_binary_cnt.ok_or(ParseError::InvalidAttachments)?;
@@ -87,11 +81,7 @@ impl Parse for CommonParser {
         }
     }
 
-    fn decode_bin(
-        self,
-        state: &ParserState,
-        data: Bytes,
-    ) -> Result<Packet, ParseError<Self::DecodeError>> {
+    fn decode_bin(self, state: &ParserState, data: Bytes) -> Result<Packet, ParseError> {
         let packet = &mut *state.partial_bin_packet.lock().unwrap();
         match packet {
             Some(Packet {
@@ -117,8 +107,8 @@ impl Parse for CommonParser {
         self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<Value, Self::EncodeError> {
-        value::to_value(data, event)
+    ) -> Result<Value, ParserError> {
+        value::to_value(data, event).map_err(ParserError::new)
     }
 
     #[inline]
@@ -126,32 +116,32 @@ impl Parse for CommonParser {
         self,
         value: &'de mut Value,
         with_event: bool,
-    ) -> Result<T, Self::DecodeError> {
-        value::from_value(value, with_event)
+    ) -> Result<T, ParserError> {
+        value::from_value(value, with_event).map_err(ParserError::new)
     }
 
     fn decode_default<'de, T: Deserialize<'de>>(
         self,
         value: Option<&'de Value>,
-    ) -> Result<T, Self::DecodeError> {
+    ) -> Result<T, ParserError> {
         if let Some(value) = value {
             let data = value
                 .as_str()
                 .expect("CommonParser only supports string values");
-            serde_json::from_str(data)
+            serde_json::from_str(data).map_err(ParserError::new)
         } else {
-            serde_json::from_str("{}")
+            serde_json::from_str("{}").map_err(ParserError::new)
         }
     }
 
-    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError> {
-        let value = serde_json::to_string(data)?;
+    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, ParserError> {
+        let value = serde_json::to_string(data).map_err(ParserError::new)?;
         Ok(Value::Str(Str::from(value), None))
     }
 
     #[inline]
-    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
-        value::read_event(value)
+    fn read_event(self, value: &Value) -> Result<&str, ParserError> {
+        value::read_event(value).map_err(ParserError::new)
     }
 }
 
@@ -590,7 +580,7 @@ mod test {
     fn decode_default_none() {
         // Common parser should deserialize by default to an empty map to match the behavior of the
         // socket.io client when deserializing incoming connect message without an auth payload.
-        let data: serde_json::Result<HashMap<String, ()>> = CommonParser.decode_default(None);
+        let data = CommonParser.decode_default::<HashMap<String, ()>>(None);
         assert!(matches!(data, Ok(d) if d.is_empty()));
     }
 
@@ -598,8 +588,8 @@ mod test {
     fn decode_default_some() {
         // Common parser should deserialize by default to an empty map to match the behavior of the
         // socket.io client when deserializing incoming connect message without an auth payload.
-        let data: serde_json::Result<String> =
-            CommonParser.decode_default(Some(&Value::Str("\"test\"".into(), None)));
+        let data =
+            CommonParser.decode_default::<String>(Some(&Value::Str("\"test\"".into(), None)));
         assert!(matches!(data, Ok(d) if d == "test"));
     }
 

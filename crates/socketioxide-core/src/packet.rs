@@ -9,7 +9,7 @@ use crate::Value;
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Packet {
     /// The packet data
     pub inner: PacketData,
@@ -82,7 +82,7 @@ impl Packet {
 /// | CONNECT_ERROR | 4   | Used during the [connection to a namespace](#connection-to-a-namespace).              |
 /// | BINARY_EVENT  | 5   | Used to [send binary data](#sending-and-receiving-data) to the other side.            |
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacketData {
     /// Connect packet with optional payload (only used with v5 for response)
     Connect(Option<Value>),
