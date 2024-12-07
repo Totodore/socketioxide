@@ -1,6 +1,6 @@
 [package]
 name = "socketioxide-adapter-redis"
-description = "Redis adapter for the socketioxide protocol"
+description = "Redis adapter for the socket.io protocol"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,13 +13,16 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
-socketioxide-core = { version = "0.15.1", path = "../socketioxide-core" }
+futures-core.workspace = true
+futures-util.workspace = true
+pin-project-lite.workspace = true
 redis = { version = "0.27.5", features = [
     "aio",
     "tokio-comp",
 ], default-features = false }
-futures-core.workspace = true
-tokio.workspace = true
-futures-util.workspace = true
-pin-project-lite.workspace = true
 serde.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
+socketioxide-core = { version = "0.15.1", path = "../socketioxide-core" }
+tokio.workspace = true
+rmp-serde.workspace = true
+bytes.workspace = true

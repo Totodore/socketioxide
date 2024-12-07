@@ -5,7 +5,7 @@ use std::{
 };
 
 use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue};
-use socketioxide_core::{errors::AdapterError, Str};
+use socketioxide_core::errors::AdapterError;
 use tokio::sync::mpsc;
 
 use super::{Driver, MessageStream};
@@ -32,11 +32,11 @@ impl std::error::Error for RedisError {}
 
 #[derive(Clone)]
 pub struct RedisDriver {
-    handlers: Arc<RwLock<HashMap<Str, mpsc::UnboundedSender<String>>>>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>>,
     conn: MultiplexedConnection,
 }
 
-fn read_msg(msg: redis::PushInfo) -> Option<(String, String)> {
+fn read_msg(msg: redis::PushInfo) -> Option<(String, Vec<u8>)> {
     match msg.kind {
         redis::PushKind::Message => {
             if msg.data.len() < 2 {
@@ -64,9 +64,10 @@ impl RedisDriver {
     }
 }
 
+/// Watch for messages from the redis connection and send them to the appropriate channel
 async fn watch_handler(
     mut rx: mpsc::UnboundedReceiver<redis::PushInfo>,
-    handlers: Arc<RwLock<HashMap<Str, mpsc::UnboundedSender<String>>>>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>>,
 ) {
     while let Some(info) = rx.recv().await {
         if let Some((chan, msg)) = read_msg(info) {
@@ -80,7 +81,7 @@ async fn watch_handler(
 impl Driver for RedisDriver {
     type Error = RedisError;
 
-    async fn publish(&self, chan: &str, val: &str) -> Result<(), Self::Error> {
+    async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
         self.conn
             .clone()
             .publish::<_, _, redis::Value>(chan, val)
@@ -88,7 +89,7 @@ impl Driver for RedisDriver {
         Ok(())
     }
 
-    async fn subscribe(&self, chan: Str) -> Result<MessageStream, Self::Error> {
+    async fn subscribe(&self, chan: String) -> Result<MessageStream, Self::Error> {
         self.conn.clone().subscribe(chan.as_str()).await?;
         let (tx, rx) = mpsc::unbounded_channel();
         self.handlers.write().unwrap().insert(chan, tx);
@@ -96,6 +97,7 @@ impl Driver for RedisDriver {
     }
 
     async fn unsubscribe(&self, chan: &str) -> Result<(), Self::Error> {
+        self.handlers.write().unwrap().remove(chan);
         self.conn.clone().unsubscribe(chan).await?;
         Ok(())
     }

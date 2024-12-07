@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, task};
 
 use futures_core::Stream;
 use pin_project_lite::pin_project;
-use socketioxide_core::{errors::AdapterError, Str};
+use socketioxide_core::{errors::AdapterError, Value};
 use tokio::sync::mpsc;
 
 pub mod redis;
@@ -11,12 +11,12 @@ pin_project! {
     #[derive(Debug)]
     pub struct MessageStream {
         #[pin]
-        rx: mpsc::UnboundedReceiver<String>,
+        rx: mpsc::UnboundedReceiver<Vec<u8>>,
     }
 }
 
 impl Stream for MessageStream {
-    type Item = String;
+    type Item = Vec<u8>;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -28,10 +28,14 @@ impl Stream for MessageStream {
 
 pub trait Driver: Send + Sync + 'static {
     type Error: std::error::Error + Into<AdapterError> + Send + 'static;
-    async fn publish(&self, chan: &str, val: &str) -> Result<(), Self::Error>;
+    fn publish(
+        &self,
+        chan: String,
+        val: Vec<u8>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
     fn subscribe(
         &self,
-        chan: Str,
+        chan: String,
     ) -> impl Future<Output = Result<MessageStream, Self::Error>> + Send;
     fn unsubscribe(&self, chan: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
     fn num_serv(&self, chan: &str) -> impl Future<Output = Result<u16, Self::Error>> + Send;
