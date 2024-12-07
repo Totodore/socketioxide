@@ -31,6 +31,7 @@ pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
     nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
     router: RwLock<Router<NamespaceCtr<A>>>,
+    adapter_state: A::State,
 
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
@@ -41,6 +42,7 @@ pub struct Client<A: Adapter> {
 impl<A: Adapter> Client<A> {
     pub fn new(
         config: SocketIoConfig,
+        adapter_state: A::State,
         #[cfg(feature = "state")] mut state: state::TypeMap![Send + Sync],
     ) -> Self {
         #[cfg(feature = "state")]
@@ -50,6 +52,7 @@ impl<A: Adapter> Client<A> {
             config,
             nsps: RwLock::new(HashMap::new()),
             router: RwLock::new(Router::new()),
+            adapter_state,
             #[cfg(feature = "state")]
             state,
         }
@@ -81,7 +84,7 @@ impl<A: Adapter> Client<A> {
             // We have to create a new `Str` otherwise, we would keep a ref to the original connect packet
             // for the entire lifetime of the Namespace.
             let path = Str::copy_from_slice(&ns_path);
-            let ns = ns_ctr.get_new_ns(path.clone());
+            let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, self.config.parser);
             self.nsps.write().unwrap().insert(path, ns.clone());
             tokio::spawn(connect(ns, esocket.clone()));
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
@@ -144,7 +147,12 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
         let path = Str::from(path);
-        let ns = Namespace::new(path.clone(), callback);
+        let ns = Namespace::new(
+            path.clone(),
+            callback,
+            &self.adapter_state,
+            self.config.parser,
+        );
         self.nsps.write().unwrap().insert(path, ns);
     }
 
@@ -420,8 +428,9 @@ mod test {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
-        let client = Client::<LocalAdapter>::new(
+        let client = Client::new(
             config,
+            (),
             #[cfg(feature = "state")]
             Default::default(),
         );
@@ -432,7 +441,12 @@ mod test {
     #[tokio::test]
     async fn get_ns() {
         let client = create_client();
-        let ns = Namespace::new(Str::from("/"), || {});
+        let ns = Namespace::new(
+            Str::from("/"),
+            || {},
+            &client.adapter_state,
+            client.config.parser,
+        );
         client.nsps.write().unwrap().insert(Str::from("/"), ns);
         assert!(client.get_ns("/").is_some());
     }

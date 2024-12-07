@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{borrow::Cow, fmt, sync::Arc, time::Duration};
 
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
@@ -7,21 +7,22 @@ use engineioxide::{
     TransportType,
 };
 use serde::Serialize;
+use socketioxide_core::adapter::{Room, RoomParam};
 use socketioxide_parser_common::CommonParser;
 #[cfg(feature = "msgpack")]
 use socketioxide_parser_msgpack::MsgPackParser;
 
 use crate::{
     ack::AckStream,
-    adapter::{Adapter, LocalAdapter, Room},
+    adapter::{Adapter, LocalAdapter},
     client::Client,
     extract::SocketRef,
     handler::ConnectHandler,
     layer::SocketIoLayer,
-    operators::{BroadcastOperators, RoomParam},
-    parser::{self, Parser},
+    operators::BroadcastOperators,
+    parser::Parser,
     service::SocketIoService,
-    BroadcastError, DisconnectError,
+    BroadcastError, DisconnectError, EmitWithAckError,
 };
 
 /// The parser to use to encode and decode socket.io packets
@@ -84,23 +85,24 @@ impl Default for SocketIoConfig {
 pub struct SocketIoBuilder<A: Adapter = LocalAdapter> {
     config: SocketIoConfig,
     engine_config_builder: EngineIoConfigBuilder,
-    adapter: std::marker::PhantomData<A>,
+    adapter_state: A::State,
     #[cfg(feature = "state")]
     state: state::TypeMap![Send + Sync],
 }
 
-impl<A: Adapter> SocketIoBuilder<A> {
+impl SocketIoBuilder<LocalAdapter> {
     /// Creates a new [`SocketIoBuilder`] with default config
     pub fn new() -> Self {
         Self {
             engine_config_builder: EngineIoConfigBuilder::new().req_path("/socket.io".to_string()),
             config: SocketIoConfig::default(),
-            adapter: std::marker::PhantomData,
+            adapter_state: (),
             #[cfg(feature = "state")]
             state: std::default::Default::default(),
         }
     }
-
+}
+impl<A: Adapter> SocketIoBuilder<A> {
     /// The path to listen for socket.io requests on.
     ///
     /// Defaults to "/socket.io".
@@ -199,11 +201,11 @@ impl<A: Adapter> SocketIoBuilder<A> {
     }
 
     /// Set a custom [`Adapter`] for this [`SocketIoBuilder`]
-    pub fn with_adapter<B: Adapter>(self) -> SocketIoBuilder<B> {
+    pub fn with_adapter<B: Adapter>(self, adapter_state: B::State) -> SocketIoBuilder<B> {
         SocketIoBuilder {
             config: self.config,
             engine_config_builder: self.engine_config_builder,
-            adapter: std::marker::PhantomData,
+            adapter_state,
             #[cfg(feature = "state")]
             state: self.state,
         }
@@ -229,6 +231,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
 
         let (layer, client) = SocketIoLayer::from_config(
             self.config,
+            self.adapter_state,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -244,6 +247,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         let (svc, client) = SocketIoService::with_config_inner(
             NotFoundService,
             self.config,
+            self.adapter_state,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -262,6 +266,7 @@ impl<A: Adapter> SocketIoBuilder<A> {
         let (svc, client) = SocketIoService::with_config_inner(
             svc,
             self.config,
+            self.adapter_state,
             #[cfg(feature = "state")]
             self.state,
         );
@@ -279,7 +284,6 @@ impl Default for SocketIoBuilder {
 /// It can be used as the main handle to access the whole socket.io context.
 ///
 /// You can also use it as an extractor for all your [`handlers`](crate::handler).
-#[derive(Debug)]
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
@@ -490,9 +494,11 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// // Later in your code you can select the custom_ns namespace
     /// // and show all sockets connected to it
-    /// let sockets = io.of("custom_ns").unwrap().sockets().unwrap();
-    /// for socket in sockets {
-    ///    println!("found socket on /custom_ns namespace with id: {}", socket.id);
+    /// async fn test(io: SocketIo) {
+    ///     let sockets = io.of("custom_ns").unwrap().sockets().await.unwrap();
+    ///     for socket in sockets {
+    ///        println!("found socket on /custom_ns namespace with id: {}", socket.id);
+    ///     }
     /// }
     /// ```
     #[inline]
@@ -538,57 +544,57 @@ impl<A: Adapter> SocketIo<A> {
     /// _Alias for `io.of("/").unwrap().emit()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/emit.md")]
     #[inline]
-    pub fn emit<T: ?Sized + Serialize>(
+    pub async fn emit<T: ?Sized + Serialize>(
         &self,
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<(), BroadcastError> {
-        self.get_default_op().emit(event, data)
+        self.get_default_op().emit(event, data).await
     }
 
     /// _Alias for `io.of("/").unwrap().emit_with_ack()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/emit_with_ack.md")]
     #[inline]
-    pub fn emit_with_ack<T: ?Sized + Serialize, V>(
+    pub async fn emit_with_ack<T: ?Sized + Serialize, V>(
         &self,
         event: impl AsRef<str>,
         data: &T,
-    ) -> Result<AckStream<V>, parser::EncodeError> {
-        self.get_default_op().emit_with_ack(event, data)
+    ) -> Result<AckStream<V, A>, EmitWithAckError> {
+        self.get_default_op().emit_with_ack(event, data).await
     }
 
     /// _Alias for `io.of("/").unwrap().sockets()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/sockets.md")]
     #[inline]
-    pub fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        self.get_default_op().sockets()
+    pub async fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
+        self.get_default_op().sockets().await
     }
 
     /// _Alias for `io.of("/").unwrap().disconnect()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/disconnect.md")]
     #[inline]
-    pub fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
-        self.get_default_op().disconnect()
+    pub async fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
+        self.get_default_op().disconnect().await
     }
 
     /// _Alias for `io.of("/").unwrap().join()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/join.md")]
     #[inline]
-    pub fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.get_default_op().join(rooms)
+    pub async fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.get_default_op().join(rooms).await
     }
 
     /// _Alias for `io.of("/").unwrap().rooms()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
-        self.get_default_op().rooms()
+    pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.get_default_op().rooms().await
     }
 
     /// _Alias for `io.of("/").unwrap().rooms()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/leave.md")]
     #[inline]
-    pub fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.get_default_op().leave(rooms)
+    pub async fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.get_default_op().leave(rooms).await
     }
 
     /// _Alias for `io.of("/").unwrap().get_socket()`_. If the **default namespace "/" is not found** this fn will panic!
@@ -623,6 +629,11 @@ impl<A: Adapter> SocketIo<A> {
     }
 }
 
+impl<A: Adapter> fmt::Debug for SocketIo<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SocketIo").field("client", &self.0).finish()
+    }
+}
 impl<A: Adapter> Clone for SocketIo<A> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
