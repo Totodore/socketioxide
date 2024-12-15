@@ -214,7 +214,8 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         sid: Sid,
         rooms: impl RoomParam,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        future::ready(Ok(self.get_local().add_all(sid, rooms)))
+        self.get_local().add_all(sid, rooms);
+        future::ready(Ok(()))
     }
     /// Removes the socket from the rooms.
     fn del(
@@ -222,11 +223,13 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         sid: Sid,
         rooms: impl RoomParam,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        future::ready(Ok(self.get_local().del(sid, rooms)))
+        self.get_local().del(sid, rooms);
+        future::ready(Ok(()))
     }
     /// Removes the socket from all the rooms.
     fn del_all(&self, sid: Sid) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        future::ready(Ok(self.get_local().del_all(sid)))
+        self.get_local().del_all(sid);
+        future::ready(Ok(()))
     }
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`].
@@ -272,7 +275,8 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         opts: BroadcastOptions,
         rooms: impl RoomParam,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        future::ready(Ok(self.get_local().add_sockets(opts, rooms)))
+        self.get_local().add_sockets(opts, rooms);
+        future::ready(Ok(()))
     }
 
     /// Removes the sockets that match the [`BroadcastOptions`] from the rooms.
@@ -281,7 +285,8 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         opts: BroadcastOptions,
         rooms: impl RoomParam,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        future::ready(Ok(self.get_local().del_sockets(opts, rooms)))
+        self.get_local().del_sockets(opts, rooms);
+        future::ready(Ok(()))
     }
 
     /// Disconnects the sockets that match the [`BroadcastOptions`].
@@ -674,8 +679,10 @@ mod test {
         adapter.add_all(socket1, ["room1", "room3"]);
         adapter.add_all(socket2, ["room2", "room3"]);
 
-        let mut opts = BroadcastOptions::default();
-        opts.rooms = smallvec!["room1".into()];
+        let mut opts = BroadcastOptions {
+            rooms: smallvec!["room1".into()],
+            ..Default::default()
+        };
         let sockets = adapter.sockets(opts.clone());
         assert_eq!(sockets.len(), 2);
         assert!(sockets.contains(&socket0));
