@@ -39,7 +39,7 @@ pub trait Driver: Send + Sync + 'static {
         &self,
         chan: String,
         val: Vec<u8>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static;
     fn subscribe(
         &self,
         chan: String,

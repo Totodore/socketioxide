@@ -1,4 +1,4 @@
-use std::{borrow::Cow, pin::Pin, sync::Arc, task, time::Duration};
+use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc, task, time::Duration};
 
 use drivers::{Driver, MessageStream};
 use futures_core::{FusedStream, Stream};
@@ -7,12 +7,12 @@ use pin_project_lite::pin_project;
 use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     adapter::{
-        AckStreamItem, BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter,
+        AckStreamItem, BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, Room,
         SocketEmitter,
     },
     errors::{DisconnectError, SocketError},
     packet::Packet,
-    Sid,
+    Sid, Value,
 };
 
 pub mod drivers;
@@ -31,8 +31,9 @@ pub struct RedisAdapterState<R> {
 
 pub struct RedisAdapter<E, R> {
     /// The driver used by the adapter. This is used to communicate with the redis server.
-    /// All the adapters share the same driver.
+    /// All the redis adapter instances share the same driver.
     driver: Arc<R>,
+    /// The configuration of the adapter.
     config: RedisAdapterConfig,
     /// A unique identifier for the adapter to identify itself in the redis server.
     uid: Sid,
@@ -44,7 +45,14 @@ pub struct RedisAdapter<E, R> {
 enum RequestType {
     Broadcast(Packet),
     BroadcastWithAck(Packet),
-    DisconnectSockets,
+    DisconnectSocket,
+    AllRooms,
+}
+
+#[derive(Serialize, Deserialize)]
+enum ResponseType<E: SocketEmitter> {
+    BroadcastWithAck((Sid, Result<Value, E::AckError>)),
+    AllRooms(Vec<Room>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -53,6 +61,14 @@ struct Request {
     req_id: Sid,
     r#type: RequestType,
     opts: BroadcastOptions,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "E: SocketEmitter")]
+struct Response<E: SocketEmitter> {
+    uid: Sid,
+    req_id: Sid,
+    r#type: ResponseType<E>,
 }
 
 pin_project! {
@@ -80,13 +96,22 @@ impl<Err, S: Stream<Item = AckStreamItem<Err>> + FusedStream> FusedStream for Ac
     }
 }
 impl<E: SocketEmitter, R> RedisAdapter<E, R> {
-    fn get_req_chan(&self) -> String {
-        format!("{}-request#{}", self.config.prefix, self.local.path())
+    fn get_chan(&self) -> String {
+        format!("{}#{}", self.config.prefix, self.local.path())
     }
-    fn get_ack_chan(&self, req_id: Sid) -> String {
+
+    fn get_req_chan(&self) -> String {
+        format!("{}-request#{}#", self.config.prefix, self.local.path())
+    }
+
+    fn get_res_chan(&self, req_id: Sid) -> String {
         let path = self.local.path();
         let prefix = &self.config.prefix;
-        format!("{}-ack#{}#{}#{}", prefix, path, self.uid, req_id)
+        if self.config.specific_response_chan {
+            format!("{}-response#{}#{}#{}", prefix, path, self.uid, req_id)
+        } else {
+            format!("{}-response#{}#", prefix, path)
+        }
     }
 }
 
@@ -105,11 +130,24 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
         tokio::spawn(async move {
             futures_util::pin_mut!(stream);
             while let Some(ack) = stream.next().await {
-                let ack = rmp_serde::to_vec(&ack).unwrap();
-                let chan = self.get_ack_chan(id);
-                self.driver.publish(chan, ack).await.unwrap();
+                let res = Response::<E> {
+                    req_id: id,
+                    r#type: ResponseType::BroadcastWithAck(ack),
+                    uid: self.uid,
+                };
+                self.send_res(res).await.unwrap();
             }
         });
+    }
+
+    fn handle_fetch_rooms_req(&self, req: Request) {
+        let rooms = self.local.rooms();
+        let res = Response::<E> {
+            req_id: req.req_id,
+            r#type: ResponseType::AllRooms(rooms),
+            uid: self.uid,
+        };
+        tokio::spawn(self.send_res(res));
     }
 
     async fn send_req(&self, req: Request) -> Result<(), R::Error> {
@@ -117,6 +155,19 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
         let chan = self.get_req_chan();
         self.driver.publish(chan, req).await?;
         Ok(())
+    }
+
+    fn send_res(
+        &self,
+        res: Response<E>,
+    ) -> impl Future<Output = Result<(), R::Error>> + Send + 'static {
+        let chan = self.get_res_chan(res.req_id);
+        let req = rmp_serde::to_vec(&res).unwrap();
+        let driver = self.driver.clone();
+        async move {
+            driver.publish(chan, req).await?;
+            Ok(())
+        }
     }
 }
 
@@ -147,7 +198,8 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
                     RequestType::BroadcastWithAck(p) => {
                         self.clone().handle_broadcast_with_ack_req(sid, req.opts, p)
                     }
-                    RequestType::DisconnectSockets => self.handle_disconnect_sockets_req(req),
+                    RequestType::DisconnectSocket => self.handle_disconnect_sockets_req(req),
+                    RequestType::AllRooms => self.handle_fetch_rooms_req(req),
                 };
             }
         });
@@ -212,16 +264,30 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>> {
-        let req = Request {
-            r#type: RequestType::DisconnectSockets,
-            uid: self.uid,
-            req_id: Sid::new(),
-            opts: opts.clone(),
-        };
-        self.send_req(req).await.unwrap();
+        if !opts.has_flag(BroadcastFlags::Local) {
+            let req = Request {
+                r#type: RequestType::DisconnectSocket,
+                uid: self.uid,
+                req_id: Sid::new(),
+                opts: opts.clone(),
+            };
+            self.send_req(req).await.unwrap();
+        }
         self.local.disconnect_socket(opts)?;
 
         Ok(())
+    }
+
+    async fn rooms(&self) -> Result<Vec<Room>, Self::Error> {
+        let req = Request {
+            r#type: RequestType::AllRooms,
+            uid: self.uid,
+            req_id: Sid::new(),
+            opts: BroadcastOptions::default(),
+        };
+        self.send_req(req).await?;
+        let local = self.local.rooms();
+        Ok(local)
     }
 
     fn get_local(&self) -> &CoreLocalAdapter<E> {

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt,
+    future::Future,
     sync::{Arc, RwLock},
 };
 
@@ -81,16 +82,20 @@ async fn watch_handler(
 impl Driver for RedisDriver {
     type Error = RedisError;
 
-    async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
-        self.conn
-            .clone()
-            .publish::<_, _, redis::Value>(chan, val)
-            .await?;
-        Ok(())
+    fn publish(
+        &self,
+        chan: String,
+        val: Vec<u8>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+        let mut conn = self.conn.clone();
+        async move {
+            conn.publish::<_, _, redis::Value>(chan, val).await?;
+            Ok(())
+        }
     }
 
     async fn subscribe(&self, chan: String) -> Result<MessageStream, Self::Error> {
-        self.conn.clone().subscribe(chan.as_str()).await?;
+        self.conn.clone().psubscribe(chan.as_str()).await?;
         let (tx, rx) = mpsc::channel(255);
         self.handlers.write().unwrap().insert(chan, tx);
         Ok(MessageStream { rx })
@@ -98,7 +103,7 @@ impl Driver for RedisDriver {
 
     async fn unsubscribe(&self, chan: &str) -> Result<(), Self::Error> {
         self.handlers.write().unwrap().remove(chan);
-        self.conn.clone().unsubscribe(chan).await?;
+        self.conn.clone().punsubscribe(chan).await?;
         Ok(())
     }
 
