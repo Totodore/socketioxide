@@ -150,7 +150,7 @@ impl RoomParam for Sid {
 
 /// A item yield by the ack stream.
 pub type AckStreamItem<E> = (Sid, Result<Value, E>);
-/// The [`SocketEmitter`] will be implmented by the socketioxide library.
+/// The [`SocketEmitter`] will be implemented by the socketioxide library.
 /// It is simply used as an abstraction to allow the adapter to communicate
 /// with the socket server without the need to depend on the socketioxide lib.
 pub trait SocketEmitter: Send + Sync + 'static {
@@ -388,6 +388,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         #[cfg(feature = "tracing")]
         tracing::debug!("broadcasting packet to {} sockets: {:?}", sids.len(), sids);
 
+        // We cannot pre-serialize the packet because we need to change the ack id.
         self.sockets.send_many_with_ack(sids, packet, timeout)
     }
 
