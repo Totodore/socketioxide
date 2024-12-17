@@ -182,6 +182,10 @@ impl<A: Adapter> Client<A> {
     /// If an any error occurs while initializing a namespace, it is immediately returned
     pub async fn init_nsps(&self) -> Result<(), A::Error> {
         let nsps: Vec<_> = self.nsps.read().unwrap().values().cloned().collect();
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!("initializing {} namespace adapters", nsps.len());
+
         let futures = nsps.into_iter().map(|ns| ns.adapter.clone().init());
         futures_util::future::try_join_all(futures).await?;
         Ok(())

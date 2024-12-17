@@ -69,10 +69,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
         .with_adapter::<RedisAdapter<_, RedisDriver>>(adapter)
-        .build_svc();
+        .build_svc()
+        .await?;
 
-    io.ns("/", on_connect).await?;
-    io.ns("/custom", on_connect).await?;
+    io.ns("/", on_connect);
+    io.ns("/custom", on_connect);
 
     #[cfg(feature = "v5")]
     info!("Starting server with v5 protocol");
