@@ -8,7 +8,7 @@ pub enum SocketError {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
     ///
-    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`SocketIoBuilder::max_buffer_size`]: https://docs.rs/socketioxide/latest/socketioxide/struct.SocketIoBuilder.html#method.max_buffer_size
     #[error("internal channel full error")]
     InternalChannelFull,
 
@@ -17,7 +17,7 @@ pub enum SocketError {
     Closed,
 }
 
-/// Error type for the [`Adapter`](crate::adapter::Adapter) trait.
+/// Error type for the [`CoreAdapter`](crate::adapter::CoreAdapter) trait.
 #[derive(Debug, thiserror::Error)]
 pub struct AdapterError(#[from] pub Box<dyn std::error::Error + Send>);
 impl fmt::Display for AdapterError {
@@ -37,7 +37,7 @@ pub enum DisconnectError {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
     ///
-    /// [`SocketIoBuilder::max_buffer_size`]: crate::SocketIoBuilder#method.max_buffer_size
+    /// [`SocketIoBuilder::max_buffer_size`]: https://docs.rs/socketioxide/latest/socketioxide/struct.SocketIoBuilder.html#method.max_buffer_size
     #[error("internal channel full error")]
     InternalChannelFull,
 

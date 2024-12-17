@@ -30,10 +30,10 @@
 //!         let cnt = self.user_cnt.fetch_sub(1, Ordering::Relaxed) - 1;
 //!         socket.emit(cnt.to_string()).ok();
 //!     }
-//!     fn on_message(&self, msg: Str, socket: Arc<Socket<SocketState>>) {
+//!     fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<SocketState>>) {
 //!         *socket.data.id.lock().unwrap() = msg.into(); // bind a provided user id to a socket
 //!     }
-//!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<SocketState>>) { }
+//!     fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<Socket<SocketState>>) { }
 //! }
 //!
 //! // Create an engine io service with the given handler

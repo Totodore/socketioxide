@@ -37,7 +37,7 @@ pub struct Client<A: Adapter> {
     pub(crate) state: state::TypeMap![Send + Sync],
 }
 
-/// ==== impl Client ====
+// ==== impl Client ====
 
 impl<A: Adapter> Client<A> {
     pub fn new(
@@ -148,7 +148,7 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Adds a new namespace handler
-    pub async fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C) -> Result<(), A::Error>
+    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
     where
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
@@ -162,9 +162,7 @@ impl<A: Adapter> Client<A> {
             &self.adapter_state,
             self.config.parser,
         );
-        ns.adapter.clone().init().await?;
         self.nsps.write().unwrap().insert(path, ns);
-        Ok(())
     }
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
@@ -177,6 +175,16 @@ impl<A: Adapter> Client<A> {
 
         let ns = NamespaceCtr::new(callback);
         self.router.write().unwrap().insert(path, ns)
+    }
+
+    /// Initializes all the namespace handlers
+    ///
+    /// If an any error occurs while initializing a namespace, it is immediately returned
+    pub async fn init_nsps(&self) -> Result<(), A::Error> {
+        let nsps: Vec<_> = self.nsps.read().unwrap().values().cloned().collect();
+        let futures = nsps.into_iter().map(|ns| ns.adapter.clone().init());
+        futures_util::future::try_join_all(futures).await?;
+        Ok(())
     }
 
     /// Deletes a namespace handler and closes all the connections to it

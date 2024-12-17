@@ -10,7 +10,7 @@ To receive acknowledgments, an [`AckStream`] is returned. It can be used in two 
 * As a [`Future`]: This will yield the first acknowledgment response received from the client, useful when expecting only one acknowledgment.
 
 # Errors
-If packet encoding fails, an [`EncodeError`] is **immediately** returned.
+If packet encoding fails, an [`ParserError`] is **immediately** returned.
 
 If the socket is full or if it is closed before receiving the acknowledgment,
 a [`SendError::Socket`] will be **immediately** returned, and the value to send will be given back.
@@ -28,7 +28,7 @@ an [`AckError::Decode`] will be yielded.
 [`AckError::Socket`]: crate::AckError::Socket
 [`AckError::Socket(SocketError::Closed)`]: crate::SocketError::Closed
 [`SendError::Socket`]: crate::SendError::Socket
-[`EncodeError`]: crate::EncodeError
+[`ParserError`]: crate::ParserError
 [`io::get_socket()`]: crate::SocketIo#method.get_socket
 
 # Single-socket example
