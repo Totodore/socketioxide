@@ -89,8 +89,9 @@ impl<A: Adapter> Client<A> {
             let esocket = esocket.clone();
             tokio::spawn(async move {
                 if let Err(e) = ns.adapter.clone().init().await {
+                    let _path = path.as_str();
                     #[cfg(feature = "tracing")]
-                    tracing::error!("adapter error while initializing namespace: {}", e);
+                    tracing::error!(_path, "adapter error while initializing namespace: {}", e);
                     return;
                 }
                 this.nsps.write().unwrap().insert(path, ns.clone());
@@ -162,6 +163,18 @@ impl<A: Adapter> Client<A> {
             &self.adapter_state,
             self.config.parser,
         );
+        // We spawn the adapter init task and therefore it might fail but the namespace is still added.
+        // The best solution would be to make the fn async and returning the error to the user.
+        // However this would require all .ns() calls to be async.
+        let adapter = ns.adapter.clone();
+        let ns_path = path.clone();
+        tokio::spawn(async move {
+            if let Err(_e) = adapter.init().await {
+                let _path = ns_path.as_str();
+                #[cfg(feature = "tracing")]
+                tracing::error!(_path, "adapter error while initializing namespace: {}", _e);
+            }
+        });
         self.nsps.write().unwrap().insert(path, ns);
     }
 
