@@ -7,9 +7,7 @@ use socketioxide_core::{
     Str, Value,
 };
 
-pub fn deserialize_packet(
-    data: Str,
-) -> Result<(Packet, Option<usize>), ParseError<serde_json::Error>> {
+pub fn deserialize_packet(data: Str) -> Result<(Packet, Option<usize>), ParseError> {
     if data.is_empty() {
         return Err(ParseError::InvalidPacketType);
     }

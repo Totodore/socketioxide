@@ -45,13 +45,15 @@
 //! will be directly converted to the following msgpack binary format:
 //! `84 A4 74 79 70 65 02 A3 6E 73 70 A1 2F A4 64 61 74 61 92 A5 65 76 65 6E 74 A3 66 6F 6F A2 69 64 01`
 
+use std::str;
+
 use bytes::Bytes;
 use de::deserialize_packet;
 use ser::serialize_packet;
 use serde::Deserialize;
 use socketioxide_core::{
     packet::Packet,
-    parser::{Parse, ParseError, ParserState},
+    parser::{Parse, ParseError, ParserError, ParserState},
     Str, Value,
 };
 
@@ -64,27 +66,16 @@ mod value;
 pub struct MsgPackParser;
 
 impl Parse for MsgPackParser {
-    type EncodeError = rmp_serde::encode::Error;
-    type DecodeError = rmp_serde::decode::Error;
-
     fn encode(self, packet: Packet) -> socketioxide_core::Value {
         let data = serialize_packet(packet);
         Value::Bytes(data.into())
     }
 
-    fn decode_str(
-        self,
-        _: &ParserState,
-        _data: Str,
-    ) -> Result<Packet, ParseError<Self::DecodeError>> {
+    fn decode_str(self, _: &ParserState, _data: Str) -> Result<Packet, ParseError> {
         Err(ParseError::UnexpectedStringPacket)
     }
 
-    fn decode_bin(
-        self,
-        _: &ParserState,
-        bin: Bytes,
-    ) -> Result<Packet, ParseError<Self::DecodeError>> {
+    fn decode_bin(self, _: &ParserState, bin: Bytes) -> Result<Packet, ParseError> {
         deserialize_packet(bin)
     }
 
@@ -92,39 +83,38 @@ impl Parse for MsgPackParser {
         self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<Value, Self::EncodeError> {
-        value::to_value(data, event)
+    ) -> Result<Value, ParserError> {
+        value::to_value(data, event).map_err(ParserError::new)
     }
 
     fn decode_value<'de, T: Deserialize<'de>>(
         self,
         value: &'de mut Value,
         with_event: bool,
-    ) -> Result<T, Self::DecodeError> {
-        value::from_value(value, with_event)
+    ) -> Result<T, ParserError> {
+        value::from_value(value, with_event).map_err(ParserError::new)
     }
 
     fn decode_default<'de, T: Deserialize<'de>>(
         self,
         value: Option<&'de Value>,
-    ) -> Result<T, Self::DecodeError> {
+    ) -> Result<T, ParserError> {
         if let Some(value) = value {
             let value = value.as_bytes().expect("value should be bytes");
-            rmp_serde::from_slice(value)
+            rmp_serde::from_slice(value).map_err(ParserError::new)
         } else {
-            rmp_serde::from_slice(&[0xc0]) // nil value
+            rmp_serde::from_slice(&[0xc0]).map_err(ParserError::new) // nil value
         }
     }
 
-    fn encode_default<T: ?Sized + serde::Serialize>(
-        self,
-        data: &T,
-    ) -> Result<Value, Self::EncodeError> {
-        rmp_serde::to_vec_named(data).map(|b| Value::Bytes(b.into()))
+    fn encode_default<T: ?Sized + serde::Serialize>(self, data: &T) -> Result<Value, ParserError> {
+        rmp_serde::to_vec_named(data)
+            .map(|b| Value::Bytes(b.into()))
+            .map_err(ParserError::new)
     }
 
-    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
-        value::read_event(value)
+    fn read_event(self, value: &Value) -> Result<&str, ParserError> {
+        value::read_event(value).map_err(ParserError::new)
     }
 }
 
