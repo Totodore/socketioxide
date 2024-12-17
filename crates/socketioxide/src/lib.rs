@@ -170,11 +170,15 @@
 //! * [`SocketIo`]: extracts a reference to the [`SocketIo`] handle
 //!
 //! ### Extractor order
-//! Extractors are run in the order of their declaration in the handler signature. If an extractor returns an error, the handler won't be called and a `tracing::error!` call will be emitted if the `tracing` feature is enabled.
+//! Extractors are run in the order of their declaration in the handler signature.
+//! If an extractor returns an error, the handler won't be called and a `tracing::error!` call
+//! will be emitted if the `tracing` feature is enabled.
 //!
-//! For the [`MessageHandler`], some extractors require to _consume_ the event and therefore only implement the [`FromMessage`](handler::FromMessage) trait.
+//! For the [`MessageHandler`], some extractors require to _consume_ the event and therefore
+//! only implement the [`FromMessage`](handler::FromMessage) trait.
 //!
-//! Note that any extractors that implement the [`FromMessageParts`] also implement by default the [`FromMessage`](handler::FromMessage) trait.
+//! Note that any extractors that implement the [`FromMessageParts`] also implement by default
+//! the [`FromMessage`](handler::FromMessage) trait.
 //!
 //! ## Events
 //! There are three types of events:
@@ -233,7 +237,7 @@
 //! [`serde_json::Value`]: https://docs.rs/serde_json/latest/serde_json/value
 //!
 //! #### Emit errors
-//! If the data can't be serialized, an [`EncodeError`] will be returned.
+//! If the data can't be serialized, a [`ParserError`] will be returned.
 //!
 //! If the socket is disconnected or the internal channel is full, a [`SendError`] will be returned.
 //! Moreover, a tracing log will be emitted if the `tracing` feature is enabled.
@@ -266,7 +270,7 @@
 //! [`BroadcastOperators::emit_with_ack`]: crate::operators::BroadcastOperators#method.emit_with_ack
 //! [`SocketIo::emit_with_ack`]: SocketIo#method.emit_with_ack
 //! [`AckStream`]: crate::ack::AckStream
-//! [`EncodeError`]: crate::EncodeError
+//! [`ParserError`]: crate::parser::ParserError
 //!
 //! ## [State management](#state-management)
 //! There are two ways to manage the state of the server:

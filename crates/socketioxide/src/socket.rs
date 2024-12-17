@@ -361,7 +361,8 @@ impl<A: Adapter> Socket<A> {
     /// # Leave all rooms where the socket is connected.
     ///
     /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    ///
+    /// When using a distributed adapter, it can return an adapter error which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
     pub fn leave_all(&self) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
         self.ns.adapter.del_all(self.id)

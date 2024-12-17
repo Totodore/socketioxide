@@ -298,6 +298,7 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
 }
 
 pub struct Emitter {
+    /// This `Weak<dyn>` allows to break the cyclic dependency between the namespace and the emitter.
     ns: Weak<dyn InnerEmitter>,
     parser: Parser,
     path: Str,

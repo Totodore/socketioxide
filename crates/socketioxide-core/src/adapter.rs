@@ -180,9 +180,11 @@ pub trait SocketEmitter: Send + Sync + 'static {
 
 /// An adapter is responsible for managing the state of the namespace.
 /// This adapter can be implemented to share the state between multiple servers.
-/// The default adapter is the [`LocalAdapter`], which stores the state in memory.
+///
+/// A [`CoreLocalAdapter`] instance will be given when constructing this type, it will allow
+/// you to manipulate local sockets (emitting, fetching data, broadcasting).
 pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
-    /// An error that can occur when using the adapter. The default [`LocalAdapter`] has an [`Infallible`] error.
+    /// An error that can occur when using the adapter.
     type Error: StdError + Into<AdapterError> + Send + 'static;
     /// A shared state between all the namespace [`CoreAdapter`].
     /// This can be used to share a connection for example.
@@ -190,7 +192,10 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
     /// A stream that emits the acknowledgments of multiple sockets.
     type AckStream: Stream<Item = AckStreamItem<E::AckError>> + FusedStream + Send + 'static;
 
-    /// Creates a new adapter with the given state and socket server.
+    /// Creates a new adapter with the given state and local adapter.
+    ///
+    /// The state is used to share a common state between all your adapters. E.G. a connection to a remote system.
+    /// The local adapter is used to manipulate the local sockets.
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self;
 
     /// Initializes the adapter.
@@ -245,7 +250,7 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
     /// and return a stream of ack responses.
     ///
     /// This method does not have default implementation because GAT cannot have default impls.
-    /// https://github.com/rust-lang/rust/issues/29661
+    /// <https://github.com/rust-lang/rust/issues/29661>
     fn broadcast_with_ack(
         &self,
         packet: Packet,
