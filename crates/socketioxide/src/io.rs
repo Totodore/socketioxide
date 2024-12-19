@@ -603,6 +603,13 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op().get_socket(sid)
     }
 
+    /// _Alias for `io.of("/").unwrap().broadcast()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("../docs/operators/broadcast.md")]
+    #[inline]
+    pub fn broadcast(&self) -> BroadcastOperators<A> {
+        self.get_default_op().broadcast()
+    }
+
     #[cfg(feature = "state")]
     pub(crate) fn get_state<T: Clone + 'static>(&self) -> Option<T> {
         self.0.state.try_get::<T>().cloned()

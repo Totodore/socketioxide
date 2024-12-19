@@ -133,6 +133,15 @@ impl<const COUNT: usize> RoomParam for [&'static str; COUNT] {
         self.into_iter().map(Cow::Borrowed)
     }
 }
+impl RoomParam for &'static [&'static str] {
+    type IntoIter =
+        std::iter::Map<std::slice::Iter<'static, &'static str>, fn(&'static &'static str) -> Room>;
+
+    #[inline(always)]
+    fn into_room_iter(self) -> Self::IntoIter {
+        self.into_iter().map(|i| Cow::Borrowed(*i))
+    }
+}
 impl<const COUNT: usize> RoomParam for [String; COUNT] {
     type IntoIter = std::iter::Map<std::array::IntoIter<String, COUNT>, fn(String) -> Room>;
     #[inline(always)]
@@ -353,8 +362,14 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     pub fn del(&self, sid: Sid, rooms: impl RoomParam) {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms.into_room_iter() {
-            if let Some(room) = rooms_map.get_mut(&room) {
+            let room_empty = if let Some(room) = rooms_map.get_mut(&room) {
                 room.remove(&sid);
+                room.is_empty()
+            } else {
+                false
+            };
+            if room_empty {
+                rooms_map.remove(&room);
             }
         }
     }
@@ -364,6 +379,12 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         let mut rooms_map = self.rooms.write().unwrap();
         for room in rooms_map.values_mut() {
             room.remove(&sid);
+        }
+        //TODO: avoid re-iterating
+        for (room, sockets) in rooms_map.clone() {
+            if sockets.is_empty() {
+                rooms_map.remove(&room);
+            }
         }
     }
 
@@ -378,23 +399,30 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
 
         #[cfg(feature = "tracing")]
         tracing::debug!("broadcasting packet to {} sockets", sids.len());
+        if sids.is_empty() {
+            return Ok(());
+        }
+
         let data = self.sockets.parser().encode(packet);
         self.sockets.send_many(sids, data)
     }
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
+    /// Also returns the number of local expected aknowledgements to know when to stop waiting.
     pub fn broadcast_with_ack(
         &self,
         packet: Packet,
         opts: BroadcastOptions,
         timeout: Option<Duration>,
-    ) -> E::AckStream {
+    ) -> (E::AckStream, u32) {
         let sids = self.apply_opts(opts);
         #[cfg(feature = "tracing")]
         tracing::debug!("broadcasting packet to {} sockets: {:?}", sids.len(), sids);
 
+        let count = sids.len() as u32;
         // We cannot pre-serialize the packet because we need to change the ack id.
-        self.sockets.send_many_with_ack(sids, packet, timeout)
+        let stream = self.sockets.send_many_with_ack(sids, packet, timeout);
+        (stream, count)
     }
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
@@ -594,10 +622,16 @@ mod test {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1", "room2"]);
+        {
+            let rooms_map = adapter.rooms.read().unwrap();
+            assert_eq!(rooms_map.len(), 2);
+            assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
+            assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+        }
         adapter.del(socket, "room1");
         let rooms_map = adapter.rooms.read().unwrap();
-        assert_eq!(rooms_map.len(), 2);
-        assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
+        assert_eq!(rooms_map.len(), 1);
+        assert!(rooms_map.get("room1").is_none());
         assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
     }
 
@@ -606,11 +640,16 @@ mod test {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1", "room2"]);
+        {
+            let rooms_map = adapter.rooms.read().unwrap();
+            assert_eq!(rooms_map.len(), 2);
+            assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
+            assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+        }
+
         adapter.del_all(socket);
         let rooms_map = adapter.rooms.read().unwrap();
-        assert_eq!(rooms_map.len(), 2);
-        assert_eq!(rooms_map.get("room1").unwrap().len(), 0);
-        assert_eq!(rooms_map.get("room2").unwrap().len(), 0);
+        assert_eq!(rooms_map.len(), 0);
     }
 
     #[test]
@@ -669,9 +708,9 @@ mod test {
         {
             let rooms_map = adapter.rooms.read().unwrap();
 
-            assert_eq!(rooms_map.len(), 2);
+            assert_eq!(rooms_map.len(), 1);
             assert!(rooms_map.get("room1").unwrap().contains(&socket));
-            assert!(rooms_map.get("room2").unwrap().is_empty());
+            assert!(rooms_map.get("room2").is_none());
         }
     }
 
