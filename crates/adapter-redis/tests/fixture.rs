@@ -55,4 +55,13 @@ macro_rules! timeout_rcv {
         )
         .unwrap()
     };
+    ($srx:expr, $t:expr) => {
+        TryInto::<String>::try_into(
+            tokio::time::timeout(std::time::Duration::from_millis($t), $srx.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap()
+    };
 }

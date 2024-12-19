@@ -33,6 +33,7 @@
 
 use std::{
     borrow::Cow,
+    collections::HashSet,
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -44,20 +45,23 @@ use drivers::{Driver, MessageStream};
 use futures_core::{FusedStream, Stream};
 use futures_util::StreamExt;
 use pin_project_lite::pin_project;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use request::{RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType};
+use serde::de::DeserializeOwned;
 use socketioxide_core::{
     adapter::{
         AckStreamItem, BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, Room,
-        SocketEmitter,
+        RoomParam, SocketEmitter,
     },
     errors::{DisconnectError, SocketError},
     packet::Packet,
-    Sid, Value,
+    Sid,
 };
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
 pub mod drivers;
+
+mod request;
 
 /// The adapter config
 #[derive(Debug, Clone)]
@@ -98,35 +102,6 @@ pub struct RedisAdapter<E, R> {
     req_chan: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-enum RequestType {
-    Broadcast(Packet),
-    BroadcastWithAck(Packet),
-    DisconnectSocket,
-    AllRooms,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum ResponseType<AckErr> {
-    BroadcastAck((Sid, Result<Value, AckErr>)),
-    BroadcastAckCount(u32),
-    AllRooms(Vec<Room>),
-}
-#[derive(Serialize, Deserialize, Debug)]
-struct Request {
-    uid: Sid,
-    req_id: Sid,
-    r#type: RequestType,
-    opts: BroadcastOptions,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Response<AckErr> {
-    uid: Sid,
-    req_id: Sid,
-    r#type: ResponseType<AckErr>,
-}
-
 impl<D: Driver> RedisAdapterState<D> {
     /// Create a new redis adapter state.
     pub fn new(driver: Arc<D>, config: RedisAdapterConfig) -> Self {
@@ -161,10 +136,10 @@ impl<S> AckStream<S> {
     /// We expect `serv_cnt` of `BroadcastAckCount` messages to be received, then we expect
     /// `ack_cnt` of `BroadcastAck` messages.
     fn poll_remote<Err: DeserializeOwned>(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> Poll<Option<AckStreamItem<Err>>> {
-        let projection = self.project();
+        let projection = self.as_mut().project();
         match projection.remote.poll_next(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(None) => Poll::Ready(None),
@@ -174,11 +149,7 @@ impl<S> AckStream<S> {
                     ResponseType::BroadcastAckCount(count) => {
                         *projection.ack_cnt += count;
                         *projection.serv_cnt -= 1;
-                        // We wake the task here to be sure that the stream is polled again.
-                        // However it seems it is not the best thing to do:
-                        // https://users.rust-lang.org/t/help-on-streams-using-wake-by-ref-before-pending-to-yield-for-other-work/85696/2
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
+                        self.poll_remote(cx)
                     }
                     ResponseType::BroadcastAck((sid, res)) => {
                         *projection.ack_cnt -= 1;
@@ -228,7 +199,7 @@ impl<E: SocketEmitter, R> RedisAdapter<E, R> {
 impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
     /// Handle a generic request received from the request channel.
     fn recv_req(self: &Arc<Self>, item: Vec<u8>) {
-        let req: Request = rmp_serde::from_slice(&item).unwrap();
+        let req: RequestIn = rmp_serde::from_slice(&item).unwrap();
         if req.uid == self.uid {
             return;
         }
@@ -236,12 +207,12 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
         tracing::trace!(?req, "handling request");
 
         match req.r#type {
-            RequestType::Broadcast(p) => self.recv_broadcast(req.opts, p),
-            RequestType::BroadcastWithAck(p) => self
-                .clone()
-                .recv_broadcast_with_ack(req.uid, req.req_id, req.opts, p),
-            RequestType::DisconnectSocket => self.recv_disconnect_sockets(req),
-            RequestType::AllRooms => self.recv_fetch_rooms(req),
+            RequestTypeIn::Broadcast(p) => self.recv_broadcast(req.opts, p),
+            RequestTypeIn::BroadcastWithAck(_) => self.clone().recv_broadcast_with_ack(req),
+            RequestTypeIn::DisconnectSockets => self.recv_disconnect_sockets(req),
+            RequestTypeIn::AllRooms => self.recv_rooms(req),
+            RequestTypeIn::AddSockets(rooms) => self.recv_add_sockets(req.opts, rooms),
+            RequestTypeIn::DelSockets(rooms) => self.recv_del_sockets(req.opts, rooms),
         };
     }
 
@@ -258,42 +229,40 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
         }
     }
 
-    fn recv_disconnect_sockets(&self, req: Request) {
+    fn recv_disconnect_sockets(&self, req: RequestIn) {
         self.local.disconnect_socket(req.opts).unwrap();
     }
 
-    fn recv_broadcast_with_ack(
-        self: Arc<Self>,
-        uid: Sid,
-        req_id: Sid,
-        opts: BroadcastOptions,
-        p: Packet,
-    ) {
-        let (stream, count) = self.local.broadcast_with_ack(p, opts, None);
+    fn recv_broadcast_with_ack(self: Arc<Self>, req: RequestIn) {
+        let packet = match req.r#type {
+            RequestTypeIn::BroadcastWithAck(p) => p,
+            _ => unreachable!(),
+        };
+        let (stream, count) = self.local.broadcast_with_ack(packet, req.opts, None);
         tokio::spawn(async move {
             // First send the count of expected acks to the server that sent the request.
             // This is used to keep track of the number of expected acks.
             let res = Response {
-                req_id,
+                req_id: req.req_id,
                 r#type: ResponseType::BroadcastAckCount(count),
                 uid: self.uid,
             };
-            self.send_res(uid, res).await.unwrap();
+            self.send_res(req.uid, res).await.unwrap();
 
             // Then send the acks as they are received.
             futures_util::pin_mut!(stream);
             while let Some(ack) = stream.next().await {
                 let res = Response {
-                    req_id,
+                    req_id: req.req_id,
                     r#type: ResponseType::BroadcastAck(ack),
                     uid: self.uid,
                 };
-                self.send_res(uid, res).await.unwrap();
+                self.send_res(req.uid, res).await.unwrap();
             }
         });
     }
 
-    fn recv_fetch_rooms(&self, req: Request) {
+    fn recv_rooms(&self, req: RequestIn) {
         let rooms = self.local.rooms();
         let res = Response {
             req_id: req.req_id,
@@ -303,7 +272,15 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
         tokio::spawn(self.send_res(req.uid, res));
     }
 
-    async fn send_req(&self, req: Request) -> Result<(), R::Error> {
+    fn recv_add_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
+        self.local.add_sockets(opts, rooms);
+    }
+
+    fn recv_del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
+        self.local.del_sockets(opts, rooms);
+    }
+
+    async fn send_req(&self, req: RequestOut<'_>) -> Result<(), R::Error> {
         tracing::trace!(?req, "sending request");
         let req = rmp_serde::to_vec(&req).unwrap();
         self.driver.publish(&self.req_chan, req).await?;
@@ -315,14 +292,33 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
         uid: Sid,
         res: Response<E::AckError>,
     ) -> impl Future<Output = Result<(), R::Error>> + Send + 'static {
-        tracing::trace!(?res, "sending response");
         let chan = self.get_res_chan(uid, res.req_id);
+        tracing::trace!(?res, "sending response to {}", &chan);
         let res = rmp_serde::to_vec(&res).unwrap();
         let driver = self.driver.clone();
         async move {
             driver.publish(&chan, res).await?;
             Ok(())
         }
+    }
+
+    /// Await for all the responses from the remote servers.
+    async fn get_res(
+        &self,
+        uid: Sid,
+        req_id: Sid,
+    ) -> Result<impl Stream<Item = Result<Response<E::AckError>, rmp_serde::decode::Error>>, R::Error>
+    {
+        //TODO: apply timeout
+        let remote_serv_cnt = self.server_count().await? as usize - 1;
+        let chan = self.get_res_chan(uid, req_id);
+        let stream = self
+            .driver
+            .subscribe(chan)
+            .await?
+            .take(remote_serv_cnt)
+            .map(|item| rmp_serde::from_slice(&item));
+        Ok(stream)
     }
 }
 
@@ -374,12 +370,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
         opts: BroadcastOptions,
     ) -> Result<(), Vec<SocketError>> {
         if !opts.has_flag(BroadcastFlags::Local) {
-            let req = Request {
-                r#type: RequestType::Broadcast(packet.clone()),
-                uid: self.uid,
-                req_id: Sid::new(),
-                opts: opts.clone(),
-            };
+            let req = RequestOut::new(self.uid, RequestTypeOut::Broadcast(&packet), &opts);
             self.send_req(req).await.unwrap();
         }
 
@@ -424,13 +415,8 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
             return Ok(AckStream::new(local, MessageStream::new_empty(), 0));
         }
-        let req_id = Sid::new();
-        let req = Request {
-            r#type: RequestType::BroadcastWithAck(packet.clone()),
-            uid: self.uid,
-            req_id,
-            opts: opts.clone(),
-        };
+        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
+        let req_id = req.req_id;
         self.send_req(req).await.unwrap();
 
         let remote_serv_cnt = self.server_count().await? - 1;
@@ -442,12 +428,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>> {
         if !opts.has_flag(BroadcastFlags::Local) {
-            let req = Request {
-                r#type: RequestType::DisconnectSocket,
-                uid: self.uid,
-                req_id: Sid::new(),
-                opts: opts.clone(),
-            };
+            let req = RequestOut::new(self.uid, RequestTypeOut::DisconnectSockets, &opts);
             self.send_req(req).await.unwrap();
         }
         self.local.disconnect_socket(opts)?;
@@ -456,15 +437,57 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     }
 
     async fn rooms(&self) -> Result<Vec<Room>, Self::Error> {
-        let req = Request {
-            r#type: RequestType::AllRooms,
-            uid: self.uid,
-            req_id: Sid::new(),
-            opts: BroadcastOptions::default(),
-        };
+        let req = RequestOut::new_default_opts(self.uid, RequestTypeOut::AllRooms);
+        let req_id = req.req_id;
         self.send_req(req).await?;
-        let local = self.local.rooms();
-        Ok(local)
+        let local = self.local.rooms(); // TODO: return directly an hashset or hashmap key iterator.
+        let local = HashSet::<Room>::from_iter(local);
+        let rooms = self
+            .get_res(self.uid, req_id)
+            .await?
+            .filter_map(|item| async move { item.ok() }) // discard serde errors
+            .filter_map(|res| async move {
+                // discard non-AllRooms responses
+                if let ResponseType::AllRooms(rooms) = res.r#type {
+                    Some(rooms)
+                } else {
+                    None
+                }
+            })
+            .fold(local, |mut acc, item| async move {
+                acc.extend(item);
+                acc
+            })
+            .await;
+        Ok(Vec::from_iter(rooms))
+    }
+
+    async fn add_sockets(
+        &self,
+        opts: BroadcastOptions,
+        rooms: impl RoomParam,
+    ) -> Result<(), Self::Error> {
+        let rooms: Vec<Room> = rooms.into_room_iter().collect();
+        if !opts.has_flag(BroadcastFlags::Local) {
+            let req = RequestOut::new(self.uid, RequestTypeOut::AddSockets(&rooms), &opts);
+            self.send_req(req).await.unwrap();
+        }
+        self.local.add_sockets(opts, rooms);
+        Ok(())
+    }
+
+    async fn del_sockets(
+        &self,
+        opts: BroadcastOptions,
+        rooms: impl RoomParam,
+    ) -> Result<(), Self::Error> {
+        let rooms: Vec<Room> = rooms.into_room_iter().collect();
+        if !opts.has_flag(BroadcastFlags::Local) {
+            let req = RequestOut::new(self.uid, RequestTypeOut::DelSockets(&rooms), &opts);
+            self.send_req(req).await.unwrap();
+        }
+        self.local.del_sockets(opts, rooms);
+        Ok(())
     }
 
     fn get_local(&self) -> &CoreLocalAdapter<E> {

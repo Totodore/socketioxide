@@ -88,6 +88,8 @@ pub mod test {
         handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
     ) {
         while let Some((chan, data)) = rx.recv().await {
+            let _handlers = handlers.read().unwrap().keys().cloned().collect::<Vec<_>>();
+            tracing::debug!(?_handlers, "received data to broadcast {}", chan);
             if let Some(tx) = handlers.read().unwrap().get(&chan) {
                 tx.try_send(data).unwrap();
             }
