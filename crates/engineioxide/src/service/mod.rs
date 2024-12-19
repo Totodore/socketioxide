@@ -17,8 +17,8 @@
 //!     type Data = ();
 //!     fn on_connect(self: Arc<Self>, socket: Arc<Socket<()>>) { }
 //!     fn on_disconnect(&self, socket: Arc<Socket<()>>, reason: DisconnectReason) { }
-//!     fn on_message(&self, msg: Str, socket: Arc<Socket<()>>) { }
-//!     fn on_binary(&self, data: Bytes, socket: Arc<Socket<()>>) { }
+//!     fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<()>>) { }
+//!     fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<Socket<()>>) { }
 //! }
 //!
 //! // Create a new engine.io service that will return a 404 not found response for other requests

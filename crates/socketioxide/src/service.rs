@@ -120,11 +120,13 @@ impl<A: Adapter, S: Clone> SocketIoService<S, A> {
     pub(crate) fn with_config_inner(
         inner: S,
         config: SocketIoConfig,
+        adapter_state: A::State,
         #[cfg(feature = "state")] state: state::TypeMap![Send + Sync],
     ) -> (Self, Arc<Client<A>>) {
         let engine_config = config.engine_config.clone();
         let client = Arc::new(Client::new(
             config,
+            adapter_state,
             #[cfg(feature = "state")]
             state,
         ));

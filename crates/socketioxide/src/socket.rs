@@ -4,6 +4,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
+    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex, RwLock,
@@ -13,29 +14,30 @@ use std::{
 
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
 use serde::Serialize;
-use tokio::sync::oneshot::{self, Receiver};
+use tokio::sync::{
+    mpsc::error::TrySendError,
+    oneshot::{self, Receiver},
+};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
 
 use crate::{
     ack::{AckInnerStream, AckResult, AckStream},
-    adapter::{Adapter, LocalAdapter, Room},
-    errors::{DisconnectError, Error, SendError},
+    adapter::{Adapter, LocalAdapter},
+    client::SocketData,
+    errors::Error,
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
         MessageHandler,
     },
     ns::Namespace,
-    operators::{BroadcastOperators, ConfOperators, RoomParam},
+    operators::{BroadcastOperators, ConfOperators},
     parser::Parser,
-    AckError, SocketIo,
-};
-use crate::{
-    client::SocketData,
-    errors::{AdapterError, SocketError},
+    AckError, AdapterError, DisconnectError, SendError, SocketError, SocketIo,
 };
 use socketioxide_core::{
+    adapter::{Room, RoomParam},
     packet::{Packet, PacketData},
     parser::Parse,
     Value,
@@ -136,6 +138,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
     ack_counter: AtomicI64,
     connected: AtomicBool,
+    pub(crate) parser: Parser,
     /// The socket id
     pub id: Sid,
 
@@ -155,6 +158,7 @@ impl<A: Adapter> Socket<A> {
         sid: Sid,
         ns: Arc<Namespace<A>>,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
+        parser: Parser,
     ) -> Self {
         Self {
             ns,
@@ -163,6 +167,7 @@ impl<A: Adapter> Socket<A> {
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
             connected: AtomicBool::new(false),
+            parser,
             id: sid,
             #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
@@ -304,9 +309,9 @@ impl<A: Adapter> Socket<A> {
         };
 
         let ns = self.ns.path.clone();
-        let data = self.parser().encode_value(data, Some(event.as_ref()))?;
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
 
-        permit.send(Packet::event(ns, data), self.parser());
+        permit.send(Packet::event(ns, data), self.parser);
         Ok(())
     }
 
@@ -328,36 +333,43 @@ impl<A: Adapter> Socket<A> {
             }
         };
         let ns = self.ns.path.clone();
-        let data = self.parser().encode_value(data, Some(event.as_ref()))?;
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
         let packet = Packet::event(ns, data);
         let rx = self.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, self.get_io().config().ack_timeout, self.id);
-        Ok(AckStream::<V>::new(stream, self.parser()))
+        Ok(AckStream::<V>::new(stream, self.parser))
     }
 
     // Room actions
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+    pub fn join(
+        &self,
+        rooms: impl RoomParam,
+    ) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
         self.ns.adapter.add_all(self.id, rooms)
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+    pub fn leave(
+        &self,
+        rooms: impl RoomParam,
+    ) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
         self.ns.adapter.del(self.id, rooms)
     }
 
     /// # Leave all rooms where the socket is connected.
     ///
     /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
+    ///
+    /// When using a distributed adapter, it can return an adapter error which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave_all(&self) -> Result<(), A::Error> {
+    pub fn leave_all(&self) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
         self.ns.adapter.del_all(self.id)
     }
 
     #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+    pub fn rooms(&self) -> impl Future<Output = Result<Vec<Room>, A::Error>> + Send + '_ {
         self.ns.adapter.socket_rooms(self.id)
     }
 
@@ -373,22 +385,22 @@ impl<A: Adapter> Socket<A> {
 
     #[doc = include_str!("../docs/operators/to.md")]
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).to(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).to(rooms)
     }
 
     #[doc = include_str!("../docs/operators/within.md")]
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).within(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).within(rooms)
     }
 
     #[doc = include_str!("../docs/operators/except.md")]
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).except(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).except(rooms)
     }
 
     #[doc = include_str!("../docs/operators/local.md")]
     pub fn local(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).local()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).local()
     }
 
     #[doc = include_str!("../docs/operators/timeout.md")]
@@ -398,7 +410,7 @@ impl<A: Adapter> Socket<A> {
 
     #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).broadcast()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).broadcast()
     }
 
     /// # Get the [`SocketIo`] context related to this socket
@@ -482,18 +494,17 @@ impl<A: Adapter> Socket<A> {
         self.connected.store(connected, Ordering::SeqCst);
     }
 
-    #[inline]
-    pub(crate) fn parser(&self) -> Parser {
-        self.get_io().config().parser
-    }
-
     pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError> {
-        Ok(self.esocket.reserve()?)
+        match self.esocket.reserve() {
+            Ok(permit) => Ok(permit),
+            Err(TrySendError::Full(_)) => Err(SocketError::InternalChannelFull),
+            Err(TrySendError::Closed(_)) => Err(SocketError::Closed),
+        }
     }
 
     pub(crate) fn send(&self, packet: Packet) -> Result<(), SocketError> {
         let permit = self.reserve()?;
-        permit.send(packet, self.parser());
+        permit.send(packet, self.parser);
         Ok(())
     }
     pub(crate) fn send_raw(&self, value: Value) -> Result<(), SocketError> {
@@ -511,7 +522,7 @@ impl<A: Adapter> Socket<A> {
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        permit.send(packet, self.parser());
+        permit.send(packet, self.parser);
         self.ack_message.lock().unwrap().insert(ack, tx);
         rx
     }
@@ -546,7 +557,7 @@ impl<A: Adapter> Socket<A> {
             handler.call(self.clone(), reason);
         }
 
-        self.ns.remove_socket(self.id)?;
+        self.ns.clone().remove_socket(self.id)?;
         Ok(())
     }
 
@@ -563,7 +574,7 @@ impl<A: Adapter> Socket<A> {
     }
 
     fn recv_event(self: Arc<Self>, data: Value, ack: Option<i64>) -> Result<(), Error> {
-        let event = self.parser().read_event(&data).map_err(|_e| {
+        let event = self.parser.read_event(&data).map_err(|_e| {
             #[cfg(feature = "tracing")]
             tracing::debug!(?_e, "failed to read event");
             Error::InvalidEventName
@@ -602,20 +613,26 @@ impl<A: Adapter> PartialEq for Socket<A> {
 
 #[doc(hidden)]
 #[cfg(feature = "__test_harness")]
-impl<A: Adapter> Socket<A> {
+impl Socket<LocalAdapter> {
     /// Creates a dummy socket for testing purposes
-    pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
+    pub fn new_dummy(sid: Sid, ns: Arc<Namespace<LocalAdapter>>) -> Socket<LocalAdapter> {
         use crate::client::Client;
         use crate::io::SocketIoConfig;
 
         let close_fn = Box::new(move |_, _| ());
         let config = SocketIoConfig::default();
-        let io = SocketIo::from(Arc::new(Client::<A>::new(
+        let io = SocketIo::from(Arc::new(Client::new(
             config,
+            (),
             #[cfg(feature = "state")]
             std::default::Default::default(),
         )));
-        let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
+        let s = Socket::new(
+            sid,
+            ns,
+            engineioxide::Socket::new_dummy(sid, close_fn),
+            Parser::default(),
+        );
         s.esocket.data.io.set(io).unwrap();
         s.set_connected(true);
         s

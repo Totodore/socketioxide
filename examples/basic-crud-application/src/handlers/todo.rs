@@ -44,7 +44,12 @@ impl Todos {
     }
 }
 
-pub fn create(s: SocketRef, Data(data): Data<PartialTodo>, ack: AckSender, todos: State<Todos>) {
+pub async fn create(
+    s: SocketRef,
+    Data(data): Data<PartialTodo>,
+    ack: AckSender,
+    todos: State<Todos>,
+) {
     let id = Uuid::new_v4();
     let todo = Todo { id, inner: data };
 
@@ -53,7 +58,7 @@ pub fn create(s: SocketRef, Data(data): Data<PartialTodo>, ack: AckSender, todos
     let res: Response<_> = id.into();
     ack.send(&res).ok();
 
-    s.broadcast().emit("todo:created", &todo).ok();
+    s.broadcast().emit("todo:created", &todo).await.ok();
 }
 
 pub async fn read(Data(id): Data<Uuid>, ack: AckSender, todos: State<Todos>) {
@@ -62,21 +67,26 @@ pub async fn read(Data(id): Data<Uuid>, ack: AckSender, todos: State<Todos>) {
 }
 
 pub async fn update(s: SocketRef, Data(data): Data<Todo>, ack: AckSender, todos: State<Todos>) {
-    let res = todos
-        .get_mut(&data.id)
-        .ok_or(Error::NotFound)
-        .map(|mut todo| {
+    let res = match todos.get_mut(&data.id) {
+        Some(mut todo) => {
             todo.inner = data.inner.clone();
-            s.broadcast().emit("todo:updated", &data).ok();
-        });
+            s.broadcast().emit("todo:updated", &data).await.ok();
+            Ok(())
+        }
+        None => Err(Error::NotFound),
+    };
 
     ack.send(&res).ok();
 }
 
 pub async fn delete(s: SocketRef, Data(id): Data<Uuid>, ack: AckSender, todos: State<Todos>) {
-    let res = todos.remove(&id).ok_or(Error::NotFound).map(|_| {
-        s.broadcast().emit("todo:deleted", &id).ok();
-    });
+    let res = match todos.remove(&id) {
+        Some(_) => {
+            s.broadcast().emit("todo:deleted", &id).await.ok();
+            Ok(())
+        }
+        None => Err(Error::NotFound),
+    };
 
     ack.send(&res).ok();
 }
