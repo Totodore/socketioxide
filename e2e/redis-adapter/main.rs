@@ -15,7 +15,7 @@ use tokio::net::TcpListener;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-fn on_connect<A: Adapter>(socket: SocketRef<A>, Data(data): Data<Value>) {
+async fn on_connect<A: Adapter>(socket: SocketRef<A>, Data(data): Data<Value>, io: SocketIo<A>) {
     info!(?data, ns = socket.ns(), ?socket.id, "Socket.IO connected:");
     socket.emit("auth", &data).ok();
 
@@ -48,6 +48,12 @@ fn on_connect<A: Adapter>(socket: SocketRef<A>, Data(data): Data<Value>) {
             s.emit("emit-with-ack", &ack).unwrap();
         },
     );
+
+    let mut int = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        int.tick().await;
+        io.broadcast().emit("test", &()).await.unwrap();
+    }
 }
 
 #[tokio::main]
@@ -69,8 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
         .with_adapter::<RedisAdapter<_, RedisDriver>>(adapter)
-        .build_svc()
-        .await?;
+        .build_svc();
 
     io.ns("/", on_connect);
     io.ns("/custom", on_connect);

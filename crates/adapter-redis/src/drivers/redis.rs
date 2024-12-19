@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue};
+use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue, RedisResult};
 use socketioxide_core::errors::AdapterError;
 use tokio::sync::mpsc;
 
@@ -39,20 +39,51 @@ pub struct RedisDriver {
     conn: MultiplexedConnection,
 }
 
-fn read_msg(msg: redis::PushInfo) -> Option<(String, Vec<u8>)> {
+fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, Vec<u8>)>> {
     match msg.kind {
         redis::PushKind::Message => {
             if msg.data.len() < 2 {
-                return None;
+                return Ok(None);
             }
             let mut iter = msg.data.into_iter();
-            let channel = FromRedisValue::from_owned_redis_value(iter.next().unwrap()).ok()?;
-            let message = FromRedisValue::from_owned_redis_value(iter.next().unwrap()).ok()?;
-            Some((channel, message))
+            let channel = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
+            let message = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
+            Ok(Some((channel, message)))
         }
-        _ => None,
+        redis::PushKind::PMessage => {
+            if msg.data.len() < 3 {
+                return Ok(None);
+            }
+            let mut iter = msg.data.into_iter();
+            iter.next().unwrap(); // skip the pattern
+            let channel = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
+            let message = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
+            Ok(Some((channel, message)))
+        }
+        _ => Ok(None),
     }
 }
+
+/// Watch for messages from the redis connection and send them to the appropriate channel
+async fn watch_handler(
+    mut rx: mpsc::UnboundedReceiver<redis::PushInfo>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
+) {
+    while let Some(info) = rx.recv().await {
+        match read_msg(info) {
+            Ok(Some((chan, msg))) => {
+                if let Some(tx) = handlers.read().unwrap().get(chan.as_str()) {
+                    tx.try_send(msg).unwrap();
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!("error reading message from redis: {e}");
+            }
+        }
+    }
+}
+
 impl RedisDriver {
     /// Create a new redis driver from a redis client.
     pub async fn new(client: redis::Client) -> Result<Self, RedisError> {
@@ -65,20 +96,6 @@ impl RedisDriver {
         let handlers = Arc::new(RwLock::new(HashMap::new()));
         tokio::spawn(watch_handler(rx, handlers.clone()));
         Ok(Self { conn, handlers })
-    }
-}
-
-/// Watch for messages from the redis connection and send them to the appropriate channel
-async fn watch_handler(
-    mut rx: mpsc::UnboundedReceiver<redis::PushInfo>,
-    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
-) {
-    while let Some(info) = rx.recv().await {
-        if let Some((chan, msg)) = read_msg(info) {
-            if let Some(tx) = handlers.read().unwrap().get(chan.as_str()) {
-                tx.try_send(msg).ok();
-            }
-        }
     }
 }
 
@@ -101,7 +118,7 @@ impl Driver for RedisDriver {
         self.conn.clone().psubscribe(chan.as_str()).await?;
         let (tx, rx) = mpsc::channel(255);
         self.handlers.write().unwrap().insert(chan, tx);
-        Ok(MessageStream { rx })
+        Ok(MessageStream::new(rx))
     }
 
     async fn unsubscribe(&self, chan: &str) -> Result<(), Self::Error> {

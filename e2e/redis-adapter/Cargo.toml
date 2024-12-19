@@ -15,7 +15,9 @@ publish = false
 socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
     "tracing",
 ] }
-socketioxide-adapter-redis = { path = "../../crates/adapter-redis" }
+socketioxide-adapter-redis = { path = "../../crates/adapter-redis", features = [
+    "__test_harness",
+] }
 hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
