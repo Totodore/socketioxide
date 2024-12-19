@@ -9,7 +9,7 @@ use socketioxide_core::{
 };
 use std::{convert::Infallible, time::Duration};
 
-use crate::ns::Emitter;
+pub use crate::ns::Emitter;
 
 /// An adapter is responsible for managing the state of the namespace.
 /// This adapter can be implemented to share the state between multiple servers.
@@ -37,7 +37,7 @@ impl CoreAdapter<Emitter> for LocalAdapter {
         opts: BroadcastOptions,
         timeout: Option<Duration>,
     ) -> Result<Self::AckStream, Self::Error> {
-        Ok(self.get_local().broadcast_with_ack(packet, opts, timeout))
+        Ok(self.get_local().broadcast_with_ack(packet, opts, timeout).0)
     }
 
     fn get_local(&self) -> &CoreLocalAdapter<Emitter> {
