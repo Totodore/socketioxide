@@ -1,5 +1,5 @@
 [package]
-name = "socketioxide-adapter-redis"
+name = "socketioxide-redis"
 description = "Redis adapter for the socket.io protocol"
 version.workspace = true
 edition.workspace = true

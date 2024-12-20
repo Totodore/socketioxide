@@ -2,8 +2,8 @@ use std::sync::{Arc, RwLock};
 
 use socketioxide::adapter::Emitter;
 use socketioxide::SocketIo;
-use socketioxide_adapter_redis::drivers::test::StubDriver;
-use socketioxide_adapter_redis::{RedisAdapter, RedisAdapterConfig, RedisAdapterState};
+use socketioxide_redis::drivers::test::StubDriver;
+use socketioxide_redis::{RedisAdapter, RedisAdapterConfig, RedisAdapterState};
 
 /// Spawns a number of servers with a stub driver for testing.
 /// Every server will be connected to every other server.

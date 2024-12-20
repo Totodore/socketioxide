@@ -8,7 +8,7 @@ use socketioxide::{
     extract::{AckSender, Data, SocketRef},
     SocketIo,
 };
-use socketioxide_adapter_redis::{
+use socketioxide_redis::{
     drivers::redis::RedisDriver, RedisAdapter, RedisAdapterConfig, RedisAdapterState,
 };
 use tokio::net::TcpListener;
