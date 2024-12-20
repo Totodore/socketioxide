@@ -22,7 +22,9 @@ socketioxide-core = { version = "0.15.0", path = "../socketioxide-core" }
 [dev-dependencies]
 serde_json.workspace = true
 criterion.workspace = true
-
+socketioxide-core = { version = "0.15.0", path = "../socketioxide-core", features = [
+    "__test_harness",
+] }
 
 [features]
 fuzzing = ["socketioxide-core/fuzzing"]

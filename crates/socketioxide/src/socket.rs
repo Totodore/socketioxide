@@ -4,7 +4,6 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
-    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex, RwLock,
@@ -343,19 +342,13 @@ impl<A: Adapter> Socket<A> {
     // Room actions
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub fn join(
-        &self,
-        rooms: impl RoomParam,
-    ) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
-        self.ns.adapter.add_all(self.id, rooms)
+    pub fn join(&self, rooms: impl RoomParam) {
+        self.ns.adapter.get_local().add_all(self.id, rooms)
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub fn leave(
-        &self,
-        rooms: impl RoomParam,
-    ) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
-        self.ns.adapter.del(self.id, rooms)
+    pub fn leave(&self, rooms: impl RoomParam) {
+        self.ns.adapter.get_local().del(self.id, rooms)
     }
 
     /// # Leave all rooms where the socket is connected.
@@ -364,13 +357,27 @@ impl<A: Adapter> Socket<A> {
     ///
     /// When using a distributed adapter, it can return an adapter error which is mostly related to network errors.
     /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave_all(&self) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
-        self.ns.adapter.del_all(self.id)
+    pub fn leave_all(&self) {
+        self.ns.adapter.get_local().del_all(self.id);
     }
 
-    #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(&self) -> impl Future<Output = Result<Vec<Room>, A::Error>> + Send + '_ {
-        self.ns.adapter.socket_rooms(self.id)
+    /// # Get all room names this socket is connected to.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// async fn handler(socket: SocketRef) {
+    ///     println!("Socket connected to the / namespace with id: {}", socket.id);
+    ///     socket.join(["room1", "room2"]).unwrap();
+    ///     let rooms = socket.rooms();
+    ///     println!("All rooms in the / namespace: {:?}", rooms);
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", handler);
+    /// ```
+    pub fn rooms(&self) -> Vec<Room> {
+        self.ns.adapter.get_local().socket_rooms(self.id)
     }
 
     /// # Return true if the socket is connected to the namespace.
@@ -557,7 +564,7 @@ impl<A: Adapter> Socket<A> {
             handler.call(self.clone(), reason);
         }
 
-        self.ns.clone().remove_socket(self.id)?;
+        self.ns.remove_socket(self.id);
         Ok(())
     }
 
