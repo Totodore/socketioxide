@@ -437,7 +437,8 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     }
 
     async fn rooms(&self) -> Result<Vec<Room>, Self::Error> {
-        let req = RequestOut::new_default_opts(self.uid, RequestTypeOut::AllRooms);
+        let opts = BroadcastOptions::default();
+        let req = RequestOut::new(self.uid, RequestTypeOut::AllRooms, &opts);
         let req_id = req.req_id;
         self.send_req(req).await?;
         let local = self.local.rooms(); // TODO: return directly an hashset or hashmap key iterator.

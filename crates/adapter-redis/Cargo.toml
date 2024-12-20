@@ -41,4 +41,7 @@ socketioxide = { path = "../socketioxide", features = [
 tracing-subscriber.workspace = true
 
 [features]
-__test_harness = []
+__test_harness = [
+    "socketioxide/__test_harness",
+    "socketioxide-core/__test_harness",
+]

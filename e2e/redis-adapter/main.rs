@@ -52,7 +52,7 @@ async fn on_connect<A: Adapter>(socket: SocketRef<A>, Data(data): Data<Value>, i
     let mut int = tokio::time::interval(Duration::from_secs(1));
     loop {
         int.tick().await;
-        io.broadcast().emit("test", &()).await.unwrap();
+        io.broadcast().emit("test", &socket.id).await.unwrap();
     }
 }
 
