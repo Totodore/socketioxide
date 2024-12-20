@@ -22,6 +22,10 @@ futures-core.workspace = true
 smallvec = { workspace = true, features = ["serde"] }
 tracing = { workspace = true, optional = true }
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [features]
 tracing = ["dep:tracing"]
 fuzzing = ["dep:arbitrary"]
+__test_harness = []

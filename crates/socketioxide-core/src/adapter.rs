@@ -35,7 +35,7 @@ pub enum BroadcastFlags {
 }
 
 /// Options that can be used to modify the behavior of the broadcast methods.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BroadcastOptions {
     /// The flags to apply to the broadcast represented as a bitflag.
     flags: u8,
