@@ -54,12 +54,11 @@ pub async fn broadcast_with_ack() {
 
     io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
         let res = io.emit_with_ack::<_, [String; 1]>("test", "foo").await;
-        let sockets = io.sockets().await.unwrap();
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
-            assert_some!(sockets.iter().find(|s| s.id == id));
+            assert_some!(io.sockets().iter().find(|s| s.id == id));
             async move {}
         })
         .await;
@@ -72,7 +71,7 @@ pub async fn broadcast_with_ack() {
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
-            assert_some!(sockets.iter().find(|s| s.id == id));
+            assert_some!(io.sockets().iter().find(|s| s.id == id));
             async move {}
         })
         .await;
@@ -86,7 +85,7 @@ pub async fn broadcast_with_ack() {
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
-            assert_some!(sockets.iter().find(|s| s.id == id));
+            assert_some!(io.sockets().iter().find(|s| s.id == id));
             async move {}
         })
         .await;

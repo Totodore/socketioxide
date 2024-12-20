@@ -13,7 +13,7 @@ use crate::{
     packet::{ConnectPacket, Packet, PacketData},
     parser::Parser,
     socket::{DisconnectReason, Socket},
-    AdapterError, ProtocolVersion,
+    ProtocolVersion,
 };
 use engineioxide::{sid::Sid, Str};
 use socketioxide_core::{
@@ -142,21 +142,13 @@ impl<A: Adapter> Namespace<A> {
         Ok(())
     }
 
-    //TODO: remove error
-    /// Removes a socket from a namespace and propagate the event to the adapter
-    pub fn remove_socket(self: Arc<Self>, sid: Sid) -> Result<(), AdapterError> {
+    /// Removes a socket from a namespace
+    pub fn remove_socket(&self, sid: Sid) {
         #[cfg(feature = "tracing")]
         tracing::trace!(?sid, ?self.path, "removing socket from namespace");
 
         self.sockets.write().unwrap().remove(&sid);
-        tokio::task::spawn(async move {
-            if let Err(_e) = self.adapter.del_all(sid).await {
-                #[cfg(feature = "tracing")]
-                tracing::warn!(?sid, path = ?self.path, "could not notify adapter of socket removal");
-            }
-        });
-
-        Ok(())
+        self.adapter.get_local().del_all(sid);
     }
 
     pub fn has(&self, sid: Sid) -> bool {
@@ -297,6 +289,7 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
     }
 }
 
+/// Internal interface implementor to apply global operations on a namespace.
 pub struct Emitter {
     /// This `Weak<dyn>` allows to break the cyclic dependency between the namespace and the emitter.
     ns: Weak<dyn InnerEmitter>,

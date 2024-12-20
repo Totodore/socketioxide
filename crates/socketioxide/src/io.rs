@@ -565,8 +565,8 @@ impl<A: Adapter> SocketIo<A> {
     /// _Alias for `io.of("/").unwrap().sockets()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/sockets.md")]
     #[inline]
-    pub async fn sockets(&self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        self.get_default_op().sockets().await
+    pub fn sockets(&self) -> Vec<SocketRef<A>> {
+        self.get_default_op().sockets()
     }
 
     /// _Alias for `io.of("/").unwrap().disconnect()`_. If the **default namespace "/" is not found** this fn will panic!

@@ -222,30 +222,6 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         future::ready(Ok(1))
     }
 
-    /// Adds the socket to all the rooms.
-    fn add_all(
-        &self,
-        sid: Sid,
-        rooms: impl RoomParam,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        self.get_local().add_all(sid, rooms);
-        future::ready(Ok(()))
-    }
-    /// Removes the socket from the rooms.
-    fn del(
-        &self,
-        sid: Sid,
-        rooms: impl RoomParam,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        self.get_local().del(sid, rooms);
-        future::ready(Ok(()))
-    }
-    /// Removes the socket from all the rooms.
-    fn del_all(&self, sid: Sid) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        self.get_local().del_all(sid);
-        future::ready(Ok(()))
-    }
-
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`].
     fn broadcast(
         &self,
@@ -266,22 +242,6 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         opts: BroadcastOptions,
         timeout: Option<Duration>,
     ) -> impl Future<Output = Result<Self::AckStream, Self::Error>> + Send;
-
-    /// Returns the sockets ids that match the [`BroadcastOptions`].
-    fn sockets(
-        &self,
-        opts: BroadcastOptions,
-    ) -> impl Future<Output = Result<Vec<Sid>, Self::Error>> + Send {
-        future::ready(Ok(self.get_local().sockets(opts)))
-    }
-
-    /// Returns the rooms of the socket.
-    fn socket_rooms(
-        &self,
-        sid: Sid,
-    ) -> impl Future<Output = Result<Vec<Room>, Self::Error>> + Send {
-        future::ready(Ok(self.get_local().socket_rooms(sid)))
-    }
 
     /// Adds the sockets that match the [`BroadcastOptions`] to the rooms.
     fn add_sockets(

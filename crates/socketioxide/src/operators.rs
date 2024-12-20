@@ -151,18 +151,13 @@ impl<A: Adapter> ConfOperators<'_, A> {
     }
 
     #[doc = include_str!("../docs/operators/join.md")]
-    pub async fn join(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.socket.join(rooms).await
+    pub fn join(self, rooms: impl RoomParam) {
+        self.socket.join(rooms)
     }
 
     #[doc = include_str!("../docs/operators/leave.md")]
-    pub async fn leave(self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.socket.leave(rooms).await
-    }
-
-    /// Gets all room names for a given namespace
-    pub async fn rooms(self) -> Result<Vec<Room>, A::Error> {
-        self.socket.rooms().await
+    pub async fn leave(self, rooms: impl RoomParam) {
+        self.socket.leave(rooms)
     }
 
     /// Creates a packet with the given event and data.
@@ -271,17 +266,13 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
 
     #[doc = include_str!("../docs/operators/sockets.md")]
-    pub async fn sockets(self) -> Result<Vec<SocketRef<A>>, A::Error> {
-        let sockets = self
-            .ns
-            .adapter
-            .sockets(self.opts)
-            .await?
-            .into_iter()
+    pub fn sockets(self) -> Vec<SocketRef<A>> {
+        let ids = self.ns.adapter.get_local().sockets(self.opts);
+
+        ids.into_iter()
             .filter_map(|id| self.ns.get_socket(id).ok())
             .map(SocketRef::from)
-            .collect();
-        Ok(sockets)
+            .collect()
     }
 
     #[doc = include_str!("../docs/operators/disconnect.md")]

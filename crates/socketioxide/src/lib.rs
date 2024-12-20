@@ -348,6 +348,7 @@ pub use errors::{
 };
 pub use io::{ParserConfig, SocketIo, SocketIoBuilder, SocketIoConfig};
 pub use socketioxide_core::errors::{AdapterError, DisconnectError, SocketError};
+//TODO: remove packet export
 pub use socketioxide_core::packet;
 
 mod client;
