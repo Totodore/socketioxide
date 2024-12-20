@@ -48,8 +48,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut todos = todos.lock().unwrap();
                 todos.clear();
                 todos.extend_from_slice(&new_todos);
-
-                s.broadcast().emit("update-store", &new_todos).unwrap();
+                async move {
+                    s.broadcast()
+                        .emit("update-store", &new_todos)
+                        .await
+                        .unwrap();
+                }
             },
         );
     });

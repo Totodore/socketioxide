@@ -1,0 +1,47 @@
+[package]
+name = "socketioxide-redis"
+description = "Redis adapter for the socket.io protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+futures-core.workspace = true
+futures-util.workspace = true
+pin-project-lite.workspace = true
+redis = { version = "0.27.5", features = [
+    "aio",
+    "tokio-comp",
+], default-features = false }
+serde.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
+socketioxide-core = { version = "0.15.1", path = "../socketioxide-core" }
+tokio.workspace = true
+rmp-serde.workspace = true
+bytes.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = [
+    "macros",
+    "parking_lot",
+    "rt-multi-thread",
+] }
+socketioxide = { path = "../socketioxide", features = [
+    "__test_harness",
+    "tracing",
+] }
+tracing-subscriber.workspace = true
+
+[features]
+__test_harness = [
+    "socketioxide/__test_harness",
+    "socketioxide-core/__test_harness",
+]

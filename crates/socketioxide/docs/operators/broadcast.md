@@ -7,11 +7,11 @@ If you want to include the current socket use emit operators from the [`io`] glo
 ```rust
 # use socketioxide::{SocketIo, extract::*};
 # use serde_json::Value;
-fn handler(io: SocketIo, socket: SocketRef, Data(data): Data::<Value>) {
+async fn handler(io: SocketIo, socket: SocketRef, Data(data): Data::<Value>) {
     // This message will be broadcast to all sockets in this namespace except this one.
-    socket.broadcast().emit("test", &data);
+    socket.broadcast().emit("test", &data).await;
     // This message will be broadcast to all sockets in this namespace, including this one.
-    io.emit("test", &data);
+    io.emit("test", &data).await;
 }
 
 let (_, io) = SocketIo::new_svc();
