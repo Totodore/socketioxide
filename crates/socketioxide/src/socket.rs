@@ -469,7 +469,7 @@ impl<A: Adapter> Socket<A> {
     /// # Close the engine.io connection if it is not already closed.
     ///
     /// Return a future that resolves when the underlying transport is closed.
-    pub(crate) async fn close_underlying_transport(&self) {
+    pub(crate) async fn close_underlying_transport(self: Arc<Self>) {
         if !self.esocket.is_closed() {
             #[cfg(feature = "tracing")]
             tracing::debug!("closing underlying transport for socket: {}", self.id);
@@ -597,6 +597,15 @@ impl<A: Adapter> Debug for Socket<A> {
 impl<A: Adapter> PartialEq for Socket<A> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+#[doc(hidden)]
+#[cfg(feature = "__test_harness")]
+impl<A: Adapter> Drop for Socket<A> {
+    fn drop(&mut self) {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(?self.id, "dropping socket");
     }
 }
 

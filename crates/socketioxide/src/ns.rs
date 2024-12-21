@@ -158,7 +158,7 @@ impl<A: Adapter> Namespace<A> {
     /// This function is using .await points only when called with [`DisconnectReason::ClosingServer`]
     pub async fn close(&self, reason: DisconnectReason) {
         use futures_util::future;
-        let sockets = self.sockets.read().unwrap().clone();
+        let sockets = { std::mem::take(&mut *self.sockets.write().unwrap()) };
 
         #[cfg(feature = "tracing")]
         tracing::debug!(?self.path, "closing {} sockets in namespace", sockets.len());
@@ -166,14 +166,18 @@ impl<A: Adapter> Namespace<A> {
         if reason == DisconnectReason::ClosingServer {
             // When closing the underlying transport, this will indirectly close the socket
             // Therefore there is no need to manually call `s.close()`.
-            future::join_all(sockets.values().map(|s| s.close_underlying_transport())).await;
+            future::join_all(
+                sockets
+                    .into_values()
+                    .map(|s| s.close_underlying_transport()),
+            )
+            .await;
         } else {
-            for s in sockets.into_values() {
-                let _sid = s.id;
+            for (sid, s) in sockets {
                 let _err = s.close(reason);
                 #[cfg(feature = "tracing")]
                 if let Err(err) = _err {
-                    tracing::debug!(?_sid, ?err, "error closing socket");
+                    tracing::debug!(?sid, ?err, "error closing socket");
                 }
             }
         }
