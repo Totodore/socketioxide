@@ -494,7 +494,7 @@ impl<A: Adapter> SocketIo<A> {
     /// // Later in your code you can select the custom_ns namespace
     /// // and show all sockets connected to it
     /// async fn test(io: SocketIo) {
-    ///     let sockets = io.of("custom_ns").unwrap().sockets().await.unwrap();
+    ///     let sockets = io.of("custom_ns").unwrap().sockets();
     ///     for socket in sockets {
     ///        println!("found socket on /custom_ns namespace with id: {}", socket.id);
     ///     }

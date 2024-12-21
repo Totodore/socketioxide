@@ -38,16 +38,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s.on(
             "join",
             |s: SocketRef, Data(room_id): Data<String>| async move {
-                let socket_cnt = s.within(room_id.clone()).sockets().await.unwrap().len();
+                let socket_cnt = s.within(room_id.clone()).sockets().len();
                 if socket_cnt == 0 {
                     tracing::info!(
                         "creating room {room_id} and emitting room_created socket event"
                     );
-                    s.join(room_id.clone()).await.unwrap();
+                    s.join(room_id.clone());
                     s.emit("room_created", &room_id).unwrap();
                 } else if socket_cnt == 1 {
                     tracing::info!("joining room {room_id} and emitting room_joined socket event");
-                    s.join(room_id.clone()).await.unwrap();
+                    s.join(room_id.clone());
                     s.emit("room_joined", &room_id).unwrap();
                 } else {
                     tracing::info!("Can't join room {room_id}, emitting full_room socket event");

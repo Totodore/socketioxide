@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     ack::AckInnerStream,
-    adapter::{Adapter, LocalAdapter},
+    adapter::Adapter,
     client::SocketData,
     errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
@@ -290,6 +290,7 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
 }
 
 /// Internal interface implementor to apply global operations on a namespace.
+#[doc(hidden)]
 pub struct Emitter {
     /// This `Weak<dyn>` allows to break the cyclic dependency between the namespace and the emitter.
     ns: Weak<dyn InnerEmitter>,
@@ -350,7 +351,7 @@ impl SocketEmitter for Emitter {
 
 #[doc(hidden)]
 #[cfg(feature = "__test_harness")]
-impl Namespace<LocalAdapter> {
+impl Namespace<crate::adapter::LocalAdapter> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
         let ns = Namespace::new("/".into(), || {}, &(), Parser::default());
         for sid in sockets {

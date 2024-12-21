@@ -29,8 +29,8 @@ async fn on_connect(socket: SocketRef) {
         "join",
         |socket: SocketRef, Data::<String>(room), store: State<state::MessageStore>| async move {
             info!("Received join: {:?}", room);
-            let _ = socket.leave_all().await;
-            let _ = socket.join(room.clone()).await;
+            socket.leave_all();
+            socket.join(room.clone());
             let messages = store.get(&room).await;
             let _ = socket.emit("messages", &Messages { messages });
         },

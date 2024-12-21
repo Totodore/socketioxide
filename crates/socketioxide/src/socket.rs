@@ -368,7 +368,7 @@ impl<A: Adapter> Socket<A> {
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// async fn handler(socket: SocketRef) {
     ///     println!("Socket connected to the / namespace with id: {}", socket.id);
-    ///     socket.join(["room1", "room2"]).unwrap();
+    ///     socket.join(["room1", "room2"]);
     ///     let rooms = socket.rooms();
     ///     println!("All rooms in the / namespace: {:?}", rooms);
     /// }
