@@ -290,6 +290,7 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
 }
 
 /// Internal interface implementor to apply global operations on a namespace.
+#[doc(hidden)]
 pub struct Emitter {
     /// This `Weak<dyn>` allows to break the cyclic dependency between the namespace and the emitter.
     ns: Weak<dyn InnerEmitter>,
