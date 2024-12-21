@@ -119,7 +119,7 @@ pub async fn authenticate_middleware(
         session
     };
 
-    s.join(session.user_id.to_string()).await?;
+    s.join(session.user_id.to_string());
 
     Ok(())
 }

@@ -9,8 +9,8 @@ if you use horizontal scaling through remote adapters.
 async fn handler(socket: SocketRef) {
     // Add all sockets that are in room1 and room3 to room4 and room5
     socket.within("room1").within("room3").join(["room4", "room5"]).await.unwrap();
-    // We should retrieve all the sockets that are in room3 and room5
-    let sockets = socket.within("room4").within("room5").sockets().await.unwrap();
+    // We should retrieve all the local sockets that are in room3 and room5
+    let sockets = socket.within("room4").within("room5").sockets();
 }
 
 let (_, io) = SocketIo::new_svc();

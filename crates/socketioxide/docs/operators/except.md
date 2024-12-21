@@ -12,8 +12,8 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 
 let (_, io) = SocketIo::new_svc();
 io.ns("/", |socket: SocketRef| {
-    socket.on("register1", |s: SocketRef| async move { s.join("room1").await.unwrap() });
-    socket.on("register2", |s: SocketRef| async move { s.join("room2").await.unwrap() });
+    socket.on("register1", |s: SocketRef| s.join("room1"));
+    socket.on("register2", |s: SocketRef| s.join("room2"));
     socket.on("test", handler);
 });
 ```

@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     ack::AckInnerStream,
-    adapter::{Adapter, LocalAdapter},
+    adapter::Adapter,
     client::SocketData,
     errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
@@ -351,7 +351,7 @@ impl SocketEmitter for Emitter {
 
 #[doc(hidden)]
 #[cfg(feature = "__test_harness")]
-impl Namespace<LocalAdapter> {
+impl Namespace<crate::adapter::LocalAdapter> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
         let ns = Namespace::new("/".into(), || {}, &(), Parser::default());
         for sid in sockets {

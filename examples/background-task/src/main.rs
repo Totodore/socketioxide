@@ -13,7 +13,7 @@ async fn background_task(io: SocketIo) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         info!("Background task");
-        let cnt = io.of("/").unwrap().sockets().await.unwrap().len();
+        let cnt = io.of("/").unwrap().sockets().len();
         let msg = format!("{}s, {} socket connected", i, cnt);
         io.emit("tic tac !", &msg).await.unwrap();
 
