@@ -351,7 +351,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
-        self.driver.unsubscribe(&self.local.path()).await?;
+        self.driver.unsubscribe(self.local.path()).await?;
         Ok(())
     }
 

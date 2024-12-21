@@ -15,9 +15,9 @@ use super::{Driver, MessageStream};
 #[derive(Debug)]
 pub struct RedisError(redis::RedisError);
 
-impl Into<AdapterError> for RedisError {
-    fn into(self) -> AdapterError {
-        AdapterError::from(Box::new(self.0) as Box<dyn std::error::Error + Send>)
+impl From<RedisError> for AdapterError {
+    fn from(err: RedisError) -> Self {
+        AdapterError::from(Box::new(err.0) as Box<dyn std::error::Error + Send>)
     }
 }
 impl From<redis::RedisError> for RedisError {

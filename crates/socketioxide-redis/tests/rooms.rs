@@ -5,11 +5,7 @@ mod fixture;
 #[tokio::test]
 pub async fn all_rooms() {
     let [io1, io2, io3] = fixture::spawn_servers();
-    let handler = |rooms: &'static [&'static str]| {
-        move |socket: SocketRef<_>| async move {
-            socket.join(rooms).await.unwrap();
-        }
-    };
+    let handler = |rooms: &'static [&'static str]| move |socket: SocketRef<_>| socket.join(rooms);
 
     io1.ns("/", handler(&["room1", "room2"]));
     io2.ns("/", handler(&["room2", "room3"]));
@@ -25,7 +21,7 @@ pub async fn all_rooms() {
     timeout_rcv!(&mut rx2); // Connect "/" packet
     timeout_rcv!(&mut rx3); // Connect "/" packet
 
-    const ROOMS: [&'static str; 3] = ["room1", "room2", "room3"];
+    const ROOMS: [&str; 3] = ["room1", "room2", "room3"];
     for io in [io1, io2, io3] {
         let mut rooms = io.rooms().await.unwrap();
         rooms.sort();
@@ -38,11 +34,7 @@ pub async fn all_rooms() {
 }
 #[tokio::test]
 pub async fn add_sockets() {
-    let handler = |room: &'static str| {
-        move |socket: SocketRef<_>| async move {
-            socket.join(room).await.unwrap();
-        }
-    };
+    let handler = |room: &'static str| move |socket: SocketRef<_>| socket.join(room);
     let [io1, io2] = fixture::spawn_servers();
 
     io1.ns("/", handler("room1"));
@@ -64,11 +56,7 @@ pub async fn add_sockets() {
 
 #[tokio::test]
 pub async fn del_sockets() {
-    let handler = |rooms: &'static [&'static str]| {
-        move |socket: SocketRef<_>| async move {
-            socket.join(rooms).await.unwrap();
-        }
-    };
+    let handler = |rooms: &'static [&'static str]| move |socket: SocketRef<_>| socket.join(rooms);
     let [io1, io2] = fixture::spawn_servers();
 
     io1.ns("/", handler(&["room1", "room2"]));

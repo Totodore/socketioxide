@@ -78,13 +78,14 @@ pub mod test {
 
     use super::MessageStream;
 
+    type ChanItem = (String, Vec<u8>);
     pub struct StubDriver {
-        tx: mpsc::Sender<(String, Vec<u8>)>,
+        tx: mpsc::Sender<ChanItem>,
         handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
         num_serv: u16,
     }
     async fn pipe_handers(
-        mut rx: mpsc::Receiver<(String, Vec<u8>)>,
+        mut rx: mpsc::Receiver<ChanItem>,
         handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
     ) {
         while let Some((chan, data)) = rx.recv().await {
@@ -96,13 +97,7 @@ pub mod test {
         }
     }
     impl StubDriver {
-        pub fn new(
-            num_serv: u16,
-        ) -> (
-            Self,
-            mpsc::Receiver<(String, Vec<u8>)>,
-            mpsc::Sender<(String, Vec<u8>)>,
-        ) {
+        pub fn new(num_serv: u16) -> (Self, mpsc::Receiver<ChanItem>, mpsc::Sender<ChanItem>) {
             let (tx, rx) = mpsc::channel(255); // driver emitter
             let (tx1, rx1) = mpsc::channel(255); // driver receiver
             let handlers = Arc::new(RwLock::new(HashMap::<_, mpsc::Sender<Vec<u8>>>::new()));

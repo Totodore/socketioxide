@@ -33,7 +33,7 @@ pub async fn broadcast_rooms() {
     let handler = |room: &'static str, to: &'static str| {
         move |socket: SocketRef<_>| async move {
             // delay to ensure all socket/servers are connected
-            socket.join(room).await.unwrap();
+            socket.join(room);
             tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
             socket.to(to).emit("test", room).await.unwrap();
         }
