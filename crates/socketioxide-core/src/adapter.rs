@@ -139,7 +139,7 @@ impl RoomParam for &'static [&'static str] {
 
     #[inline(always)]
     fn into_room_iter(self) -> Self::IntoIter {
-        self.into_iter().map(|i| Cow::Borrowed(*i))
+        self.iter().map(|i| Cow::Borrowed(*i))
     }
 }
 impl<const COUNT: usize> RoomParam for [String; COUNT] {
