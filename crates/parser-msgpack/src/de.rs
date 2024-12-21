@@ -9,11 +9,11 @@ use rmp::{
 use rmp_serde::decode::Error as DecodeError;
 use socketioxide_core::{
     packet::{Packet, PacketData},
-    parser::ParseError,
+    parser::{ParseError, ParserError},
     Str, Value,
 };
 
-pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>> {
+pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError> {
     let mut reader = Cursor::new(buff);
     let maplen = read_map_len(&mut reader).map_err(|e| {
         use DecodeError::*;
@@ -22,17 +22,17 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>
             ValueReadError::InvalidDataRead(e) => InvalidDataRead(e),
             ValueReadError::TypeMismatch(e) => TypeMismatch(e),
         };
-        ParseError::ParserError(e)
+        ParseError::ParserError(ParserError::new(e))
     })?;
 
     // Bound check to prevent DoS attacks.
     // other implementations might add some other keys that we don't support
     // Therefore, we limit the number of keys to 20
     if maplen == 0 || maplen > 20 {
-        Err(DecodeError::Uncategorized(format!(
+        Err(ParserError::new(DecodeError::Uncategorized(format!(
             "packet length too big or empty: {}",
             maplen
-        )))?;
+        ))))?;
     }
 
     let mut index = 0xff;
@@ -41,7 +41,8 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>
     let mut id = None;
 
     for _ in 0..maplen {
-        parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)?;
+        parse_key_value(&mut reader, &mut index, &mut nsp, &mut data_pos, &mut id)
+            .map_err(ParserError::new)?;
     }
     let buff = reader.into_inner();
     let mut data = buff.slice(data_pos.clone());
@@ -64,7 +65,8 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError<DecodeError>
             struct ErrorMessage {
                 message: String,
             }
-            let ErrorMessage { message } = rmp_serde::decode::from_slice(&buff[data_pos])?;
+            let ErrorMessage { message } =
+                rmp_serde::decode::from_slice(&buff[data_pos]).map_err(ParserError::new)?;
             PacketData::ConnectError(message)
         }
         5 => PacketData::BinaryEvent(data, id),

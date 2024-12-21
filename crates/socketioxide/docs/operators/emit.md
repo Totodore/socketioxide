@@ -44,9 +44,7 @@ fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| {
-    socket.on("test", handler);
-});
+io.ns("/", |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Single-socket binary example with the `bytes` crate
@@ -66,27 +64,29 @@ fn handler(socket: SocketRef, Data(data): Data::<(String, Bytes, Bytes)>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| {
-    socket.on("test", handler);
-});
+io.ns("/", |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Broadcast example
+
+Here the emit method will return a `Future` that must be awaited because socket.io may communicate
+with remote instances if you use horizontal scaling through remote adapters.
+
 ```rust
 # use socketioxide::{SocketIo, extract::*};
 # use serde_json::Value;
 # use std::sync::Arc;
 # use bytes::Bytes;
-fn handler(socket: SocketRef, Data(data): Data::<(String, Bytes, Bytes)>) {
+async fn handler(socket: SocketRef, Data(data): Data::<(String, Bytes, Bytes)>) {
     // Emit a test message in the room1 and room3 rooms, except for room2, with the received binary payload
-    socket.to("room1").to("room3").except("room2").emit("test", &data);
+    socket.to("room1").to("room3").except("room2").emit("test", &data).await;
 
     // Emit a test message with multiple arguments to the client
-    socket.to("room1").emit("test", &("world", "hello", 1)).ok();
+    socket.to("room1").emit("test", &("world", "hello", 1)).await;
 
     // Emit a test message with an array as the first argument
     let arr = [1, 2, 3, 4];
-    socket.to("room2").emit("test", &[arr]).ok();
+    socket.to("room2").emit("test", &[arr]).await;
 }
 
 let (_, io) = SocketIo::new_svc();
