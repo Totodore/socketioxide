@@ -154,11 +154,13 @@ impl<A: Adapter> Client<A> {
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
+        use futures_util::FutureExt;
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
-        let path = Str::from(path);
+
+        let ns_path = Str::from(&path);
         let ns = Namespace::new(
-            path.clone(),
+            ns_path.clone(),
             callback,
             &self.adapter_state,
             self.config.parser,
@@ -166,16 +168,22 @@ impl<A: Adapter> Client<A> {
         // We spawn the adapter init task and therefore it might fail but the namespace is still added.
         // The best solution would be to make the fn async and returning the error to the user.
         // However this would require all .ns() calls to be async.
-        let adapter = ns.adapter.clone();
-        let ns_path = path.clone();
-        tokio::spawn(async move {
-            if let Err(_e) = adapter.init().await {
-                let _path = ns_path.as_str();
-                #[cfg(feature = "tracing")]
-                tracing::error!(_path, "adapter error while initializing namespace: {}", _e);
+        let mut fut = Box::pin(ns.adapter.clone().init());
+        let on_err = move |err| {
+            let _path = path.as_ref();
+            #[cfg(feature = "tracing")]
+            tracing::error!(_path, "adapter error while initializing namespace: {}", err);
+        };
+        // This is a hack to avoid spawning the future if it is already resolved.
+        // In test env (doctests mostly) this allows to avoid tokio::test::block_on.
+        match fut.as_mut().now_or_never() {
+            Some(Ok(())) => {}
+            Some(Err(err)) => on_err(err),
+            None => {
+                tokio::spawn(fut.unwrap_or_else(on_err));
             }
-        });
-        self.nsps.write().unwrap().insert(path, ns);
+        };
+        self.nsps.write().unwrap().insert(ns_path, ns);
     }
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
