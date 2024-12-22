@@ -142,7 +142,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     /// A type map of protocol extensions.
     /// It can be used to share data through the lifetime of the socket.
     ///
-    /// **Note**: This is note the same data than the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
+    /// **Note**: This is not the same data as the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
     /// If you want to extract extensions from the http request, you should use the [`HttpExtension`](crate::extract::HttpExtension) extractor.
     #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
     #[cfg(feature = "extensions")]
