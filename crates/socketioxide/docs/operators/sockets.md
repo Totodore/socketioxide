@@ -2,6 +2,10 @@
 
 This can be used to retrieve any extension data (with the `extensions` feature enabled) from the sockets or to make certain sockets join other rooms.
 
+<div class="warning">
+    This will only work for local sockets. Currently, you can't get a socket from another node.
+</div>
+
 # Example
 ```rust
 # use socketioxide::{SocketIo, extract::*};

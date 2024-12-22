@@ -144,7 +144,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     /// A type map of protocol extensions.
     /// It can be used to share data through the lifetime of the socket.
     ///
-    /// **Note**: This is note the same data than the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
+    /// **Note**: This is not the same data than the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
     /// If you want to extract extensions from the http request, you should use the [`HttpExtension`](crate::extract::HttpExtension) extractor.
     #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
     #[cfg(feature = "extensions")]
@@ -341,22 +341,43 @@ impl<A: Adapter> Socket<A> {
 
     // Room actions
 
-    #[doc = include_str!("../docs/operators/join.md")]
+    /// # Add the current socket to the specified room(s).
+    ///
+    /// # Example
+    /// ```rust
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// async fn handler(socket: SocketRef) {
+    ///     // Add all sockets that are in room1 and room3 to room4 and room5
+    ///     socket.join(["room4", "room5"]);
+    ///     // We should retrieve all the local sockets that are in room3 and room5
+    ///     let sockets = socket.within("room4").within("room5").sockets();
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |s: SocketRef| s.on("test", handler));
+    /// ```
     pub fn join(&self, rooms: impl RoomParam) {
         self.ns.adapter.get_local().add_all(self.id, rooms)
     }
 
-    #[doc = include_str!("../docs/operators/leave.md")]
+    /// # Remove the current socket from the specified room(s).
+    ///
+    /// # Example
+    /// ```rust
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// async fn handler(socket: SocketRef) {
+    ///     // Remove all sockets that are in room1 and room3 from room4 and room5
+    ///     socket.within("room1").within("room3").leave(["room4", "room5"]);
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |s: SocketRef| s.on("test", handler));
+    /// ```
     pub fn leave(&self, rooms: impl RoomParam) {
         self.ns.adapter.get_local().del(self.id, rooms)
     }
 
-    /// # Leave all rooms where the socket is connected.
-    ///
-    /// ## Errors
-    ///
-    /// When using a distributed adapter, it can return an adapter error which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
+    /// # Remove the current socket from all its rooms.
     pub fn leave_all(&self) {
         self.ns.adapter.get_local().del_all(self.id);
     }
