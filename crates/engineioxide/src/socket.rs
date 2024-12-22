@@ -190,7 +190,7 @@ where
     ///
     /// It is locked if [`EngineIo`](crate::engine) is currently reading from it :
     /// * In case of polling transport it will be locked and released for each request
-    /// * In case of websocket transport it will be always locked until the connection is closed
+    /// * In case of websocket transport it will always be locked until the connection is closed
     ///
     /// It will be closed when a [`Close`](Packet::Close) packet is received:
     /// * From the [encoder](crate::service::encoder) if the transport is polling
@@ -301,7 +301,7 @@ where
             .replace(handle);
     }
 
-    /// Heartbeat is sent every `interval` milliseconds by the client and the server is expected to respond within `timeout` milliseconds.
+    /// Heartbeat is sent every `interval` milliseconds by the client and the server `is` expected to respond within `timeout` milliseconds.
     ///
     /// If the client or server does not respond within the timeout, the connection is closed.
     #[cfg(feature = "v3")]

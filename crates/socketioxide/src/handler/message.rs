@@ -52,7 +52,7 @@
 //! });
 //! ```
 //!
-//! ## Example with async non anonymous handler
+//! ## Example with an async non-anonymous handler
 //! ```rust
 //! # use socketioxide::SocketIo;
 //! # use socketioxide::extract::*;

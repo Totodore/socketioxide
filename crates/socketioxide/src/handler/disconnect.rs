@@ -31,7 +31,7 @@
 //! });
 //! ```
 //!
-//! ## Example with async non anonymous functions
+//! ## Example with an async non-anonymous functions
 //! ```rust
 //! # use socketioxide::SocketIo;
 //! # use socketioxide::extract::*;
