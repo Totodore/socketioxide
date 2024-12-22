@@ -539,14 +539,16 @@ impl<A: Adapter> Socket<A> {
         self.set_connected(false);
 
         let handler = { self.disconnect_handler.lock().unwrap().take() };
+        let id = self.id;
+        let ns = self.ns.clone();
         if let Some(handler) = handler {
             #[cfg(feature = "tracing")]
-            tracing::trace!(?reason, ?self.id, "spawning disconnect handler");
+            tracing::trace!(?reason, ?id, "spawning disconnect handler");
 
-            handler.call(self.clone(), reason);
+            handler.call(self, reason);
         }
 
-        self.ns.remove_socket(self.id)?;
+        ns.remove_socket(id)?;
         Ok(())
     }
 
