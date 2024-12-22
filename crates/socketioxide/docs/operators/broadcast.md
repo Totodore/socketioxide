@@ -1,5 +1,5 @@
 # Broadcast to all sockets without any filtering (except the current socket).
-If you want to include the current socket use emit operators from the [`io`] global context.
+If you want to include the current socket use the broadcast operators from the [`io`] global context.
 
 [`io`]: crate::SocketIo
 
