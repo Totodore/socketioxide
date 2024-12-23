@@ -16,6 +16,9 @@ use socketioxide_parser_common::CommonParser;
 #[cfg(feature = "msgpack")]
 use socketioxide_parser_msgpack::MsgPackParser;
 
+pub(crate) use socketioxide_core::parser::ParseError;
+pub use socketioxide_core::parser::ParserError;
+
 /// All the parser available.
 /// It also implements the [`Parse`] trait and therefore the
 /// parser implementation is done over enum delegation.
@@ -35,41 +38,7 @@ impl Default for Parser {
     }
 }
 
-/// Errors that can occur during value encoding
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum EncodeError {
-    /// Common parser error
-    #[error("common parser: {0}")]
-    Common(<CommonParser as Parse>::EncodeError),
-    /// MsgPack parser error
-    #[cfg_attr(docsrs, doc(cfg(feature = "msgpack")))]
-    #[cfg(feature = "msgpack")]
-    #[error("msgpack parser: {0}")]
-    MsgPack(<MsgPackParser as Parse>::EncodeError),
-}
-
-/// Errors that can occur during packet decoding or value decoding
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum DecodeError {
-    /// Common parser error
-    #[error("common parser: {0}")]
-    Common(<CommonParser as Parse>::DecodeError),
-    /// MsgPack parser error
-    #[cfg_attr(docsrs, doc(cfg(feature = "msgpack")))]
-    #[cfg(feature = "msgpack")]
-    #[error("msgpack parser: {0}")]
-    MsgPack(<MsgPackParser as Parse>::DecodeError),
-}
-
-/// Parse errors occurring during packet parsing
-pub(crate) type ParseError = socketioxide_core::parser::ParseError<DecodeError>;
-
 impl Parse for Parser {
-    type EncodeError = EncodeError;
-    type DecodeError = DecodeError;
-
     fn encode(self, packet: Packet) -> Value {
         let value = match self {
             Parser::Common(p) => p.encode(packet),
@@ -90,13 +59,9 @@ impl Parse for Parser {
         tracing::trace!(?state, "decoding bin payload: {:X}", bin);
 
         let packet = match self {
-            Parser::Common(p) => p
-                .decode_bin(state, bin)
-                .map_err(|e| e.wrap_err(DecodeError::Common)),
+            Parser::Common(p) => p.decode_bin(state, bin),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p
-                .decode_bin(state, bin)
-                .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
+            Parser::MsgPack(p) => p.decode_bin(state, bin),
         }?;
 
         #[cfg(feature = "tracing")]
@@ -108,13 +73,9 @@ impl Parse for Parser {
         tracing::trace!(?data, ?state, "decoding str payload:");
 
         let packet = match self {
-            Parser::Common(p) => p
-                .decode_str(state, data)
-                .map_err(|e| e.wrap_err(DecodeError::Common)),
+            Parser::Common(p) => p.decode_str(state, data),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p
-                .decode_str(state, data)
-                .map_err(|e| e.wrap_err(DecodeError::MsgPack)),
+            Parser::MsgPack(p) => p.decode_str(state, data),
         }?;
 
         #[cfg(feature = "tracing")]
@@ -126,11 +87,11 @@ impl Parse for Parser {
         self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<Value, EncodeError> {
+    ) -> Result<Value, ParserError> {
         let value = match self {
-            Parser::Common(p) => p.encode_value(data, event).map_err(EncodeError::Common),
+            Parser::Common(p) => p.encode_value(data, event),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p.encode_value(data, event).map_err(EncodeError::MsgPack),
+            Parser::MsgPack(p) => p.encode_value(data, event),
         };
         #[cfg(feature = "tracing")]
         tracing::trace!(?value, "value encoded:");
@@ -141,44 +102,40 @@ impl Parse for Parser {
         self,
         value: &'de mut Value,
         with_event: bool,
-    ) -> Result<T, DecodeError> {
+    ) -> Result<T, ParserError> {
         #[cfg(feature = "tracing")]
         tracing::trace!(?value, "decoding value:");
         match self {
-            Parser::Common(p) => p
-                .decode_value(value, with_event)
-                .map_err(DecodeError::Common),
+            Parser::Common(p) => p.decode_value(value, with_event),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p
-                .decode_value(value, with_event)
-                .map_err(DecodeError::MsgPack),
+            Parser::MsgPack(p) => p.decode_value(value, with_event),
         }
     }
 
     fn decode_default<'de, T: Deserialize<'de>>(
         self,
         value: Option<&'de Value>,
-    ) -> Result<T, Self::DecodeError> {
+    ) -> Result<T, ParserError> {
         match self {
-            Parser::Common(p) => p.decode_default(value).map_err(DecodeError::Common),
+            Parser::Common(p) => p.decode_default(value),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p.decode_default(value).map_err(DecodeError::MsgPack),
+            Parser::MsgPack(p) => p.decode_default(value),
         }
     }
 
-    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError> {
+    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, ParserError> {
         match self {
-            Parser::Common(p) => p.encode_default(data).map_err(EncodeError::Common),
+            Parser::Common(p) => p.encode_default(data),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p.encode_default(data).map_err(EncodeError::MsgPack),
+            Parser::MsgPack(p) => p.encode_default(data),
         }
     }
 
-    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError> {
+    fn read_event(self, value: &Value) -> Result<&str, ParserError> {
         match self {
-            Parser::Common(p) => p.read_event(value).map_err(DecodeError::Common),
+            Parser::Common(p) => p.read_event(value),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p.read_event(value).map_err(DecodeError::MsgPack),
+            Parser::MsgPack(p) => p.read_event(value),
         }
     }
 }
