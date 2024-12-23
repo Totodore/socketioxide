@@ -6,7 +6,6 @@ use std::{
 };
 
 use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue, RedisResult};
-use socketioxide_core::errors::AdapterError;
 use tokio::sync::mpsc;
 
 use super::{Driver, MessageStream};
@@ -15,11 +14,6 @@ use super::{Driver, MessageStream};
 #[derive(Debug)]
 pub struct RedisError(redis::RedisError);
 
-impl From<RedisError> for AdapterError {
-    fn from(err: RedisError) -> Self {
-        AdapterError::from(Box::new(err.0) as Box<dyn std::error::Error + Send>)
-    }
-}
 impl From<redis::RedisError> for RedisError {
     fn from(e: redis::RedisError) -> Self {
         Self(e)

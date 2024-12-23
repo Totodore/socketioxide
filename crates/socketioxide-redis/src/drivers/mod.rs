@@ -2,7 +2,6 @@ use std::{future::Future, pin::Pin, task};
 
 use futures_core::Stream;
 use pin_project_lite::pin_project;
-use socketioxide_core::errors::AdapterError;
 use tokio::sync::mpsc;
 
 /// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
@@ -43,7 +42,7 @@ impl Stream for MessageStream {
 /// The driver trait can be used to support different pub/sub backends.
 pub trait Driver: Send + Sync + 'static {
     /// The error type for the driver.
-    type Error: std::error::Error + Into<AdapterError> + Send + 'static;
+    type Error: std::error::Error + Send + 'static;
 
     /// Publish a message to a channel.
     fn publish<'a>(
@@ -84,7 +83,7 @@ pub mod test {
         handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
         num_serv: u16,
     }
-    async fn pipe_handers(
+    async fn pipe_handlers(
         mut rx: mpsc::Receiver<ChanItem>,
         handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
     ) {
@@ -102,7 +101,7 @@ pub mod test {
             let (tx1, rx1) = mpsc::channel(255); // driver receiver
             let handlers = Arc::new(RwLock::new(HashMap::<_, mpsc::Sender<Vec<u8>>>::new()));
 
-            tokio::spawn(pipe_handers(rx1, handlers.clone()));
+            tokio::spawn(pipe_handlers(rx1, handlers.clone()));
 
             let driver = Self {
                 tx,
