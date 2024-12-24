@@ -10,15 +10,15 @@ use crate::{
     client::SocketData,
     errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
-    packet::{ConnectPacket, Packet, PacketData},
     parser::Parser,
     socket::{DisconnectReason, Socket},
     ProtocolVersion,
 };
 use engineioxide::{sid::Sid, Str};
+use socketioxide_core::packet::{ConnectPacket, Packet, PacketData};
 use socketioxide_core::{
     adapter::{CoreLocalAdapter, SocketEmitter},
-    errors::{DisconnectError, SocketError},
+    errors::SocketError,
     parser::Parse,
     Value,
 };
@@ -197,11 +197,7 @@ impl<A: Adapter> Namespace<A> {
         } else {
             for s in sockets.into_values() {
                 let _sid = s.id;
-                let _err = s.close(reason);
-                #[cfg(feature = "tracing")]
-                if let Err(err) = _err {
-                    tracing::debug!(?_sid, ?err, "error closing socket");
-                }
+                s.close(reason);
             }
         }
         #[cfg(feature = "tracing")]
@@ -229,7 +225,7 @@ trait InnerEmitter: Send + Sync + 'static {
         timeout: Option<Duration>,
     ) -> AckInnerStream;
     /// Disconnect all the sockets in the list.
-    fn disconnect_many(&self, sid: Vec<Sid>) -> Result<(), Vec<DisconnectError>>;
+    fn disconnect_many(&self, sid: Vec<Sid>) -> Result<(), Vec<SocketError>>;
 }
 
 impl<A: Adapter> InnerEmitter for Namespace<A> {
@@ -268,7 +264,7 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
         AckInnerStream::broadcast(packet, sockets, timeout)
     }
 
-    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<DisconnectError>> {
+    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<SocketError>> {
         let sockets: Vec<Arc<Socket<A>>> = self
             .sockets
             .read()
@@ -277,10 +273,10 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
             .filter(|s| sids.contains(&s.id))
             .cloned()
             .collect();
-        let errs: Vec<crate::DisconnectError> = sockets
+        let errs = sockets
             .into_iter()
             .filter_map(|socket| socket.disconnect().err())
-            .collect();
+            .collect::<Vec<_>>();
         if errs.is_empty() {
             Ok(())
         } else {
@@ -331,7 +327,7 @@ impl SocketEmitter for Emitter {
         }
     }
 
-    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<DisconnectError>> {
+    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<SocketError>> {
         match self.ns.upgrade() {
             Some(ns) => ns.disconnect_many(sids),
             None => Ok(()),

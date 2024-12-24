@@ -22,7 +22,7 @@ use crate::{
     operators::BroadcastOperators,
     parser::Parser,
     service::SocketIoService,
-    BroadcastError, DisconnectError, EmitWithAckError,
+    BroadcastError, EmitWithAckError,
 };
 
 /// The parser to use to encode and decode socket.io packets
@@ -572,7 +572,7 @@ impl<A: Adapter> SocketIo<A> {
     /// _Alias for `io.of("/").unwrap().disconnect()`_. If the **default namespace "/" is not found** this fn will panic!
     #[doc = include_str!("../docs/operators/disconnect.md")]
     #[inline]
-    pub async fn disconnect(&self) -> Result<(), Vec<DisconnectError>> {
+    pub async fn disconnect(&self) -> Result<(), BroadcastError> {
         self.get_default_op().disconnect().await
     }
 

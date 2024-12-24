@@ -19,12 +19,11 @@ use tokio::{sync::oneshot::Receiver, time::Timeout};
 use crate::{
     adapter::{Adapter, LocalAdapter},
     errors::AckError,
-    packet::Packet,
     parser::Parser,
     socket::Socket,
     SocketError,
 };
-use socketioxide_core::{parser::Parse, Value};
+use socketioxide_core::{packet::Packet, parser::Parse, Value};
 pub(crate) type AckResult<T> = Result<T, AckError>;
 
 pin_project_lite::pin_project! {

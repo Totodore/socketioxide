@@ -10,22 +10,20 @@ use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use matchit::{Match, Router};
+use socketioxide_core::packet::{Packet, PacketData};
 use socketioxide_core::parser::{Parse, ParserState};
 use socketioxide_core::Value;
 use tokio::sync::oneshot;
 
-use crate::adapter::Adapter;
-use crate::handler::ConnectHandler;
-use crate::ns::NamespaceCtr;
-use crate::parser::{ParseError, Parser};
-use crate::socket::DisconnectReason;
 use crate::{
+    adapter::Adapter,
     errors::Error,
-    ns::Namespace,
-    packet::{Packet, PacketData},
-    SocketIoConfig,
+    handler::ConnectHandler,
+    ns::{Namespace, NamespaceCtr},
+    parser::{ParseError, Parser},
+    socket::DisconnectReason,
+    ProtocolVersion, SocketIo, SocketIoConfig,
 };
-use crate::{ProtocolVersion, SocketIo};
 
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
@@ -306,20 +304,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .filter_map(|ns| ns.get_socket(socket.id).ok())
             .collect();
 
-        let _res: Result<Vec<_>, _> = socks
+        let _cnt = socks
             .into_iter()
             .map(|s| s.close(reason.clone().into()))
-            .collect();
+            .count();
 
         #[cfg(feature = "tracing")]
-        match _res {
-            Ok(vec) => {
-                tracing::debug!("disconnect handle spawned for {} namespaces", vec.len())
-            }
-            Err(_e) => {
-                tracing::debug!("error while disconnecting socket: {}", _e)
-            }
-        }
+        tracing::debug!("disconnect handle spawned for {_cnt} namespaces");
     }
 
     fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {

@@ -344,12 +344,10 @@ pub mod socket;
 
 pub use engineioxide::TransportType;
 pub use errors::{
-    AckError, BroadcastError, EmitWithAckError, NsInsertError, ParserError, SendError,
+    AckError, AdapterError, BroadcastError, EmitWithAckError, NsInsertError, ParserError,
+    SendError, SocketError,
 };
 pub use io::{ParserConfig, SocketIo, SocketIoBuilder, SocketIoConfig};
-pub use socketioxide_core::errors::{AdapterError, DisconnectError, SocketError};
-//TODO: remove packet export
-pub use socketioxide_core::packet;
 
 mod client;
 mod errors;
