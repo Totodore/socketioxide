@@ -9,7 +9,8 @@ use crate::Value;
 
 /// The socket.io packet type.
 /// Each packet has a type and a namespace
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(any(test, feature = "__test_harness"), derive(PartialEq))]
 pub struct Packet {
     /// The packet data
     pub inner: PacketData,
@@ -82,7 +83,8 @@ impl Packet {
 /// | CONNECT_ERROR | 4   | Used during the [connection to a namespace](#connection-to-a-namespace).              |
 /// | BINARY_EVENT  | 5   | Used to [send binary data](#sending-and-receiving-data) to the other side.            |
 /// | BINARY_ACK    | 6   | Used to [acknowledge](#acknowledgement) an event (the response includes binary data). |
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(any(test, feature = "__test_harness"), derive(PartialEq))]
 pub enum PacketData {
     /// Connect packet with optional payload (only used with v5 for response)
     Connect(Option<Value>),
@@ -139,8 +141,65 @@ pub struct ConnectPacket {
     pub sid: Sid,
 }
 
+impl Serialize for Packet {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct RawPacket<'a> {
+            ns: &'a Str,
+            r#type: u8,
+            data: Option<&'a Value>,
+            ack: Option<i64>,
+            error: Option<&'a String>,
+        }
+        let (r#type, data, ack, error) = match &self.inner {
+            PacketData::Connect(v) => (0, v.as_ref(), None, None),
+            PacketData::Disconnect => (1, None, None, None),
+            PacketData::Event(v, ack) => (2, Some(v), *ack, None),
+            PacketData::EventAck(v, ack) => (3, Some(v), Some(*ack), None),
+            PacketData::ConnectError(e) => (4, None, None, Some(e)),
+            PacketData::BinaryEvent(v, ack) => (5, Some(v), *ack, None),
+            PacketData::BinaryAck(v, ack) => (6, Some(v), Some(*ack), None),
+        };
+        let raw = RawPacket {
+            ns: &self.ns,
+            data,
+            ack,
+            error,
+            r#type,
+        };
+        raw.serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for Packet {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawPacket {
+            ns: Str,
+            r#type: u8,
+            data: Option<Value>,
+            ack: Option<i64>,
+            error: Option<String>,
+        }
+        let raw = RawPacket::deserialize(deserializer)?;
+        let err = |field| serde::de::Error::custom(format!("missing field: {}", field));
+        let inner = match raw.r#type {
+            0 => PacketData::Connect(raw.data),
+            1 => PacketData::Disconnect,
+            2 => PacketData::Event(raw.data.ok_or(err("data"))?, raw.ack),
+            3 => PacketData::EventAck(raw.data.ok_or(err("data"))?, raw.ack.ok_or(err("ack"))?),
+            4 => PacketData::ConnectError(raw.error.ok_or(err("error"))?),
+            5 => PacketData::BinaryEvent(raw.data.ok_or(err("data"))?, raw.ack),
+            6 => PacketData::BinaryAck(raw.data.ok_or(err("data"))?, raw.ack.ok_or(err("ack"))?),
+            i => return Err(serde::de::Error::custom(format!("invalid packet type {i}"))),
+        };
+        Ok(Self { inner, ns: raw.ns })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    use std::collections::VecDeque;
 
     use super::{Packet, PacketData, Value};
     use bytes::Bytes;
@@ -180,5 +239,100 @@ mod tests {
         assert!(matches!(
             Packet::ack("/", val1.clone(), 120).inner,
             PacketData::EventAck(v, 120) if v == val1));
+    }
+
+    fn assert_serde_packet(packet: Packet) {
+        let serialized = serde_json::to_string(&packet).unwrap();
+        let deserialized: Packet = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(packet, deserialized);
+    }
+    #[test]
+    fn packet_serde_connect() {
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::Connect(Some(Value::Str("test_data".into(), None))),
+        };
+        assert_serde_packet(packet);
+    }
+
+    #[test]
+    fn packet_serde_disconnect() {
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::Disconnect,
+        };
+        assert_serde_packet(packet);
+    }
+
+    #[test]
+    fn packet_serde_event() {
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::Event(Value::Str("event_data".into(), None), None),
+        };
+        assert_serde_packet(packet);
+
+        let mut bins = VecDeque::new();
+        bins.push_back(Bytes::from_static(&[1, 2, 3, 4]));
+        bins.push_back(Bytes::from_static(&[1, 2, 3, 4]));
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::Event(Value::Str("event_data".into(), Some(bins)), Some(12)),
+        };
+        assert_serde_packet(packet);
+    }
+
+    #[test]
+    fn packet_serde_event_ack() {
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::EventAck(Value::Str("event_ack_data".into(), None), 42),
+        };
+        assert_serde_packet(packet);
+    }
+
+    #[test]
+    fn packet_serde_connect_error() {
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::ConnectError("connection_error".into()),
+        };
+        assert_serde_packet(packet);
+    }
+
+    #[test]
+    fn packet_serde_binary_event() {
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::BinaryEvent(Value::Str("binary_event_data".into(), None), None),
+        };
+        assert_serde_packet(packet);
+
+        let mut bins = VecDeque::new();
+        bins.push_back(Bytes::from_static(&[1, 2, 3, 4]));
+        bins.push_back(Bytes::from_static(&[1, 2, 3, 4]));
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::BinaryEvent(Value::Str("event_data".into(), Some(bins)), Some(12)),
+        };
+        assert_serde_packet(packet);
+    }
+
+    #[test]
+    fn packet_serde_binary_ack() {
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::BinaryAck(Value::Str("binary_ack_data".into(), None), 99),
+        };
+        assert_serde_packet(packet);
+
+        let mut bins = VecDeque::new();
+        bins.push_back(Bytes::from_static(&[1, 2, 3, 4]));
+        bins.push_back(Bytes::from_static(&[1, 2, 3, 4]));
+        let packet = Packet {
+            ns: "/".into(),
+            inner: PacketData::BinaryAck(Value::Str("binary_ack_data".into(), Some(bins)), 99),
+        };
+        assert_serde_packet(packet);
     }
 }

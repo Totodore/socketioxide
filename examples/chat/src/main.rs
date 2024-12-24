@@ -5,11 +5,11 @@ use socketioxide::{
     extract::{Data, Extension, SocketRef, State},
     SocketIo,
 };
+use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::FmtSubscriber;
-use std::sync::Arc;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(transparent)]
@@ -62,18 +62,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     io.ns("/", |s: SocketRef| {
         s.on(
             "new message",
-            |s: SocketRef, Data::<String>(msg), Extension::<Username>(username)| {
+            |s: SocketRef, Data::<String>(msg), Extension::<Username>(username)| async move {
                 let msg = &Res::Message {
                     username,
                     message: msg,
                 };
-                s.broadcast().emit("new message", msg).ok();
+                s.broadcast().emit("new message", msg).await.ok();
             },
         );
 
         s.on(
             "add user",
-            |s: SocketRef, Data::<String>(username), user_cnt: State<UserCnt>| {
+            |s: SocketRef, Data::<String>(username), user_cnt: State<UserCnt>| async move {
                 if s.extensions.get::<Username>().is_some() {
                     return;
                 }
@@ -85,33 +85,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     num_users,
                     username: Username(username),
                 };
-                s.broadcast().emit("user joined", res).ok();
+                s.broadcast().emit("user joined", res).await.ok();
             },
         );
 
-        s.on("typing", |s: SocketRef, Extension::<Username>(username)| {
-            s.broadcast()
-                .emit("typing", &Res::Username { username })
-                .ok();
-        });
+        s.on(
+            "typing",
+            |s: SocketRef, Extension::<Username>(username)| async move {
+                s.broadcast()
+                    .emit("typing", &Res::Username { username })
+                    .await
+                    .ok();
+            },
+        );
 
         s.on(
             "stop typing",
-            |s: SocketRef, Extension::<Username>(username)| {
+            |s: SocketRef, Extension::<Username>(username)| async move {
                 s.broadcast()
                     .emit("stop typing", &Res::Username { username })
+                    .await
                     .ok();
             },
         );
 
         s.on_disconnect(
-            |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| {
+            |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| async move {
                 let num_users = user_cnt.remove_user();
                 let res = &Res::UserEvent {
                     num_users,
                     username,
                 };
-                s.broadcast().emit("user left", res).ok();
+                s.broadcast().emit("user left", res).await.ok();
             },
         );
     });

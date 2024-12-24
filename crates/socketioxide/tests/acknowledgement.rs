@@ -53,25 +53,25 @@ pub async fn broadcast_with_ack() {
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
 
     io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
-        let res = io.emit_with_ack::<_, [String; 1]>("test", "foo");
-        let sockets = io.sockets().unwrap();
+        let res = io.emit_with_ack::<_, [String; 1]>("test", "foo").await;
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
-            assert_some!(sockets.iter().find(|s| s.id == id));
+            assert_some!(io.sockets().iter().find(|s| s.id == id));
             async move {}
         })
         .await;
 
         let res = io
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<_, [String; 1]>("test", "foo");
+            .emit_with_ack::<_, [String; 1]>("test", "foo")
+            .await;
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
-            assert_some!(sockets.iter().find(|s| s.id == id));
+            assert_some!(io.sockets().iter().find(|s| s.id == id));
             async move {}
         })
         .await;
@@ -79,12 +79,13 @@ pub async fn broadcast_with_ack() {
         let res = socket
             .broadcast()
             .timeout(Duration::from_millis(500))
-            .emit_with_ack::<_, [String; 1]>("test", "foo");
+            .emit_with_ack::<_, [String; 1]>("test", "foo")
+            .await;
         let res = assert_ok!(res);
         res.for_each(|(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
-            assert_some!(sockets.iter().find(|s| s.id == id));
+            assert_some!(io.sockets().iter().find(|s| s.id == id));
             async move {}
         })
         .await;
