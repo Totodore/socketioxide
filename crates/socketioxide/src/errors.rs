@@ -1,12 +1,12 @@
 use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use serde::{Deserialize, Serialize};
-use socketioxide_core::errors::{AdapterError, SocketError};
 use std::fmt::Debug;
 use tokio::time::error::Elapsed;
 
 pub use matchit::InsertError as NsInsertError;
 
 pub use crate::parser::ParserError;
+pub use socketioxide_core::errors::{AdapterError, BroadcastError, SocketError};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]
@@ -45,21 +45,6 @@ pub enum AckError {
     Socket(#[from] SocketError),
 }
 
-/// Error type for broadcast operations.
-#[derive(thiserror::Error, Debug)]
-pub enum BroadcastError {
-    /// An error occurred while sending packets.
-    #[error("Error sending data through the engine.io socket: {0:?}")]
-    Socket(Vec<SocketError>),
-
-    /// An error occurred while serializing the packet.
-    #[error("Error serializing packet: {0:?}")]
-    Serialize(#[from] ParserError),
-
-    /// An error occured while broadcasting to other nodes.
-    #[error("Adapter error: {0}")]
-    Adapter(#[from] AdapterError),
-}
 /// Error type for sending operations.
 #[derive(thiserror::Error, Debug)]
 pub enum SendError {
@@ -81,30 +66,6 @@ pub enum EmitWithAckError {
     /// An error occurred while broadcasting to other nodes.
     #[error("Adapter error: {0:?}")]
     Adapter(#[from] Box<dyn std::error::Error + Send>),
-}
-
-// impl<T> From<TrySendError<T>> for SocketError {
-//     fn from(value: TrySendError<T>) -> Self {
-//         match value {
-//             TrySendError::Full(_) => Self::InternalChannelFull,
-//             TrySendError::Closed(_) => Self::Closed,
-//         }
-//     }
-// }
-
-impl From<Vec<SocketError>> for BroadcastError {
-    /// Converts a vector of `SendError` into a `BroadcastError`.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - A vector of `SendError` representing the sending errors.
-    ///
-    /// # Returns
-    ///
-    /// A `BroadcastError` containing the sending errors.
-    fn from(value: Vec<SocketError>) -> Self {
-        Self::Socket(value)
-    }
 }
 
 impl From<Elapsed> for AckError {

@@ -6,10 +6,10 @@ use crate::{
     handler::{FromConnectParts, FromDisconnectParts, FromMessageParts},
     packet::Packet,
     socket::{DisconnectReason, Socket},
-    DisconnectError, SendError, SocketIo,
+    SendError, SocketIo,
 };
 use serde::Serialize;
-use socketioxide_core::{parser::Parse, Value};
+use socketioxide_core::{errors::SocketError, parser::Parse, Value};
 
 /// An Extractor that returns a reference to a [`Socket`].
 #[derive(Debug)]
@@ -69,7 +69,7 @@ impl<A: Adapter> SocketRef<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     #[inline(always)]
-    pub fn disconnect(self) -> Result<(), DisconnectError> {
+    pub fn disconnect(self) -> Result<(), SocketError> {
         self.0.disconnect()
     }
 }

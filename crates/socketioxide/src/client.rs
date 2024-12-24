@@ -302,20 +302,13 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .filter_map(|ns| ns.get_socket(socket.id).ok())
             .collect();
 
-        let _res: Result<Vec<_>, _> = socks
+        let _cnt = socks
             .into_iter()
             .map(|s| s.close(reason.clone().into()))
-            .collect();
+            .count();
 
         #[cfg(feature = "tracing")]
-        match _res {
-            Ok(vec) => {
-                tracing::debug!("disconnect handle spawned for {} namespaces", vec.len())
-            }
-            Err(_e) => {
-                tracing::debug!("error while disconnecting socket: {}", _e)
-            }
-        }
+        tracing::debug!("disconnect handle spawned for {_cnt} namespaces");
     }
 
     fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {

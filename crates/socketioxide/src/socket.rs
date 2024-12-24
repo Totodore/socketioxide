@@ -33,7 +33,7 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators},
     parser::Parser,
-    AckError, AdapterError, DisconnectError, SendError, SocketError, SocketIo,
+    AckError, SendError, SocketError, SocketIo,
 };
 use socketioxide_core::{
     adapter::{Room, RoomParam},
@@ -453,13 +453,12 @@ impl<A: Adapter> Socket<A> {
     /// # Disconnect the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set with a [`DisconnectReason::ServerNSDisconnect`].
-    pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
+    pub fn disconnect(self: Arc<Self>) -> Result<(), SocketError> {
         let res = self.send(Packet::disconnect(self.ns.path.clone()));
         if let Err(SocketError::InternalChannelFull) = res {
-            return Err(DisconnectError::InternalChannelFull);
+            return Err(SocketError::InternalChannelFull);
         }
-
-        self.close(DisconnectReason::ServerNSDisconnect)?;
+        self.close(DisconnectReason::ServerNSDisconnect);
         Ok(())
     }
 
@@ -574,7 +573,7 @@ impl<A: Adapter> Socket<A> {
     /// Called when the socket is gracefully disconnected from the server or the client
     ///
     /// It maybe also close when the underlying transport is closed or failed.
-    pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
+    pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) {
         self.set_connected(false);
 
         let handler = { self.disconnect_handler.lock().unwrap().take() };
@@ -586,7 +585,6 @@ impl<A: Adapter> Socket<A> {
         }
 
         self.ns.remove_socket(self.id);
-        Ok(())
     }
 
     /// Receive data from client
@@ -594,9 +592,7 @@ impl<A: Adapter> Socket<A> {
         match packet {
             PacketData::Event(d, ack) | PacketData::BinaryEvent(d, ack) => self.recv_event(d, ack),
             PacketData::EventAck(d, ack) | PacketData::BinaryAck(d, ack) => self.recv_ack(d, ack),
-            PacketData::Disconnect => self
-                .close(DisconnectReason::ClientNSDisconnect)
-                .map_err(Error::from),
+            PacketData::Disconnect => Ok(self.close(DisconnectReason::ClientNSDisconnect)),
             _ => unreachable!(),
         }
     }

@@ -22,7 +22,7 @@ use crate::{
     packet::Packet,
     parser::Parser,
     socket::Socket,
-    BroadcastError, DisconnectError, EmitWithAckError, SendError,
+    BroadcastError, EmitWithAckError, SendError,
 };
 
 use socketioxide_core::{
@@ -238,11 +238,15 @@ impl<A: Adapter> BroadcastOperators<A> {
     ) -> impl Future<Output = Result<(), BroadcastError>> + Send {
         let packet = self.get_packet(event, data);
         async move {
-            if let Err(e) = self.ns.adapter.broadcast(packet?, self.opts).await {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("broadcast error: {e:?}");
-                return Err(BroadcastError::Socket(e));
-            }
+            self.ns
+                .adapter
+                .broadcast(packet?, self.opts)
+                .await
+                .map_err(|e| {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("broadcast error: {e}");
+                    e
+                })?;
             Ok(())
         }
     }
@@ -276,7 +280,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
 
     #[doc = include_str!("../docs/operators/disconnect.md")]
-    pub async fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
+    pub async fn disconnect(self) -> Result<(), BroadcastError> {
         self.ns.adapter.disconnect_socket(self.opts).await
     }
 

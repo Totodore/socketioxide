@@ -559,7 +559,7 @@ mod test {
             StubAckStream
         }
 
-        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<DisconnectError>> {
+        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<SocketError>> {
             Ok(())
         }
 
