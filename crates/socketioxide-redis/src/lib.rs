@@ -53,7 +53,7 @@ use socketioxide_core::{
         AckStreamItem, BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, Room,
         RoomParam, SocketEmitter,
     },
-    errors::{AdapterError, BroadcastError, DisconnectError},
+    errors::{AdapterError, BroadcastError},
     packet::Packet,
     Sid,
 };
@@ -261,9 +261,9 @@ impl<Err: DeserializeOwned + fmt::Debug, S: Stream<Item = AckStreamItem<Err>> + 
     /// * All the servers have sent the expected ack count.
     /// * We have received all the expected acks.
     fn is_terminated(&self) -> bool {
-        self.local.is_terminated()
-            && ((self.ack_cnt == 0 && self.serv_cnt == 0) || self.remote.is_stopped())
         // remote stream is terminated if the timeout is reached
+        let remote_term = (self.ack_cnt == 0 && self.serv_cnt == 0) || self.remote.is_terminated();
+        self.local.is_terminated() && remote_term
     }
 }
 
@@ -566,14 +566,14 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
         Ok(AckStream::new(local, remote, timeout, remote_serv_cnt))
     }
 
-    async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), DisconnectError> {
+    async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
         if !opts.has_flag(BroadcastFlags::Local) {
             let req = RequestOut::new(self.uid, RequestTypeOut::DisconnectSockets, &opts);
             self.send_req(req).await.map_err(AdapterError::from)?;
         }
         self.local
             .disconnect_socket(opts)
-            .map_err(DisconnectError::InternalChannelFull)?;
+            .map_err(BroadcastError::Socket)?;
 
         Ok(())
     }
