@@ -3,10 +3,8 @@ mod utils;
 use bytes::Bytes;
 use engineioxide::Packet::*;
 use serde::Serialize;
-use socketioxide::{
-    extract::SocketRef, handler::ConnectHandler, packet::Packet, SendError, SocketError, SocketIo,
-};
-use socketioxide_core::{parser::Parse, Value};
+use socketioxide::{extract::SocketRef, handler::ConnectHandler, SendError, SocketError, SocketIo};
+use socketioxide_core::{packet::Packet, parser::Parse, Value};
 use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
 

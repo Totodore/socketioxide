@@ -16,7 +16,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    errors::{AdapterError, DisconnectError, SocketError},
+    errors::{AdapterError, BroadcastError, SocketError},
     packet::Packet,
     parser::Parse,
     Value,
@@ -180,7 +180,7 @@ pub trait SocketEmitter: Send + Sync + 'static {
         timeout: Option<Duration>,
     ) -> Self::AckStream;
     /// Disconnect all the sockets in the list.
-    fn disconnect_many(&self, sid: Vec<Sid>) -> Result<(), Vec<DisconnectError>>;
+    fn disconnect_many(&self, sid: Vec<Sid>) -> Result<(), Vec<SocketError>>;
     /// Get the path of the namespace.
     fn path(&self) -> &Str;
     /// Get the parser of the namespace.
@@ -227,8 +227,12 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         &self,
         packet: Packet,
         opts: BroadcastOptions,
-    ) -> impl Future<Output = Result<(), Vec<SocketError>>> + Send {
-        future::ready(self.get_local().broadcast(packet, opts))
+    ) -> impl Future<Output = Result<(), BroadcastError>> + Send {
+        future::ready(
+            self.get_local()
+                .broadcast(packet, opts)
+                .map_err(BroadcastError::from),
+        )
     }
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`]
@@ -267,8 +271,12 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
     fn disconnect_socket(
         &self,
         opts: BroadcastOptions,
-    ) -> impl Future<Output = Result<(), Vec<DisconnectError>>> + Send {
-        future::ready(self.get_local().disconnect_socket(opts))
+    ) -> impl Future<Output = Result<(), BroadcastError>> + Send {
+        future::ready(
+            self.get_local()
+                .disconnect_socket(opts)
+                .map_err(BroadcastError::Socket),
+        )
     }
 
     /// Returns all the rooms for this adapter.
@@ -280,6 +288,7 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
     fn get_local(&self) -> &CoreLocalAdapter<E>;
 
     //TODO: implement
+    // fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<RemoteSocket>, Error>;
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
     // fn persist_session(&self, sid: i64);
     // fn restore_session(&self, sid: i64) -> Session;
@@ -418,7 +427,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     }
 
     /// Disconnects the sockets that match the [`BroadcastOptions`].
-    pub fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<DisconnectError>> {
+    pub fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<SocketError>> {
         let sids = self.apply_opts(opts);
         self.sockets.disconnect_many(sids)
     }
@@ -550,7 +559,7 @@ mod test {
             StubAckStream
         }
 
-        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<DisconnectError>> {
+        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<SocketError>> {
             Ok(())
         }
 

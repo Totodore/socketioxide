@@ -6,12 +6,10 @@
 //! There is two types of operators:
 //! * [`ConfOperators`]: Chainable operators to configure the message to be sent.
 //! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
-use std::future::Future;
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use engineioxide::sid::Sid;
 use serde::Serialize;
-use socketioxide_core::parser::ParserError;
 
 use crate::{
     ack::{AckInnerStream, AckStream},
@@ -19,15 +17,15 @@ use crate::{
     adapter::LocalAdapter,
     extract::SocketRef,
     ns::Namespace,
-    packet::Packet,
     parser::Parser,
     socket::Socket,
-    BroadcastError, DisconnectError, EmitWithAckError, SendError,
+    BroadcastError, EmitWithAckError, SendError,
 };
 
 use socketioxide_core::{
     adapter::{BroadcastFlags, BroadcastOptions, Room, RoomParam},
-    parser::Parse,
+    packet::Packet,
+    parser::{Parse, ParserError},
 };
 
 /// Chainable operators to configure the message to be sent.
@@ -238,11 +236,15 @@ impl<A: Adapter> BroadcastOperators<A> {
     ) -> impl Future<Output = Result<(), BroadcastError>> + Send {
         let packet = self.get_packet(event, data);
         async move {
-            if let Err(e) = self.ns.adapter.broadcast(packet?, self.opts).await {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("broadcast error: {e:?}");
-                return Err(BroadcastError::Socket(e));
-            }
+            self.ns
+                .adapter
+                .broadcast(packet?, self.opts)
+                .await
+                .map_err(|e| {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("broadcast error: {e}");
+                    e
+                })?;
             Ok(())
         }
     }
@@ -276,7 +278,7 @@ impl<A: Adapter> BroadcastOperators<A> {
     }
 
     #[doc = include_str!("../docs/operators/disconnect.md")]
-    pub async fn disconnect(self) -> Result<(), Vec<DisconnectError>> {
+    pub async fn disconnect(self) -> Result<(), BroadcastError> {
         self.ns.adapter.disconnect_socket(self.opts).await
     }
 
