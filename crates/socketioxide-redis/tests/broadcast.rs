@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use socketioxide::{adapter::Adapter, extract::SocketRef};
 mod fixture;
 
@@ -100,6 +102,51 @@ pub async fn broadcast_with_ack() {
     let packet_res = r#"431["foo"]"#.to_string().try_into().unwrap();
     tx2.try_send(packet_res).unwrap();
     assert_eq!(timeout_rcv!(&mut rx1), r#"42["ack_res",{"Ok":"foo"}]"#);
+
+    timeout_rcv_err!(&mut rx1);
+    timeout_rcv_err!(&mut rx2);
+}
+
+#[tokio::test]
+pub async fn broadcast_with_ack_timeout() {
+    use futures_util::StreamExt;
+    const TIMEOUT: Duration = Duration::from_millis(50);
+
+    async fn handler<A: Adapter>(socket: SocketRef<A>) {
+        socket
+            .broadcast()
+            .emit_with_ack::<_, String>("test", "bar")
+            .await
+            .unwrap()
+            .for_each(|(_, res)| {
+                socket.emit("ack_res", &res).unwrap();
+                async move {}
+            })
+            .await;
+        dbg!("sending");
+        socket.emit("ack_res", "timeout").unwrap();
+        dbg!("dropped stream");
+    }
+
+    let [io1, io2] = fixture::spawn_buggy_servers(TIMEOUT);
+
+    io1.ns("/", handler);
+    io2.ns("/", || ());
+
+    let now = std::time::Instant::now();
+    let ((_tx1, mut rx1), (_tx2, mut rx2)) =
+        tokio::join!(io1.new_dummy_sock("/", ()), io2.new_dummy_sock("/", ()));
+
+    timeout_rcv!(&mut rx1); // Connect "/" packet
+    timeout_rcv!(&mut rx2); // Connect "/" packet
+
+    assert_eq!(timeout_rcv!(&mut rx2), r#"421["test","bar"]"#); // emit with ack message
+                                                                // We do not answer
+    assert_eq!(
+        timeout_rcv!(&mut rx1, TIMEOUT.as_millis() as u64 + 100),
+        r#"42["ack_res","timeout"]"#
+    );
+    assert!(dbg!(now.elapsed()) >= TIMEOUT);
 
     timeout_rcv_err!(&mut rx1);
     timeout_rcv_err!(&mut rx2);
