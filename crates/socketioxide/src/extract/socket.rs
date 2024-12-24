@@ -4,12 +4,11 @@ use std::sync::Arc;
 use crate::{
     adapter::{Adapter, LocalAdapter},
     handler::{FromConnectParts, FromDisconnectParts, FromMessageParts},
-    packet::Packet,
     socket::{DisconnectReason, Socket},
     SendError, SocketIo,
 };
 use serde::Serialize;
-use socketioxide_core::{errors::SocketError, parser::Parse, Value};
+use socketioxide_core::{errors::SocketError, packet::Packet, parser::Parse, Value};
 
 /// An Extractor that returns a reference to a [`Socket`].
 #[derive(Debug)]

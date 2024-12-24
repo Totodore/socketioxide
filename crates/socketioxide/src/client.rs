@@ -10,22 +10,20 @@ use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use matchit::{Match, Router};
+use socketioxide_core::packet::{Packet, PacketData};
 use socketioxide_core::parser::{Parse, ParserState};
 use socketioxide_core::Value;
 use tokio::sync::oneshot;
 
-use crate::adapter::Adapter;
-use crate::handler::ConnectHandler;
-use crate::ns::NamespaceCtr;
-use crate::parser::{ParseError, Parser};
-use crate::socket::DisconnectReason;
 use crate::{
+    adapter::Adapter,
     errors::Error,
-    ns::Namespace,
-    packet::{Packet, PacketData},
-    SocketIoConfig,
+    handler::ConnectHandler,
+    ns::{Namespace, NamespaceCtr},
+    parser::{ParseError, Parser},
+    socket::DisconnectReason,
+    ProtocolVersion, SocketIo, SocketIoConfig,
 };
-use crate::{ProtocolVersion, SocketIo};
 
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,

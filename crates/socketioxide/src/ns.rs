@@ -10,12 +10,12 @@ use crate::{
     client::SocketData,
     errors::{ConnectFail, Error},
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
-    packet::{ConnectPacket, Packet, PacketData},
     parser::Parser,
     socket::{DisconnectReason, Socket},
     ProtocolVersion,
 };
 use engineioxide::{sid::Sid, Str};
+use socketioxide_core::packet::{ConnectPacket, Packet, PacketData};
 use socketioxide_core::{
     adapter::{CoreLocalAdapter, SocketEmitter},
     errors::SocketError,

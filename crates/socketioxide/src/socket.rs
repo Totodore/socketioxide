@@ -592,7 +592,10 @@ impl<A: Adapter> Socket<A> {
         match packet {
             PacketData::Event(d, ack) | PacketData::BinaryEvent(d, ack) => self.recv_event(d, ack),
             PacketData::EventAck(d, ack) | PacketData::BinaryAck(d, ack) => self.recv_ack(d, ack),
-            PacketData::Disconnect => Ok(self.close(DisconnectReason::ClientNSDisconnect)),
+            PacketData::Disconnect => {
+                self.close(DisconnectReason::ClientNSDisconnect);
+                Ok(())
+            }
             _ => unreachable!(),
         }
     }

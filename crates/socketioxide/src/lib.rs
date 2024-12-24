@@ -348,8 +348,6 @@ pub use errors::{
     SendError, SocketError,
 };
 pub use io::{ParserConfig, SocketIo, SocketIoBuilder, SocketIoConfig};
-//TODO: remove packet export
-pub use socketioxide_core::packet;
 
 mod client;
 mod errors;

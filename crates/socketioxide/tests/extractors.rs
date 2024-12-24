@@ -12,8 +12,8 @@ use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
 
 use engineioxide::Packet as EioPacket;
-use socketioxide::packet::Packet;
 use socketioxide::SocketIo;
+use socketioxide_core::packet::Packet;
 mod fixture;
 mod utils;
 
