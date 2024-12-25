@@ -144,19 +144,13 @@ impl AckInnerStream {
     ///
     /// The [`AckInnerStream`] will wait for the default timeout specified in the config
     /// (5s by default) if no custom timeout is specified.
-    pub fn broadcast<A: Adapter>(
+    pub fn broadcast<'a, A: Adapter>(
         packet: Packet,
-        sockets: Vec<Arc<Socket<A>>>,
-        duration: Option<Duration>,
+        sockets: impl Iterator<Item = &'a Arc<Socket<A>>>,
+        duration: Duration,
     ) -> Self {
         let rxs = FuturesUnordered::new();
 
-        if sockets.is_empty() {
-            return AckInnerStream::Stream { rxs };
-        }
-
-        let duration =
-            duration.unwrap_or_else(|| sockets.first().unwrap().get_io().config().ack_timeout);
         for socket in sockets {
             let rx = socket.send_with_ack(packet.clone());
             rxs.push(AckResultWithId {
@@ -312,6 +306,7 @@ mod test {
             Self::new(val, Parser::default())
         }
     }
+    const TIMEOUT: Duration = Duration::from_secs(5);
 
     #[tokio::test]
     async fn broadcast_ack() {
@@ -319,9 +314,9 @@ mod test {
         let socket2 = create_socket();
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
-        let socks = vec![socket.clone().into(), socket2.clone().into()];
+        let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks, None).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT).into();
 
         let res_packet = Packet::ack("test", value("test"), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
@@ -365,9 +360,9 @@ mod test {
         let socket2 = create_socket();
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
-        let socks = vec![socket.clone().into(), socket2.clone().into()];
+        let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks, None).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT).into();
 
         let res_packet = Packet::ack("test", value(132), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
@@ -422,9 +417,9 @@ mod test {
         let socket2 = create_socket();
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
-        let socks = vec![socket.clone().into(), socket2.clone().into()];
+        let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks, None).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT).into();
 
         let res_packet = Packet::ack("test", value("test"), 1);
         socket.clone().recv(res_packet.inner.clone()).unwrap();
@@ -478,9 +473,9 @@ mod test {
         let socket2 = create_socket();
         let mut packet = get_packet();
         packet.inner.set_ack_id(1);
-        let socks = vec![socket.clone().into(), socket2.clone().into()];
+        let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks, Some(Duration::from_millis(10))).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), Duration::from_millis(10)).into();
 
         socket
             .recv(Packet::ack("test", value("test"), 1).inner)

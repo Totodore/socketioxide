@@ -171,16 +171,16 @@ pub trait SocketEmitter: Send + Sync + 'static {
     /// Get all the socket ids in the namespace.
     fn get_all_sids(&self) -> Vec<Sid>;
     /// Send data to the list of socket ids.
-    fn send_many(&self, sids: Vec<Sid>, data: Value) -> Result<(), Vec<SocketError>>;
+    fn send_many(&self, sids: &[Sid], data: Value) -> Result<(), Vec<SocketError>>;
     /// Send data to the list of socket ids and get a stream of acks.
     fn send_many_with_ack(
         &self,
-        sids: Vec<Sid>,
+        sids: &[Sid],
         packet: Packet,
         timeout: Option<Duration>,
     ) -> Self::AckStream;
     /// Disconnect all the sockets in the list.
-    fn disconnect_many(&self, sid: Vec<Sid>) -> Result<(), Vec<SocketError>>;
+    fn disconnect_many(&self, sid: &[Sid]) -> Result<(), Vec<SocketError>>;
     /// Get the path of the namespace.
     fn path(&self) -> &Str;
     /// Get the parser of the namespace.
@@ -373,7 +373,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         }
 
         let data = self.sockets.parser().encode(packet);
-        self.sockets.send_many(sids, data)
+        self.sockets.send_many(&sids, data)
     }
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
@@ -390,13 +390,13 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
 
         let count = sids.len() as u32;
         // We cannot pre-serialize the packet because we need to change the ack id.
-        let stream = self.sockets.send_many_with_ack(sids, packet, timeout);
+        let stream = self.sockets.send_many_with_ack(&sids, packet, timeout);
         (stream, count)
     }
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
     pub fn sockets(&self, opts: BroadcastOptions) -> Vec<Sid> {
-        self.apply_opts(opts)
+        self.apply_opts(opts).into_vec()
     }
 
     //TODO: make this operation O(1)
@@ -429,7 +429,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     /// Disconnects the sockets that match the [`BroadcastOptions`].
     pub fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<SocketError>> {
         let sids = self.apply_opts(opts);
-        self.sockets.disconnect_many(sids)
+        self.sockets.disconnect_many(&sids)
     }
 
     /// Returns all the rooms for this adapter.
@@ -450,11 +450,12 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
 
 impl<E: SocketEmitter> CoreLocalAdapter<E> {
     /// Applies the given `opts` and return the sockets that match.
-    fn apply_opts(&self, opts: BroadcastOptions) -> Vec<Sid> {
+    fn apply_opts(&self, opts: BroadcastOptions) -> SmallVec<[Sid; 16]> {
         let is_broadcast = opts.has_flag(BroadcastFlags::Broadcast);
         let rooms = opts.rooms;
 
         let except = self.get_except_sids(&opts.except);
+        let is_socket_current = |id| opts.sid.map(|s| s != id).unwrap_or(true);
         if !rooms.is_empty() {
             let rooms_map = self.rooms.read().unwrap();
             rooms
@@ -462,21 +463,18 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
                 .filter_map(|room| rooms_map.get(room))
                 .flatten()
                 .copied()
-                .filter(|id| {
-                    !except.contains(id)
-                        && (!is_broadcast || opts.sid.map(|s| &s != id).unwrap_or(true))
-                })
+                .filter(|id| !except.contains(id) && (!is_broadcast || is_socket_current(*id)))
                 .collect()
         } else if is_broadcast {
             self.sockets
                 .get_all_sids()
                 .into_iter()
-                .filter(|id| !except.contains(id) && opts.sid.map(|s| &s != id).unwrap_or(true))
+                .filter(|id| !except.contains(id) && is_socket_current(*id))
                 .collect()
         } else if let Some(id) = opts.sid {
-            vec![id]
+            smallvec::smallvec![id]
         } else {
-            vec![]
+            smallvec::smallvec![]
         }
     }
 
