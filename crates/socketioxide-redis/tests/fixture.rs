@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use socketioxide::adapter::Emitter;
 use socketioxide::SocketIo;
-use socketioxide_redis::drivers::test::StubDriver;
-use socketioxide_redis::{RedisAdapter, RedisAdapterConfig, RedisAdapterState};
+use socketioxide_redis::drivers::__test_harness::StubDriver;
+use socketioxide_redis::{RedisAdapter, RedisAdapterConfig, RedisAdapterCtr};
 
 /// Spawns a number of servers with a stub driver for testing.
 /// Every server will be connected to every other server.
@@ -27,8 +27,7 @@ pub fn spawn_servers<const N: usize>() -> [SocketIo<RedisAdapter<Emitter, StubDr
             }
         });
 
-        let driver = Arc::new(driver);
-        let adapter = RedisAdapterState::new(driver.clone(), RedisAdapterConfig::default());
+        let adapter = RedisAdapterCtr::new_with_driver(driver, RedisAdapterConfig::default());
         let (_svc, io) = SocketIo::builder()
             .with_adapter::<RedisAdapter<_, _>>(adapter)
             .build_svc();
@@ -59,9 +58,8 @@ pub fn spawn_buggy_servers<const N: usize>(
             }
         });
 
-        let config = RedisAdapterConfig::default().with_request_timeout(timeout);
-        let driver = Arc::new(driver);
-        let adapter = RedisAdapterState::new(driver.clone(), config);
+        let config = RedisAdapterConfig::new().with_request_timeout(timeout);
+        let adapter = RedisAdapterCtr::new_with_driver(driver, config);
         let (_svc, io) = SocketIo::builder()
             .with_adapter::<RedisAdapter<_, _>>(adapter)
             .build_svc();

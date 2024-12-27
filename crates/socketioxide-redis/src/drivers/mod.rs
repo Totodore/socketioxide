@@ -8,8 +8,7 @@ use tokio::sync::mpsc;
 pub mod redis;
 
 pin_project! {
-    /// A stream of messages received from a channel.
-    ///
+    /// A stream of raw messages received from a channel.
     /// Messages are encoded with msgpack.
     #[derive(Debug)]
     pub struct MessageStream {
@@ -40,7 +39,8 @@ impl Stream for MessageStream {
 }
 
 /// The driver trait can be used to support different pub/sub backends.
-pub trait Driver: Send + Sync + 'static {
+/// It must share handlers/connection between its clones.
+pub trait Driver: Clone + Send + Sync + 'static {
     /// The error type for the driver.
     type Error: std::error::Error + Send + 'static;
 
@@ -66,7 +66,7 @@ pub trait Driver: Send + Sync + 'static {
 
 #[doc(hidden)]
 #[cfg(feature = "__test_harness")]
-pub mod test {
+pub mod __test_harness {
     use std::{
         collections::HashMap,
         future::Future,
@@ -78,6 +78,7 @@ pub mod test {
     use super::MessageStream;
 
     type ChanItem = (String, Vec<u8>);
+    #[derive(Debug, Clone)]
     pub struct StubDriver {
         tx: mpsc::Sender<ChanItem>,
         handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,

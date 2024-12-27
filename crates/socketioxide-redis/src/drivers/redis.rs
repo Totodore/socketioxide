@@ -80,7 +80,7 @@ async fn watch_handler(
 
 impl RedisDriver {
     /// Create a new redis driver from a redis client.
-    pub async fn new(client: redis::Client) -> Result<Self, RedisError> {
+    pub async fn new(client: redis::Client) -> Result<Self, redis::RedisError> {
         let (tx, rx) = mpsc::unbounded_channel();
         let config = redis::AsyncConnectionConfig::new().set_push_sender(tx);
         let conn = client

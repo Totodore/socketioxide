@@ -29,7 +29,50 @@
     missing_docs
 )]
 
-//! A redis adapter implementation for the socketioxide crate.
+//! # A redis adapter implementation for the socketioxide crate.
+//! The adapter is used to communicate with other nodes of the same application.
+//! This allows to broadcast messages to sockets connected on other servers,
+//! to get the list of rooms, to add or remove sockets from rooms, etc.
+//!
+//! To do so, the adapter uses a pub/sub system through redis to communicate with the other servers.
+//!
+//! The [`Driver`] abstraction allows to use any redis client.
+//! The provided default implementation uses the [`redis`] crate.
+//!
+//! <div class="warning">
+//!     The provided driver implementation is using <code>RESP3</code> for efficiency purposes.
+//!     Make sure your redis server supports it  (redis v7 and above).
+//!     If not, you can implement your own driver using the <code>RESP2</code> protocol.
+//! </div>
+//!
+//! # How does it work?
+//!
+//! An adapter is created for each created namespace and it takes a corresponding [`CoreLocalAdapter`].
+//! The [`CoreLocalAdapter`] allows to manage the local rooms and local sockets. The default `LocalAdapter`
+//! is simply a wrapper around this [`CoreLocalAdapter`].
+//!
+//! The adapter is then initialized with the [`RedisAdapter::init`] method.
+//! This method subscribes to a *request* channel specific to the namespace with
+//! the format `"{prefix}-request#{namespace}"`.
+//! All requests are broadcasted to this channel and will be received by all the servers.
+//! If the request is not for this local server, it will be ignored. Otherwise it will be handled.
+//!
+//! There are 6 types of requests:
+//! * Broadcast a packet to all the matching sockets.
+//! * Broadcast a packet to all the matching sockets and wait for a stream of acks.
+//! * Disconnect matching sockets.
+//! * Get all the rooms.
+//! * Add matching sockets to rooms.
+//! * Remove matching sockets to rooms.
+//!
+//! For requests expecting a response, the adapter will send a response to a *response* channel specific to the
+//! request with the format `"{prefix}-response#{namespace}#{uid}#{req_id}"`. `uid` is the unique identifier of the
+//! server that sent the request and `req_id` is the unique identifier of the request.
+//! For ack streams, the adapter will first send a `BroadcastAckCount` response to the server that sent the request,
+//! and then send the acks as they are received (more details in [`RedisAdapter::broadcast_with_ack`] fn).
+//!
+//! On the other side, each time an action has to be performed on the local server, the adapter will
+//! first broadcast a request to all the servers and then perform the action locally.
 
 use std::{
     borrow::Cow,
@@ -100,11 +143,14 @@ impl<R: Driver> From<Error<R>> for AdapterError {
     }
 }
 
-/// The adapter config
+/// The configuration of the [`RedisAdapter`].
 #[derive(Debug, Clone)]
 pub struct RedisAdapterConfig {
-    request_timeout: Duration,
-    prefix: Cow<'static, str>,
+    /// The request timeout. It is mainly used when expecting response such as when using
+    /// `broadcast_with_ack` or `rooms`. Default is 5 seconds.
+    pub request_timeout: Duration,
+    /// The prefix used for the channels. Default is "socket.io".
+    pub prefix: Cow<'static, str>,
 }
 impl RedisAdapterConfig {
     /// Create a new config.
@@ -133,18 +179,48 @@ impl Default for RedisAdapterConfig {
     }
 }
 
-/// The adapter state
-#[derive(Clone)]
-pub struct RedisAdapterState<R = RedisDriver> {
-    driver: Arc<R>,
+/// The adapter constructor. For each namespace you define, a new adapter instance is created
+/// from this constructor.
+#[derive(Debug)]
+pub struct RedisAdapterCtr<R = RedisDriver> {
+    driver: R,
     config: RedisAdapterConfig,
 }
 
-/// The redis adapter
+impl RedisAdapterCtr {
+    /// Create a new adapter with the default [`redis`] driver and config.
+    pub async fn new(client: redis::Client) -> redis::RedisResult<Self> {
+        let driver = RedisDriver::new(client).await?;
+        let config = RedisAdapterConfig::default();
+        Ok(Self::new_with_driver(driver, config))
+    }
+    /// Create a new adapter with the default [`redis`] driver and a custom config.
+    pub async fn new_with_config(
+        client: redis::Client,
+        config: RedisAdapterConfig,
+    ) -> redis::RedisResult<RedisAdapterCtr> {
+        let driver = RedisDriver::new(client).await?;
+        Ok(Self::new_with_driver(driver, config))
+    }
+}
+impl<R: Driver> RedisAdapterCtr<R> {
+    /// Create a new adapter with a custom redis/valkey driver and a config.
+    ///
+    /// You can implement your own driver by implementing the [`Driver`] trait with any redis/valkey client.
+    /// Check the [`drivers`] module for more information.
+    pub fn new_with_driver(driver: R, config: RedisAdapterConfig) -> RedisAdapterCtr<R> {
+        RedisAdapterCtr { driver, config }
+    }
+}
+
+/// The redis adapter implementation.
+/// It is generic over the [`Driver`] used to communicate with the redis server.
+/// And over the [`SocketEmitter`] used to communicate with the local server. This allows to
+/// avoid cyclic dependencies between the adapter, `socketioxide-core` and `socketioxide` crates.
 pub struct RedisAdapter<E, R = RedisDriver> {
     /// The driver used by the adapter. This is used to communicate with the redis server.
     /// All the redis adapter instances share the same driver.
-    driver: Arc<R>,
+    driver: R,
     /// The configuration of the adapter.
     config: RedisAdapterConfig,
     /// A unique identifier for the adapter to identify itself in the redis server.
@@ -156,27 +232,21 @@ pub struct RedisAdapter<E, R = RedisDriver> {
     req_chan: String,
 }
 
-impl<D: Driver> RedisAdapterState<D> {
-    /// Create a new redis adapter state.
-    pub fn new(driver: Arc<D>, config: RedisAdapterConfig) -> Self {
-        Self { driver, config }
-    }
-}
-
 pin_project! {
     /// A stream of acknowledgement messages received from the local and remote servers.
-    /// The server_cnt is the number of servers that are expected to send a AckCount message.
-    /// It is decremented each time a AckCount message is received.
-    /// The ack_cnt is the number of acks that are expected to be received. It is the sum of all the the ack counts.
-    /// And it is decremented each time an ack is received.
-    ///
-    /// Therefore an exhausted stream correspond to ack_cnt == 0 and server_cnt == 0.
+    /// It merges the local ack stream with the remote ack stream from all the servers.
+    // The server_cnt is the number of servers that are expected to send a AckCount message.
+    // It is decremented each time a AckCount message is received.
+    //
+    // The ack_cnt is the number of acks that are expected to be received. It is the sum of all the the ack counts.
+    // And it is decremented each time an ack is received.
+    //
+    // Therefore an exhausted stream correspond to `ack_cnt == 0` and `server_cnt == 0`.
     pub struct AckStream<S> {
         #[pin]
         local: S,
         #[pin]
         remote: TakeUntil<MessageStream, time::Sleep>,
-
         ack_cnt: u32,
 
         serv_cnt: u16,
@@ -267,7 +337,7 @@ impl<Err: DeserializeOwned + fmt::Debug, S: Stream<Item = AckStreamItem<Err>> + 
     }
 }
 
-impl<E: SocketEmitter, R> RedisAdapter<E, R> {
+impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
     /// Build a response channel for a request.
     ///
     /// The uid is used to identify the server that sent the request.
@@ -277,9 +347,7 @@ impl<E: SocketEmitter, R> RedisAdapter<E, R> {
         let prefix = &self.config.prefix;
         format!("{}-response#{}#{}#{}#", prefix, path, uid, req_id)
     }
-}
 
-impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
     /// Handle a generic request received from the request channel.
     fn recv_req(self: &Arc<Self>, item: Vec<u8>) -> Result<(), Error<R>> {
         let req: RequestIn = rmp_serde::from_slice(&item)?;
@@ -447,17 +515,17 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
 
 impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     type Error = Error<R>;
-    type State = RedisAdapterState<R>;
+    type State = RedisAdapterCtr<R>;
     type AckStream = AckStream<E::AckStream>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
         let req_chan = format!("{}-request#{}#", state.config.prefix, local.path());
         Self {
             local,
+            req_chan,
+            uid: Sid::new(),
             driver: state.driver.clone(),
             config: state.config.clone(),
-            uid: Sid::new(),
-            req_chan,
         }
     }
 
@@ -496,8 +564,6 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     }
 
     /// Broadcast a packet to all the servers to send them through their sockets.
-    ///
-    /// Currently, the errors are only returned for the local server.
     async fn broadcast(
         &self,
         packet: Packet,

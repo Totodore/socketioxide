@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
@@ -8,9 +8,7 @@ use socketioxide::{
     extract::{AckSender, Data, SocketRef},
     SocketIo,
 };
-use socketioxide_redis::{
-    drivers::redis::RedisDriver, RedisAdapter, RedisAdapterConfig, RedisAdapterState,
-};
+use socketioxide_redis::{RedisAdapter, RedisAdapterCtr};
 use tokio::net::TcpListener;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -65,8 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3").unwrap();
-    let driver = RedisDriver::new(client).await.unwrap();
-    let adapter = RedisAdapterState::new(Arc::from(driver), RedisAdapterConfig::default());
+    let adapter = RedisAdapterCtr::new(client).await.unwrap();
 
     let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
@@ -74,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ack_timeout(Duration::from_millis(200))
         .connect_timeout(Duration::from_millis(1000))
         .max_payload(1e6 as u64)
-        .with_adapter::<RedisAdapter<_, RedisDriver>>(adapter)
+        .with_adapter::<RedisAdapter<_>>(adapter)
         .build_svc();
 
     io.ns("/", on_connect);

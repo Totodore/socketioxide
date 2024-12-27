@@ -1,3 +1,5 @@
+//! Custom request and response types for the Redis adapter.
+//! Custom serialization/deserialization to reduce the size of the messages.
 use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     adapter::{BroadcastOptions, Room},
