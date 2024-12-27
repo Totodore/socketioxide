@@ -42,7 +42,7 @@ use std::{
     time::Duration,
 };
 
-use drivers::{Driver, MessageStream};
+use drivers::{redis::RedisDriver, Driver, MessageStream};
 use futures_core::{FusedStream, Stream};
 use futures_util::{stream::TakeUntil, StreamExt};
 use pin_project_lite::pin_project;
@@ -135,13 +135,13 @@ impl Default for RedisAdapterConfig {
 
 /// The adapter state
 #[derive(Clone)]
-pub struct RedisAdapterState<R> {
+pub struct RedisAdapterState<R = RedisDriver> {
     driver: Arc<R>,
     config: RedisAdapterConfig,
 }
 
 /// The redis adapter
-pub struct RedisAdapter<E, R> {
+pub struct RedisAdapter<E, R = RedisDriver> {
     /// The driver used by the adapter. This is used to communicate with the redis server.
     /// All the redis adapter instances share the same driver.
     driver: Arc<R>,
