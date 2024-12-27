@@ -148,17 +148,20 @@ impl AckInnerStream {
         packet: Packet,
         sockets: impl Iterator<Item = &'a Arc<Socket<A>>>,
         duration: Duration,
-    ) -> Self {
+    ) -> (Self, u32) {
         let rxs = FuturesUnordered::new();
-
+        let mut count = 0;
         for socket in sockets {
             let rx = socket.send_with_ack(packet.clone());
             rxs.push(AckResultWithId {
                 result: tokio::time::timeout(duration, rx),
                 id: socket.id,
             });
+            count += 1;
         }
-        AckInnerStream::Stream { rxs }
+        #[cfg(feature = "tracing")]
+        tracing::debug!("broadcast with ack to {count} sockets");
+        (AckInnerStream::Stream { rxs }, count)
     }
 
     /// Creates a new [`AckInnerStream`] from a [`oneshot::Receiver`](tokio) corresponding to the acknowledgement
@@ -316,7 +319,9 @@ mod test {
         packet.inner.set_ack_id(1);
         let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT)
+                .0
+                .into();
 
         let res_packet = Packet::ack("test", value("test"), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
@@ -362,7 +367,9 @@ mod test {
         packet.inner.set_ack_id(1);
         let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT)
+                .0
+                .into();
 
         let res_packet = Packet::ack("test", value(132), 1);
         socket.recv(res_packet.inner.clone()).unwrap();
@@ -419,7 +426,9 @@ mod test {
         packet.inner.set_ack_id(1);
         let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), TIMEOUT)
+                .0
+                .into();
 
         let res_packet = Packet::ack("test", value("test"), 1);
         socket.clone().recv(res_packet.inner.clone()).unwrap();
@@ -475,7 +484,9 @@ mod test {
         packet.inner.set_ack_id(1);
         let socks = vec![&socket, &socket2];
         let stream: AckStream<String, LocalAdapter> =
-            AckInnerStream::broadcast(packet, socks.into_iter(), Duration::from_millis(10)).into();
+            AckInnerStream::broadcast(packet, socks.into_iter(), Duration::from_millis(10))
+                .0
+                .into();
 
         socket
             .recv(Packet::ack("test", value("test"), 1).inner)
