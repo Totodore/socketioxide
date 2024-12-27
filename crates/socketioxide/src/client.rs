@@ -82,7 +82,7 @@ impl<A: Adapter> Client<A> {
             // We have to create a new `Str` otherwise, we would keep a ref to the original connect packet
             // for the entire lifetime of the Namespace.
             let path = Str::copy_from_slice(&ns_path);
-            let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, self.config.parser);
+            let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, &self.config);
             let this = self.clone();
             let esocket = esocket.clone();
             tokio::spawn(async move {
@@ -157,12 +157,7 @@ impl<A: Adapter> Client<A> {
         tracing::debug!("adding namespace {}", path);
 
         let ns_path = Str::from(&path);
-        let ns = Namespace::new(
-            ns_path.clone(),
-            callback,
-            &self.adapter_state,
-            self.config.parser,
-        );
+        let ns = Namespace::new(ns_path.clone(), callback, &self.adapter_state, &self.config);
         // We spawn the adapter init task and therefore it might fail but the namespace is still added.
         // The best solution would be to make the fn async and returning the error to the user.
         // However this would require all .ns() calls to be async.
@@ -472,12 +467,7 @@ mod test {
     #[tokio::test]
     async fn get_ns() {
         let client = create_client();
-        let ns = Namespace::new(
-            Str::from("/"),
-            || {},
-            &client.adapter_state,
-            client.config.parser,
-        );
+        let ns = Namespace::new(Str::from("/"), || {}, &client.adapter_state, &client.config);
         client.nsps.write().unwrap().insert(Str::from("/"), ns);
         assert!(client.get_ns("/").is_some());
     }
