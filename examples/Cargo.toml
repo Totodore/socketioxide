@@ -14,3 +14,5 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 axum = "0.7.5"
 hyper-util.version = "0.1.1"
 hyper = { version = "1.0.1", features = ["http1", "server"] }
+socketioxide = { path = "../crates/socketioxide" }
+socketioxide-redis = { path = "../crates/socketioxide-redis" }
