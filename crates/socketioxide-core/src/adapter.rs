@@ -169,7 +169,7 @@ pub trait SocketEmitter: Send + Sync + 'static {
     type AckStream: Stream<Item = AckStreamItem<Self::AckError>> + FusedStream + Send + 'static;
 
     /// Get all the socket ids in the namespace.
-    fn get_all_sids(&self) -> Vec<Sid>;
+    fn get_all_sids(&self, filter: impl Fn(&Sid) -> bool) -> Vec<Sid>;
     /// Send data to the list of socket ids.
     fn send_many(&self, sids: &[Sid], data: Value) -> Result<(), Vec<SocketError>>;
     /// Send data to the list of socket ids and get a stream of acks.
@@ -467,10 +467,8 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
                 .collect()
         } else if is_broadcast {
             self.sockets
-                .get_all_sids()
-                .into_iter()
-                .filter(|id| !except.contains(id) && is_socket_current(*id))
-                .collect()
+                .get_all_sids(|id| !except.contains(id) && is_socket_current(*id))
+                .into()
         } else if let Some(id) = opts.sid {
             smallvec::smallvec![id]
         } else {

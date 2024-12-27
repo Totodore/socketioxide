@@ -218,7 +218,7 @@ impl<A: Adapter> Namespace<A> {
 /// Otherwise it creates a cyclic dependency between the namespace, the emitter and the adapter.
 trait InnerEmitter: Send + Sync + 'static {
     /// Get all the socket ids in the namespace.
-    fn get_all_sids(&self) -> Vec<Sid>;
+    fn get_all_sids(&self, filter: &dyn Fn(&Sid) -> bool) -> Vec<Sid>;
     /// Send data to the list of socket ids.
     fn send_many(&self, sids: &[Sid], data: Value) -> Result<(), Vec<SocketError>>;
     /// Send data to the list of socket ids and get a stream of acks.
@@ -229,8 +229,14 @@ trait InnerEmitter: Send + Sync + 'static {
 }
 
 impl<A: Adapter> InnerEmitter for Namespace<A> {
-    fn get_all_sids(&self) -> Vec<Sid> {
-        self.sockets.read().unwrap().keys().copied().collect()
+    fn get_all_sids(&self, filter: &dyn Fn(&Sid) -> bool) -> Vec<Sid> {
+        self.sockets
+            .read()
+            .unwrap()
+            .keys()
+            .filter(|id| filter(*id))
+            .copied()
+            .collect()
     }
 
     fn send_many(&self, sids: &[Sid], data: Value) -> Result<(), Vec<SocketError>> {
@@ -346,10 +352,10 @@ impl SocketEmitter for Emitter {
     fn path(&self) -> &Str {
         &self.path
     }
-    fn get_all_sids(&self) -> Vec<Sid> {
+    fn get_all_sids(&self, filter: impl Fn(&Sid) -> bool) -> Vec<Sid> {
         self.ns
             .upgrade()
-            .map(|ns| ns.get_all_sids())
+            .map(|ns| ns.get_all_sids(&filter))
             .unwrap_or_default()
     }
 }
