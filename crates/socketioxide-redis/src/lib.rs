@@ -45,7 +45,28 @@
 //!     If not, you can implement your own driver using the <code>RESP2</code> protocol.
 //! </div>
 //!
-//! # How does it work?
+//! ## Example with the default redis driver
+//! ```rust
+//! # use socketioxide::{SocketIo, extract::{SocketRef, Data}, adapter::Adapter};
+//! # use socketioxide_redis::{RedisAdapterCtr, RedisAdapter};
+//! # async fn doc_main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn on_connect<A: Adapter>(socket: SocketRef<A>) {
+//!     socket.join("room1");
+//!     socket.on("event", on_event);
+//!     let _ = socket.broadcast().emit("hello", "world").await.ok();
+//! }
+//! async fn on_event<A: Adapter>(socket: SocketRef<A>, Data(data): Data<String>) {}
+//!
+//! let client = redis::Client::open("redis://127.0.0.1:6379?protocol=RESP3")?;
+//! let adapter = RedisAdapterCtr::new(&client).await?;
+//! let (layer, io) = SocketIo::builder()
+//!     .with_adapter::<RedisAdapter<_>>(adapter)
+//!     .build_layer();
+//! Ok(())
+//! # }
+//! ```
+//!
+//! ## How does it work?
 //!
 //! An adapter is created for each created namespace and it takes a corresponding [`CoreLocalAdapter`].
 //! The [`CoreLocalAdapter`] allows to manage the local rooms and local sockets. The default `LocalAdapter`
