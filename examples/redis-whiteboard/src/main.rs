@@ -2,14 +2,15 @@ use std::str::FromStr;
 
 use rmpv::Value;
 use socketioxide::{
-    ParserConfig, SocketIo,
+    adapter::Adapter,
     extract::{Data, SocketRef},
+    ParserConfig, SocketIo,
 };
 use socketioxide_redis::{RedisAdapter, RedisAdapterCtr};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,8 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     info!("connecting to redis");
-    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3").unwrap();
-    let adapter = RedisAdapterCtr::new(client).await.unwrap();
+    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
+    let adapter = RedisAdapterCtr::new(&client).await?;
     info!("starting server");
 
     let (layer, io) = SocketIo::builder()
@@ -28,14 +29,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_adapter::<RedisAdapter<_>>(adapter)
         .build_layer();
 
-    io.ns("/", |s: SocketRef<RedisAdapter<_>>| {
-        s.on(
-            "drawing",
-            |s: SocketRef<RedisAdapter<_>>, Data::<Value>(data)| async move {
-                s.broadcast().emit("drawing", &data).await.unwrap();
-            },
-        );
-    });
+    // It is heavily recommended to use generic fns instead of closures for handlers.
+    // This allows to be generic over the adapter you want to use.
+    async fn on_drawing<A: Adapter>(s: SocketRef<A>, Data(data): Data<Value>) {
+        s.broadcast().emit("drawing", &data).await.ok();
+    }
+    fn on_connect<A: Adapter>(s: SocketRef<A>) {
+        s.on("drawing", on_drawing);
+    }
+    io.ns("/", on_connect);
 
     let app = axum::Router::new()
         .nest_service("/", ServeDir::new("dist"))
@@ -51,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
         .unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

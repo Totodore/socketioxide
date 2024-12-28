@@ -189,14 +189,14 @@ pub struct RedisAdapterCtr<R = RedisDriver> {
 
 impl RedisAdapterCtr {
     /// Create a new adapter with the default [`redis`] driver and config.
-    pub async fn new(client: redis::Client) -> redis::RedisResult<Self> {
+    pub async fn new(client: &redis::Client) -> redis::RedisResult<Self> {
         let driver = RedisDriver::new(client).await?;
         let config = RedisAdapterConfig::default();
         Ok(Self::new_with_driver(driver, config))
     }
     /// Create a new adapter with the default [`redis`] driver and a custom config.
     pub async fn new_with_config(
-        client: redis::Client,
+        client: &redis::Client,
         config: RedisAdapterConfig,
     ) -> redis::RedisResult<RedisAdapterCtr> {
         let driver = RedisDriver::new(client).await?;

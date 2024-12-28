@@ -62,8 +62,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3").unwrap();
-    let adapter = RedisAdapterCtr::new(client).await.unwrap();
+    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
+    let adapter = RedisAdapterCtr::new(&client).await?;
 
     let (svc, io) = SocketIo::builder()
         .ping_interval(Duration::from_millis(300))
