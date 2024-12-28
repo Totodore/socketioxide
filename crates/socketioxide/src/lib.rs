@@ -105,7 +105,8 @@
 //! }
 //! ```
 //! ## Initialisation
-//! The [`SocketIo`] struct is the main entry point of the library. It is used to create a [`Layer`](tower_layer::Layer) or a [`Service`](tower_service::Service).
+//! The [`SocketIo`] struct is the main entry point of the library. It is used to create
+//! a [`Layer`](tower_layer::Layer) or a [`Service`](tower_service::Service).
 //! Later it can be used as the equivalent of the `io` object in the JS API.
 //!
 //! When creating your [`SocketIo`] instance, you can use the builder pattern to configure it with the [`SocketIoBuilder`] struct.
@@ -287,15 +288,43 @@
 //! You can enable the `state` feature and use [`SocketIoBuilder::with_state`](SocketIoBuilder) method to set
 //! multiple global states for the server. You can then access them from any handler with the [`State`] extractor.
 //!
-//! The state is stored in the [`SocketIo`] handle and is shared between all the sockets. The only limitation is that all the provided state types must be clonable.
+//! The state is stored in the [`SocketIo`] handle and is shared between all the sockets. The only limitation is that all the
+//! provided state types must be clonable.
 //! Therefore it is recommended to use the [`Arc`](std::sync::Arc) type to share the state between the handlers.
 //!
 //! You can then use the [`State`] extractor to access the state in the handlers.
 //!
 //! ## Adapters
-//! This library is designed to work with clustering. It uses the [`Adapter`] trait to abstract the underlying storage.
-//! By default it uses the [`LocalAdapter`] which is a simple in-memory adapter.
-//! Currently there is no other adapters available but more will be added in the future.
+//! This library is designed to support clustering through the use of adapters.
+//! Adapters enable broadcasting messages and managing socket room memberships across nodes
+//! without requiring changes to your code. The [`Adapter`] trait abstracts the underlying system,
+//! making it easy to integrate with different implementations.
+//!
+//! Adapters typically interact with third-party systems like Redis, Postgres, Kafka, etc.,
+//! to facilitate message exchange between nodes.
+//!
+//! The default adapter is the [`LocalAdapter`], a simple in-memory implementation. If you intend
+//! to use a different adapter, ensure that extractors are either generic over the adapter type
+//! or explicitly specify the adapter type for each extractor that requires it.
+//!
+//! #### Write this:
+//! ```
+//! # use socketioxide::{SocketIo, adapter::Adapter, extract::SocketRef};
+//! fn my_handler<A: Adapter>(s: SocketRef<A>, io: SocketIo<A>) { }
+//! let (layer, io) = SocketIo::new_layer();
+//! io.ns("/", my_handler);
+//! ```
+//! #### Instead of that:
+//! ```
+//! # use socketioxide::{SocketIo, adapter::Adapter, extract::SocketRef};
+//! fn my_handler(s: SocketRef, io: SocketIo) { }
+//! let (layer, io) = SocketIo::new_layer();
+//! io.ns("/", my_handler);
+//! ```
+//!
+//! Refer to the [README](https://github.com/totodore/socketioxide) for a list of available adapters and
+//! the [examples](https://github.com/totodore/socketioxide/tree/main/examples) for detailed usage guidance.
+//! You can also consult specific adapter crate documentation for more information.
 //!
 //! ## Parsers
 //! This library uses the socket.io common parser which is the default for all the socket.io implementations.
@@ -328,13 +357,13 @@
 //! [`AckSender`]: extract::AckSender
 //! [`AckSender::send`]: extract::AckSender#method.send
 //! [`io`]: SocketIo
-pub mod adapter;
 
 #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 #[cfg(feature = "extensions")]
 pub mod extensions;
 
 pub mod ack;
+pub mod adapter;
 pub mod extract;
 pub mod handler;
 pub mod layer;
