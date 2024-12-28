@@ -11,6 +11,9 @@ use serde::Serialize;
 use socketioxide_core::{errors::SocketError, packet::Packet, parser::Parse, Value};
 
 /// An Extractor that returns a reference to a [`Socket`].
+///
+/// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
+/// make sure to have a handler that is [generic over the adapter type](crate#adapters).
 #[derive(Debug)]
 pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
@@ -75,6 +78,9 @@ impl<A: Adapter> SocketRef<A> {
 
 /// An Extractor to send an ack response corresponding to the current event.
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
+///
+/// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
+/// make sure to have a handler that is [generic over the adapter type](crate#adapters).
 #[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
     socket: Arc<Socket<A>>,

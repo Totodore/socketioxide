@@ -283,6 +283,9 @@ impl Default for SocketIoBuilder {
 /// It can be used as the main handle to access the whole socket.io context.
 ///
 /// You can also use it as an extractor for all your [`handlers`](crate::handler).
+///
+/// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
+/// make sure to have a handler that is [generic over the adapter type](crate#adapters).
 pub struct SocketIo<A: Adapter = LocalAdapter>(Arc<Client<A>>);
 
 impl SocketIo<LocalAdapter> {
