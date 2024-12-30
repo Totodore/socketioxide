@@ -49,6 +49,10 @@ pub struct BroadcastOptions {
     pub except: SmallVec<[Room; 4]>,
     /// The socket id of the sender.
     pub sid: Option<Sid>,
+    /// The target server id can be used to optimize the broadcast.
+    /// More specifically when we use broadcasting to apply a single action on a remote socket.
+    /// We now the server_id of the remote socket, so we can send the action directly to the server.
+    pub server_id: Option<Sid>,
 }
 impl BroadcastOptions {
     /// Add any flags to the options.
@@ -69,6 +73,14 @@ impl BroadcastOptions {
     pub fn new(sid: Sid) -> Self {
         Self {
             sid: Some(sid),
+            ..Default::default()
+        }
+    }
+    /// Create a new broadcast options from a remote socket data.
+    pub fn new_remote(data: &RemoteSocketData) -> Self {
+        Self {
+            sid: Some(data.id),
+            server_id: Some(data.server_id),
             ..Default::default()
         }
     }

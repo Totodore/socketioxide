@@ -146,10 +146,12 @@ impl<A> RemoteSocket<A> {
         }
     }
     /// Consume the [`RemoteSocket`] and return its underlying data
+    #[inline]
     pub fn into_data(self) -> RemoteSocketData {
         self.data
     }
     /// Get a ref to the underlying data of the socket
+    #[inline]
     pub fn data(&self) -> &RemoteSocketData {
         &self.data
     }
@@ -192,6 +194,7 @@ impl<A: Adapter> RemoteSocket<A> {
     /// # Get all room names this remote socket is connected to.
     ///
     /// See [`Socket::rooms`] for more info.
+    #[inline]
     pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
         self.adapter.rooms(self.get_opts()).await
     }
@@ -199,6 +202,7 @@ impl<A: Adapter> RemoteSocket<A> {
     /// # Add the remote socket to the specified room(s).
     ///
     /// See [`Socket::join`] for more info.
+    #[inline]
     pub async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.adapter.add_sockets(self.get_opts(), rooms).await
     }
@@ -206,6 +210,7 @@ impl<A: Adapter> RemoteSocket<A> {
     /// # Remove the remote socket from the specified room(s).
     ///
     /// See [`Socket::leave`] for more info.
+    #[inline]
     pub async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
         self.adapter.del_sockets(self.get_opts(), rooms).await
     }
@@ -213,13 +218,15 @@ impl<A: Adapter> RemoteSocket<A> {
     /// # Disconnect the remote socket from the current namespace,
     ///
     /// See [`Socket::disconnect`] for more info.
+    #[inline]
     pub async fn disconnect(self) -> Result<(), RemoteActionError> {
         self.adapter.disconnect_socket(self.get_opts()).await?;
         Ok(())
     }
 
+    #[inline(always)]
     fn get_opts(&self) -> BroadcastOptions {
-        BroadcastOptions::new(self.data.id)
+        BroadcastOptions::new_remote(&self.data)
     }
 }
 impl<A> fmt::Debug for RemoteSocket<A> {
