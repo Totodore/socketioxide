@@ -16,7 +16,7 @@ use crate::{
 };
 use engineioxide::{sid::Sid, Str};
 use socketioxide_core::{
-    adapter::{BroadcastIter, CoreLocalAdapter, SocketEmitter},
+    adapter::{BroadcastIter, CoreLocalAdapter, RemoteSocketData, SocketEmitter},
     errors::SocketError,
     packet::{ConnectPacket, Packet, PacketData},
     parser::Parse,
@@ -82,6 +82,7 @@ impl<A: Adapter> Namespace<A> {
     ) -> Arc<Self> {
         let parser = config.parser;
         let ack_timeout = config.ack_timeout;
+        let uid = config.server_id;
         Arc::new_cyclic(|ns| Self {
             path: path.clone(),
             handler,
@@ -89,7 +90,7 @@ impl<A: Adapter> Namespace<A> {
             sockets: HashMap::new().into(),
             adapter: Arc::new(A::new(
                 adapter_state,
-                CoreLocalAdapter::new(Emitter::new(ns.clone(), parser, path, ack_timeout)),
+                CoreLocalAdapter::new(Emitter::new(ns.clone(), parser, path, ack_timeout, uid)),
             )),
         })
     }
@@ -217,6 +218,8 @@ impl<A: Adapter> Namespace<A> {
 /// A type erased emitter to discard the adapter type parameter `A`.
 /// Otherwise it creates a cyclic dependency between the namespace, the emitter and the adapter.
 trait InnerEmitter: Send + Sync + 'static {
+    /// Get the remote socket data from the socket ids.
+    fn get_remote_sockets(&self, sids: BroadcastIter<'_>, uid: Sid) -> Vec<RemoteSocketData>;
     /// Get all the socket ids in the namespace.
     fn get_all_sids(&self, filter: &dyn Fn(&Sid) -> bool) -> Vec<Sid>;
     /// Send data to the list of socket ids.
@@ -229,10 +232,20 @@ trait InnerEmitter: Send + Sync + 'static {
         timeout: Duration,
     ) -> (AckInnerStream, u32);
     /// Disconnect all the sockets in the list.
-    fn disconnect_many(&self, sids: BroadcastIter<'_>) -> Result<(), Vec<SocketError>>;
+    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<SocketError>>;
 }
 
 impl<A: Adapter> InnerEmitter for Namespace<A> {
+    fn get_remote_sockets(&self, sids: BroadcastIter<'_>, uid: Sid) -> Vec<RemoteSocketData> {
+        let sockets = self.sockets.read().unwrap();
+        sids.filter_map(|sid| sockets.get(&sid))
+            .map(|socket| RemoteSocketData {
+                id: socket.id,
+                ns: self.path.clone(),
+                server_id: uid,
+            })
+            .collect()
+    }
     fn get_all_sids(&self, filter: &dyn Fn(&Sid) -> bool) -> Vec<Sid> {
         self.sockets
             .read()
@@ -267,12 +280,20 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
         AckInnerStream::broadcast(packet, sockets, timeout)
     }
 
-    fn disconnect_many(&self, sids: BroadcastIter<'_>) -> Result<(), Vec<SocketError>> {
+    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<SocketError>> {
+        if sids.is_empty() {
+            return Ok(());
+        }
         // Here we can't take a ref because this would cause a deadlock.
         // Ideally the disconnect / closing process should be refactored to avoid this.
-        let sock_map = self.sockets.read().unwrap();
-        let sockets: Vec<Arc<Socket<A>>> =
-            sids.filter_map(|sid| sock_map.get(&sid)).cloned().collect();
+        let sockets = {
+            let sock_map = self.sockets.read().unwrap();
+            sids.into_iter()
+                .filter_map(|sid| sock_map.get(&sid))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
         let errs = sockets
             .into_iter()
             .filter_map(|socket| socket.disconnect().err())
@@ -293,6 +314,7 @@ pub struct Emitter {
     parser: Parser,
     path: Str,
     ack_timeout: Duration,
+    uid: Sid,
 }
 
 impl Emitter {
@@ -301,12 +323,14 @@ impl Emitter {
         parser: Parser,
         path: Str,
         ack_timeout: Duration,
+        uid: Sid,
     ) -> Self {
         Self {
             ns,
             parser,
             path,
             ack_timeout,
+            uid,
         }
     }
 }
@@ -315,8 +339,24 @@ impl SocketEmitter for Emitter {
     type AckError = crate::AckError;
     type AckStream = AckInnerStream;
 
-    fn parser(&self) -> impl Parse {
-        self.parser
+    fn get_all_sids(&self, filter: impl Fn(&Sid) -> bool) -> Vec<Sid> {
+        self.ns
+            .upgrade()
+            .map(|ns| ns.get_all_sids(&filter))
+            .unwrap_or_default()
+    }
+    fn get_remote_sockets(&self, sids: BroadcastIter<'_>) -> Vec<RemoteSocketData> {
+        self.ns
+            .upgrade()
+            .map(|ns| ns.get_remote_sockets(sids, self.uid))
+            .unwrap_or_default()
+    }
+
+    fn send_many(&self, sids: BroadcastIter<'_>, data: Value) -> Result<(), Vec<SocketError>> {
+        match self.ns.upgrade() {
+            Some(ns) => ns.send_many(sids, data),
+            None => Ok(()),
+        }
     }
 
     fn send_many_with_ack(
@@ -331,28 +371,20 @@ impl SocketEmitter for Emitter {
             .unwrap_or((AckInnerStream::empty(), 0))
     }
 
-    fn send_many(&self, sids: BroadcastIter<'_>, data: Value) -> Result<(), Vec<SocketError>> {
-        match self.ns.upgrade() {
-            Some(ns) => ns.send_many(sids, data),
-            None => Ok(()),
-        }
-    }
-
-    fn disconnect_many(&self, sids: BroadcastIter<'_>) -> Result<(), Vec<SocketError>> {
+    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<SocketError>> {
         match self.ns.upgrade() {
             Some(ns) => ns.disconnect_many(sids),
             None => Ok(()),
         }
     }
-
+    fn parser(&self) -> impl Parse {
+        self.parser
+    }
+    fn server_id(&self) -> Sid {
+        self.uid
+    }
     fn path(&self) -> &Str {
         &self.path
-    }
-    fn get_all_sids(&self, filter: impl Fn(&Sid) -> bool) -> Vec<Sid> {
-        self.ns
-            .upgrade()
-            .map(|ns| ns.get_all_sids(&filter))
-            .unwrap_or_default()
     }
 }
 

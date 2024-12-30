@@ -13,12 +13,11 @@ use serde::Serialize;
 
 use crate::{
     ack::{AckInnerStream, AckStream},
-    adapter::Adapter,
-    adapter::LocalAdapter,
+    adapter::{Adapter, LocalAdapter},
     extract::SocketRef,
     ns::Namespace,
     parser::Parser,
-    socket::Socket,
+    socket::{RemoteSocket, Socket},
     BroadcastError, EmitWithAckError, SendError,
 };
 
@@ -277,6 +276,19 @@ impl<A: Adapter> BroadcastOperators<A> {
             .collect()
     }
 
+    #[doc = include_str!("../docs/operators/fetch_sockets.md")]
+    pub async fn fetch_sockets(self) -> Result<Vec<RemoteSocket<A>>, A::Error> {
+        let sockets = self
+            .ns
+            .adapter
+            .fetch_sockets(self.opts)
+            .await?
+            .into_iter()
+            .map(|data| RemoteSocket::new(data, &self.ns.adapter, self.parser))
+            .collect();
+        Ok(sockets)
+    }
+
     #[doc = include_str!("../docs/operators/disconnect.md")]
     pub async fn disconnect(self) -> Result<(), BroadcastError> {
         self.ns.adapter.disconnect_socket(self.opts).await
@@ -296,7 +308,7 @@ impl<A: Adapter> BroadcastOperators<A> {
 
     #[doc = include_str!("../docs/operators/rooms.md")]
     pub async fn rooms(self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.rooms().await
+        self.ns.adapter.rooms(self.opts).await
     }
 
     #[doc = include_str!("../docs/operators/get_socket.md")]

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::parser::ParserError;
 
 /// Error type when using the underlying engine.io socket
-#[derive(Debug, thiserror::Error, Serialize, Deserialize)]
+#[derive(Debug, thiserror::Error, Serialize, Deserialize, Clone)]
 pub enum SocketError {
     /// The socket channel is full.
     /// You might need to increase the channel size with the [`SocketIoBuilder::max_buffer_size`] method.
@@ -37,6 +37,7 @@ impl From<Infallible> for AdapterError {
 /// Error type for broadcast operations.
 #[derive(thiserror::Error, Debug)]
 pub enum BroadcastError {
+    // This type should never constructed with an empty vector!
     /// An error occurred while sending packets.
     #[error("Error sending data through the engine.io socket: {0:?}")]
     Socket(Vec<SocketError>),
@@ -52,6 +53,10 @@ pub enum BroadcastError {
 
 impl From<Vec<SocketError>> for BroadcastError {
     fn from(value: Vec<SocketError>) -> Self {
+        assert!(
+            !value.is_empty(),
+            "Cannot construct a BroadcastError from an empty vec of SocketError"
+        );
         Self::Socket(value)
     }
 }
