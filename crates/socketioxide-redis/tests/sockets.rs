@@ -157,7 +157,11 @@ pub async fn remote_socket_emit_with_ack() {
 
     let sockets = io1.fetch_sockets().await.unwrap();
     for socket in sockets {
-        socket.emit_with_ack("test", "hello").await.unwrap();
+        #[allow(unused_must_use)]
+        socket
+            .emit_with_ack::<_, ()>("test", "hello")
+            .await
+            .unwrap();
     }
 
     assert_eq!(timeout_rcv!(&mut rx1), r#"431["test","hello"]"#);

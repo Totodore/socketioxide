@@ -3,6 +3,7 @@ mod fixture;
 
 macro_rules! assert_now {
     ($fut:expr) => {
+        #[allow(unused_must_use)]
         futures_util::FutureExt::now_or_never($fut)
             .expect("Returned future should be sync")
             .unwrap()
@@ -23,7 +24,7 @@ async fn test_local_fns() {
     timeout_rcv!(&mut rx2); // connect packet
 
     assert_now!(io1.local().emit("test", "test"));
-    let _ = assert_now!(io1.local().emit_with_ack::<_, ()>("test", "test"));
+    assert_now!(io1.local().emit_with_ack::<_, ()>("test", "test"));
     assert_now!(io1.local().join("test"));
     assert_now!(io1.local().leave("test"));
     assert_now!(io1.local().disconnect());
