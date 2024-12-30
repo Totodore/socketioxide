@@ -1,5 +1,7 @@
 //! Custom request and response types for the Redis adapter.
 //! Custom serialization/deserialization to reduce the size of the messages.
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     adapter::{BroadcastOptions, Room},
@@ -22,6 +24,8 @@ pub enum RequestTypeOut<'a> {
     AddSockets(&'a Vec<Room>),
     /// Remove matching sockets from the rooms.
     DelSockets(&'a Vec<Room>),
+    /// Fetch socket data.
+    FetchSockets,
 }
 impl RequestTypeOut<'_> {
     fn to_u8(&self) -> u8 {
@@ -32,6 +36,7 @@ impl RequestTypeOut<'_> {
             Self::AllRooms => 3,
             Self::AddSockets(_) => 4,
             Self::DelSockets(_) => 5,
+            Self::FetchSockets => 6,
         }
     }
 }
@@ -50,6 +55,8 @@ pub enum RequestTypeIn {
     AddSockets(Vec<Room>),
     /// Remove matching sockets from the rooms.
     DelSockets(Vec<Room>),
+    /// Fetch socket data.
+    FetchSockets,
 }
 
 #[derive(Debug)]
@@ -128,6 +135,7 @@ impl<'de> Deserialize<'de> for RequestIn {
             3 => RequestTypeIn::AllRooms,
             4 => RequestTypeIn::AddSockets(raw.rooms.ok_or(err("room"))?),
             5 => RequestTypeIn::DelSockets(raw.rooms.ok_or(err("room"))?),
+            6 => RequestTypeIn::FetchSockets,
             _ => return Err(serde::de::Error::custom("invalid request type")),
         };
         Ok(Self {
@@ -140,17 +148,42 @@ impl<'de> Deserialize<'de> for RequestIn {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Response<AckErr> {
+pub struct Response<D = ()> {
     pub uid: Sid,
     pub req_id: Sid,
-    pub r#type: ResponseType<AckErr>,
+    pub r#type: ResponseType<D>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum ResponseType<AckErr> {
-    BroadcastAck((Sid, Result<Value, AckErr>)),
+pub enum ResponseType<D = ()> {
+    BroadcastAck((Sid, Result<Value, D>)),
     BroadcastAckCount(u32),
-    AllRooms(Vec<Room>),
+    AllRooms(HashSet<Room>),
+    FetchSockets(Vec<D>),
+}
+impl<D> ResponseType<D> {
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Self::BroadcastAck(_) => 0,
+            Self::BroadcastAckCount(_) => 1,
+            Self::AllRooms(_) => 2,
+            Self::FetchSockets(_) => 3,
+        }
+    }
+}
+impl<D> Response<D> {
+    pub fn into_rooms(self) -> Option<HashSet<Room>> {
+        match self.r#type {
+            ResponseType::AllRooms(rooms) => Some(rooms),
+            _ => None,
+        }
+    }
+    pub fn into_fetch_sockets(self) -> Option<Vec<D>> {
+        match self.r#type {
+            ResponseType::FetchSockets(sockets) => Some(sockets),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -162,6 +195,7 @@ mod tests {
             Self {
                 uid: req.uid,
                 req_id: req.req_id,
+                opts: &req.opts,
                 r#type: match &req.r#type {
                     RequestTypeIn::Broadcast(p) => RequestTypeOut::Broadcast(p),
                     RequestTypeIn::BroadcastWithAck(p) => RequestTypeOut::BroadcastWithAck(p),
@@ -169,8 +203,8 @@ mod tests {
                     RequestTypeIn::AllRooms => RequestTypeOut::AllRooms,
                     RequestTypeIn::AddSockets(r) => RequestTypeOut::AddSockets(r),
                     RequestTypeIn::DelSockets(r) => RequestTypeOut::DelSockets(r),
+                    RequestTypeIn::FetchSockets => RequestTypeOut::FetchSockets,
                 },
-                opts: &req.opts,
             }
         }
     }

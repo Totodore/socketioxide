@@ -84,7 +84,6 @@ pub async fn broadcast_with_ack() {
                 async move {}
             })
             .await;
-        dbg!("dropped stream");
     }
 
     let [io1, io2] = fixture::spawn_servers();
@@ -123,9 +122,7 @@ pub async fn broadcast_with_ack_timeout() {
                 async move {}
             })
             .await;
-        dbg!("sending");
         socket.emit("ack_res", "timeout").unwrap();
-        dbg!("dropped stream");
     }
 
     let [io1, io2] = fixture::spawn_buggy_servers(TIMEOUT);
@@ -146,7 +143,7 @@ pub async fn broadcast_with_ack_timeout() {
         timeout_rcv!(&mut rx1, TIMEOUT.as_millis() as u64 + 100),
         r#"42["ack_res","timeout"]"#
     );
-    assert!(dbg!(now.elapsed()) >= TIMEOUT);
+    assert!(now.elapsed() >= TIMEOUT);
 
     timeout_rcv_err!(&mut rx1);
     timeout_rcv_err!(&mut rx2);

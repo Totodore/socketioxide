@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 

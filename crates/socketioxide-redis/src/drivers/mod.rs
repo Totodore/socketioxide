@@ -19,7 +19,8 @@ pin_project! {
 
 impl MessageStream {
     pub(crate) fn new_empty() -> Self {
-        let (_, rx) = mpsc::channel(0);
+        // mpsc bounded channel requires buffer > 0
+        let (_, rx) = mpsc::channel(1);
         Self { rx }
     }
     pub(crate) fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
