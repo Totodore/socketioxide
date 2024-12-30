@@ -425,8 +425,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     pub fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<RemoteSocketData> {
         let rooms = self.rooms.read().unwrap();
         let sids = self.apply_opts(&opts, &rooms);
-        let sockets = self.sockets.get_remote_sockets(sids);
-        sockets
+        self.sockets.get_remote_sockets(sids)
     }
 
     //TODO: make this operation O(1)
@@ -480,7 +479,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         for sid in sids {
             for (room, sockets) in rooms.iter() {
                 if sockets.contains(&sid) {
-                    room_result.insert(room.to_owned());
+                    room_result.insert(room.clone());
                 }
             }
         }

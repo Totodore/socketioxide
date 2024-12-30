@@ -249,7 +249,7 @@ impl From<BroadcastError> for RemoteActionError {
     fn from(value: BroadcastError) -> Self {
         // This conversion assumes that we broadcast to a single (remote or not) socket.
         match value {
-            BroadcastError::Socket(s) if s.len() > 0 => RemoteActionError::Socket(s[0].clone()),
+            BroadcastError::Socket(s) if !s.is_empty() => RemoteActionError::Socket(s[0].clone()),
             BroadcastError::Socket(_) => {
                 panic!("BroadcastError with an empty socket vec is not permitted")
             }
