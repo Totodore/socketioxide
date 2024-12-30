@@ -171,6 +171,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
         note = "This function is not a ConnectMiddleware. Check that:
 * It is a clonable sync or async `FnOnce` that returns `Result<(), E> where E: Display`.
 * All its arguments are valid connect extractors.
+* If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
         label = "Invalid ConnectMiddleware"
     )
@@ -200,6 +201,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'stati
         note = "This function is not a ConnectHandler. Check that:
 * It is a clonable sync or async `FnOnce` that returns nothing.
 * All its arguments are valid connect extractors.
+* If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
         label = "Invalid ConnectHandler"
     )

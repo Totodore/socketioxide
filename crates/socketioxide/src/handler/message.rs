@@ -96,6 +96,7 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
         note = "This function is not a MessageHandler. Check that:
 * It is a clonable sync or async `FnOnce` that returns nothing.
 * All its arguments are valid message extractors.
+* If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
         label = "Invalid MessageHandler"
     )
