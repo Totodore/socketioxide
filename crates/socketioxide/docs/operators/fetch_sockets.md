@@ -24,7 +24,6 @@ io.within("room1").disconnect().await.unwrap();
 # let (_, io) = SocketIo::new_svc();
 let sockets = io.within("room1").fetch_sockets().await.unwrap();
 for socket in sockets {
-    println!("Socket id: {:?}", socket.id());
     socket.emit("test", &"Hello").await.unwrap();
     socket.leave("room1").await.unwrap();
 }
