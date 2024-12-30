@@ -1,4 +1,4 @@
-# Get all room names across all nodes in the current namespace.
+# Get all the rooms selected with the previous operators.
 
 This will return a `Future` that must be awaited because socket.io may communicate with remote instances
 if you use horizontal scaling through remote adapters.
