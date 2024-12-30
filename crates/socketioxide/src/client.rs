@@ -86,10 +86,10 @@ impl<A: Adapter> Client<A> {
             let this = self.clone();
             let esocket = esocket.clone();
             tokio::spawn(async move {
-                if let Err(e) = ns.adapter.clone().init().await {
+                if let Err(_e) = ns.adapter.clone().init().await {
                     let _path = path.as_str();
                     #[cfg(feature = "tracing")]
-                    tracing::error!(_path, "adapter error while initializing namespace: {}", e);
+                    tracing::error!(_path, "adapter error while initializing namespace: {}", _e);
                     return;
                 }
                 this.nsps.write().unwrap().insert(path, ns.clone());
@@ -162,10 +162,10 @@ impl<A: Adapter> Client<A> {
         // The best solution would be to make the fn async and returning the error to the user.
         // However this would require all .ns() calls to be async.
         let mut fut = Box::pin(ns.adapter.clone().init());
-        let on_err = move |err| {
-            let _path = path.as_ref();
+        let on_err = move |_err| {
+            let _p = path.as_ref();
             #[cfg(feature = "tracing")]
-            tracing::error!(_path, "adapter error while initializing namespace: {}", err);
+            tracing::error!(_p, "adapter error while initializing namespace: {}", _err);
         };
         // This is a hack to avoid spawning the future if it is already resolved.
         // In test env (doctests mostly) this allows to avoid tokio::test::block_on.
