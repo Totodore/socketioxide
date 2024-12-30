@@ -1,8 +1,4 @@
 //! Acknowledgement related types and functions.
-//!
-//! Here is the main type:
-//!
-//! - [`AckStream`]: A [`Stream`]/[`Future`] of data received from the client.
 use std::{
     pin::Pin,
     sync::Arc,
@@ -29,7 +25,7 @@ pub(crate) type AckResult<T> = Result<T, AckError>;
 pin_project_lite::pin_project! {
     /// A [`Future`] of [`AckResponse`] received from the client with its corresponding [`Sid`].
     /// It is used internally by [`AckStream`] and **should not** be used directly.
-    pub struct AckResultWithId<T> {
+    struct AckResultWithId<T> {
         id: Sid,
         #[pin]
         result: Timeout<Receiver<AckResult<T>>>,
@@ -110,10 +106,9 @@ pin_project_lite::pin_project! {
 }
 
 pin_project_lite::pin_project! {
-    #[allow(missing_docs)]
+    #[doc(hidden)]
     #[project = InnerProj]
-    /// An internal stream used by [`AckStream`]. It should not be used directly except when implementing the
-    /// [`Adapter`](crate::adapter::Adapter) trait.
+    /// An internal stream used by [`AckStream`].
     pub enum AckInnerStream {
         Stream {
             #[pin]

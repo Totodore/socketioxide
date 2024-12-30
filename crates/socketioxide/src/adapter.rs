@@ -10,7 +10,7 @@ use socketioxide_core::{
 use std::{convert::Infallible, time::Duration};
 
 pub use crate::ns::Emitter;
-
+pub use socketioxide_core::errors::AdapterError;
 /// An adapter is responsible for managing the state of the namespace.
 /// This adapter can be implemented to share the state between multiple servers.
 /// The default adapter is the [`LocalAdapter`], which stores the state in memory.

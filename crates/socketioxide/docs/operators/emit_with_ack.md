@@ -1,4 +1,4 @@
-# Emit a message to the client and wait for one or more acknowledgments.
+# Emit a message to one or many clients and wait for one or more acknowledgments.
 
 See [`emit()`](#method.emit) for more details on emitting messages.
 

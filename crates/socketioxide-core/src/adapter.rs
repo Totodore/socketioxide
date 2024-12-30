@@ -49,6 +49,10 @@ pub struct BroadcastOptions {
     pub except: SmallVec<[Room; 4]>,
     /// The socket id of the sender.
     pub sid: Option<Sid>,
+    /// The target server id can be used to optimize the broadcast.
+    /// More specifically when we use broadcasting to apply a single action on a remote socket.
+    /// We now the server_id of the remote socket, so we can send the action directly to the server.
+    pub server_id: Option<Sid>,
 }
 impl BroadcastOptions {
     /// Add any flags to the options.
@@ -69,6 +73,14 @@ impl BroadcastOptions {
     pub fn new(sid: Sid) -> Self {
         Self {
             sid: Some(sid),
+            ..Default::default()
+        }
+    }
+    /// Create a new broadcast options from a remote socket data.
+    pub fn new_remote(data: &RemoteSocketData) -> Self {
+        Self {
+            sid: Some(data.id),
+            server_id: Some(data.server_id),
             ..Default::default()
         }
     }
@@ -174,6 +186,8 @@ pub trait SocketEmitter: Send + Sync + 'static {
 
     /// Get all the socket ids in the namespace.
     fn get_all_sids(&self, filter: impl Fn(&Sid) -> bool) -> Vec<Sid>;
+    /// Get the socket data that match the list of socket ids.
+    fn get_remote_sockets(&self, sids: BroadcastIter<'_>) -> Vec<RemoteSocketData>;
     /// Send data to the list of socket ids.
     fn send_many(&self, sids: BroadcastIter<'_>, data: Value) -> Result<(), Vec<SocketError>>;
     /// Send data to the list of socket ids and get a stream of acks and the number of expected acks.
@@ -184,11 +198,15 @@ pub trait SocketEmitter: Send + Sync + 'static {
         timeout: Option<Duration>,
     ) -> (Self::AckStream, u32);
     /// Disconnect all the sockets in the list.
-    fn disconnect_many(&self, sids: BroadcastIter<'_>) -> Result<(), Vec<SocketError>>;
+    /// TODO: take a [`BroadcastIter`]. Currently it is impossible because it may create deadlocks
+    /// with Adapter::del_all call.
+    fn disconnect_many(&self, sids: Vec<Sid>) -> Result<(), Vec<SocketError>>;
     /// Get the path of the namespace.
     fn path(&self) -> &Str;
     /// Get the parser of the namespace.
     fn parser(&self) -> impl Parse;
+    /// Get the unique server id.
+    fn server_id(&self) -> Sid;
 }
 
 /// An adapter is responsible for managing the state of the namespace.
@@ -283,16 +301,26 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
         )
     }
 
-    /// Returns all the rooms for this adapter.
-    fn rooms(&self) -> impl Future<Output = Result<Vec<Room>, Self::Error>> + Send {
-        future::ready(Ok(self.get_local().rooms()))
+    /// Fetches rooms that match the [`BroadcastOptions`]
+    fn rooms(
+        &self,
+        opts: BroadcastOptions,
+    ) -> impl Future<Output = Result<Vec<Room>, Self::Error>> + Send {
+        future::ready(Ok(self.get_local().rooms(opts).into_iter().collect()))
+    }
+
+    /// Fetches remote sockets that match the [`BroadcastOptions`].
+    fn fetch_sockets(
+        &self,
+        opts: BroadcastOptions,
+    ) -> impl Future<Output = Result<Vec<RemoteSocketData>, Self::Error>> + Send {
+        future::ready(Ok(self.get_local().fetch_sockets(opts)))
     }
 
     /// Returns the local adapter. Used to enable default behaviors.
     fn get_local(&self) -> &CoreLocalAdapter<E>;
 
     //TODO: implement
-    // fn fetch_sockets(&self, opts: BroadcastOptions) -> Result<Vec<RemoteSocket>, Error>;
     // fn server_side_emit(&self, packet: Packet, opts: BroadcastOptions) -> Result<u64, Error>;
     // fn persist_session(&self, sid: i64);
     // fn restore_session(&self, sid: i64) -> Session;
@@ -404,6 +432,13 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
             .collect()
     }
 
+    /// Returns the sockets ids that match the [`BroadcastOptions`].
+    pub fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<RemoteSocketData> {
+        let rooms = self.rooms.read().unwrap();
+        let sids = self.apply_opts(&opts, &rooms);
+        self.sockets.get_remote_sockets(sids)
+    }
+
     //TODO: make this operation O(1)
     /// Returns the rooms of the socket.
     pub fn socket_rooms(&self, sid: Sid) -> Vec<Cow<'static, str>> {
@@ -441,14 +476,25 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
 
     /// Disconnects the sockets that match the [`BroadcastOptions`].
     pub fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), Vec<SocketError>> {
-        let room_map = self.rooms.read().unwrap();
-        let sids = self.apply_opts(&opts, &room_map);
+        let sids = self
+            .apply_opts(&opts, &self.rooms.read().unwrap())
+            .collect();
         self.sockets.disconnect_many(sids)
     }
 
     /// Returns all the rooms for this adapter.
-    pub fn rooms(&self) -> Vec<Room> {
-        self.rooms.read().unwrap().keys().cloned().collect()
+    pub fn rooms(&self, opts: BroadcastOptions) -> HashSet<Room> {
+        let rooms = self.rooms.read().unwrap();
+        let sids = self.apply_opts(&opts, &rooms);
+        let mut room_result = HashSet::new();
+        for sid in sids {
+            for (room, sockets) in rooms.iter() {
+                if sockets.contains(&sid) {
+                    room_result.insert(room.clone());
+                }
+            }
+        }
+        room_result
     }
 
     /// Get the namespace path.
@@ -459,6 +505,10 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     /// Get the parser of the namespace.
     pub fn parser(&self) -> impl Parse + '_ {
         self.sockets.parser()
+    }
+    /// Get the unique server identifier
+    pub fn server_id(&self) -> Sid {
+        self.sockets.server_id()
     }
 }
 
@@ -588,6 +638,17 @@ impl Iterator for InnerBroadcastIter<'_> {
     }
 }
 
+/// Represent the data of a remote socket.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Default, Clone)]
+pub struct RemoteSocketData {
+    /// The id of the remote socket.
+    pub id: Sid,
+    /// The server id this socket is connected to.
+    pub server_id: Sid,
+    /// The namespace this socket is connected to.
+    pub ns: Str,
+}
+
 #[cfg(test)]
 mod test {
 
@@ -638,13 +699,21 @@ mod test {
     impl SocketEmitter for StubSockets {
         type AckError = StubError;
         type AckStream = StubAckStream;
-
         fn get_all_sids(&self, filter: impl Fn(&Sid) -> bool) -> Vec<Sid> {
             self.sockets
                 .iter()
                 .copied()
                 .filter(|id| filter(id))
                 .collect()
+        }
+
+        fn get_remote_sockets(&self, sids: BroadcastIter<'_>) -> Vec<RemoteSocketData> {
+            sids.map(|id| RemoteSocketData {
+                id,
+                server_id: Sid::ZERO,
+                ns: self.path.clone(),
+            })
+            .collect()
         }
 
         fn send_many(&self, _: BroadcastIter<'_>, _: Value) -> Result<(), Vec<SocketError>> {
@@ -660,7 +729,7 @@ mod test {
             (StubAckStream, 0)
         }
 
-        fn disconnect_many(&self, _: BroadcastIter<'_>) -> Result<(), Vec<SocketError>> {
+        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<SocketError>> {
             Ok(())
         }
 
@@ -670,6 +739,9 @@ mod test {
         fn parser(&self) -> impl Parse {
             crate::parser::test::StubParser
         }
+        fn server_id(&self) -> Sid {
+            Sid::ZERO
+        }
     }
 
     fn create_adapter<const S: usize>(sockets: [Sid; S]) -> CoreLocalAdapter<StubSockets> {
@@ -677,7 +749,7 @@ mod test {
     }
 
     #[test]
-    fn test_add_all() {
+    fn add_all() {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1", "room2"]);
@@ -688,7 +760,7 @@ mod test {
     }
 
     #[test]
-    fn test_del() {
+    fn del() {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1", "room2"]);
@@ -706,7 +778,7 @@ mod test {
     }
 
     #[test]
-    fn test_del_all() {
+    fn del_all() {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1", "room2"]);
@@ -723,7 +795,7 @@ mod test {
     }
 
     #[test]
-    fn test_socket_room() {
+    fn socket_room() {
         let sid1 = Sid::new();
         let sid2 = Sid::new();
         let sid3 = Sid::new();
@@ -738,7 +810,7 @@ mod test {
     }
 
     #[test]
-    fn test_add_socket() {
+    fn add_socket() {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1"]);
@@ -754,7 +826,7 @@ mod test {
     }
 
     #[test]
-    fn test_del_socket() {
+    fn del_socket() {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1"]);
@@ -785,7 +857,7 @@ mod test {
     }
 
     #[test]
-    fn test_sockets() {
+    fn sockets() {
         let socket0 = Sid::new();
         let socket1 = Sid::new();
         let socket2 = Sid::new();
@@ -817,7 +889,7 @@ mod test {
     }
 
     #[test]
-    fn test_disconnect_socket() {
+    fn disconnect_socket() {
         let socket0 = Sid::new();
         let socket1 = Sid::new();
         let socket2 = Sid::new();
@@ -838,43 +910,58 @@ mod test {
         assert!(sockets.contains(&socket0));
     }
     #[test]
-    fn test_apply_opts() {
+    fn disconnect_empty_opts() {
+        let adapter = create_adapter([]);
+        let opts = BroadcastOptions::default();
+        adapter.disconnect_socket(opts).unwrap();
+    }
+
+    #[test]
+    fn apply_opts() {
         let mut sockets: [Sid; 3] = array::from_fn(|_| Sid::new());
         sockets.sort();
         let adapter = create_adapter(sockets);
-        // Add socket 0 to room1 and room2
+
         adapter.add_all(sockets[0], ["room1", "room2"]);
-        // Add socket 1 to room1 and room3
         adapter.add_all(sockets[1], ["room1", "room3"]);
-        // Add socket 2 to room2 and room3
         adapter.add_all(sockets[2], ["room1", "room2", "room3"]);
 
         // socket 2 is the sender
         let mut opts = BroadcastOptions::new(sockets[2]);
         opts.rooms = smallvec!["room1".into()];
         opts.except = smallvec!["room2".into()];
-        let sids = adapter.sockets(opts);
+        let sids = adapter
+            .apply_opts(&opts, &adapter.rooms.read().unwrap())
+            .collect::<Vec<_>>();
         assert_eq!(sids, [sockets[1]]);
 
         let mut opts = BroadcastOptions::new(sockets[2]);
         opts.add_flag(BroadcastFlags::Broadcast);
-        let mut sids = adapter.sockets(opts);
+        let mut sids = adapter
+            .apply_opts(&opts, &adapter.rooms.read().unwrap())
+            .collect::<Vec<_>>();
         sids.sort();
         assert_eq!(sids, [sockets[0], sockets[1]]);
 
         let mut opts = BroadcastOptions::new(sockets[2]);
         opts.add_flag(BroadcastFlags::Broadcast);
         opts.except = smallvec!["room2".into()];
-        let sids = adapter.sockets(opts);
+        let sids = adapter
+            .apply_opts(&opts, &adapter.rooms.read().unwrap())
+            .collect::<Vec<_>>();
         assert_eq!(sids.len(), 1);
 
         let opts = BroadcastOptions::new(sockets[2]);
-        let sids = adapter.sockets(opts);
+        let sids = adapter
+            .apply_opts(&opts, &adapter.rooms.read().unwrap())
+            .collect::<Vec<_>>();
         assert_eq!(sids.len(), 1);
         assert_eq!(sids[0], sockets[2]);
 
         let opts = BroadcastOptions::new(Sid::new());
-        let sids = adapter.sockets(opts);
+        let sids = adapter
+            .apply_opts(&opts, &adapter.rooms.read().unwrap())
+            .collect::<Vec<_>>();
         assert_eq!(sids.len(), 1);
     }
 }
