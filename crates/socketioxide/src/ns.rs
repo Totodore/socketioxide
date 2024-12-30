@@ -218,6 +218,7 @@ impl<A: Adapter> Namespace<A> {
 /// A type erased emitter to discard the adapter type parameter `A`.
 /// Otherwise it creates a cyclic dependency between the namespace, the emitter and the adapter.
 trait InnerEmitter: Send + Sync + 'static {
+    /// Get the remote socket data from the socket ids.
     fn get_remote_sockets(&self, sids: BroadcastIter<'_>, uid: Sid) -> Vec<RemoteSocketData>;
     /// Get all the socket ids in the namespace.
     fn get_all_sids(&self, filter: &dyn Fn(&Sid) -> bool) -> Vec<Sid>;

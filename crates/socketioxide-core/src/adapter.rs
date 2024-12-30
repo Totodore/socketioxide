@@ -174,8 +174,7 @@ pub trait SocketEmitter: Send + Sync + 'static {
 
     /// Get all the socket ids in the namespace.
     fn get_all_sids(&self, filter: impl Fn(&Sid) -> bool) -> Vec<Sid>;
-    /// Get the sockets that match the list of socket ids
-    /// and encode the data with the given serializer.
+    /// Get the socket data that match the list of socket ids.
     fn get_remote_sockets(&self, sids: BroadcastIter<'_>) -> Vec<RemoteSocketData>;
     /// Send data to the list of socket ids.
     fn send_many(&self, sids: BroadcastIter<'_>, data: Value) -> Result<(), Vec<SocketError>>;
