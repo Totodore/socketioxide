@@ -164,6 +164,6 @@ pub async fn remote_socket_emit_with_ack() {
             .unwrap();
     }
 
-    assert_eq!(timeout_rcv!(&mut rx1), r#"431["test","hello"]"#);
-    assert_eq!(timeout_rcv!(&mut rx2), r#"431["test","hello"]"#);
+    assert_eq!(timeout_rcv!(&mut rx1), r#"421["test","hello"]"#);
+    assert_eq!(timeout_rcv!(&mut rx2), r#"421["test","hello"]"#);
 }
