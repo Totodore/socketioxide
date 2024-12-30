@@ -22,6 +22,7 @@ use crate::{
     operators::BroadcastOperators,
     parser::Parser,
     service::SocketIoService,
+    socket::RemoteSocket,
     BroadcastError, EmitWithAckError,
 };
 
@@ -63,6 +64,9 @@ pub struct SocketIoConfig {
 
     /// The parser to use to encode and decode socket.io packets
     pub(crate) parser: Parser,
+
+    /// A global server identifier
+    pub server_id: Sid,
 }
 
 impl Default for SocketIoConfig {
@@ -75,6 +79,7 @@ impl Default for SocketIoConfig {
             ack_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(45),
             parser: Parser::default(),
+            server_id: Sid::new(),
         }
     }
 }
@@ -567,6 +572,13 @@ impl<A: Adapter> SocketIo<A> {
     #[inline]
     pub fn sockets(&self) -> Vec<SocketRef<A>> {
         self.get_default_op().sockets()
+    }
+
+    /// _Alias for `io.of("/").unwrap().fetch_sockets()`_. If the **default namespace "/" is not found** this fn will panic!
+    #[doc = include_str!("../docs/operators/fetch_sockets.md")]
+    #[inline]
+    pub async fn fetch_sockets(&self) -> Result<Vec<RemoteSocket<A>>, A::Error> {
+        self.get_default_op().fetch_sockets().await
     }
 
     /// _Alias for `io.of("/").unwrap().disconnect()`_. If the **default namespace "/" is not found** this fn will panic!

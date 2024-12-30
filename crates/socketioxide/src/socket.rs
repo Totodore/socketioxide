@@ -3,7 +3,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fmt::Debug,
+    fmt::{self, Debug},
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex, RwLock,
@@ -36,7 +36,8 @@ use crate::{
     AckError, SendError, SocketError, SocketIo,
 };
 use socketioxide_core::{
-    adapter::{Room, RoomParam},
+    adapter::{BroadcastOptions, RemoteSocketData, Room, RoomParam},
+    errors::{AdapterError, BroadcastError},
     packet::{Packet, PacketData},
     parser::Parse,
     Value,
@@ -123,6 +124,137 @@ impl<'a> PermitExt<'a> for Permit<'a> {
             Value::Str(msg, None) => self.emit(msg),
             Value::Str(msg, Some(bin_payloads)) => self.emit_many(msg, bin_payloads),
             Value::Bytes(bin) => self.emit_binary(bin),
+        }
+    }
+}
+
+/// A RemoteSocket is a [`Socket`] that is remotely connected on another server.
+/// It implements a subset of the [`Socket`] API.
+#[derive(Clone)]
+pub struct RemoteSocket<A> {
+    adapter: Arc<A>,
+    parser: Parser,
+    data: RemoteSocketData,
+}
+
+impl<A> RemoteSocket<A> {
+    pub(crate) fn new(data: RemoteSocketData, adapter: &Arc<A>, parser: Parser) -> Self {
+        Self {
+            data,
+            adapter: adapter.clone(),
+            parser,
+        }
+    }
+    /// Consume the [`RemoteSocket`] and return its underlying data
+    pub fn into_data(self) -> RemoteSocketData {
+        self.data
+    }
+    /// Get a ref to the underlying data of the socket
+    pub fn data(&self) -> &RemoteSocketData {
+        &self.data
+    }
+}
+impl<A: Adapter> RemoteSocket<A> {
+    /// # Emit a message to a client that is remotely connected on another server.
+    ///
+    /// See [`Socket::emit`] for more info.
+    pub async fn emit<T: ?Sized + Serialize>(
+        &self,
+        event: impl AsRef<str>,
+        data: &T,
+    ) -> Result<(), RemoteActionError> {
+        let opts = self.get_opts();
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
+        let packet = Packet::event(self.data.ns.clone(), data);
+        self.adapter.broadcast(packet, opts).await?;
+        Ok(())
+    }
+
+    /// # Emit a message to a client that is remotely connected on another server and wait for an acknowledgement.
+    ///
+    /// See [`Socket::emit_with_ack`] for more info.
+    pub async fn emit_with_ack<T: ?Sized + Serialize, V: serde::de::DeserializeOwned>(
+        &self,
+        event: impl AsRef<str>,
+        data: &T,
+    ) -> Result<AckStream<V, A>, RemoteActionError> {
+        let opts = self.get_opts();
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
+        let packet = Packet::event(self.data.ns.clone(), data);
+        let stream = self
+            .adapter
+            .broadcast_with_ack(packet, opts, None)
+            .await
+            .map_err(Into::<AdapterError>::into)?;
+        Ok(AckStream::new(stream, self.parser))
+    }
+
+    /// # Get all room names this remote socket is connected to.
+    ///
+    /// See [`Socket::rooms`] for more info.
+    pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.adapter.rooms(self.get_opts()).await
+    }
+
+    /// # Add the remote socket to the specified room(s).
+    ///
+    /// See [`Socket::join`] for more info.
+    pub async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.adapter.add_sockets(self.get_opts(), rooms).await
+    }
+
+    /// # Remove the remote socket from the specified room(s).
+    ///
+    /// See [`Socket::leave`] for more info.
+    pub async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.adapter.del_sockets(self.get_opts(), rooms).await
+    }
+
+    /// # Disconnect the remote socket from the current namespace,
+    ///
+    /// See [`Socket::disconnect`] for more info.
+    pub async fn disconnect(self) -> Result<(), RemoteActionError> {
+        self.adapter.disconnect_socket(self.get_opts()).await?;
+        Ok(())
+    }
+
+    fn get_opts(&self) -> BroadcastOptions {
+        BroadcastOptions::new(self.data.id)
+    }
+}
+impl<A> fmt::Debug for RemoteSocket<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RemoteSocket")
+            .field("id", &self.data.id)
+            .field("server_id", &self.data.server_id)
+            .field("ns", &self.data.ns)
+            .finish()
+    }
+}
+
+/// A error that can occur when emitting a message to a remote socket.
+#[derive(Debug, thiserror::Error)]
+pub enum RemoteActionError {
+    /// The message data could not be encoded.
+    #[error("cannot encode data: {0}")]
+    Serialize(#[from] crate::parser::ParserError),
+    /// The remote socket is, in fact, a local socket and we should not emit to it.
+    #[error("cannot send the message to the local socket: {0}")]
+    Socket(crate::SocketError),
+    /// The message could not be sent to the remote server.
+    #[error("cannot propagate the request to the server: {0}")]
+    Adapter(#[from] AdapterError),
+}
+impl From<BroadcastError> for RemoteActionError {
+    fn from(value: BroadcastError) -> Self {
+        // This conversion assumes that we broadcast to a single (remote or not) socket.
+        match value {
+            BroadcastError::Socket(s) if s.len() > 0 => RemoteActionError::Socket(s[0].clone()),
+            BroadcastError::Socket(_) => {
+                panic!("BroadcastError with an empty socket vec is not permitted")
+            }
+            BroadcastError::Adapter(e) => e.into(),
+            BroadcastError::Serialize(e) => e.into(),
         }
     }
 }
