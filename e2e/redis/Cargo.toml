@@ -1,6 +1,6 @@
 [package]
 name = "redis-adapter-e2e"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -15,9 +15,7 @@ publish = false
 socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
     "tracing",
 ] }
-socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
-    "__test_harness",
-] }
+socketioxide-redis = { path = "../../crates/socketioxide-redis" }
 hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
