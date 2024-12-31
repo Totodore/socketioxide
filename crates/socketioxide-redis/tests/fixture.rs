@@ -1,12 +1,18 @@
 #![allow(dead_code)]
 
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    future::Future,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+use tokio::sync::mpsc;
 
-use socketioxide::adapter::Emitter;
-use socketioxide::SocketIo;
-use socketioxide_redis::drivers::__test_harness::StubDriver;
-use socketioxide_redis::{RedisAdapter, RedisAdapterConfig, RedisAdapterCtr};
+use socketioxide::{adapter::Emitter, SocketIo};
+use socketioxide_redis::{
+    drivers::{Driver, MessageStream},
+    RedisAdapter, RedisAdapterConfig, RedisAdapterCtr,
+};
 
 /// Spawns a number of servers with a stub driver for testing.
 /// Every server will be connected to every other server.
@@ -68,6 +74,74 @@ pub fn spawn_buggy_servers<const N: usize>(
         io
     })
 }
+
+type ChanItem = (String, Vec<u8>);
+#[derive(Debug, Clone)]
+pub struct StubDriver {
+    tx: mpsc::Sender<ChanItem>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
+    num_serv: u16,
+}
+async fn pipe_handlers(
+    mut rx: mpsc::Receiver<ChanItem>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
+) {
+    while let Some((chan, data)) = rx.recv().await {
+        let _handlers = handlers.read().unwrap().keys().cloned().collect::<Vec<_>>();
+        tracing::debug!(?_handlers, "received data to broadcast {}", chan);
+        if let Some(tx) = handlers.read().unwrap().get(&chan) {
+            tx.try_send(data).unwrap();
+        }
+    }
+}
+impl StubDriver {
+    pub fn new(num_serv: u16) -> (Self, mpsc::Receiver<ChanItem>, mpsc::Sender<ChanItem>) {
+        let (tx, rx) = mpsc::channel(255); // driver emitter
+        let (tx1, rx1) = mpsc::channel(255); // driver receiver
+        let handlers = Arc::new(RwLock::new(HashMap::<_, mpsc::Sender<Vec<u8>>>::new()));
+
+        tokio::spawn(pipe_handlers(rx1, handlers.clone()));
+
+        let driver = Self {
+            tx,
+            num_serv,
+            handlers,
+        };
+        (driver, rx, tx1)
+    }
+    pub fn handler_cnt(&self) -> usize {
+        self.handlers.read().unwrap().len()
+    }
+}
+
+impl Driver for StubDriver {
+    type Error = std::convert::Infallible;
+
+    fn publish(
+        &self,
+        chan: String,
+        val: Vec<u8>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.tx.try_send((chan, val)).unwrap();
+        async move { Ok(()) }
+    }
+
+    async fn subscribe(&self, pat: String) -> Result<MessageStream, Self::Error> {
+        let (tx, rx) = mpsc::channel(255);
+        self.handlers.write().unwrap().insert(pat, tx);
+        Ok(MessageStream::new(rx))
+    }
+
+    fn unsubscribe(&self, pat: String) -> impl Future<Output = Result<(), Self::Error>> + 'static {
+        self.handlers.write().unwrap().remove(&pat);
+        async move { Ok(()) }
+    }
+
+    async fn num_serv(&self, _chan: &str) -> Result<u16, Self::Error> {
+        Ok(self.num_serv)
+    }
+}
+
 #[macro_export]
 macro_rules! timeout_rcv_err {
     ($srx:expr) => {

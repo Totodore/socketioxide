@@ -713,35 +713,69 @@ fn is_local_op(uid: Uid, opts: &BroadcastOptions) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{
+        convert::Infallible,
+        future::Future,
+        sync::{
+            atomic::{self, AtomicBool},
+            Arc,
+        },
+        time::Duration,
+    };
 
     use crate::{
-        drivers::{MessageStream, __test_harness::StubDriver},
+        drivers::{Driver, MessageStream},
         is_local_op, AckStream, Response, ResponseType,
     };
-    use futures_core::{FusedStream, Stream};
-    use futures_util::StreamExt;
+    use futures_core::FusedStream;
+    use futures_util::{stream, StreamExt};
     use rmp_serde::to_vec;
     use socketioxide_core::{
-        adapter::{BroadcastOptions, RemoteSocketData},
+        adapter::{AckStreamItem, BroadcastOptions, RemoteSocketData},
         Sid, Str, Uid, Value,
     };
 
-    struct EmptyStream;
-    impl Stream for EmptyStream {
-        type Item = (Sid, Result<Value, String>);
+    #[derive(Clone)]
+    struct StubDriver {
+        unsubscribed: Arc<AtomicBool>,
+    }
+    impl Driver for StubDriver {
+        type Error = Infallible;
 
-        fn poll_next(
-            self: std::pin::Pin<&mut Self>,
-            _cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Option<Self::Item>> {
-            std::task::Poll::Ready(None)
+        async fn publish(&self, _: String, _: Vec<u8>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        async fn subscribe(&self, _: String) -> Result<MessageStream, Self::Error> {
+            Ok(MessageStream::new_empty())
+        }
+
+        fn unsubscribe(
+            &self,
+            _: String,
+        ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+            self.unsubscribed.store(true, atomic::Ordering::Relaxed);
+            async { Ok(()) }
+        }
+
+        async fn num_serv(&self, _: &str) -> Result<u16, Self::Error> {
+            Ok(0)
         }
     }
-    impl FusedStream for EmptyStream {
-        fn is_terminated(&self) -> bool {
-            true
-        }
+    fn new_stub_ack_stream(
+        remote: MessageStream,
+        timeout: Duration,
+    ) -> AckStream<stream::Empty<AckStreamItem<()>>, StubDriver> {
+        AckStream::new(
+            stream::empty::<AckStreamItem<()>>(),
+            remote,
+            timeout,
+            2,
+            String::new(),
+            StubDriver {
+                unsubscribed: AtomicBool::new(false).into(),
+            },
+        )
     }
 
     //TODO: test weird behaviours, packets out of orders, etc
@@ -749,14 +783,7 @@ mod tests {
     async fn ack_stream() {
         let (tx, rx) = tokio::sync::mpsc::channel(255);
         let remote = MessageStream::new(rx);
-        let stream = AckStream::new(
-            EmptyStream,
-            remote,
-            Duration::from_secs(10),
-            2,
-            String::new(),
-            StubDriver::new(0).0,
-        );
+        let stream = new_stub_ack_stream(remote, Duration::from_secs(10));
         let uid = Uid::new();
         let req_id = Sid::new();
 
@@ -788,14 +815,7 @@ mod tests {
     async fn ack_stream_timeout() {
         let (tx, rx) = tokio::sync::mpsc::channel(255);
         let remote = MessageStream::new(rx);
-        let stream = AckStream::new(
-            EmptyStream,
-            remote,
-            Duration::from_millis(50),
-            2,
-            String::new(),
-            StubDriver::new(0).0,
-        );
+        let stream = new_stub_ack_stream(remote, Duration::from_millis(50));
         let uid = Uid::new();
         let req_id = Sid::new();
 
@@ -811,6 +831,29 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(stream.next().await.is_none());
         assert!(stream.is_terminated());
+    }
+
+    #[tokio::test]
+    async fn test_stream_drop() {
+        let (_, rx) = tokio::sync::mpsc::channel(255);
+        let remote = MessageStream::new(rx);
+        let driver = StubDriver {
+            unsubscribed: AtomicBool::new(false).into(),
+        };
+        let stream = AckStream::new(
+            stream::empty::<AckStreamItem<()>>(),
+            remote,
+            Duration::from_secs(10),
+            2,
+            String::new(),
+            driver.clone(),
+        );
+        drop(stream);
+        let unsubscribed = driver.unsubscribed.load(atomic::Ordering::Relaxed);
+        assert!(
+            unsubscribed,
+            "when dropped, the stream should unsubscribe from chan"
+        );
     }
 
     #[test]

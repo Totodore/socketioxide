@@ -9,8 +9,7 @@ use socketioxide_core::{
     Sid, Uid, Value,
 };
 
-#[derive(Debug)]
-#[cfg_attr(any(test, feature = "__test_harness"), derive(PartialEq))]
+#[derive(Debug, PartialEq)]
 pub enum RequestTypeOut<'a> {
     /// Broadcast a packet to matching sockets.
     Broadcast(&'a Packet),
@@ -59,8 +58,7 @@ pub enum RequestTypeIn {
     FetchSockets,
 }
 
-#[derive(Debug)]
-#[cfg_attr(any(test, feature = "__test_harness"), derive(PartialEq))]
+#[derive(Debug, PartialEq)]
 pub struct RequestOut<'a> {
     pub uid: Uid,
     pub req_id: Sid,

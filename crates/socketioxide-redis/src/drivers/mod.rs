@@ -18,12 +18,14 @@ pin_project! {
 }
 
 impl MessageStream {
-    pub(crate) fn new_empty() -> Self {
+    /// Create a new empty message stream.
+    pub fn new_empty() -> Self {
         // mpsc bounded channel requires buffer > 0
         let (_, rx) = mpsc::channel(1);
         Self { rx }
     }
-    pub(crate) fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
+    /// Create a new message stream from a receiver.
+    pub fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
         Self { rx }
     }
 }
@@ -66,90 +68,4 @@ pub trait Driver: Clone + Send + Sync + 'static {
 
     /// Returns the number of socket.io servers.
     fn num_serv(&self, chan: &str) -> impl Future<Output = Result<u16, Self::Error>> + Send;
-}
-
-#[doc(hidden)]
-#[cfg(feature = "__test_harness")]
-pub mod __test_harness {
-    use std::{
-        collections::HashMap,
-        future::Future,
-        sync::{Arc, RwLock},
-    };
-
-    use tokio::sync::mpsc;
-
-    use super::MessageStream;
-
-    type ChanItem = (String, Vec<u8>);
-    #[derive(Debug, Clone)]
-    pub struct StubDriver {
-        tx: mpsc::Sender<ChanItem>,
-        handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
-        num_serv: u16,
-    }
-    async fn pipe_handlers(
-        mut rx: mpsc::Receiver<ChanItem>,
-        handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
-    ) {
-        while let Some((chan, data)) = rx.recv().await {
-            let _handlers = handlers.read().unwrap().keys().cloned().collect::<Vec<_>>();
-            tracing::debug!(?_handlers, "received data to broadcast {}", chan);
-            if let Some(tx) = handlers.read().unwrap().get(&chan) {
-                tx.try_send(data).unwrap();
-            }
-        }
-    }
-    impl StubDriver {
-        pub fn new(num_serv: u16) -> (Self, mpsc::Receiver<ChanItem>, mpsc::Sender<ChanItem>) {
-            let (tx, rx) = mpsc::channel(255); // driver emitter
-            let (tx1, rx1) = mpsc::channel(255); // driver receiver
-            let handlers = Arc::new(RwLock::new(HashMap::<_, mpsc::Sender<Vec<u8>>>::new()));
-
-            tokio::spawn(pipe_handlers(rx1, handlers.clone()));
-
-            let driver = Self {
-                tx,
-                num_serv,
-                handlers,
-            };
-            (driver, rx, tx1)
-        }
-        pub fn has_handler(&self, pat: &str) -> bool {
-            self.handlers.read().unwrap().contains_key(pat)
-        }
-    }
-
-    #[doc(hidden)]
-    #[cfg(feature = "__test_harness")]
-    impl super::Driver for StubDriver {
-        type Error = std::convert::Infallible;
-
-        fn publish(
-            &self,
-            chan: String,
-            val: Vec<u8>,
-        ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-            self.tx.try_send((chan, val)).unwrap();
-            async move { Ok(()) }
-        }
-
-        async fn subscribe(&self, pat: String) -> Result<MessageStream, Self::Error> {
-            let (tx, rx) = mpsc::channel(255);
-            self.handlers.write().unwrap().insert(pat, tx);
-            Ok(MessageStream::new(rx))
-        }
-
-        fn unsubscribe(
-            &self,
-            pat: String,
-        ) -> impl Future<Output = Result<(), Self::Error>> + 'static {
-            self.handlers.write().unwrap().remove(&pat);
-            async move { Ok(()) }
-        }
-
-        async fn num_serv(&self, _chan: &str) -> Result<u16, Self::Error> {
-            Ok(self.num_serv)
-        }
-    }
 }

@@ -37,11 +37,5 @@ tokio = { workspace = true, features = [
     "parking_lot",
     "rt-multi-thread",
 ] }
-socketioxide = { path = "../socketioxide", features = [
-    "__test_harness",
-    "tracing",
-] }
+socketioxide = { path = "../socketioxide", features = ["tracing"] }
 tracing-subscriber.workspace = true
-
-[features]
-__test_harness = ["socketioxide-core/__test_harness"]
