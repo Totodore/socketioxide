@@ -56,10 +56,10 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-nightly
       - name: Check unused dependencies on default features
-        run: cargo udeps --workspace
+        run: RUSTFLAGS="--cfg fuzzing" cargo udeps --workspace
 
       - name: Check unused dependencies on all features
-        run: cargo udeps --all-features --workspace
+        run: RUSTFLAGS="--cfg fuzzing" cargo udeps --all-features --workspace
 
   msrv:
     runs-on: ubuntu-latest
