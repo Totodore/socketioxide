@@ -10,8 +10,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 rmpv = { version = "1.3.0", features = ["with-serde"] }
-socketioxide-parser-msgpack = { path = "..", features = ["fuzzing"] }
-socketioxide-core = { path = "../../socketioxide-core", features = ["fuzzing"] }
+socketioxide-parser-msgpack = { path = ".." }
+socketioxide-core = { path = "../../socketioxide-core" }
 bytes.workspace = true
 
 [[bin]]

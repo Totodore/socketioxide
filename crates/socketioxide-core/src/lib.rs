@@ -107,7 +107,7 @@ impl<'de> Deserialize<'de> for Value {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(fuzzing)]
 #[doc(hidden)]
 impl arbitrary::Arbitrary<'_> for Value {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {

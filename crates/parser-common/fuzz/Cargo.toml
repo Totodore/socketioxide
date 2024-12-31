@@ -9,8 +9,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-socketioxide-parser-common = { path = "..", features = ["fuzzing"] }
-socketioxide-core = { path = "../../socketioxide-core", features = ["fuzzing"] }
+socketioxide-parser-common = { path = ".." }
+socketioxide-core = { path = "../../socketioxide-core" }
 serde_json.workspace = true
 bytes.workspace = true
 
