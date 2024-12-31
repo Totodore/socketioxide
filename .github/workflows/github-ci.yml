@@ -83,7 +83,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: check crates
-        run: cargo check -p socketioxide -p engineioxide --all-features
+        run: cargo check --all-features
 
   feature_set:
     runs-on: ubuntu-latest
