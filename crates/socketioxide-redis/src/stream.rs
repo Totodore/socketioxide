@@ -33,6 +33,7 @@ pin_project! {
         #[pin]
         remote: DropStream<TakeUntil<MessageStream, time::Sleep>, D>,
         ack_cnt: u32,
+        total_ack_cnt: usize,
         serv_cnt: u16,
     }
 }
@@ -52,6 +53,7 @@ impl<S, D: Driver> AckStream<S, D> {
             local,
             remote,
             ack_cnt: 0,
+            total_ack_cnt: 0,
             serv_cnt,
         }
     }
@@ -62,6 +64,7 @@ impl<S, D: Driver> AckStream<S, D> {
             local,
             remote,
             ack_cnt: 0,
+            total_ack_cnt: 0,
             serv_cnt: 0,
         }
     }
@@ -84,9 +87,10 @@ impl<S, D: Driver> AckStream<S, D> {
                         uid,
                         req_id,
                         r#type: ResponseType::BroadcastAckCount(count),
-                    }) => {
+                    }) if *projection.serv_cnt > 0 => {
                         tracing::trace!(?uid, ?req_id, "receiving broadcast ack count {count}");
                         *projection.ack_cnt += count;
+                        *projection.total_ack_cnt += count as usize;
                         *projection.serv_cnt -= 1;
                         self.poll_remote(cx)
                     }
@@ -94,13 +98,13 @@ impl<S, D: Driver> AckStream<S, D> {
                         uid,
                         req_id,
                         r#type: ResponseType::BroadcastAck((sid, res)),
-                    }) => {
+                    }) if *projection.ack_cnt > 0 => {
                         tracing::trace!(?uid, ?req_id, "receiving broadcast ack {sid} {:?}", res);
                         *projection.ack_cnt -= 1;
                         Poll::Ready(Some((sid, res)))
                     }
                     Ok(Response { uid, req_id, .. }) => {
-                        tracing::warn!(?uid, ?req_id, "unexpected response type");
+                        tracing::warn!(?uid, ?req_id, ?self, "unexpected response type");
                         self.poll_remote(cx)
                     }
                     Err(e) => {
@@ -126,6 +130,10 @@ where
             Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
         }
     }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (lower, upper) = self.local.size_hint();
+        (lower, upper.map(|upper| upper + self.total_ack_cnt))
+    }
 }
 
 impl<Err, S, D> FusedStream for AckStream<S, D>
@@ -144,6 +152,15 @@ where
         self.local.is_terminated() && remote_term
     }
 }
+impl<S, D: Driver> fmt::Debug for AckStream<S, D> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AckStream")
+            .field("ack_cnt", &self.ack_cnt)
+            .field("total_ack_cnt", &self.total_ack_cnt)
+            .field("serv_cnt", &self.serv_cnt)
+            .finish()
+    }
+}
 
 pin_project! {
     /// A stream that unsubscribes from its source channel when dropped.
@@ -156,7 +173,8 @@ pin_project! {
     impl<S, D: Driver> PinnedDrop for DropStream<S, D> {
         fn drop(this: Pin<&mut Self>) {
             let stream = this.project();
-            let driver = stream.driver.unsubscribe(stream.chan.clone());
+            let driver = stream.driver.unsubscribe(std::mem::take(stream.chan));
+            // TODO: Use AsyncDrop when stable
             tokio::spawn(async move {
                 if let Err(e) = driver.await {
                     tracing::warn!("error unsubscribing from ack stream: {e}");
