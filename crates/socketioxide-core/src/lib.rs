@@ -37,11 +37,32 @@ pub mod errors;
 pub mod packet;
 pub mod parser;
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, ops::Deref};
 
 use bytes::Bytes;
 pub use engineioxide::{sid::Sid, Str};
 use serde::{Deserialize, Serialize};
+
+/// Represents a unique identifier for a server.
+#[derive(Clone, Serialize, Deserialize, Debug, Copy, PartialEq, Eq, Default)]
+pub struct Uid(Sid);
+impl Deref for Uid {
+    type Target = Sid;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::fmt::Display for Uid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl Uid {
+    /// Create a new unique identifier.
+    pub fn new() -> Self {
+        Self(Sid::new())
+    }
+}
 
 /// Represents a value that can be sent over the engine.io wire as an engine.io packet
 /// or the data that can be outputed by a binary parser (e.g. [`MsgPackParser`](../socketioxide_parser_msgpack/index.html))
