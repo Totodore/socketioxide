@@ -443,13 +443,14 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
             .subscribe(chan.clone())
             .await?
             .filter_map(|item| {
-                future::ready(
-                    rmp_serde::from_slice::<Response<D>>(&item)
-                        .inspect_err(|e| {
-                            tracing::warn!("error decoding response: {e}");
-                        })
-                        .ok(),
-                )
+                let data = match rmp_serde::from_slice::<Response<D>>(&item) {
+                    Ok(data) => Some(data),
+                    Err(e) => {
+                        tracing::warn!("error decoding response: {e}");
+                        None
+                    }
+                };
+                future::ready(data)
             })
             .filter(move |item| future::ready(item.r#type.to_u8() == response_idx))
             .take(remote_serv_cnt)
