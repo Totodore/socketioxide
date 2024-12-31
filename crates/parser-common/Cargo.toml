@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide-parser-common"
 description = "Common parser for the socketioxide protocol"
-version.workspace = true
+version = "0.15.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -22,12 +22,6 @@ socketioxide-core = { version = "0.15.0", path = "../socketioxide-core" }
 [dev-dependencies]
 criterion.workspace = true
 rmpv = { version = "1.3", features = ["with-serde"] }
-socketioxide-core = { version = "0.15.0", path = "../socketioxide-core", features = [
-    "__test_harness",
-] }
-
-[features]
-fuzzing = ["socketioxide-core/fuzzing"]
 
 [[bench]]
 name = "packet_encode"
