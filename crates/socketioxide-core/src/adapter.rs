@@ -343,9 +343,6 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
 
     /// Clears all the rooms and sockets.
     pub fn close(&self) {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("closing local adapter: {}", self.path());
-
         let mut rooms = self.rooms.write().unwrap();
         rooms.clear();
         rooms.shrink_to_fit();
@@ -399,8 +396,6 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         let room_map = self.rooms.read().unwrap();
         let sids = self.apply_opts(&opts, &room_map);
 
-        #[cfg(feature = "tracing")]
-        tracing::debug!("broadcasting packet");
         if sids.is_empty() {
             return Ok(());
         }
@@ -419,9 +414,6 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     ) -> (E::AckStream, u32) {
         let room_map = self.rooms.read().unwrap();
         let sids = self.apply_opts(&opts, &room_map);
-        #[cfg(feature = "tracing")]
-        tracing::debug!("broadcasting packet");
-
         // We cannot pre-serialize the packet because we need to change the ack id.
         self.sockets.send_many_with_ack(sids, packet, timeout)
     }
