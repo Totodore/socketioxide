@@ -46,11 +46,11 @@ pub trait Driver: Clone + Send + Sync + 'static {
     type Error: std::error::Error + Send + 'static;
 
     /// Publish a message to a channel.
-    fn publish<'a>(
+    fn publish(
         &self,
-        chan: &'a str,
+        chan: String,
         val: Vec<u8>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Subscribe to a channel with a pattern, it will return a stream of messages.
     fn subscribe(
@@ -59,7 +59,10 @@ pub trait Driver: Clone + Send + Sync + 'static {
     ) -> impl Future<Output = Result<MessageStream, Self::Error>> + Send;
 
     /// Unsubscribe from a channel.
-    fn unsubscribe(&self, pat: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn unsubscribe(
+        &self,
+        pat: String,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static;
 
     /// Returns the number of socket.io servers.
     fn num_serv(&self, chan: &str) -> impl Future<Output = Result<u16, Self::Error>> + Send;
@@ -112,6 +115,9 @@ pub mod __test_harness {
             };
             (driver, rx, tx1)
         }
+        pub fn has_handler(&self, pat: &str) -> bool {
+            self.handlers.read().unwrap().contains_key(pat)
+        }
     }
 
     #[doc(hidden)]
@@ -119,12 +125,12 @@ pub mod __test_harness {
     impl super::Driver for StubDriver {
         type Error = std::convert::Infallible;
 
-        fn publish<'a>(
+        fn publish(
             &self,
-            chan: &'a str,
+            chan: String,
             val: Vec<u8>,
-        ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
-            self.tx.try_send((chan.to_string(), val)).unwrap();
+        ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+            self.tx.try_send((chan, val)).unwrap();
             async move { Ok(()) }
         }
 
@@ -134,9 +140,12 @@ pub mod __test_harness {
             Ok(MessageStream::new(rx))
         }
 
-        async fn unsubscribe(&self, pat: &str) -> Result<(), Self::Error> {
-            self.handlers.write().unwrap().remove(pat);
-            Ok(())
+        fn unsubscribe(
+            &self,
+            pat: String,
+        ) -> impl Future<Output = Result<(), Self::Error>> + 'static {
+            self.handlers.write().unwrap().remove(&pat);
+            async move { Ok(()) }
         }
 
         async fn num_serv(&self, _chan: &str) -> Result<u16, Self::Error> {

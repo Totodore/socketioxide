@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     adapter::{BroadcastOptions, Room},
     packet::Packet,
-    Sid, Value,
+    Sid, Uid, Value,
 };
 
 #[derive(Debug)]
@@ -62,13 +62,13 @@ pub enum RequestTypeIn {
 #[derive(Debug)]
 #[cfg_attr(any(test, feature = "__test_harness"), derive(PartialEq))]
 pub struct RequestOut<'a> {
-    pub uid: Sid,
+    pub uid: Uid,
     pub req_id: Sid,
     pub r#type: RequestTypeOut<'a>,
     pub opts: &'a BroadcastOptions,
 }
 impl<'a> RequestOut<'a> {
-    pub fn new(uid: Sid, r#type: RequestTypeOut<'a>, opts: &'a BroadcastOptions) -> Self {
+    pub fn new(uid: Uid, r#type: RequestTypeOut<'a>, opts: &'a BroadcastOptions) -> Self {
         Self {
             uid,
             req_id: Sid::new(),
@@ -83,7 +83,7 @@ impl<'a> Serialize for RequestOut<'a> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         #[derive(Debug, Serialize)]
         struct RawRequest<'a> {
-            uid: Sid,
+            uid: Uid,
             req_id: Sid,
             r#type: u8,
             packet: Option<&'a Packet>,
@@ -110,7 +110,7 @@ impl<'a> Serialize for RequestOut<'a> {
 
 #[derive(Debug)]
 pub struct RequestIn {
-    pub uid: Sid,
+    pub uid: Uid,
     pub req_id: Sid,
     pub r#type: RequestTypeIn,
     pub opts: BroadcastOptions,
@@ -119,7 +119,7 @@ impl<'de> Deserialize<'de> for RequestIn {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Debug, Deserialize)]
         struct RawRequest {
-            uid: Sid,
+            uid: Uid,
             req_id: Sid,
             r#type: u8,
             packet: Option<Packet>,
@@ -149,7 +149,7 @@ impl<'de> Deserialize<'de> for RequestIn {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Response<D = ()> {
-    pub uid: Sid,
+    pub uid: Uid,
     pub req_id: Sid,
     pub r#type: ResponseType<D>,
 }
@@ -219,7 +219,7 @@ mod tests {
     fn request_broadcast_serde() {
         let packet = Packet::event("foo", Value::Str("bar".into(), None));
         let opts = BroadcastOptions::new(Sid::new());
-        let req = RequestOut::new(Sid::new(), RequestTypeOut::Broadcast(&packet), &opts);
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::Broadcast(&packet), &opts);
         assert_request_serde(req);
     }
 
@@ -227,7 +227,7 @@ mod tests {
     fn request_broadcast_with_ack_serde() {
         let packet = Packet::event("foo", Value::Str("bar".into(), None));
         let opts = BroadcastOptions::new(Sid::new());
-        let req = RequestOut::new(Sid::new(), RequestTypeOut::BroadcastWithAck(&packet), &opts);
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::BroadcastWithAck(&packet), &opts);
         assert_request_serde(req);
     }
 
@@ -235,7 +235,7 @@ mod tests {
     fn request_add_sockets_serde() {
         let opts = BroadcastOptions::new(Sid::new());
         let rooms = vec!["foo".into(), "bar".into()];
-        let req = RequestOut::new(Sid::new(), RequestTypeOut::AddSockets(&rooms), &opts);
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::AddSockets(&rooms), &opts);
         assert_request_serde(req);
     }
 
@@ -243,14 +243,21 @@ mod tests {
     fn request_del_sockets_serde() {
         let opts = BroadcastOptions::new(Sid::new());
         let rooms = vec!["foo".into(), "bar".into()];
-        let req = RequestOut::new(Sid::new(), RequestTypeOut::DelSockets(&rooms), &opts);
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::DelSockets(&rooms), &opts);
         assert_request_serde(req);
     }
 
     #[test]
     fn request_disconnect_sockets_serde() {
         let opts = BroadcastOptions::new(Sid::new());
-        let req = RequestOut::new(Sid::new(), RequestTypeOut::DisconnectSockets, &opts);
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::DisconnectSockets, &opts);
+        assert_request_serde(req);
+    }
+
+    #[test]
+    fn request_fetch_sockets_serde() {
+        let opts = BroadcastOptions::new(Sid::new());
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::FetchSockets, &opts);
         assert_request_serde(req);
     }
 }

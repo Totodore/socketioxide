@@ -68,6 +68,8 @@ async fn watch_handler(
             Ok(Some((chan, msg))) => {
                 if let Some(tx) = handlers.read().unwrap().get(chan.as_str()) {
                     tx.try_send(msg).unwrap();
+                } else {
+                    tracing::warn!("no handler for channel {}", chan);
                 }
             }
             Ok(_) => {}
@@ -96,11 +98,11 @@ impl RedisDriver {
 impl Driver for RedisDriver {
     type Error = RedisError;
 
-    fn publish<'a>(
+    fn publish(
         &self,
-        chan: &'a str,
+        chan: String,
         val: Vec<u8>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         let mut conn = self.conn.clone();
         async move {
             conn.publish::<_, _, redis::Value>(chan, val).await?;
@@ -109,21 +111,25 @@ impl Driver for RedisDriver {
     }
 
     async fn subscribe(&self, chan: String) -> Result<MessageStream, Self::Error> {
-        self.conn.clone().psubscribe(chan.as_str()).await?;
+        self.conn.clone().subscribe(chan.as_str()).await?;
         let (tx, rx) = mpsc::channel(255);
         self.handlers.write().unwrap().insert(chan, tx);
         Ok(MessageStream::new(rx))
     }
 
-    async fn unsubscribe(&self, chan: &str) -> Result<(), Self::Error> {
-        self.handlers.write().unwrap().remove(chan);
-        self.conn.clone().punsubscribe(chan).await?;
-        Ok(())
+    fn unsubscribe(&self, chan: String) -> impl Future<Output = Result<(), Self::Error>> + 'static {
+        self.handlers.write().unwrap().remove(&chan);
+        let mut conn = self.conn.clone();
+        async move {
+            conn.unsubscribe(chan).await?;
+            Ok(())
+        }
     }
 
     async fn num_serv(&self, chan: &str) -> Result<u16, Self::Error> {
         let mut conn = self.conn.clone();
-        let count: u16 = redis::cmd("NUMSUB")
+        let (_, count): (String, u16) = redis::cmd("PUBSUB")
+            .arg("NUMSUB")
             .arg(chan)
             .query_async(&mut conn)
             .await?;
