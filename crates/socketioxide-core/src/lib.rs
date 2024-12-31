@@ -71,8 +71,7 @@ impl Uid {
 /// or a string parser (e.g. [`CommonParser`](../socketioxide_parser_common/index.html))).
 ///
 /// If you want to deserialize this value to a specific type. You should manually call the `Data` extractor.
-#[derive(Debug, Clone)]
-#[cfg_attr(any(test, feature = "__test_harness"), derive(PartialEq))]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// A string payload that will be sent as a string engine.io packet.
     /// It can also contain adjacent binary payloads.
@@ -110,7 +109,7 @@ impl<'de> Deserialize<'de> for Value {
     }
 }
 
-#[cfg(feature = "fuzzing")]
+#[cfg(debug_assertions)]
 #[doc(hidden)]
 impl arbitrary::Arbitrary<'_> for Value {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {

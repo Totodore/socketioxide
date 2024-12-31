@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide-core"
-description = "Core of the socketioxide library. Contains basic types and interfaces for the socketioxide crate and the parser sub-crates"
-version.workspace = true
+description = "Core of the socketioxide library. Contains basic types and interfaces for the socketioxide crate and all other related sub-crates."
+version = "0.15.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -17,15 +17,9 @@ bytes.workspace = true
 engineioxide = { version = "0.15.0", path = "../engineioxide" }
 serde.workspace = true
 thiserror.workspace = true
-arbitrary = { version = "1.3.2", features = ["derive"], optional = true }
 futures-core.workspace = true
 smallvec = { workspace = true, features = ["serde"] }
-tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
-
-[features]
-tracing = ["dep:tracing"]
-fuzzing = ["dep:arbitrary"]
-__test_harness = []
+arbitrary = { version = "1.3.2", features = ["derive"] }
