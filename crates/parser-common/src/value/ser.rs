@@ -318,7 +318,6 @@ impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        use serde::ser::SerializeMap;
         let num = {
             // SAFETY: the binary_payloads are only accessed in the context of the current serialization
             // in a sequential manner. The only mutation place is here, hence it remains safe.

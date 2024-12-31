@@ -392,7 +392,6 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         packet: Packet,
         opts: BroadcastOptions,
     ) -> Result<(), Vec<SocketError>> {
-        use crate::parser::Parse;
         let room_map = self.rooms.read().unwrap();
         let sids = self.apply_opts(&opts, &room_map);
 
