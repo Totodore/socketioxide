@@ -20,7 +20,7 @@ use socketioxide_core::{
     errors::SocketError,
     packet::{ConnectPacket, Packet, PacketData},
     parser::Parse,
-    Value,
+    Uid, Value,
 };
 
 /// A [`Namespace`] constructor used for dynamic namespaces
@@ -219,7 +219,7 @@ impl<A: Adapter> Namespace<A> {
 /// Otherwise it creates a cyclic dependency between the namespace, the emitter and the adapter.
 trait InnerEmitter: Send + Sync + 'static {
     /// Get the remote socket data from the socket ids.
-    fn get_remote_sockets(&self, sids: BroadcastIter<'_>, uid: Sid) -> Vec<RemoteSocketData>;
+    fn get_remote_sockets(&self, sids: BroadcastIter<'_>, uid: Uid) -> Vec<RemoteSocketData>;
     /// Get all the socket ids in the namespace.
     fn get_all_sids(&self, filter: &dyn Fn(&Sid) -> bool) -> Vec<Sid>;
     /// Send data to the list of socket ids.
@@ -236,7 +236,7 @@ trait InnerEmitter: Send + Sync + 'static {
 }
 
 impl<A: Adapter> InnerEmitter for Namespace<A> {
-    fn get_remote_sockets(&self, sids: BroadcastIter<'_>, uid: Sid) -> Vec<RemoteSocketData> {
+    fn get_remote_sockets(&self, sids: BroadcastIter<'_>, uid: Uid) -> Vec<RemoteSocketData> {
         let sockets = self.sockets.read().unwrap();
         sids.filter_map(|sid| sockets.get(&sid))
             .map(|socket| RemoteSocketData {
@@ -314,7 +314,7 @@ pub struct Emitter {
     parser: Parser,
     path: Str,
     ack_timeout: Duration,
-    uid: Sid,
+    uid: Uid,
 }
 
 impl Emitter {
@@ -323,7 +323,7 @@ impl Emitter {
         parser: Parser,
         path: Str,
         ack_timeout: Duration,
-        uid: Sid,
+        uid: Uid,
     ) -> Self {
         Self {
             ns,
@@ -380,7 +380,7 @@ impl SocketEmitter for Emitter {
     fn parser(&self) -> impl Parse {
         self.parser
     }
-    fn server_id(&self) -> Sid {
+    fn server_id(&self) -> Uid {
         self.uid
     }
     fn path(&self) -> &Str {

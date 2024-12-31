@@ -23,7 +23,7 @@ use crate::{
     errors::{AdapterError, BroadcastError, SocketError},
     packet::Packet,
     parser::Parse,
-    Value,
+    Uid, Value,
 };
 
 /// A room identifier
@@ -52,7 +52,7 @@ pub struct BroadcastOptions {
     /// The target server id can be used to optimize the broadcast.
     /// More specifically when we use broadcasting to apply a single action on a remote socket.
     /// We now the server_id of the remote socket, so we can send the action directly to the server.
-    pub server_id: Option<Sid>,
+    pub server_id: Option<Uid>,
 }
 impl BroadcastOptions {
     /// Add any flags to the options.
@@ -206,7 +206,7 @@ pub trait SocketEmitter: Send + Sync + 'static {
     /// Get the parser of the namespace.
     fn parser(&self) -> impl Parse;
     /// Get the unique server id.
-    fn server_id(&self) -> Sid;
+    fn server_id(&self) -> Uid;
 }
 
 /// An adapter is responsible for managing the state of the namespace.
@@ -507,7 +507,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         self.sockets.parser()
     }
     /// Get the unique server identifier
-    pub fn server_id(&self) -> Sid {
+    pub fn server_id(&self) -> Uid {
         self.sockets.server_id()
     }
 }
@@ -644,7 +644,7 @@ pub struct RemoteSocketData {
     /// The id of the remote socket.
     pub id: Sid,
     /// The server id this socket is connected to.
-    pub server_id: Sid,
+    pub server_id: Uid,
     /// The namespace this socket is connected to.
     pub ns: Str,
 }

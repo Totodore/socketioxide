@@ -7,7 +7,10 @@ use engineioxide::{
     TransportType,
 };
 use serde::Serialize;
-use socketioxide_core::adapter::{Room, RoomParam};
+use socketioxide_core::{
+    adapter::{Room, RoomParam},
+    Uid,
+};
 use socketioxide_parser_common::CommonParser;
 #[cfg(feature = "msgpack")]
 use socketioxide_parser_msgpack::MsgPackParser;
@@ -66,7 +69,7 @@ pub struct SocketIoConfig {
     pub(crate) parser: Parser,
 
     /// A global server identifier
-    pub server_id: Sid,
+    pub server_id: Uid,
 }
 
 impl Default for SocketIoConfig {
@@ -79,7 +82,7 @@ impl Default for SocketIoConfig {
             ack_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(45),
             parser: Parser::default(),
-            server_id: Sid::new(),
+            server_id: Uid::new(),
         }
     }
 }
@@ -622,7 +625,7 @@ impl<A: Adapter> SocketIo<A> {
     #[doc = include_str!("../docs/operators/broadcast.md")]
     #[inline]
     pub fn broadcast(&self) -> BroadcastOperators<A> {
-        self.get_default_op().broadcast()
+        self.get_default_op()
     }
 
     #[cfg(feature = "state")]
