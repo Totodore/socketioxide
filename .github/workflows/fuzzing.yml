@@ -34,7 +34,7 @@ jobs:
       - run: cargo install cargo-fuzz
       - name: download corpus data
         run: |
-          cd crates/${{ matrix.crate }}
+          cd crates/${{ matrix.crate }}/fuzz
           wget https://github.com/Totodore/socketioxide-fuzzing-corpus/archive/refs/tags/v$TEST_DATA_VERSION.zip
           unzip v$TEST_DATA_VERSION.zip
           rm v$TEST_DATA_VERSION.zip
@@ -69,5 +69,5 @@ jobs:
       - run: cargo install cargo-fuzz
       - name: cargo fuzz run decode_packet
         run: |
-          cd crates/${{ matrix.crate }}
+          cd crates/${{ matrix.crate }}/fuzz
           cargo fuzz run ${{ matrix.target }} -- -timeout=5 -max_len=2048 -runs=2000000 -only_ascii=1
