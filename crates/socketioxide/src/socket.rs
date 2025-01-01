@@ -537,7 +537,12 @@ impl<A: Adapter> Socket<A> {
     /// io.ns("/", handler);
     /// ```
     pub fn rooms(&self) -> Vec<Room> {
-        self.ns.adapter.get_local().socket_rooms(self.id)
+        self.ns
+            .adapter
+            .get_local()
+            .socket_rooms(self.id)
+            .into_iter()
+            .collect()
     }
 
     /// # Return true if the socket is connected to the namespace.
