@@ -6,9 +6,10 @@
 //! operations (`broadcast_with_ack`, `broadcast`, `rooms`, etc...).
 use std::{
     borrow::Cow,
-    collections::{hash_set, HashMap, HashSet},
+    collections::{hash_map, hash_set, HashMap, HashSet},
     error::Error as StdError,
     future::{self, Future},
+    hash::Hash,
     slice,
     sync::{Arc, RwLock},
     time::Duration,
@@ -329,15 +330,17 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
 /// The default adapter. Store the state in memory.
 pub struct CoreLocalAdapter<E> {
     rooms: RwLock<HashMap<Room, HashSet<Sid>>>,
-    sockets: E,
+    sockets: RwLock<HashMap<Sid, HashSet<Room>>>,
+    emitter: E,
 }
 
 impl<E: SocketEmitter> CoreLocalAdapter<E> {
     /// Create a new local adapter with the given sockets interface.
-    pub fn new(sockets: E) -> Self {
+    pub fn new(emitter: E) -> Self {
         Self {
             rooms: RwLock::new(HashMap::new()),
-            sockets,
+            sockets: RwLock::new(HashMap::new()),
+            emitter,
         }
     }
 
@@ -351,37 +354,32 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     /// Adds the socket to all the rooms.
     pub fn add_all(&self, sid: Sid, rooms: impl RoomParam) {
         let mut rooms_map = self.rooms.write().unwrap();
+        let mut socket_map = self.sockets.write().unwrap();
         for room in rooms.into_room_iter() {
-            rooms_map.entry(room).or_default().insert(sid);
+            rooms_map.entry(room.clone()).or_default().insert(sid);
+            socket_map.entry(sid).or_default().insert(room);
         }
     }
 
     /// Removes the socket from the rooms.
     pub fn del(&self, sid: Sid, rooms: impl RoomParam) {
         let mut rooms_map = self.rooms.write().unwrap();
+        let mut socket_map = self.sockets.write().unwrap();
         for room in rooms.into_room_iter() {
-            let room_empty = if let Some(room) = rooms_map.get_mut(&room) {
-                room.remove(&sid);
-                room.is_empty()
-            } else {
-                false
-            };
-            if room_empty {
-                rooms_map.remove(&room);
-            }
+            remove_and_clean_entry(rooms_map.entry(room.clone()), &sid, || {
+                socket_map.entry(sid).and_modify(|r| {
+                    r.remove(&room);
+                });
+            });
         }
     }
 
     /// Removes the socket from all the rooms.
     pub fn del_all(&self, sid: Sid) {
         let mut rooms_map = self.rooms.write().unwrap();
-        for room in rooms_map.values_mut() {
-            room.remove(&sid);
-        }
-        //TODO: avoid re-iterating
-        for (room, sockets) in rooms_map.clone() {
-            if sockets.is_empty() {
-                rooms_map.remove(&room);
+        if let Some(rooms) = self.sockets.write().unwrap().remove(&sid) {
+            for room in rooms {
+                remove_and_clean_entry(rooms_map.entry(room.clone()), &sid, || ());
             }
         }
     }
@@ -399,8 +397,8 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
             return Ok(());
         }
 
-        let data = self.sockets.parser().encode(packet);
-        self.sockets.send_many(sids, data)
+        let data = self.emitter.parser().encode(packet);
+        self.emitter.send_many(sids, data)
     }
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
@@ -414,7 +412,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         let room_map = self.rooms.read().unwrap();
         let sids = self.apply_opts(&opts, &room_map);
         // We cannot pre-serialize the packet because we need to change the ack id.
-        self.sockets.send_many_with_ack(sids, packet, timeout)
+        self.emitter.send_many_with_ack(sids, packet, timeout)
     }
 
     /// Returns the sockets ids that match the [`BroadcastOptions`].
@@ -427,41 +425,51 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     pub fn fetch_sockets(&self, opts: BroadcastOptions) -> Vec<RemoteSocketData> {
         let rooms = self.rooms.read().unwrap();
         let sids = self.apply_opts(&opts, &rooms);
-        self.sockets.get_remote_sockets(sids)
+        self.emitter.get_remote_sockets(sids)
     }
 
-    //TODO: make this operation O(1)
     /// Returns the rooms of the socket.
-    pub fn socket_rooms(&self, sid: Sid) -> Vec<Cow<'static, str>> {
-        let rooms_map = self.rooms.read().unwrap();
-        rooms_map
-            .iter()
-            .filter(|(_, sockets)| sockets.contains(&sid))
-            .map(|(room, _)| room.clone())
-            .collect()
+    pub fn socket_rooms(&self, sid: Sid) -> HashSet<Room> {
+        self.sockets
+            .read()
+            .unwrap()
+            .get(&sid)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Adds the sockets that match the [`BroadcastOptions`] to the rooms.
     pub fn add_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
+        let mut room_map = self.rooms.write().unwrap();
+        let mut socket_map = self.sockets.write().unwrap();
         // Here we have to collect sids, because we are going to modify the rooms map.
-        let sids = self
-            .apply_opts(&opts, &self.rooms.read().unwrap())
-            .collect::<Vec<_>>();
-        for sid in sids {
-            self.add_all(sid, rooms.clone());
+        let sids = self.apply_opts(&opts, &room_map).collect::<Vec<_>>();
+        for sid in &sids {
+            let entry = socket_map.entry(*sid).or_default();
+            for room in &rooms {
+                entry.insert(room.clone());
+            }
+        }
+        for room in rooms {
+            let entry = room_map.entry(room).or_default();
+            for sid in &sids {
+                entry.insert(*sid);
+            }
         }
     }
 
     /// Removes the sockets that match the [`BroadcastOptions`] from the rooms.
     pub fn del_sockets(&self, opts: BroadcastOptions, rooms: impl RoomParam) {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
-        // Here we have to collect sids, because we are going to modify the rooms map.
-        let sids = self
-            .apply_opts(&opts, &self.rooms.read().unwrap())
-            .collect::<Vec<_>>();
-        for sid in sids {
-            self.del(sid, rooms.clone());
+        let mut rooms_map = self.rooms.write().unwrap();
+        let mut socket_map = self.sockets.write().unwrap();
+        let sids = self.apply_opts(&opts, &rooms_map).collect::<Vec<_>>();
+        for room in rooms {
+            for sid in &sids {
+                remove_and_clean_entry(socket_map.entry(*sid), &room, || ());
+                remove_and_clean_entry(rooms_map.entry(room.clone()), sid, || ());
+            }
         }
     }
 
@@ -470,36 +478,32 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         let sids = self
             .apply_opts(&opts, &self.rooms.read().unwrap())
             .collect();
-        self.sockets.disconnect_many(sids)
+        self.emitter.disconnect_many(sids)
     }
 
-    /// Returns all the rooms for this adapter.
+    /// Returns all the matching rooms
     pub fn rooms(&self, opts: BroadcastOptions) -> HashSet<Room> {
         let rooms = self.rooms.read().unwrap();
+        let sockets = self.sockets.read().unwrap();
         let sids = self.apply_opts(&opts, &rooms);
-        let mut room_result = HashSet::new();
-        for sid in sids {
-            for (room, sockets) in rooms.iter() {
-                if sockets.contains(&sid) {
-                    room_result.insert(room.clone());
-                }
-            }
-        }
-        room_result
+        sids.filter_map(|id| sockets.get(&id))
+            .flatten()
+            .cloned()
+            .collect()
     }
 
     /// Get the namespace path.
     pub fn path(&self) -> &Str {
-        self.sockets.path()
+        self.emitter.path()
     }
 
     /// Get the parser of the namespace.
     pub fn parser(&self) -> impl Parse + '_ {
-        self.sockets.parser()
+        self.emitter.parser()
     }
     /// Get the unique server identifier
     pub fn server_id(&self) -> Uid {
-        self.sockets.server_id()
+        self.emitter.server_id()
     }
 }
 
@@ -550,7 +554,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     ) -> BroadcastIter<'a> {
         let is_broadcast = opts.has_flag(BroadcastFlags::Broadcast);
 
-        let mut except = self.get_except_sids(&opts.except);
+        let mut except = get_except_sids(&opts.except, rooms);
         // In case of broadcast flag + if the sender is set,
         // we should not broadcast to it.
         if is_broadcast && opts.sid.is_some() {
@@ -561,7 +565,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
             let iter = BroadcastRooms::new(&opts.rooms, rooms, except);
             InnerBroadcastIter::BroadcastRooms(iter).into()
         } else if is_broadcast {
-            let sids = self.sockets.get_all_sids(|id| !except.contains(id));
+            let sids = self.emitter.get_all_sids(|id| !except.contains(id));
             InnerBroadcastIter::GlobalBroadcast(sids.into_iter()).into()
         } else if let Some(id) = opts.sid {
             InnerBroadcastIter::Single(id).into()
@@ -569,16 +573,38 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
             InnerBroadcastIter::None.into()
         }
     }
+}
 
-    fn get_except_sids(&self, except: &SmallVec<[Room; 4]>) -> HashSet<Sid> {
-        let mut except_sids = HashSet::new();
-        let rooms_map = self.rooms.read().unwrap();
-        for room in except {
-            if let Some(sockets) = rooms_map.get(room) {
-                except_sids.extend(sockets);
-            }
+#[inline]
+fn get_except_sids(except: &[Room], rooms: &HashMap<Room, HashSet<Sid>>) -> HashSet<Sid> {
+    let mut except_sids = HashSet::new();
+    for room in except {
+        if let Some(sockets) = rooms.get(room) {
+            except_sids.extend(sockets);
         }
-        except_sids
+    }
+    except_sids
+}
+
+/// Remove a field from a HashSet value and remove it if empty.
+/// Call `cleanup` fn if the entry exists
+#[inline]
+fn remove_and_clean_entry<K, T: Hash + Eq>(
+    entry: hash_map::Entry<'_, K, HashSet<T>>,
+    el: &T,
+    cleanup: impl FnOnce(),
+) {
+    //TODO: use hashmap raw entry when stabilized to avoid entry clone.
+    // https://github.com/rust-lang/rust/issues/56167
+    match entry {
+        hash_map::Entry::Occupied(mut entry) => {
+            entry.get_mut().remove(el);
+            if entry.get().is_empty() {
+                entry.remove_entry();
+            }
+            cleanup();
+        }
+        hash_map::Entry::Vacant(_) => (),
     }
 }
 
@@ -745,9 +771,15 @@ mod test {
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1", "room2"]);
         let rooms_map = adapter.rooms.read().unwrap();
+        let socket_map = adapter.sockets.read().unwrap();
         assert_eq!(rooms_map.len(), 2);
+        assert_eq!(socket_map.len(), 1);
         assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
         assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+
+        let rooms = socket_map.get(&socket).unwrap();
+        assert!(rooms.contains("room1"));
+        assert!(rooms.contains("room2"));
     }
 
     #[test]
@@ -760,29 +792,46 @@ mod test {
             assert_eq!(rooms_map.len(), 2);
             assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
             assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+            let socket_map = adapter.sockets.read().unwrap();
+            let rooms = socket_map.get(&socket).unwrap();
+            assert!(rooms.contains("room1"));
+            assert!(rooms.contains("room2"));
         }
         adapter.del(socket, "room1");
         let rooms_map = adapter.rooms.read().unwrap();
+        let socket_map = adapter.sockets.read().unwrap();
         assert_eq!(rooms_map.len(), 1);
         assert!(rooms_map.get("room1").is_none());
         assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+        assert_eq!(socket_map.get(&socket).unwrap().len(), 1);
     }
-
     #[test]
     fn del_all() {
         let socket = Sid::new();
         let adapter = create_adapter([socket]);
         adapter.add_all(socket, ["room1", "room2"]);
+
         {
             let rooms_map = adapter.rooms.read().unwrap();
             assert_eq!(rooms_map.len(), 2);
             assert_eq!(rooms_map.get("room1").unwrap().len(), 1);
             assert_eq!(rooms_map.get("room2").unwrap().len(), 1);
+
+            let socket_map = adapter.sockets.read().unwrap();
+            let rooms = socket_map.get(&socket).unwrap();
+            assert!(rooms.contains("room1"));
+            assert!(rooms.contains("room2"));
         }
 
         adapter.del_all(socket);
-        let rooms_map = adapter.rooms.read().unwrap();
-        assert_eq!(rooms_map.len(), 0);
+
+        {
+            let rooms_map = adapter.rooms.read().unwrap();
+            assert_eq!(rooms_map.len(), 0);
+
+            let socket_map = adapter.sockets.read().unwrap();
+            assert!(socket_map.get(&socket).is_none());
+        }
     }
 
     #[test]
@@ -794,10 +843,16 @@ mod test {
         adapter.add_all(sid1, ["room1", "room2"]);
         adapter.add_all(sid2, ["room1"]);
         adapter.add_all(sid3, ["room2"]);
-        assert!(adapter.socket_rooms(sid1).contains(&"room1".into()));
-        assert!(adapter.socket_rooms(sid1).contains(&"room2".into()));
-        assert_eq!(adapter.socket_rooms(sid2), ["room1"]);
-        assert_eq!(adapter.socket_rooms(sid3), ["room2"]);
+        assert!(adapter.socket_rooms(sid1).contains(&Cow::Borrowed("room1")));
+        assert!(adapter.socket_rooms(sid1).contains(&Cow::Borrowed("room2")));
+        assert_eq!(
+            adapter.socket_rooms(sid2).into_iter().collect::<Vec<_>>(),
+            ["room1"]
+        );
+        assert_eq!(
+            adapter.socket_rooms(sid3).into_iter().collect::<Vec<_>>(),
+            ["room2"]
+        );
     }
 
     #[test]
@@ -905,6 +960,35 @@ mod test {
         let adapter = create_adapter([]);
         let opts = BroadcastOptions::default();
         adapter.disconnect_socket(opts).unwrap();
+    }
+    #[test]
+    fn rooms() {
+        let socket0 = Sid::new();
+        let socket1 = Sid::new();
+        let socket2 = Sid::new();
+        let adapter = create_adapter([socket0, socket1, socket2]);
+        adapter.add_all(socket0, ["room1", "room2", "room4"]);
+        adapter.add_all(socket1, ["room1", "room3", "room5"]);
+        adapter.add_all(socket2, ["room2", "room3", "room6"]);
+
+        let mut opts = BroadcastOptions::new(socket0);
+        opts.rooms = smallvec!["room5".into()];
+        opts.add_flag(BroadcastFlags::Broadcast);
+        let rooms = adapter.rooms(opts);
+        assert_eq!(rooms.len(), 3);
+        assert!(rooms.contains(&Cow::Borrowed("room1")));
+        assert!(rooms.contains(&Cow::Borrowed("room3")));
+        assert!(rooms.contains(&Cow::Borrowed("room5")));
+
+        let mut opts = BroadcastOptions::default();
+        opts.rooms.push("room2".into());
+        let rooms = adapter.rooms(opts.clone());
+        assert_eq!(rooms.len(), 5);
+        assert!(rooms.contains(&Cow::Borrowed("room1")));
+        assert!(rooms.contains(&Cow::Borrowed("room2")));
+        assert!(rooms.contains(&Cow::Borrowed("room3")));
+        assert!(rooms.contains(&Cow::Borrowed("room4")));
+        assert!(rooms.contains(&Cow::Borrowed("room6")));
     }
 
     #[test]
