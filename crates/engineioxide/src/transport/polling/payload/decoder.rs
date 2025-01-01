@@ -1,6 +1,6 @@
 //! ## Decodes the payload stream into packets
 //!
-//! There is two versions of the decoder:
+//! There are two versions of the decoder:
 //! - v4_decoder: Decodes the payload stream according to the [engine.io v4 protocol](https://socket.io/fr/docs/v4/engine-io-protocol/#http-long-polling-1)
 //! - v3_decoder: Decodes the payload stream according to the [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 //!

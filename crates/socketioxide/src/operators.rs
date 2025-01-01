@@ -3,7 +3,7 @@
 //!
 //! They use the builder pattern to chain operators.
 //!
-//! There is two types of operators:
+//! There are two types of operators:
 //! * [`ConfOperators`]: Chainable operators to configure the message to be sent.
 //! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
 use std::{future::Future, sync::Arc, time::Duration};
