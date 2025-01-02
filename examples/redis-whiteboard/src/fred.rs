@@ -1,12 +1,18 @@
+//! A simple whiteboard example using Redis as the adapter.
+//! It uses the fred crate to connect to a Redis server.
 use std::str::FromStr;
 
+use fred::{
+    prelude::Config,
+    types::{Builder, RespVersion},
+};
 use rmpv::Value;
 use socketioxide::{
     adapter::Adapter,
     extract::{Data, SocketRef},
     ParserConfig, SocketIo,
 };
-use socketioxide_redis::{RedisAdapter, RedisAdapterCtr};
+use socketioxide_redis::{FredAdapter, RedisAdapterCtr};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
@@ -20,13 +26,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     info!("connecting to redis");
-    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
-    let adapter = RedisAdapterCtr::new(&client).await?;
+    let mut config = Config::from_url("redis://127.0.0.1:6379")?;
+    // We have to manually set the version to RESP3. Fred defaults to RESP2.
+    config.version = RespVersion::RESP3;
+    let client = Builder::default()
+        .set_config(config)
+        .build_subscriber_client()?;
+    let adapter = RedisAdapterCtr::new_with_fred(client).await?;
     info!("starting server");
 
     let (layer, io) = SocketIo::builder()
         .with_parser(ParserConfig::msgpack())
-        .with_adapter::<RedisAdapter<_>>(adapter)
+        .with_adapter::<FredAdapter<_>>(adapter)
         .build_layer();
 
     // It is heavily recommended to use generic fns instead of closures for handlers.

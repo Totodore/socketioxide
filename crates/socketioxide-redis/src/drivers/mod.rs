@@ -9,6 +9,11 @@ use tokio::sync::mpsc;
 #[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
 pub mod redis;
 
+/// A driver implementation for the [fred](docs.rs/fred) pub/sub backend.
+#[cfg(feature = "fred")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
+pub mod fred;
+
 pin_project! {
     /// A stream of raw messages received from a channel.
     /// Messages are encoded with msgpack.
@@ -72,16 +77,10 @@ pub trait Driver: Clone + Send + Sync + 'static {
     ) -> impl Future<Output = Result<MessageStream<(String, Vec<u8>)>, Self::Error>> + Send;
 
     /// Unsubscribe from a channel.
-    fn unsubscribe(
-        &self,
-        pat: String,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static;
+    fn unsubscribe(&self, pat: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Unsubscribe to a channel with a pattern.
-    fn punsubscribe(
-        &self,
-        pat: String,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static;
+    fn punsubscribe(&self, pat: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Returns the number of socket.io servers.
     fn num_serv(&self, chan: &str) -> impl Future<Output = Result<u16, Self::Error>> + Send;

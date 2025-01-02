@@ -36,16 +36,20 @@
 //!
 //! To do so, the adapter uses a pub/sub system through redis to communicate with the other servers.
 //!
-//! The [`Driver`] abstraction allows to use any redis client.
-//! The provided default implementation uses the [`redis`] crate.
+//! The [`Driver`] abstraction allows to use any pub/sub client.
+//! There are two provided implementations:
+//! * [`RedisDriver`](crate::drivers::redis::RedisDriver) for the [`redis`] crate.
+//! * [`FredDriver`](crate::drivers::fred::FredDriver) for the [`fred`] crate.
+//!
+//! You can also implement your own driver by implementing the [`Driver`] trait.
 //!
 //! <div class="warning">
-//!     The provided driver implementation is using <code>RESP3</code> for efficiency purposes.
-//!     Make sure your redis server supports it  (redis v7 and above).
+//!     The provided driver implementations are using <code>RESP3</code> for efficiency purposes.
+//!     Make sure your redis server supports it (redis v7 and above).
 //!     If not, you can implement your own driver using the <code>RESP2</code> protocol.
 //! </div>
 //!
-//! ## Example with the default redis driver
+//! ## Example with the [`redis`] driver
 //! ```rust
 //! # use socketioxide::{SocketIo, extract::{SocketRef, Data}, adapter::Adapter};
 //! # use socketioxide_redis::{RedisAdapterCtr, RedisAdapter};
@@ -58,9 +62,36 @@
 //! async fn on_event<A: Adapter>(socket: SocketRef<A>, Data(data): Data<String>) {}
 //!
 //! let client = redis::Client::open("redis://127.0.0.1:6379?protocol=RESP3")?;
-//! let adapter = RedisAdapterCtr::new(&client).await?;
+//! let adapter = RedisAdapterCtr::new_with_redis(&client).await?;
 //! let (layer, io) = SocketIo::builder()
 //!     .with_adapter::<RedisAdapter<_>>(adapter)
+//!     .build_layer();
+//! Ok(())
+//! # }
+//! ```
+//!
+//!
+//! ## Example with the [`fred`] driver
+//! ```rust
+//! # use socketioxide::{SocketIo, extract::{SocketRef, Data}, adapter::Adapter};
+//! # use socketioxide_redis::{RedisAdapterCtr, FredAdapter};
+//! # use fred::types::RespVersion;
+//! # async fn doc_main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn on_connect<A: Adapter>(socket: SocketRef<A>) {
+//!     socket.join("room1");
+//!     socket.on("event", on_event);
+//!     let _ = socket.broadcast().emit("hello", "world").await.ok();
+//! }
+//! async fn on_event<A: Adapter>(socket: SocketRef<A>, Data(data): Data<String>) {}
+//!
+//! let mut config = fred::prelude::Config::from_url("redis://127.0.0.1:6379?protocol=resp3")?;
+//! // We need to manually set the RESP3 version because
+//! // the fred crate does not parse the protocol query parameter.
+//! config.version = RespVersion::RESP3;
+//! let client = fred::prelude::Builder::from_config(config).build_subscriber_client()?;
+//! let adapter = RedisAdapterCtr::new_with_fred(client).await?;
+//! let (layer, io) = SocketIo::builder()
+//!     .with_adapter::<FredAdapter<_>>(adapter)
 //!     .build_layer();
 //! Ok(())
 //! # }
@@ -108,7 +139,7 @@ use std::{
     time::Duration,
 };
 
-use drivers::{redis::RedisDriver, Driver, MessageStream};
+use drivers::{Driver, MessageStream};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use request::{RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType};
@@ -239,24 +270,49 @@ impl Default for RedisAdapterConfig {
 /// The adapter constructor. For each namespace you define, a new adapter instance is created
 /// from this constructor.
 #[derive(Debug)]
-pub struct RedisAdapterCtr<R = RedisDriver> {
+pub struct RedisAdapterCtr<R> {
     driver: R,
     config: RedisAdapterConfig,
 }
 
-impl RedisAdapterCtr {
-    /// Create a new adapter with the default [`redis`] driver and config.
-    pub async fn new(client: &redis::Client) -> redis::RedisResult<Self> {
-        let driver = RedisDriver::new(client).await?;
+#[cfg(feature = "redis")]
+impl RedisAdapterCtr<drivers::redis::RedisDriver> {
+    /// Create a new adapter with the [`redis`] driver and a default config.
+    #[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
+    pub async fn new_with_redis(client: &redis::Client) -> redis::RedisResult<Self> {
+        let driver = drivers::redis::RedisDriver::new(client).await?;
         let config = RedisAdapterConfig::default();
         Ok(Self::new_with_driver(driver, config))
     }
-    /// Create a new adapter with the default [`redis`] driver and a custom config.
-    pub async fn new_with_config(
+    /// Create a new adapter with the [`redis`] driver and a custom config.
+    #[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
+    pub async fn new_with_redis_config(
         client: &redis::Client,
         config: RedisAdapterConfig,
-    ) -> redis::RedisResult<RedisAdapterCtr> {
-        let driver = RedisDriver::new(client).await?;
+    ) -> redis::RedisResult<Self> {
+        let driver = drivers::redis::RedisDriver::new(client).await?;
+        Ok(Self::new_with_driver(driver, config))
+    }
+}
+
+#[cfg(feature = "fred")]
+impl RedisAdapterCtr<drivers::fred::FredDriver> {
+    /// Create a new adapter with the default [`fred`] driver and a default config.
+    #[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
+    pub async fn new_with_fred(
+        client: fred::clients::SubscriberClient,
+    ) -> fred::prelude::FredResult<Self> {
+        let driver = drivers::fred::FredDriver::new(client).await?;
+        let config = RedisAdapterConfig::default();
+        Ok(Self::new_with_driver(driver, config))
+    }
+    /// Create a new adapter with the default [`fred`] driver and a custom config.
+    #[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
+    pub async fn new_with_fred_config(
+        client: fred::clients::SubscriberClient,
+        config: RedisAdapterConfig,
+    ) -> fred::prelude::FredResult<Self> {
+        let driver = drivers::fred::FredDriver::new(client).await?;
         Ok(Self::new_with_driver(driver, config))
     }
 }
@@ -272,11 +328,21 @@ impl<R: Driver> RedisAdapterCtr<R> {
 
 pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Vec<u8>>>;
 
+/// The redis adapter with the fred driver.
+#[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
+#[cfg(feature = "fred")]
+pub type FredAdapter<E> = CustomRedisAdapter<E, drivers::fred::FredDriver>;
+
+/// The redis adapter with the redis driver.
+#[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
+#[cfg(feature = "redis")]
+pub type RedisAdapter<E> = CustomRedisAdapter<E, drivers::redis::RedisDriver>;
+
 /// The redis adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the redis server.
 /// And over the [`SocketEmitter`] used to communicate with the local server. This allows to
 /// avoid cyclic dependencies between the adapter, `socketioxide-core` and `socketioxide` crates.
-pub struct RedisAdapter<E, R = RedisDriver> {
+pub struct CustomRedisAdapter<E, R> {
     /// The driver used by the adapter. This is used to communicate with the redis server.
     /// All the redis adapter instances share the same driver.
     driver: R,
@@ -293,7 +359,7 @@ pub struct RedisAdapter<E, R = RedisDriver> {
     responses: Arc<Mutex<ResponseHandlers>>,
 }
 
-impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
+impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
     /// Build a response channel for a request.
     ///
     /// The uid is used to identify the server that sent the request.
@@ -520,7 +586,7 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
     }
 }
 
-impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
+impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     type Error = Error<R>;
     type State = RedisAdapterCtr<R>;
     type AckStream = AckStream<E::AckStream>;
@@ -840,20 +906,12 @@ mod tests {
             Ok(MessageStream::new_empty())
         }
 
-        #[allow(clippy::manual_async_fn)] // related to issue: https://github.com/rust-lang/rust-clippy/issues/12664
-        fn unsubscribe(
-            &self,
-            _: String,
-        ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
-            async { Ok(()) }
+        async fn unsubscribe(&self, _: String) -> Result<(), Self::Error> {
+            Ok(())
         }
 
-        #[allow(clippy::manual_async_fn)] // related to issue: https://github.com/rust-lang/rust-clippy/issues/12664
-        fn punsubscribe(
-            &self,
-            _: String,
-        ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
-            async { Ok(()) }
+        async fn punsubscribe(&self, _: String) -> Result<(), Self::Error> {
+            Ok(())
         }
 
         async fn num_serv(&self, _: &str) -> Result<u16, Self::Error> {

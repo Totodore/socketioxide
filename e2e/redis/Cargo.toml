@@ -11,11 +11,18 @@ categories.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+redis = ["socketioxide-redis/redis"]
+fred = ["socketioxide-redis/fred"]
+v4 = ["socketioxide/v4"]
+v5 = []
+default = ["v5"]
+
 [dependencies]
 socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
     "tracing",
 ] }
-socketioxide-redis = { path = "../../crates/socketioxide-redis" }
+socketioxide-redis = { path = "../../crates/socketioxide-redis", default-features = false }
 hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -26,11 +33,11 @@ redis = { version = "0.27.5", features = [
     "aio",
     "tokio-comp",
 ], default-features = false }
+fred = { version = "10", features = [
+    "subscriber-client",
+    "tracing",
+], default-features = false }
 
 [[bin]]
 name = "redis-adapter-e2e"
 path = "main.rs"
-
-[features]
-v4 = ["socketioxide/v4"]
-v5 = []

@@ -5,7 +5,10 @@ edition = "2021"
 
 [dependencies]
 socketioxide = { workspace = true, features = ["tracing", "msgpack"] }
-socketioxide-redis = { path = "../../crates/socketioxide-redis" }
+socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
+    "redis",
+    "fred",
+] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower-http = { version = "0.5.0", features = ["cors", "fs"] }
@@ -15,3 +18,12 @@ tracing.workspace = true
 serde.workspace = true
 rmpv.workspace = true
 redis = "0.27"
+fred = "10"
+
+[[bin]]
+name = "redis"
+path = "src/redis.rs"
+
+[[bin]]
+name = "fred"
+path = "src/fred.rs"

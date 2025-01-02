@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt,
-    future::Future,
     sync::{Arc, RwLock},
 };
 
@@ -100,16 +99,12 @@ impl RedisDriver {
 impl Driver for RedisDriver {
     type Error = RedisError;
 
-    fn publish(
-        &self,
-        chan: String,
-        val: Vec<u8>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        let mut conn = self.conn.clone();
-        async move {
-            conn.publish::<_, _, redis::Value>(chan, val).await?;
-            Ok(())
-        }
+    async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
+        self.conn
+            .clone()
+            .publish::<_, _, redis::Value>(chan, val)
+            .await?;
+        Ok(())
     }
 
     async fn subscribe(
@@ -134,25 +129,16 @@ impl Driver for RedisDriver {
         Ok(MessageStream::new(rx))
     }
 
-    fn unsubscribe(&self, chan: String) -> impl Future<Output = Result<(), Self::Error>> + 'static {
+    async fn unsubscribe(&self, chan: String) -> Result<(), Self::Error> {
         self.handlers.write().unwrap().remove(&chan);
-        let mut conn = self.conn.clone();
-        async move {
-            conn.unsubscribe(chan).await?;
-            Ok(())
-        }
+        self.conn.clone().unsubscribe(chan).await?;
+        Ok(())
     }
 
-    fn punsubscribe(
-        &self,
-        chan: String,
-    ) -> impl Future<Output = Result<(), Self::Error>> + 'static {
+    async fn punsubscribe(&self, chan: String) -> Result<(), Self::Error> {
         self.handlers.write().unwrap().remove(&chan);
-        let mut conn = self.conn.clone();
-        async move {
-            conn.punsubscribe(chan).await?;
-            Ok(())
-        }
+        self.conn.clone().punsubscribe(chan).await?;
+        Ok(())
     }
 
     async fn num_serv(&self, chan: &str) -> Result<u16, Self::Error> {
