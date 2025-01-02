@@ -73,10 +73,11 @@
 //! is simply a wrapper around this [`CoreLocalAdapter`].
 //!
 //! The adapter is then initialized with the [`RedisAdapter::init`] method.
-//! This method subscribes to a *request* channel specific to the namespace with
-//! the format `"{prefix}-request#{namespace}"`.
-//! All requests are broadcasted to this channel and will be received by all the servers.
-//! If the request is not for this local server, it will be ignored. Otherwise it will be handled.
+//! This will subscribe to 3 channels:
+//! * `"{prefix}-request#{namespace}#"`: A global channel to receive all broadcasted requests.
+//! * `"{prefix}-request#{namespace}#{uid}#"`: A specific channel to receive requests only for this server.
+//! * `"{prefix}-response#{namespace}#{uid}#*"`: A patttern channel to receive responses only for this server.
+//!     `*` is a wildcard to match all request ids.
 //!
 //! There are 7 types of requests:
 //! * Broadcast a packet to all the matching sockets.
@@ -87,9 +88,10 @@
 //! * Remove matching sockets to rooms.
 //! * Fetch all the remote sockets matching the options.
 //!
-//! For requests expecting a response, the adapter will send a response to a *response* channel specific to the
+//! For requests expecting a response, the adapter will send a response to the response channel specific to the
 //! request with the format `"{prefix}-response#{namespace}#{uid}#{req_id}"`. `uid` is the unique identifier of the
 //! server that sent the request and `req_id` is the unique identifier of the request.
+//!
 //! For ack streams, the adapter will first send a `BroadcastAckCount` response to the server that sent the request,
 //! and then send the acks as they are received (more details in [`RedisAdapter::broadcast_with_ack`] fn).
 //!
