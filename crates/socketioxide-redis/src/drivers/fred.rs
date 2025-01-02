@@ -14,6 +14,8 @@ use fred::{
     types::{Message, MessageKind},
 };
 
+pub use fred as fred_client;
+
 /// An error type for the fred driver.
 #[derive(Debug)]
 pub struct FredError(fred::error::Error);
