@@ -78,13 +78,14 @@
 //! All requests are broadcasted to this channel and will be received by all the servers.
 //! If the request is not for this local server, it will be ignored. Otherwise it will be handled.
 //!
-//! There are 6 types of requests:
+//! There are 7 types of requests:
 //! * Broadcast a packet to all the matching sockets.
 //! * Broadcast a packet to all the matching sockets and wait for a stream of acks.
 //! * Disconnect matching sockets.
 //! * Get all the rooms.
 //! * Add matching sockets to rooms.
 //! * Remove matching sockets to rooms.
+//! * Fetch all the remote sockets matching the options.
 //!
 //! For requests expecting a response, the adapter will send a response to a *response* channel specific to the
 //! request with the format `"{prefix}-response#{namespace}#{uid}#{req_id}"`. `uid` is the unique identifier of the
@@ -97,9 +98,11 @@
 
 use std::{
     borrow::Cow,
+    collections::HashMap,
     fmt,
     future::{self, Future},
-    sync::Arc,
+    str::FromStr,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -118,7 +121,7 @@ use socketioxide_core::{
     Sid, Uid,
 };
 use stream::{AckStream, DropStream};
-use tokio::time;
+use tokio::{sync::mpsc, time};
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
@@ -168,8 +171,20 @@ pub struct RedisAdapterConfig {
     /// The request timeout. It is mainly used when expecting response such as when using
     /// `broadcast_with_ack` or `rooms`. Default is 5 seconds.
     pub request_timeout: Duration,
+
     /// The prefix used for the channels. Default is "socket.io".
     pub prefix: Cow<'static, str>,
+
+    /// The channel size used to receive ack responses. Default is 255.
+    ///
+    /// If you have a lot of servers/sockets and that you may miss acknowledgement because they arrive faster
+    /// than you poll them with the returned stream, you might want to increase this value.
+    pub ack_response_buffer: usize,
+
+    /// The channel size used to receive messages. Default is 1024.
+    ///
+    /// If your server is under heavy load, you might want to increase this value.
+    pub stream_buffer: usize,
 }
 impl RedisAdapterConfig {
     /// Create a new config.
@@ -187,6 +202,25 @@ impl RedisAdapterConfig {
         self.prefix = prefix.into();
         self
     }
+
+    /// Set the channel size used to send ack responses. Default is 255.
+    ///
+    /// If you have a lot of servers/sockets and that you may miss acknowledgement because they arrive faster
+    /// than you poll them with the returned stream, you might want to increase this value.
+    pub fn with_ack_response_buffer(mut self, buffer: usize) -> Self {
+        assert!(buffer > 0, "buffer size must be greater than 0");
+        self.ack_response_buffer = buffer;
+        self
+    }
+
+    /// Set the channel size used to receive messages. Default is 1024.
+    ///
+    /// If your server is under heavy load, you might want to increase this value.
+    pub fn with_stream_buffer(mut self, buffer: usize) -> Self {
+        assert!(buffer > 0, "buffer size must be greater than 0");
+        self.stream_buffer = buffer;
+        self
+    }
 }
 
 impl Default for RedisAdapterConfig {
@@ -194,6 +228,8 @@ impl Default for RedisAdapterConfig {
         Self {
             request_timeout: Duration::from_secs(5),
             prefix: Cow::Borrowed("socket.io"),
+            ack_response_buffer: 255,
+            stream_buffer: 1024,
         }
     }
 }
@@ -232,6 +268,8 @@ impl<R: Driver> RedisAdapterCtr<R> {
     }
 }
 
+pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Vec<u8>>>;
+
 /// The redis adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the redis server.
 /// And over the [`SocketEmitter`] used to communicate with the local server. This allows to
@@ -249,6 +287,8 @@ pub struct RedisAdapter<E, R = RedisDriver> {
     /// The request channel used to broadcast requests to all the servers.
     /// format: `{prefix}-request#{path}#`.
     req_chan: String,
+    /// A map of response handlers used to await for responses from the remote servers.
+    responses: Arc<Mutex<ResponseHandlers>>,
 }
 
 impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
@@ -433,15 +473,13 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
     /// Await for all the responses from the remote servers.
     async fn get_res<D: DeserializeOwned + fmt::Debug>(
         &self,
-        uid: Uid,
         req_id: Sid,
         response_idx: u8,
     ) -> Result<impl Stream<Item = Response<D>>, Error<R>> {
-        let remote_serv_cnt = self.server_count().await? as usize - 1;
-        let chan = self.get_res_chan(uid, req_id);
-        let stream = self
-            .subscribe(chan.clone())
-            .await?
+        let remote_serv_cnt = self.server_count().await?.saturating_sub(1) as usize;
+        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
+        self.responses.lock().unwrap().insert(req_id, tx);
+        let stream = MessageStream::new(rx)
             .filter_map(|item| {
                 let data = match rmp_serde::from_slice::<Response<D>>(&item) {
                     Ok(data) => Some(data),
@@ -455,22 +493,35 @@ impl<E: SocketEmitter, R: Driver> RedisAdapter<E, R> {
             .filter(move |item| future::ready(item.r#type.to_u8() == response_idx))
             .take(remote_serv_cnt)
             .take_until(time::sleep(self.config.request_timeout));
-        let stream = DropStream::new(stream, self.driver.clone(), chan);
+        let stream = DropStream::new(stream, self.responses.clone(), req_id);
         Ok(stream)
     }
 
     /// Little wrapper to map the error type.
     #[inline]
-    async fn subscribe(&self, pat: String) -> Result<MessageStream, Error<R>> {
+    async fn subscribe(&self, pat: String) -> Result<MessageStream<(String, Vec<u8>)>, Error<R>> {
         tracing::trace!(?pat, "subscribing to");
-        self.driver.subscribe(pat).await.map_err(Error::from_driver)
+        self.driver
+            .subscribe(pat, self.config.stream_buffer)
+            .await
+            .map_err(Error::from_driver)
+    }
+
+    /// Little wrapper to map the error type.
+    #[inline]
+    async fn psubscribe(&self, pat: String) -> Result<MessageStream<(String, Vec<u8>)>, Error<R>> {
+        tracing::trace!(?pat, "subscribing to");
+        self.driver
+            .psubscribe(pat, self.config.stream_buffer)
+            .await
+            .map_err(Error::from_driver)
     }
 }
 
 impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     type Error = Error<R>;
     type State = RedisAdapterCtr<R>;
-    type AckStream = AckStream<E::AckStream, R>;
+    type AckStream = AckStream<E::AckStream>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
         let req_chan = format!("{}-request#{}#", state.config.prefix, local.path());
@@ -481,19 +532,49 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
             uid,
             driver: state.driver.clone(),
             config: state.config.clone(),
+            responses: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     async fn init(self: Arc<Self>) -> Result<(), Self::Error> {
         let global_stream = self.subscribe(self.req_chan.clone()).await?;
         let specific_stream = self.subscribe(self.get_req_chan(Some(self.uid))).await?;
+        let response_pat = format!(
+            "{}-response#{}#{}#",
+            &self.config.prefix,
+            self.local.path(),
+            self.uid
+        );
+
+        let response_stream = self.psubscribe(format!("{}*", response_pat)).await?;
         tokio::spawn(async move {
-            let mut stream = futures_util::stream::select(global_stream, specific_stream);
-            while let Some(item) = stream.next().await {
-                if let Err(e) = self.recv_req(item) {
-                    let ns = self.local.path();
-                    let uid = self.uid;
-                    tracing::warn!(?uid, ?ns, "request handler: {e}");
+            let stream = futures_util::stream::select(global_stream, specific_stream);
+            let mut stream = futures_util::stream::select(stream, response_stream);
+            while let Some((chan, item)) = stream.next().await {
+                if chan.starts_with(&self.req_chan) {
+                    if let Err(e) = self.recv_req(item) {
+                        let ns = self.local.path();
+                        let uid = self.uid;
+                        tracing::warn!(?uid, ?ns, "request handler error: {e}");
+                    }
+                } else if chan.starts_with(&response_pat) {
+                    let sid = extract_sid(&response_pat, &chan);
+                    tracing::trace!(?sid, ?chan, ?response_pat, "extracted sid");
+                    let handlers = self.responses.lock().unwrap();
+                    if let Some(tx) = handlers.get(&sid) {
+                        if let Err(e) = tx.try_send(item) {
+                            tracing::warn!("error sending response to handler: {e}");
+                        }
+                    } else {
+                        tracing::warn!(
+                            ?chan,
+                            ?sid,
+                            ?response_pat,
+                            "no remaining handler for response"
+                        );
+                    }
+                } else {
+                    tracing::warn!("unexpected message/channel: {chan}");
                 }
             }
         });
@@ -507,6 +588,17 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
             .map_err(Error::from_driver)?;
         self.driver
             .unsubscribe(self.get_req_chan(Some(self.uid)))
+            .await
+            .map_err(Error::from_driver)?;
+
+        let response_chan = format!(
+            "{}-response#{}#{}#",
+            &self.config.prefix,
+            self.local.path(),
+            self.uid
+        );
+        self.driver
+            .punsubscribe(response_chan)
             .await
             .map_err(Error::from_driver)?;
         Ok(())
@@ -575,30 +667,28 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     ) -> Result<Self::AckStream, Self::Error> {
         if is_local_op(self.uid, &opts) {
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_local(local, self.driver.clone());
+            let stream = AckStream::new_local(local);
             return Ok(stream);
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
         let req_id = req.req_id;
 
-        let chan = self.get_res_chan(self.uid, req_id);
-        // First get the remote stream because redis might send
-        // the responses before subscription is done.
-        let remote = self
-            .driver
-            .subscribe(chan.clone())
-            .await
-            .map_err(Error::from_driver)?;
+        let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
+
+        let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
+        self.responses.lock().unwrap().insert(req_id, tx);
+        let remote = MessageStream::new(rx);
+
         self.send_req(req, opts.server_id).await?;
-        let remote_serv_cnt = self.server_count().await? - 1;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
+
         Ok(AckStream::new(
             local,
             remote,
             self.config.request_timeout,
             remote_serv_cnt,
-            chan,
-            self.driver.clone(),
+            req_id,
+            self.responses.clone(),
         ))
     }
 
@@ -627,7 +717,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
 
         // First get the remote stream because redis might send
         // the responses before subscription is done.
-        let stream = self.get_res::<()>(self.uid, req_id, PACKET_IDX).await?;
+        let stream = self.get_res::<()>(req_id, PACKET_IDX).await?;
         self.send_req(req, opts.server_id).await?;
         let local = self.local.rooms(opts);
         let rooms = stream
@@ -680,9 +770,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
         let req_id = req.req_id;
         // First get the remote stream because redis might send
         // the responses before subscription is done.
-        let remote = self
-            .get_res::<RemoteSocketData>(self.uid, req_id, PACKET_IDX)
-            .await?;
+        let remote = self.get_res::<RemoteSocketData>(req_id, PACKET_IDX).await?;
 
         self.send_req(req, opts.server_id).await?;
         let local = self.local.fetch_sockets(opts);
@@ -701,6 +789,12 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for RedisAdapter<E, R> {
     }
 }
 
+fn extract_sid(pattern: &str, chan: &str) -> Sid {
+    const LEN: usize = Sid::ZERO.as_str().len();
+    let start = pattern.len();
+    Sid::from_str(&chan[start..start + LEN]).unwrap_or_default()
+}
+
 /// A local operator is either something that is flagged as local or a request should be specifically
 /// sent to the current server.
 #[inline]
@@ -714,32 +808,13 @@ fn is_local_op(uid: Uid, opts: &BroadcastOptions) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        convert::Infallible,
-        future::Future,
-        sync::{
-            atomic::{self, AtomicBool},
-            Arc,
-        },
-        time::Duration,
-    };
-
-    use crate::{
-        drivers::{Driver, MessageStream},
-        is_local_op, AckStream, Response, ResponseType,
-    };
-    use futures_core::FusedStream;
-    use futures_util::{stream, StreamExt};
-    use rmp_serde::to_vec;
-    use socketioxide_core::{
-        adapter::{AckStreamItem, BroadcastOptions, RemoteSocketData},
-        Sid, Str, Uid, Value,
-    };
+    use super::*;
+    use futures_util::stream::{self, FusedStream, StreamExt};
+    use socketioxide_core::{adapter::AckStreamItem, Str, Value};
+    use std::convert::Infallible;
 
     #[derive(Clone)]
-    struct StubDriver {
-        unsubscribed: Arc<AtomicBool>,
-    }
+    struct StubDriver;
     impl Driver for StubDriver {
         type Error = Infallible;
 
@@ -747,7 +822,19 @@ mod tests {
             Ok(())
         }
 
-        async fn subscribe(&self, _: String) -> Result<MessageStream, Self::Error> {
+        async fn subscribe(
+            &self,
+            _: String,
+            _: usize,
+        ) -> Result<MessageStream<(String, Vec<u8>)>, Self::Error> {
+            Ok(MessageStream::new_empty())
+        }
+
+        async fn psubscribe(
+            &self,
+            _: String,
+            _: usize,
+        ) -> Result<MessageStream<(String, Vec<u8>)>, Self::Error> {
             Ok(MessageStream::new_empty())
         }
 
@@ -755,7 +842,13 @@ mod tests {
             &self,
             _: String,
         ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
-            self.unsubscribed.store(true, atomic::Ordering::Relaxed);
+            async { Ok(()) }
+        }
+
+        fn punsubscribe(
+            &self,
+            _: String,
+        ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
             async { Ok(()) }
         }
 
@@ -764,18 +857,16 @@ mod tests {
         }
     }
     fn new_stub_ack_stream(
-        remote: MessageStream,
+        remote: MessageStream<Vec<u8>>,
         timeout: Duration,
-    ) -> AckStream<stream::Empty<AckStreamItem<()>>, StubDriver> {
+    ) -> AckStream<stream::Empty<AckStreamItem<()>>> {
         AckStream::new(
             stream::empty::<AckStreamItem<()>>(),
             remote,
             timeout,
             2,
-            String::new(),
-            StubDriver {
-                unsubscribed: AtomicBool::new(false).into(),
-            },
+            Sid::new(),
+            Arc::new(Mutex::new(HashMap::new())),
         )
     }
 
@@ -794,8 +885,10 @@ mod tests {
             req_id,
             r#type: ResponseType::BroadcastAckCount(2),
         };
-        tx.try_send(to_vec(&ack_cnt_res).unwrap()).unwrap();
-        tx.try_send(to_vec(&ack_cnt_res).unwrap()).unwrap();
+        tx.try_send(rmp_serde::to_vec(&ack_cnt_res).unwrap())
+            .unwrap();
+        tx.try_send(rmp_serde::to_vec(&ack_cnt_res).unwrap())
+            .unwrap();
 
         let ack_res = Response::<String> {
             uid,
@@ -803,7 +896,7 @@ mod tests {
             r#type: ResponseType::BroadcastAck((Sid::new(), Ok(Value::Str(Str::from(""), None)))),
         };
         for _ in 0..4 {
-            tx.try_send(to_vec(&ack_res).unwrap()).unwrap();
+            tx.try_send(rmp_serde::to_vec(&ack_res).unwrap()).unwrap();
         }
         futures_util::pin_mut!(stream);
         for _ in 0..4 {
@@ -826,7 +919,8 @@ mod tests {
             req_id,
             r#type: ResponseType::BroadcastAckCount(2),
         };
-        tx.try_send(to_vec(&ack_cnt_res).unwrap()).unwrap();
+        tx.try_send(rmp_serde::to_vec(&ack_cnt_res).unwrap())
+            .unwrap();
 
         futures_util::pin_mut!(stream);
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -835,26 +929,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_stream_drop() {
-        let (_, rx) = tokio::sync::mpsc::channel(255);
+    async fn ack_stream_drop() {
+        let (tx, rx) = tokio::sync::mpsc::channel(255);
         let remote = MessageStream::new(rx);
-        let driver = StubDriver {
-            unsubscribed: AtomicBool::new(false).into(),
-        };
+        let handlers = Arc::new(Mutex::new(HashMap::new()));
+        let id = Sid::new();
+        handlers.lock().unwrap().insert(id, tx);
         let stream = AckStream::new(
             stream::empty::<AckStreamItem<()>>(),
             remote,
             Duration::from_secs(10),
             2,
-            String::new(),
-            driver.clone(),
+            id,
+            handlers.clone(),
         );
         drop(stream);
-        let unsubscribed = driver.unsubscribed.load(atomic::Ordering::Relaxed);
-        assert!(
-            unsubscribed,
-            "when dropped, the stream should unsubscribe from chan"
-        );
+        assert!(handlers.lock().unwrap().is_empty(),);
     }
 
     #[test]

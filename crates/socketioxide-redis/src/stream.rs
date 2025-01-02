@@ -1,6 +1,7 @@
 use std::{
     fmt,
     pin::Pin,
+    sync::{Arc, Mutex},
     task::{self, Poll},
     time::Duration,
 };
@@ -9,12 +10,13 @@ use futures_core::{FusedStream, Stream};
 use futures_util::{stream::TakeUntil, StreamExt};
 use pin_project_lite::pin_project;
 use serde::de::DeserializeOwned;
-use socketioxide_core::adapter::AckStreamItem;
+use socketioxide_core::{adapter::AckStreamItem, Sid};
 use tokio::time;
 
 use crate::{
-    drivers::{Driver, MessageStream},
+    drivers::MessageStream,
     request::{Response, ResponseType},
+    ResponseHandlers,
 };
 
 pin_project! {
@@ -27,28 +29,28 @@ pin_project! {
     // And it is decremented each time an ack is received.
     //
     // Therefore an exhausted stream correspond to `ack_cnt == 0` and `server_cnt == 0`.
-    pub struct AckStream<S, D: Driver> {
+    pub struct AckStream<S> {
         #[pin]
         local: S,
         #[pin]
-        remote: DropStream<TakeUntil<MessageStream, time::Sleep>, D>,
+        remote: DropStream<TakeUntil<MessageStream<Vec<u8>>, time::Sleep>>,
         ack_cnt: u32,
         total_ack_cnt: usize,
         serv_cnt: u16,
     }
 }
 
-impl<S, D: Driver> AckStream<S, D> {
+impl<S> AckStream<S> {
     pub fn new(
         local: S,
-        remote: MessageStream,
+        remote: MessageStream<Vec<u8>>,
         timeout: Duration,
         serv_cnt: u16,
-        chan: String,
-        driver: D,
+        req_id: Sid,
+        handlers: Arc<Mutex<ResponseHandlers>>,
     ) -> Self {
         let remote = remote.take_until(time::sleep(timeout));
-        let remote = DropStream::new(remote, driver, chan);
+        let remote = DropStream::new(remote, handlers, req_id);
         Self {
             local,
             remote,
@@ -57,9 +59,10 @@ impl<S, D: Driver> AckStream<S, D> {
             serv_cnt,
         }
     }
-    pub fn new_local(local: S, driver: D) -> Self {
+    pub fn new_local(local: S) -> Self {
+        let handlers = Arc::new(Mutex::new(ResponseHandlers::new()));
         let remote = MessageStream::new_empty().take_until(time::sleep(Duration::ZERO));
-        let remote = DropStream::new(remote, driver, String::new());
+        let remote = DropStream::new(remote, handlers, Sid::ZERO);
         Self {
             local,
             remote,
@@ -116,11 +119,10 @@ impl<S, D: Driver> AckStream<S, D> {
         }
     }
 }
-impl<E, S, D> Stream for AckStream<S, D>
+impl<E, S> Stream for AckStream<S>
 where
     E: DeserializeOwned + fmt::Debug,
     S: Stream<Item = AckStreamItem<E>>,
-    D: Driver,
 {
     type Item = AckStreamItem<E>;
 
@@ -136,11 +138,10 @@ where
     }
 }
 
-impl<Err, S, D> FusedStream for AckStream<S, D>
+impl<Err, S> FusedStream for AckStream<S>
 where
     Err: DeserializeOwned + fmt::Debug,
     S: Stream<Item = AckStreamItem<Err>> + FusedStream,
-    D: Driver,
 {
     /// The stream is terminated if:
     /// * The local stream is terminated.
@@ -152,7 +153,7 @@ where
         self.local.is_terminated() && remote_term
     }
 }
-impl<S, D: Driver> fmt::Debug for AckStream<S, D> {
+impl<S> fmt::Debug for AckStream<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AckStream")
             .field("ack_cnt", &self.ack_cnt)
@@ -164,50 +165,38 @@ impl<S, D: Driver> fmt::Debug for AckStream<S, D> {
 
 pin_project! {
     /// A stream that unsubscribes from its source channel when dropped.
-    pub struct DropStream<S, D: Driver> {
+    pub struct DropStream<S> {
         #[pin]
         stream: S,
-        driver: D,
-        chan: String,
+        req_id: Sid,
+        handlers: Arc<Mutex<ResponseHandlers>>
     }
-    impl<S, D: Driver> PinnedDrop for DropStream<S, D> {
+    impl<S> PinnedDrop for DropStream<S> {
         fn drop(this: Pin<&mut Self>) {
             let stream = this.project();
-            let driver = stream.driver.unsubscribe(std::mem::take(stream.chan));
-            // TODO: Use AsyncDrop when stable
-            tokio::spawn(async move {
-                if let Err(e) = driver.await {
-                    tracing::warn!("error unsubscribing from ack stream: {e}");
-                }
-            });
+            let chan = stream.req_id;
+            tracing::debug!(?chan, "dropping stream");
+            stream.handlers.lock().unwrap().remove(chan);
         }
     }
 }
-impl<S, D: Driver> DropStream<S, D> {
-    pub fn new(stream: S, driver: D, chan: String) -> Self {
+impl<S> DropStream<S> {
+    pub fn new(stream: S, handlers: Arc<Mutex<ResponseHandlers>>, req_id: Sid) -> Self {
         Self {
             stream,
-            driver,
-            chan,
+            handlers,
+            req_id,
         }
     }
 }
-impl<S, D> Stream for DropStream<S, D>
-where
-    S: Stream,
-    D: Driver,
-{
+impl<S: Stream> Stream for DropStream<S> {
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().stream.poll_next(cx)
     }
 }
-impl<S, D> FusedStream for DropStream<S, D>
-where
-    S: FusedStream,
-    D: Driver,
-{
+impl<S: FusedStream> FusedStream for DropStream<S> {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated()
     }

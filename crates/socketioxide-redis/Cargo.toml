@@ -42,3 +42,4 @@ socketioxide = { path = "../socketioxide", features = [
     "__test_harness",
 ] }
 tracing-subscriber.workspace = true
+wildmatch = "2.4"

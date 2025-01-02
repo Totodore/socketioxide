@@ -29,30 +29,30 @@ impl std::error::Error for RedisError {}
 /// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
 #[derive(Clone)]
 pub struct RedisDriver {
-    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<(String, Vec<u8>)>>>>,
     conn: MultiplexedConnection,
 }
 
-fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, Vec<u8>)>> {
+fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, String, Vec<u8>)>> {
     match msg.kind {
         redis::PushKind::Message => {
             if msg.data.len() < 2 {
                 return Ok(None);
             }
             let mut iter = msg.data.into_iter();
-            let channel = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
+            let channel: String = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
             let message = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
-            Ok(Some((channel, message)))
+            Ok(Some((channel.clone(), channel, message)))
         }
         redis::PushKind::PMessage => {
             if msg.data.len() < 3 {
                 return Ok(None);
             }
             let mut iter = msg.data.into_iter();
-            iter.next().unwrap(); // skip the pattern
+            let pattern = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
             let channel = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
             let message = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
-            Ok(Some((channel, message)))
+            Ok(Some((pattern, channel, message)))
         }
         _ => Ok(None),
     }
@@ -61,15 +61,17 @@ fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, Vec<u8>)>> {
 /// Watch for messages from the redis connection and send them to the appropriate channel
 async fn watch_handler(
     mut rx: mpsc::UnboundedReceiver<redis::PushInfo>,
-    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
+    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<(String, Vec<u8>)>>>>,
 ) {
     while let Some(info) = rx.recv().await {
         match read_msg(info) {
-            Ok(Some((chan, msg))) => {
-                if let Some(tx) = handlers.read().unwrap().get(chan.as_str()) {
-                    tx.try_send(msg).unwrap();
+            Ok(Some((pattern, chan, msg))) => {
+                if let Some(tx) = handlers.read().unwrap().get(&pattern) {
+                    if let Err(e) = tx.try_send((chan, msg)) {
+                        tracing::warn!(pattern, "redis pubsub channel full {e}");
+                    }
                 } else {
-                    tracing::warn!("no handler for channel {}", chan);
+                    tracing::warn!(pattern, chan, "no handler for channel");
                 }
             }
             Ok(_) => {}
@@ -110,9 +112,24 @@ impl Driver for RedisDriver {
         }
     }
 
-    async fn subscribe(&self, chan: String) -> Result<MessageStream, Self::Error> {
+    async fn subscribe(
+        &self,
+        chan: String,
+        size: usize,
+    ) -> Result<MessageStream<(String, Vec<u8>)>, Self::Error> {
         self.conn.clone().subscribe(chan.as_str()).await?;
-        let (tx, rx) = mpsc::channel(255);
+        let (tx, rx) = mpsc::channel(size);
+        self.handlers.write().unwrap().insert(chan, tx);
+        Ok(MessageStream::new(rx))
+    }
+
+    async fn psubscribe(
+        &self,
+        chan: String,
+        size: usize,
+    ) -> Result<MessageStream<(String, Vec<u8>)>, Self::Error> {
+        self.conn.clone().psubscribe(chan.as_str()).await?;
+        let (tx, rx) = mpsc::channel(size);
         self.handlers.write().unwrap().insert(chan, tx);
         Ok(MessageStream::new(rx))
     }
@@ -126,6 +143,18 @@ impl Driver for RedisDriver {
         }
     }
 
+    fn punsubscribe(
+        &self,
+        chan: String,
+    ) -> impl Future<Output = Result<(), Self::Error>> + 'static {
+        self.handlers.write().unwrap().remove(&chan);
+        let mut conn = self.conn.clone();
+        async move {
+            conn.punsubscribe(chan).await?;
+            Ok(())
+        }
+    }
+
     async fn num_serv(&self, chan: &str) -> Result<u16, Self::Error> {
         let mut conn = self.conn.clone();
         let (_, count): (String, u16) = redis::cmd("PUBSUB")
@@ -134,5 +163,61 @@ impl Driver for RedisDriver {
             .query_async(&mut conn)
             .await?;
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use tokio::time;
+    #[tokio::test]
+    async fn watch_handler_message() {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut handlers = HashMap::new();
+
+        let (tx1, mut rx1) = mpsc::channel(1);
+        handlers.insert("test".to_string(), tx1);
+        tokio::spawn(super::watch_handler(rx, Arc::new(RwLock::new(handlers))));
+        tx.send(redis::PushInfo {
+            kind: redis::PushKind::Message,
+            data: vec![
+                redis::Value::BulkString("test".into()),
+                redis::Value::BulkString("foo".into()),
+            ],
+        })
+        .unwrap();
+        let (chan, data) = time::timeout(Duration::from_millis(200), rx1.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(chan, "test");
+        assert_eq!(data, "foo".as_bytes());
+    }
+
+    #[tokio::test]
+    async fn watch_handler_pattern() {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut handlers = HashMap::new();
+
+        let (tx1, mut rx1) = mpsc::channel(1);
+        handlers.insert("test*".to_string(), tx1);
+        tokio::spawn(super::watch_handler(rx, Arc::new(RwLock::new(handlers))));
+        tx.send(redis::PushInfo {
+            kind: redis::PushKind::PMessage,
+            data: vec![
+                redis::Value::BulkString("test*".into()),
+                redis::Value::BulkString("test123".into()),
+                redis::Value::BulkString("foo".into()),
+            ],
+        })
+        .unwrap();
+        let (chan, data) = time::timeout(Duration::from_millis(200), rx1.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(chan, "test123");
+        assert_eq!(data, "foo".as_bytes());
     }
 }

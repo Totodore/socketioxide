@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::HashMap,
     future::Future,
     sync::{Arc, RwLock},
     time::Duration,
@@ -76,21 +75,24 @@ pub fn spawn_buggy_servers<const N: usize>(
 }
 
 type ChanItem = (String, Vec<u8>);
+type ResponseHandlers = Vec<(String, mpsc::Sender<ChanItem>)>;
 #[derive(Debug, Clone)]
 pub struct StubDriver {
     tx: mpsc::Sender<ChanItem>,
-    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
+    handlers: Arc<RwLock<ResponseHandlers>>,
     num_serv: u16,
 }
-async fn pipe_handlers(
-    mut rx: mpsc::Receiver<ChanItem>,
-    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<Vec<u8>>>>>,
-) {
+
+async fn pipe_handlers(mut rx: mpsc::Receiver<ChanItem>, handlers: Arc<RwLock<ResponseHandlers>>) {
     while let Some((chan, data)) = rx.recv().await {
-        let _handlers = handlers.read().unwrap().keys().cloned().collect::<Vec<_>>();
-        tracing::debug!(?_handlers, "received data to broadcast {}", chan);
-        if let Some(tx) = handlers.read().unwrap().get(&chan) {
-            tx.try_send(data).unwrap();
+        let handlers = handlers.read().unwrap();
+        tracing::debug!(?handlers, "received data to broadcast {}", chan);
+        // We simulate pub/sub pattern matching with wildmatch crate.
+        if let Some((_, tx)) = handlers
+            .iter()
+            .find(|(pat, _)| wildmatch::WildMatch::new(pat).matches(&chan))
+        {
+            tx.try_send((chan, data)).unwrap();
         }
     }
 }
@@ -98,7 +100,7 @@ impl StubDriver {
     pub fn new(num_serv: u16) -> (Self, mpsc::Receiver<ChanItem>, mpsc::Sender<ChanItem>) {
         let (tx, rx) = mpsc::channel(255); // driver emitter
         let (tx1, rx1) = mpsc::channel(255); // driver receiver
-        let handlers = Arc::new(RwLock::new(HashMap::<_, mpsc::Sender<Vec<u8>>>::new()));
+        let handlers = Arc::new(RwLock::new(Vec::new()));
 
         tokio::spawn(pipe_handlers(rx1, handlers.clone()));
 
@@ -126,14 +128,35 @@ impl Driver for StubDriver {
         async move { Ok(()) }
     }
 
-    async fn subscribe(&self, pat: String) -> Result<MessageStream, Self::Error> {
+    async fn subscribe(
+        &self,
+        pat: String,
+        _: usize,
+    ) -> Result<MessageStream<ChanItem>, Self::Error> {
         let (tx, rx) = mpsc::channel(255);
-        self.handlers.write().unwrap().insert(pat, tx);
+        self.handlers.write().unwrap().push((pat, tx));
+        Ok(MessageStream::new(rx))
+    }
+
+    async fn psubscribe(
+        &self,
+        pat: String,
+        _: usize,
+    ) -> Result<MessageStream<ChanItem>, Self::Error> {
+        let (tx, rx) = mpsc::channel(255);
+        self.handlers.write().unwrap().push((pat, tx));
         Ok(MessageStream::new(rx))
     }
 
     fn unsubscribe(&self, pat: String) -> impl Future<Output = Result<(), Self::Error>> + 'static {
-        self.handlers.write().unwrap().remove(&pat);
+        self.handlers.write().unwrap().retain(|(k, _)| k == &pat);
+        async move { Ok(()) }
+    }
+    fn punsubscribe(
+        &self,
+        pat: String,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+        self.handlers.write().unwrap().retain(|(k, _)| k == &pat);
         async move { Ok(()) }
     }
 
