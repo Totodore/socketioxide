@@ -99,8 +99,7 @@ impl<A: Adapter> Namespace<A> {
     ///
     /// Middlewares are first called to check if the connection is allowed.
     /// * If the handler returns an error, a connect_error packet is sent to the client.
-    /// * If the handler returns Ok, a connect packet is sent to the client
-    ///   and the handler is called.
+    /// * If the handler returns Ok, a connect packet is sent to the client and the handler `is` called.
     pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,

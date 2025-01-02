@@ -13,7 +13,7 @@ pub(crate) use message::BoxedMessageHandler;
 pub use message::{FromMessage, FromMessageParts, MessageHandler};
 pub use socketioxide_core::Value;
 
-/// A struct used to erase the type of a [`ConnectHandler`] or [`MessageHandler`] so it can be stored in a map
+/// A struct used to erase the type of [`ConnectHandler`] or [`MessageHandler`] so it can be stored in a map
 pub(crate) struct MakeErasedHandler<H, A, T> {
     handler: H,
     adapter: std::marker::PhantomData<A>,

@@ -1,6 +1,6 @@
 //! [`Socket`](crate::Socket) id type and generator
 //!
-//! It it stored as a 128 bit id and it represent a base64 16 char string
+//! It is stored as a 128-bit id and it represent a base64 16 char string
 use std::{
     fmt::{Debug, Display, Formatter},
     str::FromStr,

@@ -71,7 +71,7 @@ impl Extensions {
         }
     }
 
-    /// Insert a type into this `Extensions`.
+    /// Insert a type into the `Extensions`.
     ///
     /// The type must be cloneable and thread safe to be stored.
     ///
@@ -95,7 +95,7 @@ impl Extensions {
             .and_then(|v| v.downcast().ok().map(|boxed| *boxed))
     }
 
-    /// Get a cloned value of a type previously inserted on this `Extensions`.
+    /// Get a cloned value of a type previously inserted in the `Extensions`.
     ///
     /// # Example
     ///
@@ -116,7 +116,7 @@ impl Extensions {
             .cloned()
     }
 
-    /// Remove a type from this `Extensions`.
+    /// Remove a type from the `Extensions`.
     ///
     /// If a extension of this type existed, it will be returned.
     ///
