@@ -838,6 +838,7 @@ mod tests {
             Ok(MessageStream::new_empty())
         }
 
+        #[allow(clippy::manual_async_fn)] // related to issue: https://github.com/rust-lang/rust-clippy/issues/12664
         fn unsubscribe(
             &self,
             _: String,
@@ -845,6 +846,7 @@ mod tests {
             async { Ok(()) }
         }
 
+        #[allow(clippy::manual_async_fn)] // related to issue: https://github.com/rust-lang/rust-clippy/issues/12664
         fn punsubscribe(
             &self,
             _: String,

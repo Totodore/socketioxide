@@ -26,10 +26,11 @@ impl fmt::Display for RedisError {
 }
 impl std::error::Error for RedisError {}
 
+type HandlerMap = HashMap<String, mpsc::Sender<(String, Vec<u8>)>>;
 /// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
 #[derive(Clone)]
 pub struct RedisDriver {
-    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<(String, Vec<u8>)>>>>,
+    handlers: Arc<RwLock<HandlerMap>>,
     conn: MultiplexedConnection,
 }
 
@@ -61,7 +62,7 @@ fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, String, Vec<u8>
 /// Watch for messages from the redis connection and send them to the appropriate channel
 async fn watch_handler(
     mut rx: mpsc::UnboundedReceiver<redis::PushInfo>,
-    handlers: Arc<RwLock<HashMap<String, mpsc::Sender<(String, Vec<u8>)>>>>,
+    handlers: Arc<RwLock<HandlerMap>>,
 ) {
     while let Some(info) = rx.recv().await {
         match read_msg(info) {
