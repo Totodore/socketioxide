@@ -5,6 +5,8 @@ use pin_project_lite::pin_project;
 use tokio::sync::mpsc;
 
 /// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
+#[cfg(feature = "redis")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
 pub mod redis;
 
 pin_project! {

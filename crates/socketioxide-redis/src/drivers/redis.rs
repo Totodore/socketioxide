@@ -5,10 +5,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue, RedisResult};
+use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue, PushInfo, RedisResult};
 use tokio::sync::mpsc;
 
 use super::{Driver, MessageStream};
+
+pub use redis as redis_client;
 
 /// An error type for the redis driver.
 #[derive(Debug)]
@@ -59,26 +61,20 @@ fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, String, Vec<u8>
     }
 }
 
-/// Watch for messages from the redis connection and send them to the appropriate channel
-async fn watch_handler(
-    mut rx: mpsc::UnboundedReceiver<redis::PushInfo>,
-    handlers: Arc<RwLock<HandlerMap>>,
-) {
-    while let Some(info) = rx.recv().await {
-        match read_msg(info) {
-            Ok(Some((pattern, chan, msg))) => {
-                if let Some(tx) = handlers.read().unwrap().get(&pattern) {
-                    if let Err(e) = tx.try_send((chan, msg)) {
-                        tracing::warn!(pattern, "redis pubsub channel full {e}");
-                    }
-                } else {
-                    tracing::warn!(pattern, chan, "no handler for channel");
+fn handle_msg(msg: PushInfo, handlers: Arc<RwLock<HandlerMap>>) {
+    match read_msg(msg) {
+        Ok(Some((pattern, chan, msg))) => {
+            if let Some(tx) = handlers.read().unwrap().get(&pattern) {
+                if let Err(e) = tx.try_send((chan, msg)) {
+                    tracing::warn!(pattern, "redis pubsub channel full {e}");
                 }
+            } else {
+                tracing::warn!(pattern, chan, "no handler for channel");
             }
-            Ok(_) => {}
-            Err(e) => {
-                tracing::error!("error reading message from redis: {e}");
-            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("error reading message from redis: {e}");
         }
     }
 }
@@ -86,14 +82,17 @@ async fn watch_handler(
 impl RedisDriver {
     /// Create a new redis driver from a redis client.
     pub async fn new(client: &redis::Client) -> Result<Self, redis::RedisError> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let config = redis::AsyncConnectionConfig::new().set_push_sender(tx);
+        let handlers = Arc::new(RwLock::new(HashMap::new()));
+        let handlers_clone = handlers.clone();
+        let config = redis::AsyncConnectionConfig::new().set_push_sender(move |msg| {
+            handle_msg(msg, handlers_clone.clone());
+            Ok::<(), std::convert::Infallible>(())
+        });
+
         let conn = client
             .get_multiplexed_async_connection_with_config(&config)
             .await?;
 
-        let handlers = Arc::new(RwLock::new(HashMap::new()));
-        tokio::spawn(watch_handler(rx, handlers.clone()));
         Ok(Self { conn, handlers })
     }
 }
@@ -169,55 +168,43 @@ impl Driver for RedisDriver {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
 
     use super::*;
-    use tokio::time;
-    #[tokio::test]
-    async fn watch_handler_message() {
-        let (tx, rx) = mpsc::unbounded_channel();
+    #[test]
+    fn watch_handle_message() {
         let mut handlers = HashMap::new();
 
-        let (tx1, mut rx1) = mpsc::channel(1);
-        handlers.insert("test".to_string(), tx1);
-        tokio::spawn(super::watch_handler(rx, Arc::new(RwLock::new(handlers))));
-        tx.send(redis::PushInfo {
+        let (tx, mut rx) = mpsc::channel(1);
+        handlers.insert("test".to_string(), tx);
+        let msg = redis::PushInfo {
             kind: redis::PushKind::Message,
             data: vec![
                 redis::Value::BulkString("test".into()),
                 redis::Value::BulkString("foo".into()),
             ],
-        })
-        .unwrap();
-        let (chan, data) = time::timeout(Duration::from_millis(200), rx1.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        };
+        super::handle_msg(msg, Arc::new(RwLock::new(handlers)));
+        let (chan, data) = rx.try_recv().unwrap();
         assert_eq!(chan, "test");
         assert_eq!(data, "foo".as_bytes());
     }
 
-    #[tokio::test]
-    async fn watch_handler_pattern() {
-        let (tx, rx) = mpsc::unbounded_channel();
+    #[test]
+    fn watch_handler_pattern() {
         let mut handlers = HashMap::new();
 
         let (tx1, mut rx1) = mpsc::channel(1);
         handlers.insert("test*".to_string(), tx1);
-        tokio::spawn(super::watch_handler(rx, Arc::new(RwLock::new(handlers))));
-        tx.send(redis::PushInfo {
+        let msg = redis::PushInfo {
             kind: redis::PushKind::PMessage,
             data: vec![
                 redis::Value::BulkString("test*".into()),
                 redis::Value::BulkString("test123".into()),
                 redis::Value::BulkString("foo".into()),
             ],
-        })
-        .unwrap();
-        let (chan, data) = time::timeout(Duration::from_millis(200), rx1.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        };
+        super::handle_msg(msg, Arc::new(RwLock::new(handlers)));
+        let (chan, data) = rx1.try_recv().unwrap();
         assert_eq!(chan, "test123");
         assert_eq!(data, "foo".as_bytes());
     }

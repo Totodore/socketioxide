@@ -12,6 +12,10 @@ categories.workspace = true
 license.workspace = true
 readme.workspace = true
 
+[features]
+redis = ["dep:redis"]
+default = ["redis"]
+
 [dependencies]
 socketioxide-core = { version = "0.15", path = "../socketioxide-core" }
 futures-core.workspace = true
@@ -29,7 +33,8 @@ thiserror.workspace = true
 redis = { version = "0.27", features = [
     "aio",
     "tokio-comp",
-], default-features = false }
+    "streams",
+], default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = [
