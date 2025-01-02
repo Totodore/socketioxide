@@ -22,7 +22,7 @@ impl Sid {
     }
 
     /// Get the session id as a base64 10 chars string
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         // SAFETY: SID is always a base64 chars string
         unsafe { std::str::from_utf8_unchecked(&self.0) }
     }
