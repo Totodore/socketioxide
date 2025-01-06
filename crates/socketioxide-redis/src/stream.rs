@@ -71,7 +71,12 @@ impl<S> AckStream<S> {
             serv_cnt: 0,
         }
     }
-
+}
+impl<Err, S> AckStream<S>
+where
+    Err: DeserializeOwned + fmt::Debug,
+    S: Stream<Item = AckStreamItem<Err>> + FusedStream,
+{
     /// Poll the remote stream. First the count of acks is received, then the acks are received.
     /// We expect `serv_cnt` of `BroadcastAckCount` messages to be received, then we expect
     /// `ack_cnt` of `BroadcastAck` messages.
@@ -79,6 +84,11 @@ impl<S> AckStream<S> {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> Poll<Option<AckStreamItem<E>>> {
+        // remote stream is not fused, so we need to check if it is terminated
+        if FusedStream::is_terminated(&self) {
+            return Poll::Ready(None);
+        }
+
         let projection = self.as_mut().project();
         match projection.remote.poll_next(cx) {
             Poll::Pending => Poll::Pending,
@@ -122,7 +132,7 @@ impl<S> AckStream<S> {
 impl<E, S> Stream for AckStream<S>
 where
     E: DeserializeOwned + fmt::Debug,
-    S: Stream<Item = AckStreamItem<E>>,
+    S: Stream<Item = AckStreamItem<E>> + FusedStream,
 {
     type Item = AckStreamItem<E>;
 
