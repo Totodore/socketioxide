@@ -1,7 +1,7 @@
 import { spawn_servers, spawn_sockets, TEST, timeout } from "./fixture";
 import assert from "assert";
 
-assert(!!process.env.ADAPTER, "ADAPTER env var must be set");
+assert(!!process.env.CMD, "CMD env var must be set");
 
 // * Spawn 10 sockets on 3 servers
 // * Call a `broadcast` event on each socket

@@ -108,7 +108,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: check --feature-powerset
-        run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide
+        run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide -p socketioxide-redis
 
   examples:
     runs-on: ubuntu-latest
@@ -276,6 +276,16 @@ jobs:
       matrix:
         socketio-version: [v4, v4-msgpack, v5, v5-msgpack]
         adapter: [fred-e2e, redis-e2e]
+    services:
+      redis:
+        image: valkey/valkey
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -293,13 +303,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: cd e2e/adapter && npm install
+      - run: cd e2e/adapter && npm install && npm install ts-node --location=global
       - name: Install deps & run tests
         run: |
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
-          cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER -r
-          cd e2e/adapter && ADAPTER=${{ matrix.adapter }} ts-node client.ts
+          cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER
+          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" ts-node client.ts
       - name: Server output
         if: always()
-        run: cat *.log
+        run: cat e2e/adapter/*.log
+  all_passed:
+    runs-on: ubuntu-latest
+    needs:
+      [
+        adapter,
+        feature_set,
+        format,
+        udeps,
+        msrv,
+        examples,
+        doctest,
+        rust-clippy-analyze,
+      ]
+    steps:
+      - name: All passed
+        run: echo "All tests passed"
