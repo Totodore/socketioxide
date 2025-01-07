@@ -153,6 +153,8 @@ impl<A: Adapter> Client<A> {
         T: Send + Sync + 'static,
     {
         use futures_util::FutureExt;
+        check_ns(&path);
+
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
 
@@ -184,6 +186,8 @@ impl<A: Adapter> Client<A> {
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
+        check_ns(&path);
+
         #[cfg(feature = "tracing")]
         tracing::debug!("adding dynamic namespace {}", &path);
 
@@ -384,6 +388,14 @@ impl<A: Adapter> std::fmt::Debug for Client<A> {
         #[cfg(feature = "state")]
         let f = f.field("state", &self.state);
         f.finish()
+    }
+}
+
+/// Checks if the namespace path is valid
+/// Panics if the path is empty or contains a `#`
+fn check_ns(path: &str) {
+    if path.is_empty() || path.contains('#') {
+        panic!("namespace {path} should not be empty and should not contains '#'.");
     }
 }
 
