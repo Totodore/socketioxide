@@ -58,6 +58,8 @@ impl std::fmt::Display for Uid {
     }
 }
 impl Uid {
+    /// A zeroed server id.
+    pub const ZERO: Self = Self(Sid::ZERO);
     /// Create a new unique identifier.
     pub fn new() -> Self {
         Self(Sid::new())

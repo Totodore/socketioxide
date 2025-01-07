@@ -1,4 +1,4 @@
-//! This a end to end test server used with this [test suite](https://github.com/socketio/socket.io-protocol)
+//! This is a end-to-end test server used with this [test suite](https://github.com/socketio/socket.io-protocol)
 
 use std::time::Duration;
 

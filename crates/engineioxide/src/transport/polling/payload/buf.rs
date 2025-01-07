@@ -1,7 +1,7 @@
 //! Buffer utilities.
 //! The Buf list is used to store the data from the body of the request in a zero-copy fashion.
 //! Each time a new chunk of data is received, it is pushed to the back of the list.
-//! It the implement the `Buf` trait itself so that it can be used as a `Buf` in the `Payload` struct.
+//! It implements the `Buf` trait itself so that it can be used as a `Buf` in the `Payload` struct.
 //!
 //! This implementation is based on the private [`BufList`](https://github.com/hyperium/hyper/blob/d977f209bc6068d8f878b22803fc42d90c887fcc/src/common/buf.rs) mod from the [`hyper`](hyper) crate.
 use std::collections::VecDeque;

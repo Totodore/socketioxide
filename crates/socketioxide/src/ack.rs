@@ -57,7 +57,7 @@ pin_project_lite::pin_project! {
     ///
     /// It can be used in two ways:
     /// * As a [`Stream`]: It will yield all the ack responses with their corresponding socket id
-    /// received from the client. It can useful when broadcasting to multiple sockets and therefore expecting
+    /// received from the client. It can be useful when broadcasting to multiple sockets and therefore expecting
     /// more than one acknowledgement.
     /// * As a [`Future`]: It will yield the first ack response received from the client.
     /// Useful when expecting only one acknowledgement.

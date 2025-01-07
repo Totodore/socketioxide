@@ -20,7 +20,6 @@ default = ["v5"]
 socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
     "tracing",
 ] }
-socketioxide-redis = { path = "../../crates/socketioxide-redis" }
 hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

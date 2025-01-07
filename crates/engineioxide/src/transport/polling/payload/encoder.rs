@@ -4,7 +4,7 @@
 //! * engine.io v4 encoder
 //! * engine.io v3 encoder:
 //!    * string encoder (used when there is no binary packet or when the client does not support binary)
-//!    * binary encoder (used when there is binary packets and the client supports binary)
+//!    * binary encoder (used when there are binary packets and the client supports binary)
 //!
 
 use tokio::sync::MutexGuard;
@@ -167,7 +167,7 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> R
     Ok(())
 }
 
-/// Encode multiple packet packet into a *string* payload if there is no binary packet or into a *binary* payload if there is binary packets
+/// Encode multiple packet packet into a *string* payload if there is no binary packet or into a *binary* payload if there are binary packets
 /// according to the [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub async fn v3_binary_encoder(
