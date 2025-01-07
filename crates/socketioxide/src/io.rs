@@ -338,6 +338,9 @@ impl<A: Adapter> SocketIo<A> {
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
     ///
+    /// # Panics
+    /// If the namespace contains a '#' character or is empty.
+    ///
     /// # Simple example with a sync closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
@@ -433,6 +436,9 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// # Panics
+    /// If the namespace contains a '#' character or is empty.
     ///
     /// ## Errors
     /// If the pattern is invalid, a [`NsInsertError`](crate::NsInsertError) will be returned.
@@ -705,6 +711,20 @@ mod tests {
     fn get_default_op_panic() {
         let (_, io) = SocketIo::new_svc();
         let _ = io.get_default_op();
+    }
+
+    #[test]
+    #[should_panic(expected = "namespace # should not be empty and should not contains '#'.")]
+    fn check_ns_panic() {
+        let (_, io) = SocketIo::new_svc();
+        io.ns("#", || ());
+    }
+
+    #[test]
+    #[should_panic(expected = "namespace  should not be empty and should not contains '#'.")]
+    fn check_ns_empty_panic() {
+        let (_, io) = SocketIo::new_svc();
+        io.ns("", || ());
     }
 
     #[test]
