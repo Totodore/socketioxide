@@ -1,6 +1,3 @@
-use std::time::Duration;
-
-use fred::types::RespVersion;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
@@ -15,45 +12,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_line_number(true)
         .with_max_level(Level::TRACE)
         .finish();
+
     tracing::subscriber::set_global_default(subscriber)?;
-
-    #[cfg(feature = "fred")]
-    let (_svc, _io) = {
-        let mut config = fred::prelude::Config::from_url("redis://127.0.0.1:6379?protocol=resp3")?;
-        config.version = RespVersion::RESP3;
-        let client = fred::prelude::Builder::from_config(config).build_subscriber_client()?;
-        let adapter = RedisAdapterCtr::new_with_fred(client).await?;
-
-        SocketIo::builder()
-            .with_adapter::<socketioxide_redis::FredAdapter<_>>(adapter)
-            .build_svc()
+    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
+    let adapter = RedisAdapterCtr::new_with_redis(&client).await?;
+    #[allow(unused_mut)]
+    let mut builder =
+        SocketIo::builder().with_adapter::<socketioxide_redis::RedisAdapter<_>>(adapter);
+    #[cfg(feature = "msgpack")]
+    {
+        builder = builder.with_parser(socketioxide::ParserConfig::msgpack());
     };
 
-    #[cfg(feature = "redis")]
-    let (_svc, _io) = {
-        let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
-        let adapter = RedisAdapterCtr::new_with_redis(&client).await?;
-        SocketIo::builder()
-            .with_adapter::<socketioxide_redis::RedisAdapter<_>>(adapter)
-            .build_svc()
-    };
+    let (svc, io) = builder.build_svc();
 
-    _io.ns("/", || ());
-
-    tokio::task::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            let server = _io.config().server_id;
-            let sockets = _io.fetch_sockets().await.unwrap();
-            dbg!(&sockets);
-            for socket in sockets {
-                socket
-                    .emit("test", &format!("Hello from {server}"))
-                    .await
-                    .unwrap();
-            }
-        }
-    });
+    io.ns("/", adapter_e2e::handler);
 
     #[cfg(feature = "v5")]
     info!("Starting server with v5 protocol");
@@ -73,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
         // `hyper::rt` IO traits.
         let io = TokioIo::new(stream);
-        let svc = _svc.clone();
+        let svc = svc.clone();
 
         // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
