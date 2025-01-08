@@ -2,6 +2,7 @@ use fred::types::RespVersion;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
+use socketioxide_redis::drivers::fred::fred_client as fred;
 use socketioxide_redis::RedisAdapterCtr;
 use tokio::net::TcpListener;
 use tracing::{info, Level};

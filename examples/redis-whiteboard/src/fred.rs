@@ -1,22 +1,23 @@
 //! A simple whiteboard example using Redis as the adapter.
 //! It uses the fred crate to connect to a Redis server.
-use std::str::FromStr;
-
-use fred::{
-    prelude::Config,
-    types::{Builder, RespVersion},
-};
 use rmpv::Value;
 use socketioxide::{
     adapter::Adapter,
     extract::{Data, SocketRef},
     ParserConfig, SocketIo,
 };
+use socketioxide_redis::drivers::fred::fred_client as fred;
 use socketioxide_redis::{FredAdapter, RedisAdapterCtr};
+use std::str::FromStr;
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+use fred::{
+    prelude::Config,
+    types::{Builder, RespVersion},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

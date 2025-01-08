@@ -8,8 +8,8 @@ use socketioxide::{
     extract::{Data, SocketRef},
     ParserConfig, SocketIo,
 };
-use socketioxide_redis::{RedisAdapter, RedisAdapterCtr};
 use socketioxide_redis::drivers::redis::redis_client as redis;
+use socketioxide_redis::{ClusterAdapter, RedisAdapterCtr};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
@@ -23,13 +23,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     info!("connecting to redis");
-    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
-    let adapter = RedisAdapterCtr::new_with_redis(&client).await?;
+    // single node cluster. In a real world scenario, you would have multiple nodes.
+    let builder = redis::cluster::ClusterClient::builder(std::iter::once(
+        "redis://127.0.0.1:6379?protocol=resp3",
+    ));
+    let adapter = RedisAdapterCtr::new_with_cluster(builder).await?;
     info!("starting server");
 
     let (layer, io) = SocketIo::builder()
         .with_parser(ParserConfig::msgpack())
-        .with_adapter::<RedisAdapter<_>>(adapter)
+        .with_adapter::<ClusterAdapter<_>>(adapter)
         .build_layer();
 
     // It is heavily recommended to use generic fns instead of closures for handlers.
