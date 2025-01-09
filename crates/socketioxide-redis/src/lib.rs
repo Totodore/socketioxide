@@ -30,18 +30,22 @@
     missing_docs
 )]
 
-//! # A redis adapter implementation for the socketioxide crate.
+//! # A redis/valkey adapter implementation for the socketioxide crate.
 //! The adapter is used to communicate with other nodes of the same application.
 //! This allows to broadcast messages to sockets connected on other servers,
 //! to get the list of rooms, to add or remove sockets from rooms, etc.
 //!
-//! To do so, the adapter uses a pub/sub system through redis to communicate with the other servers.
+//! To achieve this, the adapter uses a [pub/sub](https://redis.io/docs/latest/develop/interact/pubsub/) system
+//! through Redis to communicate with other servers.
 //!
-//! The [`Driver`] abstraction allows to use any pub/sub client.
-//! There are three provided implementations:
-//! * [`RedisDriver`](crate::drivers::redis::RedisDriver) for the [`redis`] crate.
-//! * [`ClusterDriver`](crate::drivers::redis::ClusterDriver) for the [`redis`] crate.
-//! * [`FredDriver`](crate::drivers::fred::FredDriver) for the [`fred`] crate.
+//! The [`Driver`] abstraction allows the use of any pub/sub client.
+//! Three implementations are provided:
+//! * [`RedisDriver`](crate::drivers::redis::RedisDriver) for the [`redis`] crate with a standalone redis.
+//! * [`ClusterDriver`](crate::drivers::redis::ClusterDriver) for the [`redis`] crate with a redis cluster.
+//! * [`FredDriver`](crate::drivers::fred::FredDriver) for the [`fred`] crate with a standalone/cluster redis.
+//!
+//! When using redis clusters, the drivers employ [sharded pub/sub](https://redis.io/docs/latest/develop/interact/pubsub/#sharded-pubsub)
+//! to distribute the load across Redis nodes.
 //!
 //! You can also implement your own driver by implementing the [`Driver`] trait.
 //!
