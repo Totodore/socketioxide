@@ -48,6 +48,9 @@ impl<T> Stream for MessageStream<T> {
     }
 }
 
+/// A message item that can be returned from a channel.
+pub type ChanItem = (String, Vec<u8>);
+
 /// The driver trait can be used to support different pub/sub backends.
 /// It must share handlers/connection between its clones.
 pub trait Driver: Clone + Send + Sync + 'static {
@@ -67,20 +70,10 @@ pub trait Driver: Clone + Send + Sync + 'static {
         &self,
         chan: String,
         size: usize,
-    ) -> impl Future<Output = Result<MessageStream<(String, Vec<u8>)>, Self::Error>> + Send;
-
-    /// Subscribe to a channel with a pattern, it will return a stream of messages.
-    fn psubscribe(
-        &self,
-        pat: String,
-        size: usize,
-    ) -> impl Future<Output = Result<MessageStream<(String, Vec<u8>)>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<MessageStream<ChanItem>, Self::Error>> + Send;
 
     /// Unsubscribe from a channel.
     fn unsubscribe(&self, pat: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
-
-    /// Unsubscribe to a channel with a pattern.
-    fn punsubscribe(&self, pat: String) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Returns the number of socket.io servers.
     fn num_serv(&self, chan: &str) -> impl Future<Output = Result<u16, Self::Error>> + Send;

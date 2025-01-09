@@ -6,12 +6,12 @@ use std::{
 
 use tokio::sync::{broadcast, mpsc};
 
-use super::{Driver, MessageStream};
+use super::{ChanItem, Driver, MessageStream};
 
 use fred::{
     interfaces::PubsubInterface,
     prelude::{ClientLike, EventInterface, FredResult},
-    types::{Message, MessageKind},
+    types::Message,
 };
 
 pub use fred as fred_client;
@@ -32,31 +32,13 @@ impl fmt::Display for FredError {
 }
 impl std::error::Error for FredError {}
 
-type HandlerMap = HashMap<String, mpsc::Sender<(String, Vec<u8>)>>;
+type HandlerMap = HashMap<String, mpsc::Sender<ChanItem>>;
 
-/// Return the channel pattern, channel and data from a message.
-// This redis implementation doesn't give the channel pattern.
-// We have to reconstruct it from the channel.
-fn read_msg(msg: Message) -> Option<(Option<String>, String, Vec<u8>)> {
+/// Return the channel, data and an optional req_id from a message.
+fn read_msg(msg: Message) -> Option<ChanItem> {
     let chan = msg.channel.to_string();
     let data = msg.value.into_owned_bytes()?;
-    let pattern = match msg.kind {
-        MessageKind::Message => None,
-        MessageKind::PMessage => Some(get_pattern_from_chan(&chan)?),
-        MessageKind::SMessage => None, //TODO: this might be wrong with sharded messages
-    };
-    Some((pattern, chan, data))
-}
-/// Convert a channel to a pattern. Assuming the channel/pattern are in the following format:
-/// chan: `{prefix}-response#{namespace}#{uid}#{req_id}#`
-/// pattern: `{prefix}-response#{namespace}#{uid}#*`
-fn get_pattern_from_chan(chan: &str) -> Option<String> {
-    if chan.is_empty() || !chan.ends_with("#") {
-        return None;
-    }
-    let pos = chan[..chan.len() - 1].rfind('#')?;
-    let pattern = format!("{}*", &chan[..=pos]);
-    Some(pattern)
+    Some((chan, data))
 }
 
 /// Pipe messages from the fred client to the handlers.
@@ -64,12 +46,11 @@ async fn msg_handler(mut rx: broadcast::Receiver<Message>, handlers: Arc<RwLock<
     loop {
         match rx.recv().await {
             Ok(msg) => {
-                if let Some((pattern, chan, data)) = read_msg(msg) {
-                    let pattern = pattern.as_ref().unwrap_or(&chan);
-                    if let Some(tx) = handlers.read().unwrap().get(pattern) {
+                if let Some((chan, data)) = read_msg(msg) {
+                    if let Some(tx) = handlers.read().unwrap().get(&chan) {
                         tx.try_send((chan, data)).unwrap();
                     } else {
-                        tracing::warn!(pattern, chan, "no handler for channel");
+                        tracing::warn!(chan, "no handler for channel");
                     }
                 }
             }
@@ -109,7 +90,7 @@ impl Driver for FredDriver {
 
     async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
         // We could use the receiver count from here. This would avoid a call to `server_cnt`.
-        self.conn.publish::<u16, _, _>(chan, val).await?;
+        self.conn.spublish::<u16, _, _>(chan, val).await?;
         Ok(())
     }
 
@@ -117,19 +98,8 @@ impl Driver for FredDriver {
         &self,
         chan: String,
         size: usize,
-    ) -> Result<MessageStream<(String, Vec<u8>)>, Self::Error> {
-        self.conn.clone().subscribe(chan.as_str()).await?;
-        let (tx, rx) = mpsc::channel(size);
-        self.handlers.write().unwrap().insert(chan, tx);
-        Ok(MessageStream::new(rx))
-    }
-
-    async fn psubscribe(
-        &self,
-        chan: String,
-        size: usize,
-    ) -> Result<MessageStream<(String, Vec<u8>)>, Self::Error> {
-        self.conn.clone().psubscribe(chan.as_str()).await?;
+    ) -> Result<MessageStream<ChanItem>, Self::Error> {
+        self.conn.clone().ssubscribe(chan.as_str()).await?;
         let (tx, rx) = mpsc::channel(size);
         self.handlers.write().unwrap().insert(chan, tx);
         Ok(MessageStream::new(rx))
@@ -137,18 +107,12 @@ impl Driver for FredDriver {
 
     async fn unsubscribe(&self, chan: String) -> Result<(), Self::Error> {
         self.handlers.write().unwrap().remove(&chan);
-        self.conn.unsubscribe(chan).await?;
-        Ok(())
-    }
-
-    async fn punsubscribe(&self, chan: String) -> Result<(), Self::Error> {
-        self.handlers.write().unwrap().remove(&chan);
-        self.conn.punsubscribe(chan).await?;
+        self.conn.sunsubscribe(chan).await?;
         Ok(())
     }
 
     async fn num_serv(&self, chan: &str) -> Result<u16, Self::Error> {
-        let (_, num): (String, u16) = self.conn.pubsub_numsub(chan).await?;
+        let (_, num): (String, u16) = self.conn.pubsub_shardnumsub(chan).await?;
         Ok(num)
     }
 }
@@ -156,9 +120,11 @@ impl Driver for FredDriver {
 #[cfg(test)]
 mod tests {
 
+    use fred::{
+        prelude::Server,
+        types::{MessageKind, Value},
+    };
     use std::time::Duration;
-
-    use fred::{prelude::Server, types::Value};
     use tokio::time;
     const TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -187,25 +153,18 @@ mod tests {
         let mut handlers = HashMap::new();
 
         let (tx, mut rx) = mpsc::channel(1);
-        handlers.insert("test-response#namespace#uid#*".to_string(), tx);
+        handlers.insert("test-response#namespace#uid#".to_string(), tx);
         let (tx1, rx1) = broadcast::channel(1);
         tokio::spawn(msg_handler(rx1, Arc::new(RwLock::new(handlers))));
         let msg = Message {
-            channel: "test-response#namespace#uid#req_id#".into(),
-            kind: MessageKind::PMessage,
+            channel: "test-response#namespace#uid#".into(),
+            kind: MessageKind::Message,
             value: Value::from_static(b"foo"),
             server: Server::new("0.0.0.0", 0),
         };
         tx1.send(msg).unwrap();
         let (chan, data) = time::timeout(TIMEOUT, rx.recv()).await.unwrap().unwrap();
-        assert_eq!(chan, "test-response#namespace#uid#req_id#");
+        assert_eq!(chan, "test-response#namespace#uid#");
         assert_eq!(data, "foo".as_bytes());
-    }
-
-    #[test]
-    fn test_get_pattern_from_chan() {
-        let chan = "test-response#namespace#uid#req_id#";
-        let pattern = get_pattern_from_chan(chan).unwrap();
-        assert_eq!(pattern, "test-response#namespace#uid#*");
     }
 }

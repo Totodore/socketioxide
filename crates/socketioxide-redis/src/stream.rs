@@ -94,29 +94,33 @@ where
             Poll::Pending => Poll::Pending,
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Ready(Some(item)) => {
-                let res = rmp_serde::from_slice::<Response<E>>(&item);
+                let res = rmp_serde::from_slice::<(Sid, Response<E>)>(&item);
                 match res {
-                    Ok(Response {
-                        uid,
+                    Ok((
                         req_id,
-                        r#type: ResponseType::BroadcastAckCount(count),
-                    }) if *projection.serv_cnt > 0 => {
+                        Response {
+                            node_id: uid,
+                            r#type: ResponseType::BroadcastAckCount(count),
+                        },
+                    )) if *projection.serv_cnt > 0 => {
                         tracing::trace!(?uid, ?req_id, "receiving broadcast ack count {count}");
                         *projection.ack_cnt += count;
                         *projection.total_ack_cnt += count as usize;
                         *projection.serv_cnt -= 1;
                         self.poll_remote(cx)
                     }
-                    Ok(Response {
-                        uid,
+                    Ok((
                         req_id,
-                        r#type: ResponseType::BroadcastAck((sid, res)),
-                    }) if *projection.ack_cnt > 0 => {
+                        Response {
+                            node_id: uid,
+                            r#type: ResponseType::BroadcastAck((sid, res)),
+                        },
+                    )) if *projection.ack_cnt > 0 => {
                         tracing::trace!(?uid, ?req_id, "receiving broadcast ack {sid} {:?}", res);
                         *projection.ack_cnt -= 1;
                         Poll::Ready(Some((sid, res)))
                     }
-                    Ok(Response { uid, req_id, .. }) => {
+                    Ok((req_id, Response { node_id: uid, .. })) => {
                         tracing::warn!(?uid, ?req_id, ?self, "unexpected response type");
                         self.poll_remote(cx)
                     }

@@ -16,12 +16,12 @@ pub struct Sid([u8; 16]);
 impl Sid {
     /// A zeroed session id
     pub const ZERO: Self = Self([0u8; 16]);
-    /// Generate a new random session id (base64 10 chars)
+    /// Generate a new random session id (base64 16 chars)
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Get the session id as a base64 10 chars string
+    /// Get the session id as a base64 16 chars string
     pub const fn as_str(&self) -> &str {
         // SAFETY: SID is always a base64 chars string
         unsafe { std::str::from_utf8_unchecked(&self.0) }

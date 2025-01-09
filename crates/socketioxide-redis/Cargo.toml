@@ -25,7 +25,7 @@ futures-util.workspace = true
 pin-project-lite.workspace = true
 serde.workspace = true
 smallvec = { workspace = true, features = ["serde"] }
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "time", "rt", "sync"] }
 rmp-serde.workspace = true
 rmp.workspace = true
 bytes.workspace = true

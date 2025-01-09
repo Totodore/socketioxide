@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
+    collections::HashMap,
     future::Future,
     sync::{Arc, RwLock},
     time::Duration,
@@ -75,7 +76,7 @@ pub fn spawn_buggy_servers<const N: usize>(
 }
 
 type ChanItem = (String, Vec<u8>);
-type ResponseHandlers = Vec<(String, mpsc::Sender<ChanItem>)>;
+type ResponseHandlers = HashMap<String, mpsc::Sender<ChanItem>>;
 #[derive(Debug, Clone)]
 pub struct StubDriver {
     tx: mpsc::Sender<ChanItem>,
@@ -87,11 +88,7 @@ async fn pipe_handlers(mut rx: mpsc::Receiver<ChanItem>, handlers: Arc<RwLock<Re
     while let Some((chan, data)) = rx.recv().await {
         let handlers = handlers.read().unwrap();
         tracing::debug!(?handlers, "received data to broadcast {}", chan);
-        // We simulate pub/sub pattern matching with wildmatch crate.
-        if let Some((_, tx)) = handlers
-            .iter()
-            .find(|(pat, _)| wildmatch::WildMatch::new(pat).matches(&chan))
-        {
+        if let Some(tx) = handlers.get(&chan) {
             tx.try_send((chan, data)).unwrap();
         }
     }
@@ -100,7 +97,7 @@ impl StubDriver {
     pub fn new(num_serv: u16) -> (Self, mpsc::Receiver<ChanItem>, mpsc::Sender<ChanItem>) {
         let (tx, rx) = mpsc::channel(255); // driver emitter
         let (tx1, rx1) = mpsc::channel(255); // driver receiver
-        let handlers = Arc::new(RwLock::new(Vec::new()));
+        let handlers = Arc::new(RwLock::new(HashMap::new()));
 
         tokio::spawn(pipe_handlers(rx1, handlers.clone()));
 
@@ -134,26 +131,12 @@ impl Driver for StubDriver {
         _: usize,
     ) -> Result<MessageStream<ChanItem>, Self::Error> {
         let (tx, rx) = mpsc::channel(255);
-        self.handlers.write().unwrap().push((pat, tx));
-        Ok(MessageStream::new(rx))
-    }
-
-    async fn psubscribe(
-        &self,
-        pat: String,
-        _: usize,
-    ) -> Result<MessageStream<ChanItem>, Self::Error> {
-        let (tx, rx) = mpsc::channel(255);
-        self.handlers.write().unwrap().push((pat, tx));
+        self.handlers.write().unwrap().insert(pat, tx);
         Ok(MessageStream::new(rx))
     }
 
     async fn unsubscribe(&self, pat: String) -> Result<(), Self::Error> {
-        self.handlers.write().unwrap().retain(|(k, _)| k == &pat);
-        Ok(())
-    }
-    async fn punsubscribe(&self, pat: String) -> Result<(), Self::Error> {
-        self.handlers.write().unwrap().retain(|(k, _)| k == &pat);
+        self.handlers.write().unwrap().remove(&pat);
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 //! Custom request and response types for the Redis adapter.
 //! Custom serialization/deserialization to reduce the size of the messages.
-use std::collections::HashSet;
+use std::{collections::HashSet, str::FromStr};
 
 use serde::{de::SeqAccess, Deserialize, Serialize};
 use socketioxide_core::{
@@ -60,16 +60,16 @@ pub enum RequestTypeIn {
 
 #[derive(Debug, PartialEq)]
 pub struct RequestOut<'a> {
-    pub uid: Uid,
-    pub req_id: Sid,
+    pub node_id: Uid,
+    pub id: Sid,
     pub r#type: RequestTypeOut<'a>,
     pub opts: &'a BroadcastOptions,
 }
 impl<'a> RequestOut<'a> {
-    pub fn new(uid: Uid, r#type: RequestTypeOut<'a>, opts: &'a BroadcastOptions) -> Self {
+    pub fn new(node_id: Uid, r#type: RequestTypeOut<'a>, opts: &'a BroadcastOptions) -> Self {
         Self {
-            uid,
-            req_id: Sid::new(),
+            node_id,
+            id: Sid::new(),
             r#type,
             opts,
         }
@@ -81,16 +81,16 @@ impl<'a> Serialize for RequestOut<'a> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         #[derive(Debug, Serialize)]
         struct RawRequest<'a> {
-            uid: Uid,
-            req_id: Sid,
+            node_id: Uid,
+            id: Sid,
             r#type: u8,
             packet: Option<&'a Packet>,
             rooms: Option<&'a Vec<Room>>,
             opts: &'a BroadcastOptions,
         }
         let raw = RawRequest::<'a> {
-            uid: self.uid,
-            req_id: self.req_id,
+            node_id: self.node_id,
+            id: self.id,
             r#type: self.r#type.to_u8(),
             packet: match &self.r#type {
                 RequestTypeOut::Broadcast(p) | RequestTypeOut::BroadcastWithAck(p) => Some(p),
@@ -108,8 +108,8 @@ impl<'a> Serialize for RequestOut<'a> {
 
 #[derive(Debug)]
 pub struct RequestIn {
-    pub uid: Uid,
-    pub req_id: Sid,
+    pub node_id: Uid,
+    pub id: Sid,
     pub r#type: RequestTypeIn,
     pub opts: BroadcastOptions,
 }
@@ -117,8 +117,8 @@ impl<'de> Deserialize<'de> for RequestIn {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Debug, Deserialize)]
         struct RawRequest {
-            uid: Uid,
-            req_id: Sid,
+            node_id: Uid,
+            id: Sid,
             r#type: u8,
             packet: Option<Packet>,
             rooms: Option<Vec<Room>>,
@@ -137,8 +137,8 @@ impl<'de> Deserialize<'de> for RequestIn {
             _ => return Err(serde::de::Error::custom("invalid request type")),
         };
         Ok(Self {
-            uid: raw.uid,
-            req_id: raw.req_id,
+            node_id: raw.node_id,
+            id: raw.id,
             r#type,
             opts: raw.opts,
         })
@@ -147,8 +147,7 @@ impl<'de> Deserialize<'de> for RequestIn {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Response<D = ()> {
-    pub uid: Uid,
-    pub req_id: Sid,
+    pub node_id: Uid,
     pub r#type: ResponseType<D>,
 }
 
@@ -224,6 +223,19 @@ impl<D> Response<D> {
     }
 }
 
+/// Extract the request id from a data encoded as `[Sid, ...]`
+pub fn read_req_id(data: &[u8]) -> Option<Sid> {
+    let mut rd = data;
+    let len = rmp::decode::read_array_len(&mut rd).ok()?;
+    if len < 1 {
+        return None;
+    }
+
+    let mut buff = [0u8; Sid::ZERO.as_str().len()];
+    let str = rmp::decode::read_str(&mut rd, &mut buff).ok()?;
+    Sid::from_str(str).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
@@ -233,8 +245,8 @@ mod tests {
     impl<'a> From<&'a RequestIn> for RequestOut<'a> {
         fn from(req: &'a RequestIn) -> Self {
             Self {
-                uid: req.uid,
-                req_id: req.req_id,
+                node_id: req.node_id,
+                id: req.id,
                 opts: &req.opts,
                 r#type: match &req.r#type {
                     RequestTypeIn::Broadcast(p) => RequestTypeOut::Broadcast(p),
@@ -304,8 +316,7 @@ mod tests {
     #[test]
     fn response_serde_broadcast_ack() {
         let res = Response {
-            uid: Uid::new(),
-            req_id: Sid::new(),
+            node_id: Uid::new(),
             r#type: ResponseType::BroadcastAck((
                 Sid::new(),
                 Ok(Value::Bytes(Bytes::from_static(b"test"))),
@@ -318,8 +329,7 @@ mod tests {
     #[test]
     fn response_serde_broadcast_ack_count() {
         let res = Response {
-            uid: Uid::new(),
-            req_id: Sid::new(),
+            node_id: Uid::new(),
             r#type: ResponseType::BroadcastAckCount(42),
         };
         let serialized = rmp_serde::to_vec(&res).unwrap();
@@ -331,8 +341,7 @@ mod tests {
     fn response_serde_all_rooms() {
         let rooms = ["foo".into(), "bar".into()];
         let res = Response {
-            uid: Uid::new(),
-            req_id: Sid::new(),
+            node_id: Uid::new(),
             r#type: ResponseType::AllRooms(rooms.iter().cloned().collect()),
         };
         let serialized = rmp_serde::to_vec(&res).unwrap();
@@ -344,12 +353,43 @@ mod tests {
     fn response_serde_fetch_sockets() {
         let sockets = vec![Sid::new(), Sid::new()];
         let res = Response {
-            uid: Uid::new(),
-            req_id: Sid::new(),
+            node_id: Uid::new(),
             r#type: ResponseType::FetchSockets(sockets),
         };
         let serialized = rmp_serde::to_vec(&res).unwrap();
         let deserialized: Response<Sid> = rmp_serde::from_slice(&serialized).unwrap();
         assert_eq!(res, deserialized);
+    }
+
+    #[test]
+    fn read_req_id() {
+        let sid = Sid::new();
+        let buff: [u8; 4] = [0, 1, 3, 4];
+        let data = rmp_serde::to_vec(&(sid, buff)).unwrap();
+        let req_id = super::read_req_id(&data);
+        assert_eq!(req_id, Some(sid));
+    }
+
+    #[test]
+    fn read_req_bad_id() {
+        let buff: [u8; 4] = [0, 1, 3, 4];
+        let data = rmp_serde::to_vec(&("test", buff)).unwrap();
+        let req_id = super::read_req_id(&data);
+        assert_eq!(req_id, None);
+    }
+
+    #[test]
+    fn read_req_id_not_array() {
+        let sid = Sid::new();
+        let data = rmp_serde::to_vec(&sid).unwrap();
+        let req_id = super::read_req_id(&data);
+        assert_eq!(req_id, None);
+    }
+
+    #[test]
+    fn read_req_id_empty_array() {
+        let data = rmp_serde::to_vec::<[u8; 0]>(&[]).unwrap();
+        let req_id = super::read_req_id(&data);
+        assert_eq!(req_id, None);
     }
 }
