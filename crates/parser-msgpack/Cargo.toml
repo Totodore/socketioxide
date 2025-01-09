@@ -16,7 +16,7 @@ readme.workspace = true
 bytes.workspace = true
 serde.workspace = true
 rmp-serde.workspace = true
-rmp = "0.8"
+rmp.workspace = true
 socketioxide-core = { version = "0.15.0", path = "../socketioxide-core" }
 
 [dev-dependencies]

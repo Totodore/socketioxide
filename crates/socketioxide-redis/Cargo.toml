@@ -27,20 +27,21 @@ serde.workspace = true
 smallvec = { workspace = true, features = ["serde"] }
 tokio.workspace = true
 rmp-serde.workspace = true
+rmp.workspace = true
 bytes.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 
 # Redis implementation
+fred = { version = "10", features = [
+    "subscriber-client",
+    "i-pubsub",
+], default-features = false, optional = true }
 redis = { version = "0.28", features = [
     "aio",
     "tokio-comp",
     "streams",
 ], default-features = false, optional = true }
-fred = { version = "10", features = [
-    "subscriber-client",
-    "i-pubsub",
-], optional = true, default-features = false }
 
 [dev-dependencies]
 tokio = { workspace = true, features = [
@@ -53,4 +54,3 @@ socketioxide = { path = "../socketioxide", features = [
     "__test_harness",
 ] }
 tracing-subscriber.workspace = true
-wildmatch = "2.4"
