@@ -50,4 +50,4 @@ criterion = { version = "0.5", features = [
     "rayon",
     "html_reports",
 ], default-features = false }
-axum = "0.7"
+axum = "0.8"
