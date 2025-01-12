@@ -13,8 +13,8 @@ pub async fn broadcast() {
 
     let [io1, io2] = fixture::spawn_servers();
 
-    io1.ns("/", handler);
-    io2.ns("/", handler);
+    io1.ns("/", handler).await.unwrap();
+    io2.ns("/", handler).await.unwrap();
 
     let ((_tx1, mut rx1), (_tx2, mut rx2)) =
         tokio::join!(io1.new_dummy_sock("/", ()), io2.new_dummy_sock("/", ()));
@@ -41,9 +41,9 @@ pub async fn broadcast_rooms() {
         }
     };
 
-    io1.ns("/", handler("room1", "room2"));
-    io2.ns("/", handler("room2", "room3"));
-    io3.ns("/", handler("room3", "room1"));
+    io1.ns("/", handler("room1", "room2")).await.unwrap();
+    io2.ns("/", handler("room2", "room3")).await.unwrap();
+    io3.ns("/", handler("room3", "room1")).await.unwrap();
 
     let ((_tx1, mut rx1), (_tx2, mut rx2), (_tx3, mut rx3)) = tokio::join!(
         io1.new_dummy_sock("/", ()),
@@ -88,8 +88,8 @@ pub async fn broadcast_with_ack() {
 
     let [io1, io2] = fixture::spawn_servers();
 
-    io1.ns("/", handler);
-    io2.ns("/", || ());
+    io1.ns("/", handler).await.unwrap();
+    io2.ns("/", || ()).await.unwrap();
 
     let ((_tx1, mut rx1), (tx2, mut rx2)) =
         tokio::join!(io1.new_dummy_sock("/", ()), io2.new_dummy_sock("/", ()));
@@ -127,8 +127,8 @@ pub async fn broadcast_with_ack_timeout() {
 
     let [io1, io2] = fixture::spawn_buggy_servers(TIMEOUT);
 
-    io1.ns("/", handler);
-    io2.ns("/", || ());
+    io1.ns("/", handler).await.unwrap();
+    io2.ns("/", || ()).await.unwrap();
 
     let now = std::time::Instant::now();
     let ((_tx1, mut rx1), (_tx2, mut rx2)) =

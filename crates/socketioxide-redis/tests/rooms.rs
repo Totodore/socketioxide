@@ -9,9 +9,9 @@ pub async fn all_rooms() {
     let [io1, io2, io3] = fixture::spawn_servers();
     let handler = |rooms: &'static [&'static str]| move |socket: SocketRef<_>| socket.join(rooms);
 
-    io1.ns("/", handler(&["room1", "room2"]));
-    io2.ns("/", handler(&["room2", "room3"]));
-    io3.ns("/", handler(&["room3", "room1"]));
+    io1.ns("/", handler(&["room1", "room2"])).await.unwrap();
+    io2.ns("/", handler(&["room2", "room3"])).await.unwrap();
+    io3.ns("/", handler(&["room3", "room1"])).await.unwrap();
 
     let ((_tx1, mut rx1), (_tx2, mut rx2), (_tx3, mut rx3)) = tokio::join!(
         io1.new_dummy_sock("/", ()),
@@ -41,9 +41,9 @@ pub async fn all_rooms_timeout() {
     let [io1, io2, io3] = fixture::spawn_buggy_servers(TIMEOUT);
     let handler = |rooms: &'static [&'static str]| move |socket: SocketRef<_>| socket.join(rooms);
 
-    io1.ns("/", handler(&["room1", "room2"]));
-    io2.ns("/", handler(&["room2", "room3"]));
-    io3.ns("/", handler(&["room3", "room1"]));
+    io1.ns("/", handler(&["room1", "room2"])).await.unwrap();
+    io2.ns("/", handler(&["room2", "room3"])).await.unwrap();
+    io3.ns("/", handler(&["room3", "room1"])).await.unwrap();
 
     let ((_tx1, mut rx1), (_tx2, mut rx2), (_tx3, mut rx3)) = tokio::join!(
         io1.new_dummy_sock("/", ()),
@@ -73,8 +73,8 @@ pub async fn add_sockets() {
     let handler = |room: &'static str| move |socket: SocketRef<_>| socket.join(room);
     let [io1, io2] = fixture::spawn_servers();
 
-    io1.ns("/", handler("room1"));
-    io2.ns("/", handler("room3"));
+    io1.ns("/", handler("room1")).await.unwrap();
+    io2.ns("/", handler("room3")).await.unwrap();
 
     let ((_tx1, mut rx1), (_tx2, mut rx2)) =
         tokio::join!(io1.new_dummy_sock("/", ()), io2.new_dummy_sock("/", ()));
@@ -95,8 +95,8 @@ pub async fn del_sockets() {
     let handler = |rooms: &'static [&'static str]| move |socket: SocketRef<_>| socket.join(rooms);
     let [io1, io2] = fixture::spawn_servers();
 
-    io1.ns("/", handler(&["room1", "room2"]));
-    io2.ns("/", handler(&["room3", "room2"]));
+    io1.ns("/", handler(&["room1", "room2"])).await.unwrap();
+    io2.ns("/", handler(&["room3", "room2"])).await.unwrap();
 
     let ((_tx1, mut rx1), (_tx2, mut rx2)) =
         tokio::join!(io1.new_dummy_sock("/", ()), io2.new_dummy_sock("/", ()));

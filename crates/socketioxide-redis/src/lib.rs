@@ -121,7 +121,7 @@
 //!     "redis://127.0.0.1:6379?protocol=resp3",
 //! ));
 //! let adapter = RedisAdapterCtr::new_with_cluster(builder).await?;
-
+//!
 //! let (layer, io) = SocketIo::builder()
 //!     .with_adapter::<ClusterAdapter<_>>(adapter)
 //!     .build_layer();
@@ -165,7 +165,9 @@ use std::{
     collections::HashMap,
     fmt,
     future::{self, Future},
+    pin::Pin,
     sync::{Arc, Mutex},
+    task::{Context, Poll},
     time::Duration,
 };
 
@@ -178,8 +180,8 @@ use request::{
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{
     adapter::{
-        BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, RemoteSocketData, Room,
-        RoomParam, SocketEmitter,
+        BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter,
+        RemoteSocketData, Room, RoomParam, SocketEmitter, Spawnable,
     },
     errors::{AdapterError, BroadcastError},
     packet::Packet,
@@ -411,10 +413,12 @@ pub struct CustomRedisAdapter<E, R> {
     responses: Arc<Mutex<ResponseHandlers>>,
 }
 
+impl<E, R> DefinedAdapter for CustomRedisAdapter<E, R> {}
 impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     type Error = Error<R>;
     type State = RedisAdapterCtr<R>;
     type AckStream = AckStream<E::AckStream>;
+    type InitRes = InitRes<R>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
         let req_chan = format!("{}-request#{}#", state.config.prefix, local.path());
@@ -429,44 +433,26 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         }
     }
 
-    async fn init(self: Arc<Self>) -> Result<(), Self::Error> {
-        let global_stream = self.subscribe(self.req_chan.clone()).await?;
-        let specific_stream = self.subscribe(self.get_req_chan(Some(self.uid))).await?;
-        let response_chan = format!(
-            "{}-response#{}#{}#",
-            &self.config.prefix,
-            self.local.path(),
-            self.uid
-        );
+    fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
+        let fut = async move {
+            check_ns(self.local.path())?;
+            let global_stream = self.subscribe(self.req_chan.clone()).await?;
+            let specific_stream = self.subscribe(self.get_req_chan(Some(self.uid))).await?;
+            let response_chan = format!(
+                "{}-response#{}#{}#",
+                &self.config.prefix,
+                self.local.path(),
+                self.uid
+            );
 
-        let response_stream = self.subscribe(response_chan.clone()).await?;
-        tokio::spawn(async move {
+            let response_stream = self.subscribe(response_chan.clone()).await?;
             let stream = futures_util::stream::select(global_stream, specific_stream);
-            let mut stream = futures_util::stream::select(stream, response_stream);
-            while let Some((chan, item)) = stream.next().await {
-                if chan.starts_with(&self.req_chan) {
-                    if let Err(e) = self.recv_req(item) {
-                        let ns = self.local.path();
-                        let uid = self.uid;
-                        tracing::warn!(?uid, ?ns, "request handler error: {e}");
-                    }
-                } else if chan == response_chan {
-                    let req_id = read_req_id(&item);
-                    tracing::trace!(?req_id, ?chan, ?response_chan, "extracted sid");
-                    let handlers = self.responses.lock().unwrap();
-                    if let Some(tx) = req_id.and_then(|id| handlers.get(&id)) {
-                        if let Err(e) = tx.try_send(item) {
-                            tracing::warn!("error sending response to handler: {e}");
-                        }
-                    } else {
-                        tracing::warn!(?req_id, "could not find req handler");
-                    }
-                } else {
-                    tracing::warn!("unexpected message/channel: {chan}");
-                }
-            }
-        });
-        Ok(())
+            let stream = futures_util::stream::select(stream, response_stream);
+            tokio::spawn(self.pipe_stream(stream, response_chan));
+            on_success();
+            Ok(())
+        };
+        InitRes(Box::pin(fut))
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -671,6 +657,45 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     }
 }
 
+/// Error that can happen when initializing the adapter.
+#[derive(thiserror::Error)]
+pub enum InitError<D: Driver> {
+    /// Driver error.
+    #[error("driver error: {0}")]
+    Driver(D::Error),
+    /// Malformed namespace path.
+    #[error("malformed namespace path, it must not contain '#'")]
+    MalformedNamespace,
+}
+impl<D: Driver> fmt::Debug for InitError<D> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Driver(err) => fmt::Debug::fmt(err, f),
+            Self::MalformedNamespace => write!(f, "Malformed namespace path"),
+        }
+    }
+}
+/// The result of the init future.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct InitRes<D: Driver>(futures_core::future::BoxFuture<'static, Result<(), InitError<D>>>);
+
+impl<D: Driver> Future for InitRes<D> {
+    type Output = Result<(), InitError<D>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.0.as_mut().poll(cx)
+    }
+}
+impl<D: Driver> Spawnable for InitRes<D> {
+    fn spawn(self) {
+        tokio::spawn(async move {
+            if let Err(e) = self.0.await {
+                tracing::error!("error initializing adapter: {e}");
+            }
+        });
+    }
+}
+
 impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
     /// Build a response channel for a request.
     ///
@@ -689,6 +714,35 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         match node_id {
             Some(uid) => format!("{}{}#", self.req_chan, uid),
             None => self.req_chan.clone(),
+        }
+    }
+
+    async fn pipe_stream(
+        self: Arc<Self>,
+        mut stream: impl Stream<Item = ChanItem> + Unpin,
+        response_chan: String,
+    ) {
+        while let Some((chan, item)) = stream.next().await {
+            if chan.starts_with(&self.req_chan) {
+                if let Err(e) = self.recv_req(item) {
+                    let ns = self.local.path();
+                    let uid = self.uid;
+                    tracing::warn!(?uid, ?ns, "request handler error: {e}");
+                }
+            } else if chan == response_chan {
+                let req_id = read_req_id(&item);
+                tracing::trace!(?req_id, ?chan, ?response_chan, "extracted sid");
+                let handlers = self.responses.lock().unwrap();
+                if let Some(tx) = req_id.and_then(|id| handlers.get(&id)) {
+                    if let Err(e) = tx.try_send(item) {
+                        tracing::warn!("error sending response to handler: {e}");
+                    }
+                } else {
+                    tracing::warn!(?req_id, "could not find req handler");
+                }
+            } else {
+                tracing::warn!("unexpected message/channel: {chan}");
+            }
         }
     }
 
@@ -876,12 +930,12 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
 
     /// Little wrapper to map the error type.
     #[inline]
-    async fn subscribe(&self, pat: String) -> Result<MessageStream<ChanItem>, Error<R>> {
+    async fn subscribe(&self, pat: String) -> Result<MessageStream<ChanItem>, InitError<R>> {
         tracing::trace!(?pat, "subscribing to");
         self.driver
             .subscribe(pat, self.config.stream_buffer)
             .await
-            .map_err(Error::from_driver)
+            .map_err(InitError::Driver)
     }
 }
 
@@ -894,6 +948,16 @@ fn is_local_op(uid: Uid, opts: &BroadcastOptions) -> bool {
             && opts.server_id == Some(uid)
             && opts.rooms.is_empty()
             && opts.sid.is_some())
+}
+
+/// Checks if the namespace path is valid
+/// Panics if the path is empty or contains a `#`
+fn check_ns<D: Driver>(path: &str) -> Result<(), InitError<D>> {
+    if path.is_empty() || path.contains('#') {
+        Err(InitError::MalformedNamespace)
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1029,5 +1093,17 @@ mod tests {
         assert!(!is_local_op(Uid::new(), &opts));
         let opts = BroadcastOptions::new(Sid::new());
         assert!(!is_local_op(Uid::new(), &opts));
+    }
+
+    #[test]
+    fn check_ns_error() {
+        assert!(matches!(
+            check_ns::<StubDriver>("#"),
+            Err(InitError::MalformedNamespace)
+        ));
+        assert!(matches!(
+            check_ns::<StubDriver>(""),
+            Err(InitError::MalformedNamespace)
+        ));
     }
 }

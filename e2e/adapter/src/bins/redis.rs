@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (svc, io) = builder.build_svc();
 
-    io.ns("/", adapter_e2e::handler);
+    io.ns("/", adapter_e2e::handler).await.unwrap();
 
     #[cfg(feature = "v5")]
     info!("Starting server with v5 protocol");

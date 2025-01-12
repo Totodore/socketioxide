@@ -14,8 +14,8 @@ macro_rules! assert_now {
 async fn test_local_fns() {
     let [io1, io2] = fixture::spawn_servers();
 
-    io1.ns("/", || ());
-    io2.ns("/", || ());
+    io1.ns("/", || ()).await.unwrap();
+    io2.ns("/", || ()).await.unwrap();
 
     let (_, mut rx1) = io1.new_dummy_sock("/", ()).await;
     let (_, mut rx2) = io2.new_dummy_sock("/", ()).await;

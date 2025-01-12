@@ -49,9 +49,9 @@ fn create_expected_sockets<const N: usize, A: Adapter>(
 pub async fn fetch_sockets() {
     let [io1, io2, io3] = fixture::spawn_servers::<3>();
 
-    io1.ns("/", || ());
-    io2.ns("/", || ());
-    io3.ns("/", || ());
+    io1.ns("/", || ()).await.unwrap();
+    io2.ns("/", || ()).await.unwrap();
+    io3.ns("/", || ()).await.unwrap();
 
     let (_, mut rx1) = io1.new_dummy_sock("/", ()).await;
     let (_, mut rx2) = io2.new_dummy_sock("/", ()).await;
@@ -79,9 +79,9 @@ pub async fn fetch_sockets_with_rooms() {
     let [io1, io2, io3] = fixture::spawn_servers::<3>();
     let handler = |rooms: &'static [&'static str]| move |socket: SocketRef<_>| socket.join(rooms);
 
-    io1.ns("/", handler(&["room1", "room2"]));
-    io2.ns("/", handler(&["room2", "room3"]));
-    io3.ns("/", handler(&["room3", "room1"]));
+    io1.ns("/", handler(&["room1", "room2"])).await.unwrap();
+    io2.ns("/", handler(&["room2", "room3"])).await.unwrap();
+    io3.ns("/", handler(&["room3", "room1"])).await.unwrap();
 
     let (_, mut rx1) = io1.new_dummy_sock("/", ()).await;
     let (_, mut rx2) = io2.new_dummy_sock("/", ()).await;
@@ -106,8 +106,8 @@ pub async fn fetch_sockets_timeout() {
     const TIMEOUT: Duration = Duration::from_millis(50);
     let [io1, io2] = fixture::spawn_buggy_servers(TIMEOUT);
 
-    io1.ns("/", || ());
-    io2.ns("/", || ());
+    io1.ns("/", || ()).await.unwrap();
+    io2.ns("/", || ()).await.unwrap();
 
     let (_, mut rx1) = io1.new_dummy_sock("/", ()).await;
     let (_, mut rx2) = io2.new_dummy_sock("/", ()).await;
@@ -124,8 +124,8 @@ pub async fn fetch_sockets_timeout() {
 pub async fn remote_socket_emit() {
     let [io1, io2] = fixture::spawn_servers();
 
-    io1.ns("/", || ());
-    io2.ns("/", || ());
+    io1.ns("/", || ()).await.unwrap();
+    io2.ns("/", || ()).await.unwrap();
 
     let (_, mut rx1) = io1.new_dummy_sock("/", ()).await;
     let (_, mut rx2) = io2.new_dummy_sock("/", ()).await;
@@ -146,8 +146,8 @@ pub async fn remote_socket_emit() {
 pub async fn remote_socket_emit_with_ack() {
     let [io1, io2] = fixture::spawn_servers();
 
-    io1.ns("/", || ());
-    io2.ns("/", || ());
+    io1.ns("/", || ()).await.unwrap();
+    io2.ns("/", || ()).await.unwrap();
 
     let (_, mut rx1) = io1.new_dummy_sock("/", ()).await;
     let (_, mut rx2) = io2.new_dummy_sock("/", ()).await;

@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fn on_connect<A: Adapter>(s: SocketRef<A>) {
         s.on("drawing", on_drawing);
     }
-    io.ns("/", on_connect);
+    io.ns("/", on_connect).await?;
 
     let app = axum::Router::new()
         .nest_service("/", ServeDir::new("dist"))
