@@ -85,16 +85,13 @@ impl<A: Adapter> Client<A> {
             let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, &self.config);
             let this = self.clone();
             let esocket = esocket.clone();
-            tokio::spawn(async move {
-                if let Err(_e) = ns.adapter.clone().init().await {
-                    let _path = path.as_str();
-                    #[cfg(feature = "tracing")]
-                    tracing::error!(_path, "adapter error while initializing namespace: {}", _e);
-                    return;
-                }
+            let adapter = ns.adapter.clone();
+            let on_success = move || {
                 this.nsps.write().unwrap().insert(path, ns.clone());
-                connect(ns, esocket).await;
-            });
+                tokio::spawn(connect(ns, esocket));
+            };
+            // We "ask" the adapter implementation to manage the init response itself
+            socketioxide_core::adapter::Spawnable::spawn(adapter.init(on_success));
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
@@ -147,38 +144,21 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Adds a new namespace handler
-    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
+    pub fn add_ns<C, T>(self: Arc<Self>, path: Cow<'static, str>, callback: C) -> A::InitRes
     where
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
-        use futures_util::FutureExt;
-        check_ns(&path);
-
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
 
         let ns_path = Str::from(&path);
         let ns = Namespace::new(ns_path.clone(), callback, &self.adapter_state, &self.config);
-        // We spawn the adapter init task and therefore it might fail but the namespace is still added.
-        // The best solution would be to make the fn async and returning the error to the user.
-        // However this would require all .ns() calls to be async.
-        let mut fut = Box::pin(ns.adapter.clone().init());
-        let on_err = move |_err| {
-            let _p = path.as_ref();
-            #[cfg(feature = "tracing")]
-            tracing::error!(_p, "adapter error while initializing namespace: {}", _err);
+        let adapter = ns.adapter.clone();
+        let on_success = move || {
+            self.nsps.write().unwrap().insert(ns_path, ns);
         };
-        // This is a hack to avoid spawning the future if it is already resolved.
-        // In test env (doctests mostly) this allows to avoid tokio::test::block_on.
-        match fut.as_mut().now_or_never() {
-            Some(Ok(())) => {}
-            Some(Err(err)) => on_err(err),
-            None => {
-                tokio::spawn(fut.unwrap_or_else(on_err));
-            }
-        };
-        self.nsps.write().unwrap().insert(ns_path, ns);
+        adapter.init(on_success)
     }
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
@@ -186,23 +166,11 @@ impl<A: Adapter> Client<A> {
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
-        check_ns(&path);
-
         #[cfg(feature = "tracing")]
         tracing::debug!("adding dynamic namespace {}", &path);
 
         let ns = NamespaceCtr::new(callback);
         self.router.write().unwrap().insert(path, ns)
-    }
-
-    /// Initializes all the namespace handlers
-    ///
-    /// If an any error occurs while initializing a namespace, it is immediately returned
-    pub async fn init_nsps(&self) -> Result<(), A::Error> {
-        let nsps: Vec<_> = self.nsps.read().unwrap().values().cloned().collect();
-        let futures = nsps.into_iter().map(|ns| ns.adapter.clone().init());
-        futures_util::future::try_join_all(futures).await?;
-        Ok(())
     }
 
     /// Deletes a namespace handler and closes all the connections to it
@@ -391,14 +359,6 @@ impl<A: Adapter> std::fmt::Debug for Client<A> {
     }
 }
 
-/// Checks if the namespace path is valid
-/// Panics if the path is empty or contains a `#`
-fn check_ns(path: &str) {
-    if path.is_empty() || path.contains('#') {
-        panic!("namespace {path} should not be empty and should not contains '#'.");
-    }
-}
-
 #[doc(hidden)]
 #[cfg(feature = "__test_harness")]
 impl<A: Adapter> Client<A> {
@@ -472,8 +432,9 @@ mod test {
             #[cfg(feature = "state")]
             Default::default(),
         );
-        client.add_ns("/".into(), || {});
-        Arc::new(client)
+        let client = Arc::new(client);
+        client.clone().add_ns("/".into(), || {});
+        client
     }
 
     #[tokio::test]

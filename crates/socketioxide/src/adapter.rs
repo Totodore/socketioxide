@@ -4,10 +4,10 @@
 //! Other adapters can be made to share the state between multiple servers.
 
 use socketioxide_core::{
-    adapter::{BroadcastOptions, CoreAdapter, CoreLocalAdapter, SocketEmitter},
+    adapter::{BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, SocketEmitter},
     packet::Packet,
 };
-use std::{convert::Infallible, time::Duration};
+use std::{convert::Infallible, sync::Arc, time::Duration};
 
 pub use crate::ns::Emitter;
 pub use socketioxide_core::errors::AdapterError;
@@ -26,9 +26,14 @@ impl CoreAdapter<Emitter> for LocalAdapter {
     type Error = Infallible;
     type State = ();
     type AckStream = <Emitter as SocketEmitter>::AckStream;
+    type InitRes = ();
 
     fn new(_state: &Self::State, local: CoreLocalAdapter<Emitter>) -> Self {
         Self(local)
+    }
+
+    fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
+        on_success();
     }
 
     async fn broadcast_with_ack(
@@ -44,3 +49,4 @@ impl CoreAdapter<Emitter> for LocalAdapter {
         &self.0
     }
 }
+impl DefinedAdapter for LocalAdapter {}

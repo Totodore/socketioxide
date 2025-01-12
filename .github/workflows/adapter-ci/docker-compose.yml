@@ -1,0 +1,112 @@
+name: adapter-setup
+services:
+  valkey:
+    image: valkey/valkey
+    network_mode: host
+    healthcheck:
+      test: "valkey-cli ping"
+      interval: 2s
+      timeout: 5s
+  redis-node-0:
+    image: docker.io/bitnami/redis-cluster:7.0
+    network_mode: host
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 2s
+      timeout: 5s
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_PORT_NUMBER=7000
+      - REDIS_CLUSTER_ANNOUNCE_PORT=7000
+      - REDIS_CLUSTER_ANNOUNCE_IP=127.0.0.1 # host ip address
+      - REDIS_CLUSTER_ANNOUNCE_BUS_PORT=17000
+      - REDIS_CLUSTER_DYNAMIC_IPS=no
+      - REDIS_NODES=127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+
+  redis-node-1:
+    image: docker.io/bitnami/redis-cluster:7.0
+    network_mode: host
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 2s
+      timeout: 5s
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_PORT_NUMBER=7001
+      - REDIS_CLUSTER_ANNOUNCE_PORT=7001
+      - REDIS_CLUSTER_ANNOUNCE_BUS_PORT=17001
+      - REDIS_CLUSTER_ANNOUNCE_IP=127.0.0.1
+      - REDIS_CLUSTER_DYNAMIC_IPS=no
+      - REDIS_NODES=127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+
+  redis-node-2:
+    image: docker.io/bitnami/redis-cluster:7.0
+    network_mode: host
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 2s
+      timeout: 5s
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_PORT_NUMBER=7002
+      - REDIS_CLUSTER_ANNOUNCE_PORT=7002
+      - REDIS_CLUSTER_ANNOUNCE_BUS_PORT=17002
+      - REDIS_CLUSTER_ANNOUNCE_IP=127.0.0.1
+      - REDIS_CLUSTER_DYNAMIC_IPS=no
+      - REDIS_NODES=127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+
+  redis-node-3:
+    image: docker.io/bitnami/redis-cluster:7.0
+    network_mode: host
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 2s
+      timeout: 5s
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_PORT_NUMBER=7003
+      - REDIS_CLUSTER_ANNOUNCE_PORT=7003
+      - REDIS_CLUSTER_ANNOUNCE_BUS_PORT=17003
+      - REDIS_CLUSTER_ANNOUNCE_IP=127.0.0.1
+      - REDIS_CLUSTER_DYNAMIC_IPS=no
+      - REDIS_NODES=127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+
+  redis-node-4:
+    image: docker.io/bitnami/redis-cluster:7.0
+    network_mode: host
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 2s
+      timeout: 5s
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_PORT_NUMBER=7004
+      - REDIS_CLUSTER_ANNOUNCE_PORT=7004
+      - REDIS_CLUSTER_ANNOUNCE_BUS_PORT=17004
+      - REDIS_CLUSTER_ANNOUNCE_IP=127.0.0.1
+      - REDIS_CLUSTER_DYNAMIC_IPS=no
+      - REDIS_NODES=127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+
+  redis-node-5:
+    image: docker.io/bitnami/redis-cluster:7.0
+    network_mode: host
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 2s
+      timeout: 5s
+    depends_on:
+      - redis-node-0
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - redis-node-4
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_CLUSTER_REPLICAS=1
+      - REDIS_PORT_NUMBER=7005
+      - REDIS_CLUSTER_ANNOUNCE_PORT=7005
+      - REDIS_CLUSTER_ANNOUNCE_BUS_PORT=17005
+      - REDIS_CLUSTER_ANNOUNCE_IP=127.0.0.1
+      - REDIS_CLUSTER_DYNAMIC_IPS=no
+      - REDIS_NODES=127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+      - REDIS_CLUSTER_CREATOR=yes

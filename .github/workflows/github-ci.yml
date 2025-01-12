@@ -56,10 +56,10 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-nightly
       - name: Check unused dependencies on default features
-        run: RUSTFLAGS="--cfg fuzzing" cargo udeps --workspace
+        run: RUSTFLAGS="--cfg fuzzing" cargo udeps
 
       - name: Check unused dependencies on all features
-        run: RUSTFLAGS="--cfg fuzzing" cargo udeps --all-features --workspace
+        run: RUSTFLAGS="--cfg fuzzing" cargo udeps --all-features
 
   msrv:
     runs-on: ubuntu-latest
@@ -108,7 +108,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: check --feature-powerset
-        run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide
+        run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide -p socketioxide-redis
 
   examples:
     runs-on: ubuntu-latest
@@ -269,3 +269,57 @@ jobs:
       - name: Client output
         if: always()
         run: cat client.txt
+  adapter:
+    runs-on: ubuntu-latest
+    needs: [socket_io, engine_io]
+    strategy:
+      matrix:
+        socketio-version: [v4, v4-msgpack, v5, v5-msgpack]
+        adapter: [fred-e2e, redis-e2e, redis-cluster-e2e, fred-cluster-e2e]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-adapter
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: install adapter infra
+        uses: hoverkraft-tech/compose-action@v2.0.2
+        with:
+          compose-file: ./.github/workflows/adapter-ci/docker-compose.yml
+      - run: cd e2e/adapter && npm install && npm install ts-node --location=global
+      - name: Install deps & run tests
+        run: |
+          PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
+          VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
+          cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER
+          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" ts-node client.ts
+      - name: Server output
+        if: always()
+        run: cat e2e/adapter/*.log
+  all_passed:
+    runs-on: ubuntu-latest
+    needs:
+      [
+        adapter,
+        feature_set,
+        format,
+        udeps,
+        msrv,
+        examples,
+        doctest,
+        rust-clippy-analyze,
+      ]
+    steps:
+      - name: All passed
+        run: echo "All tests passed"

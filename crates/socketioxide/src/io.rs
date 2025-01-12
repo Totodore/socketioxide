@@ -8,7 +8,7 @@ use engineioxide::{
 };
 use serde::Serialize;
 use socketioxide_core::{
-    adapter::{Room, RoomParam},
+    adapter::{DefinedAdapter, Room, RoomParam},
     Uid,
 };
 use socketioxide_parser_common::CommonParser;
@@ -333,98 +333,6 @@ impl<A: Adapter> SocketIo<A> {
         &self.0.config
     }
 
-    /// # Register a [`ConnectHandler`] for the given namespace
-    ///
-    /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
-    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-    ///
-    /// # Panics
-    /// If the namespace contains a '#' character or is empty.
-    ///
-    /// # Simple example with a sync closure:
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde::{Serialize, Deserialize};
-    /// #[derive(Debug, Serialize, Deserialize)]
-    /// struct MyData {
-    ///     name: String,
-    ///     age: u8,
-    /// }
-    ///
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     // Register a handler for the "test" event and extract the data as a `MyData` struct
-    ///     // With the Data extractor, the handler is called only if the data can be deserialized as a `MyData` struct
-    ///     // If you want to manage errors yourself you can use the TryData extractor
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
-    ///         println!("Received a test message {:?}", data);
-    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
-    ///     });
-    /// });
-    ///
-    /// ```
-    ///
-    /// # Example with a closure and an acknowledgement + binary data:
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::*};
-    /// # use serde_json::Value;
-    /// # use serde::{Serialize, Deserialize};
-    /// #[derive(Debug, Serialize, Deserialize)]
-    /// struct MyData {
-    ///     name: String,
-    ///     age: u8,
-    /// }
-    ///
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
-    ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
-    ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
-    ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
-    ///         println!("Received a test message {:?}", data);
-    ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
-    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
-    ///     });
-    /// });
-    /// ```
-    /// # Example with a closure and an authentication process:
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::{SocketRef, Data}};
-    /// # use serde::{Serialize, Deserialize};
-    /// #[derive(Debug, Deserialize)]
-    /// struct MyAuthData {
-    ///     token: String,
-    /// }
-    /// #[derive(Debug, Serialize, Deserialize)]
-    /// struct MyData {
-    ///     name: String,
-    ///     age: u8,
-    /// }
-    ///
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef, Data(auth): Data<MyAuthData>| {
-    ///     if auth.token.is_empty() {
-    ///         println!("Invalid token, disconnecting");
-    ///         socket.disconnect().ok();
-    ///         return;
-    ///     }
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
-    ///         println!("Received a test message {:?}", data);
-    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
-    ///     });
-    /// });
-    ///
-    /// ```
-    #[inline]
-    pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C)
-    where
-        C: ConnectHandler<A, T>,
-        T: Send + Sync + 'static,
-    {
-        self.0.add_ns(path.into(), callback);
-    }
-
     /// # Register a [`ConnectHandler`] for the given dynamic namespace.
     ///
     /// You can specify dynamic parts in the path by using the `{name}` syntax.
@@ -432,13 +340,11 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// For more info about namespace routing, see the [matchit] router documentation.
     ///
-    /// The dynamic namespace will create a child namespace for any path that matches the given pattern with the given handler.
+    /// The dynamic namespace will create a child namespace for any path that matches the given pattern
+    /// with the given handler.
     ///
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-    ///
-    /// # Panics
-    /// If the namespace contains a '#' character or is empty.
     ///
     /// ## Errors
     /// If the pattern is invalid, a [`NsInsertError`](crate::NsInsertError) will be returned.
@@ -480,7 +386,8 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// # Panics
     /// If the v4 protocol (legacy) is enabled and the namespace to delete is the default namespace "/".
-    /// For v4, the default namespace cannot be deleted. See [official doc](https://socket.io/docs/v3/namespaces/#main-namespace) for more informations.
+    /// For v4, the default namespace cannot be deleted.
+    /// See [official doc](https://socket.io/docs/v3/namespaces/#main-namespace) for more informations.
     #[inline]
     pub fn delete_ns(&self, path: impl AsRef<str>) {
         self.0.delete_ns(path.as_ref());
@@ -488,7 +395,8 @@ impl<A: Adapter> SocketIo<A> {
 
     /// # Gracefully close all the connections and drop every sockets
     ///
-    /// Any `on_disconnect` handler will called with [`DisconnectReason::ClosingServer`](crate::socket::DisconnectReason::ClosingServer)
+    /// Any `on_disconnect` handler will called with
+    /// [`DisconnectReason::ClosingServer`](crate::socket::DisconnectReason::ClosingServer)
     #[inline]
     pub async fn close(&self) {
         self.0.close().await;
@@ -659,6 +567,118 @@ impl<A: Adapter> SocketIo<A> {
     }
 }
 
+// This private impl is used to ensure that the following methods
+// are only available on a *defined* adapter.
+#[allow(private_bounds)]
+impl<A: DefinedAdapter + Adapter> SocketIo<A> {
+    /// # Register a [`ConnectHandler`] for the given namespace
+    ///
+    /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// # Simple example with a sync closure:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     // Register a handler for the "test" event and extract the data as a `MyData` struct
+    ///     // With the Data extractor, the handler is called only if the data can be deserialized as a `MyData` struct
+    ///     // If you want to manage errors yourself you can use the TryData extractor
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
+    ///         println!("Received a test message {:?}", data);
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
+    ///
+    /// ```
+    ///
+    /// # Example with a closure and an acknowledgement + binary data:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde_json::Value;
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
+    ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
+    ///     // It should be the last extractor because it consumes the request
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
+    ///         println!("Received a test message {:?}", data);
+    ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
+    /// ```
+    /// # Example with a closure and an authentication process:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::{SocketRef, Data}};
+    /// # use serde::{Serialize, Deserialize};
+    /// #[derive(Debug, Deserialize)]
+    /// struct MyAuthData {
+    ///     token: String,
+    /// }
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyData {
+    ///     name: String,
+    ///     age: u8,
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef, Data(auth): Data<MyAuthData>| {
+    ///     if auth.token.is_empty() {
+    ///         println!("Invalid token, disconnecting");
+    ///         socket.disconnect().ok();
+    ///         return;
+    ///     }
+    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
+    ///         println!("Received a test message {:?}", data);
+    ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
+    ///     });
+    /// });
+    ///
+    /// ```
+    ///
+    /// # With remote adapters, this method is only available on a defined adapter:
+    /// ```compile_fail
+    /// # use socketioxide::{SocketIo};
+    /// // The SocketIo instance is generic over the adapter type.
+    /// fn test<A: Adapter>(io: SocketIo<A>) {
+    ///     io.ns("/", || ());
+    /// }
+    /// ```
+    /// ```
+    /// # use socketioxide::{SocketIo, adapter::LocalAdapter};
+    /// // The SocketIo instance is not generic over the adapter type.
+    /// fn test(io: SocketIo<LocalAdapter>) {
+    ///     io.ns("/", || ());
+    /// }
+    /// fn test_default_adapter(io: SocketIo) {
+    ///     io.ns("/", || ());
+    /// }
+    /// ```
+    pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C) -> A::InitRes
+    where
+        C: ConnectHandler<A, T>,
+        T: Send + Sync + 'static,
+    {
+        self.0.clone().add_ns(path.into(), callback)
+    }
+}
+
 impl<A: Adapter> fmt::Debug for SocketIo<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SocketIo").field("client", &self.0).finish()
@@ -711,20 +731,6 @@ mod tests {
     fn get_default_op_panic() {
         let (_, io) = SocketIo::new_svc();
         let _ = io.get_default_op();
-    }
-
-    #[test]
-    #[should_panic(expected = "namespace # should not be empty and should not contains '#'.")]
-    fn check_ns_panic() {
-        let (_, io) = SocketIo::new_svc();
-        io.ns("#", || ());
-    }
-
-    #[test]
-    #[should_panic(expected = "namespace  should not be empty and should not contains '#'.")]
-    fn check_ns_empty_panic() {
-        let (_, io) = SocketIo::new_svc();
-        io.ns("", || ());
     }
 
     #[test]

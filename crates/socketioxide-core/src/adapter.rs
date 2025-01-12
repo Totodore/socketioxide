@@ -210,6 +210,26 @@ pub trait SocketEmitter: Send + Sync + 'static {
     fn server_id(&self) -> Uid;
 }
 
+/// For static namespaces, the init response will be managed by the user.
+/// However, for dynamic namespaces, the socket.io client will manage the response.
+/// As it does not know the type of the response, the spawnable trait is used to spawn the response.
+/// Without the client having to know the type of the response.
+pub trait Spawnable {
+    /// Spawn the response. Implementors should spawn the future with `tokio::spawn` if it is an async function.
+    /// They should also print a `tracing::error` log in case of an error.
+    fn spawn(self);
+}
+impl Spawnable for () {
+    fn spawn(self) {}
+}
+
+/// A trait to add a "defined" bound to adapter types.
+/// This allow the socket io library to implement function given a *defined* adapter
+/// and not a generic `A: Adapter`.
+///
+/// This is useful to force the user to handle potential init response type [`CoreAdapter::InitRes`].
+pub trait DefinedAdapter {}
+
 /// An adapter is responsible for managing the state of the namespace.
 /// This adapter can be implemented to share the state between multiple servers.
 ///
@@ -223,6 +243,8 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
     type State: Send + Sync + 'static;
     /// A stream that emits the acknowledgments of multiple sockets.
     type AckStream: Stream<Item = AckStreamItem<E::AckError>> + FusedStream + Send + 'static;
+    /// A named result type for the initialization of the adapter.
+    type InitRes: Spawnable + Send;
 
     /// Creates a new adapter with the given state and local adapter.
     ///
@@ -230,10 +252,8 @@ pub trait CoreAdapter<E: SocketEmitter>: Sized + Send + Sync + 'static {
     /// The local adapter is used to manipulate the local sockets.
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self;
 
-    /// Initializes the adapter.
-    fn init(self: Arc<Self>) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        future::ready(Ok(()))
-    }
+    /// Initializes the adapter. The on_success callback should be called when the adapter ready.
+    fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes;
 
     /// Closes the adapter.
     fn close(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {

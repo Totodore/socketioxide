@@ -1,9 +1,14 @@
 [package]
-name = "whiteboard"
+name = "redis-whiteboard"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
+    "redis",
+    "redis-cluster",
+    "fred",
+] }
 socketioxide = { workspace = true, features = ["tracing", "msgpack"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -13,3 +18,15 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 serde.workspace = true
 rmpv.workspace = true
+
+[[bin]]
+name = "redis"
+path = "src/redis.rs"
+
+[[bin]]
+name = "redis-cluster"
+path = "src/redis_cluster.rs"
+
+[[bin]]
+name = "fred"
+path = "src/fred.rs"
