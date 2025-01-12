@@ -237,7 +237,7 @@ pub async fn server_ns_close() {
     });
 
     let mut ws = create_ws_connection(12353).await;
-    ws.send(Message::Text("40/test,{}".to_string()))
+    ws.send(Message::Text("40/test,{}".to_string().into()))
         .await
         .unwrap();
     let data = tokio::time::timeout(Duration::from_millis(20), rx.recv())

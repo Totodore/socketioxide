@@ -183,6 +183,7 @@ where
                     p => return Err(Error::BadPacket(p)),
                 }
             }
+            #[allow(unused_mut)]
             Message::Binary(mut data) => {
                 #[cfg(feature = "v3")]
                 if socket.protocol == ProtocolVersion::V3 && !data.is_empty() {

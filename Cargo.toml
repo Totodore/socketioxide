@@ -23,7 +23,7 @@ resolver = "2"
 bytes = { version = "1.7", features = ["serde"] }
 futures-core = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-tokio = "1.46"
+tokio = "1.43"
 tokio-tungstenite = "0.26"
 serde = { version = "1.0", features = ["derive"] }
 smallvec = { version = "1.13", features = ["union"] }
