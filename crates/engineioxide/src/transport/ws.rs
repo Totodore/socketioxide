@@ -185,11 +185,12 @@ where
             }
             #[allow(unused_mut)]
             Message::Binary(mut data) => {
-                #[cfg(feature = "v3")]
-                if socket.protocol == ProtocolVersion::V3 && !data.is_empty() {
+                let data = if socket.protocol == ProtocolVersion::V3 && !data.is_empty() {
                     // The first byte is the message type, which we don't need.
-                    data = data.slice(1..);
-                }
+                    data.slice(1..)
+                } else {
+                    data
+                };
                 engine.handler.on_binary(data, socket.clone());
                 Ok(())
             }
@@ -223,9 +224,11 @@ where
         macro_rules! map_fn {
             ($item:ident) => {
                 let res = match $item {
-                    Packet::Binary(bin) => tx.feed(Message::Binary(bin)).await,
-                    Packet::BinaryV3(bin) => {
-                        // v3 protocol requires packet type as the first byte
+                    Packet::Binary(bin) if socket.protocol != ProtocolVersion::V3 => {
+                        tx.feed(Message::Binary(bin)).await
+                    }
+                    Packet::Binary(bin) | Packet::BinaryV3(bin) => {
+                        // v3 protocol requires packet type as the first byte.
                         let mut buf = Vec::with_capacity(bin.len() + 1);
                         buf.push(0x04);
                         buf.extend_from_slice(&bin);
