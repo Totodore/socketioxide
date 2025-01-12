@@ -1,5 +1,4 @@
-//! ### Extractors for [`ConnectHandler`], [`ConnectMiddleware`],
-//! [`MessageHandler`] and [`DisconnectHandler`](crate::handler::DisconnectHandler).
+//! ### Extractors for [`ConnectHandler`], [`ConnectMiddleware`], [`MessageHandler`] and [`DisconnectHandler`](crate::handler::DisconnectHandler).
 //!
 //! They can be used to extract data from the context of the handler and get specific params. Here are some examples of extractors:
 //! * [`Data`]: extracts and deserialize from any receieved data, if a deserialization error occurs the handler won't be called:
@@ -10,29 +9,34 @@
 //! * [`TryData`]: extracts and deserialize from the any received data but with a `Result` type in case of error:
 //!     - for [`ConnectHandler`] and [`ConnectMiddleware`]: extracts and deserialize from the incoming auth data
 //!     - for [`MessageHandler`]: extracts and deserialize from the incoming message data
-//! * [`SocketRef`]: extracts a reference to the [`Socket`](crate::socket::Socket)
+//! * [`SocketRef`]: extracts a reference to the [`Socket`](crate::socket::Socket).
 //! * [`SocketIo`](crate::SocketIo): extracts a reference to the whole socket.io server context.
-//! * [`AckSender`]: Can be used to send an ack response to the current message event
-//! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version
-//! * [`TransportType`](crate::TransportType): extracts the transport type
-//! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection
+//! * [`AckSender`]: Can be used to send an ack response to the current message event.
+//! * [`ProtocolVersion`](crate::ProtocolVersion): extracts the protocol version.
+//! * [`TransportType`](crate::TransportType): extracts the transport type.
+//! * [`DisconnectReason`](crate::socket::DisconnectReason): extracts the reason of the disconnection.
 //! * [`State`]: extracts a [`Clone`] of a state previously set with [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder).
 //! * [`Extension`]: extracts an extension of the given type stored on the called socket by cloning it.
-//! * [`MaybeExtension`]: extracts an extension of the given type if it exists or [`None`] otherwise
-//! * [`HttpExtension`]: extracts an http extension of the given type coming from the request.
-//!   (Similar to axum's [`extract::Extension`](https://docs.rs/axum/latest/axum/struct.Extension.html)
+//! * [`MaybeExtension`]: extracts an extension of the given type if it exists or [`None`] otherwise.
+//! * [`HttpExtension`]: extracts an http extension of the given type coming from the request
+//!   (Similar to axum's [`extract::Extension`](https://docs.rs/axum/latest/axum/struct.Extension.html).
 //! * [`MaybeHttpExtension`]: extracts an http extension of the given type if it exists or [`None`] otherwise.
 //!
-//! ### You can also implement your own Extractor with the [`FromConnectParts`], [`FromMessageParts`] and
-//! [`FromDisconnectParts`] traits
+//! ### You can also implement your own Extractor!
+//! Implement the [`FromConnectParts`], [`FromMessageParts`], [`FromMessage`] and [`FromDisconnectParts`] traits
+//! on any type to extract data from the context of the handler.
+//!
 //! When implementing these traits, if you clone the [`Arc<Socket>`](crate::socket::Socket) make sure
 //! that it is dropped at least when the socket is disconnected.
 //! Otherwise it will create a memory leak. It is why the [`SocketRef`] extractor is used instead of cloning
 //! the socket for common usage.
-//! If you want to deserialize the [`Value`](socketioxide_core::Value) data you must manually call the `Data` extractor to deserialize it.
+//!
+//! If you want to deserialize the [`Value`](socketioxide_core::Value) data you must manually call
+//! the `Data` extractor to deserialize it.
 //!
 //! [`FromConnectParts`]: crate::handler::FromConnectParts
 //! [`FromMessageParts`]: crate::handler::FromMessageParts
+//! [`FromMessage`]: crate::handler::FromMessage
 //! [`FromDisconnectParts`]: crate::handler::FromDisconnectParts
 //! [`ConnectHandler`]: crate::handler::ConnectHandler
 //! [`ConnectMiddleware`]: crate::handler::ConnectMiddleware
@@ -42,14 +46,12 @@
 //! #### Example that extracts a user id from the query params
 //! ```rust
 //! # use bytes::Bytes;
-//! # use socketioxide::handler::{FromConnectParts, FromMessageParts};
+//! # use socketioxide::handler::{FromConnectParts, FromMessageParts, Value};
 //! # use socketioxide::adapter::Adapter;
 //! # use socketioxide::socket::Socket;
 //! # use std::sync::Arc;
 //! # use std::convert::Infallible;
 //! # use socketioxide::SocketIo;
-//! # use socketioxide_core::Value;
-//!
 //! struct UserId(String);
 //!
 //! #[derive(Debug)]

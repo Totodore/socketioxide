@@ -15,13 +15,15 @@ async fn handler(socket: SocketRef, io: SocketIo, Data(data): Data::<Value>) {
     socket
         .to("room1")
         .to(["room2", "room3"])
-        .emit("test", &data);
+        .emit("test", &data)
+        .await;
 
     // Emit a message to all sockets in room1, room2, room3, and room4, including the current socket
     io
         .to("room1")
         .to(["room2", "room3"])
-        .emit("test", &data);
+        .emit("test", &data)
+        .await;
 }
 
 let (_, io) = SocketIo::new_svc();

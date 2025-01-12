@@ -10,37 +10,37 @@ use futures_util::{FutureExt, TryFutureExt};
 
 use engineioxide::sid::Sid;
 use matchit::{Match, Router};
+use socketioxide_core::packet::{Packet, PacketData};
 use socketioxide_core::parser::{Parse, ParserState};
 use socketioxide_core::Value;
 use tokio::sync::oneshot;
 
-use crate::adapter::Adapter;
-use crate::handler::ConnectHandler;
-use crate::ns::NamespaceCtr;
-use crate::parser::{ParseError, Parser};
-use crate::socket::DisconnectReason;
 use crate::{
+    adapter::Adapter,
     errors::Error,
-    ns::Namespace,
-    packet::{Packet, PacketData},
-    SocketIoConfig,
+    handler::ConnectHandler,
+    ns::{Namespace, NamespaceCtr},
+    parser::{ParseError, Parser},
+    socket::DisconnectReason,
+    ProtocolVersion, SocketIo, SocketIoConfig,
 };
-use crate::{ProtocolVersion, SocketIo};
 
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
     nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
     router: RwLock<Router<NamespaceCtr<A>>>,
+    adapter_state: A::State,
 
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
 }
 
-/// ==== impl Client ====
+// ==== impl Client ====
 
 impl<A: Adapter> Client<A> {
     pub fn new(
         config: SocketIoConfig,
+        adapter_state: A::State,
         #[cfg(feature = "state")] mut state: state::TypeMap![Send + Sync],
     ) -> Self {
         #[cfg(feature = "state")]
@@ -50,6 +50,7 @@ impl<A: Adapter> Client<A> {
             config,
             nsps: RwLock::new(HashMap::new()),
             router: RwLock::new(Router::new()),
+            adapter_state,
             #[cfg(feature = "state")]
             state,
         }
@@ -57,7 +58,7 @@ impl<A: Adapter> Client<A> {
 
     /// Called when a socket connects to a new namespace
     fn sock_connect(
-        &self,
+        self: &Arc<Self>,
         auth: Option<Value>,
         ns_path: Str,
         esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
@@ -81,9 +82,16 @@ impl<A: Adapter> Client<A> {
             // We have to create a new `Str` otherwise, we would keep a ref to the original connect packet
             // for the entire lifetime of the Namespace.
             let path = Str::copy_from_slice(&ns_path);
-            let ns = ns_ctr.get_new_ns(path.clone());
-            self.nsps.write().unwrap().insert(path, ns.clone());
-            tokio::spawn(connect(ns, esocket.clone()));
+            let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, &self.config);
+            let this = self.clone();
+            let esocket = esocket.clone();
+            let adapter = ns.adapter.clone();
+            let on_success = move || {
+                this.nsps.write().unwrap().insert(path, ns.clone());
+                tokio::spawn(connect(ns, esocket));
+            };
+            // We "ask" the adapter implementation to manage the init response itself
+            socketioxide_core::adapter::Spawnable::spawn(adapter.init(on_success));
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
@@ -136,16 +144,21 @@ impl<A: Adapter> Client<A> {
     }
 
     /// Adds a new namespace handler
-    pub fn add_ns<C, T>(&self, path: Cow<'static, str>, callback: C)
+    pub fn add_ns<C, T>(self: Arc<Self>, path: Cow<'static, str>, callback: C) -> A::InitRes
     where
         C: ConnectHandler<A, T>,
         T: Send + Sync + 'static,
     {
         #[cfg(feature = "tracing")]
         tracing::debug!("adding namespace {}", path);
-        let path = Str::from(path);
-        let ns = Namespace::new(path.clone(), callback);
-        self.nsps.write().unwrap().insert(path, ns);
+
+        let ns_path = Str::from(&path);
+        let ns = Namespace::new(ns_path.clone(), callback, &self.adapter_state, &self.config);
+        let adapter = ns.adapter.clone();
+        let on_success = move || {
+            self.nsps.write().unwrap().insert(ns_path, ns);
+        };
+        adapter.init(on_success)
     }
 
     pub fn add_dyn_ns<C, T>(&self, path: String, callback: C) -> Result<(), matchit::InsertError>
@@ -254,23 +267,16 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             .filter_map(|ns| ns.get_socket(socket.id).ok())
             .collect();
 
-        let _res: Result<Vec<_>, _> = socks
+        let _cnt = socks
             .into_iter()
             .map(|s| s.close(reason.clone().into()))
-            .collect();
+            .count();
 
         #[cfg(feature = "tracing")]
-        match _res {
-            Ok(vec) => {
-                tracing::debug!("disconnect handle spawned for {} namespaces", vec.len())
-            }
-            Err(_e) => {
-                tracing::debug!("error while disconnecting socket: {}", _e)
-            }
-        }
+        tracing::debug!("disconnect handle spawned for {_cnt} namespaces");
     }
 
-    fn on_message(&self, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received message: {:?}", msg);
         let packet = match self.parser().decode_str(&socket.data.parser_state, msg) {
@@ -309,7 +315,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     /// When a binary payload is received from a socket, it is applied to the partial binary packet
     ///
     /// If the packet is complete, it is propagated to the namespace
-    fn on_binary(&self, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
+    fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received binary: {:?}", &data);
         let packet = match self.parser().decode_bin(&socket.data.parser_state, data) {
@@ -420,19 +426,21 @@ mod test {
             connect_timeout: CONNECT_TIMEOUT,
             ..Default::default()
         };
-        let client = Client::<LocalAdapter>::new(
+        let client = Client::new(
             config,
+            (),
             #[cfg(feature = "state")]
             Default::default(),
         );
-        client.add_ns("/".into(), || {});
-        Arc::new(client)
+        let client = Arc::new(client);
+        client.clone().add_ns("/".into(), || {});
+        client
     }
 
     #[tokio::test]
     async fn get_ns() {
         let client = create_client();
-        let ns = Namespace::new(Str::from("/"), || {});
+        let ns = Namespace::new(Str::from("/"), || {}, &client.adapter_state, &client.config);
         client.nsps.write().unwrap().insert(Str::from("/"), ns);
         assert!(client.get_ns("/").is_some());
     }

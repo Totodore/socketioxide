@@ -2,10 +2,9 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use crate::handler::{FromConnectParts, FromMessageParts};
-use crate::parser::DecodeError;
 use crate::{adapter::Adapter, socket::Socket};
 use serde::de::DeserializeOwned;
-use socketioxide_core::parser::Parse;
+use socketioxide_core::parser::{Parse, ParserError};
 use socketioxide_core::Value;
 
 /// An Extractor that returns the deserialized data without checking errors.
@@ -37,10 +36,9 @@ where
     T: DeserializeOwned,
     A: Adapter,
 {
-    type Error = DecodeError;
+    type Error = ParserError;
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Self::Error> {
-        let parser = s.parser();
-        parser.decode_default(auth.as_ref()).map(Data)
+        s.parser.decode_default(auth.as_ref()).map(Data)
     }
 }
 
@@ -49,14 +47,13 @@ where
     T: DeserializeOwned,
     A: Adapter,
 {
-    type Error = DecodeError;
+    type Error = ParserError;
     fn from_message_parts(
         s: &Arc<Socket<A>>,
         v: &mut Value,
         _: &Option<i64>,
     ) -> Result<Self, Self::Error> {
-        let parser = s.parser();
-        parser.decode_value(v, true).map(Data)
+        s.parser.decode_value(v, true).map(Data)
     }
 }
 
@@ -81,7 +78,7 @@ where
 ///
 /// [`rmpv::Value`]: https://docs.rs/rmpv
 /// [`serde_json::Value`]: https://docs.rs/serde_json/latest/serde_json/value/
-pub struct TryData<T>(pub Result<T, DecodeError>);
+pub struct TryData<T>(pub Result<T, ParserError>);
 
 impl<T, A> FromConnectParts<A> for TryData<T>
 where
@@ -90,8 +87,7 @@ where
 {
     type Error = Infallible;
     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Infallible> {
-        let parser = s.parser();
-        Ok(TryData(parser.decode_default(auth.as_ref())))
+        Ok(TryData(s.parser.decode_default(auth.as_ref())))
     }
 }
 impl<T, A> FromMessageParts<A> for TryData<T>
@@ -105,10 +101,9 @@ where
         v: &mut Value,
         _: &Option<i64>,
     ) -> Result<Self, Infallible> {
-        let parser = s.parser();
-        Ok(TryData(parser.decode_value(v, true)))
+        Ok(TryData(s.parser.decode_value(v, true)))
     }
 }
 
-super::__impl_deref!(TryData<T>: Result<T, DecodeError>);
+super::__impl_deref!(TryData<T>: Result<T, ParserError>);
 super::__impl_deref!(Data);

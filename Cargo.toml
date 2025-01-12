@@ -40,6 +40,9 @@ hyper-util.version = "0.1"
 hyper = "1.5"
 pin-project-lite = "0.2"
 matchit = "0.8"
+rmp-serde = "1.3"
+rmp = "0.8"
+rustversion = "1"
 
 # Dev deps
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

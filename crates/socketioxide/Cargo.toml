@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide"
 description = "Socket IO server implementation in rust as a Tower Service."
-version.workspace = true
+version = "0.15.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -13,8 +13,8 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.15.1" }
-socketioxide-core = { path = "../socketioxide-core", version = "0.15.1" }
+engineioxide = { path = "../engineioxide", version = "0.15" }
+socketioxide-core = { path = "../socketioxide-core", version = "0.15" }
 
 bytes.workspace = true
 futures-core.workspace = true
@@ -29,8 +29,7 @@ thiserror.workspace = true
 hyper.workspace = true
 matchit.workspace = true
 pin-project-lite.workspace = true
-
-rustversion = "1.0.18"
+rustversion.workspace = true
 
 # Parsers
 socketioxide-parser-common = { path = "../parser-common", version = "0.15.1" }

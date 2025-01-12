@@ -20,6 +20,7 @@
 //!   along with other metadata (namespace, ack ID, etc.), into a fully serialized packet ready to be sent.
 
 use std::{
+    error::Error as StdError,
     fmt,
     sync::{atomic::AtomicUsize, Mutex},
 };
@@ -46,29 +47,16 @@ pub struct ParserState {
 /// All socket.io parser should implement this trait.
 /// Parsers should be stateless.
 pub trait Parse: Default + Copy {
-    /// The error produced when encoding a packet
-    type EncodeError: std::error::Error;
-    /// The error produced when decoding a packet
-    type DecodeError: std::error::Error;
-
     /// Convert a packet into multiple payloads to be sent.
     fn encode(self, packet: Packet) -> Value;
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
     /// the partial packet will be kept and a [`ParseError::NeedsMoreBinaryData`] will be returned.
-    fn decode_str(
-        self,
-        state: &ParserState,
-        data: Str,
-    ) -> Result<Packet, ParseError<Self::DecodeError>>;
+    fn decode_str(self, state: &ParserState, data: Str) -> Result<Packet, ParseError>;
 
     /// Parse a given input binary. If the payload needs more adjacent binary packet,
     /// the partial packet is still kept and a [`ParseError::NeedsMoreBinaryData`] will be returned.
-    fn decode_bin(
-        self,
-        state: &ParserState,
-        bin: Bytes,
-    ) -> Result<Packet, ParseError<Self::DecodeError>>;
+    fn decode_bin(self, state: &ParserState, bin: Bytes) -> Result<Packet, ParseError>;
 
     /// Convert any serializable data to a generic [`Value`] to be later included as a payload in the packet.
     ///
@@ -80,7 +68,7 @@ pub trait Parse: Default + Copy {
         self,
         data: &T,
         event: Option<&str>,
-    ) -> Result<Value, Self::EncodeError>;
+    ) -> Result<Value, ParserError>;
 
     /// Convert any generic [`Value`] to a deserializable type.
     /// It should always be an array (according to the serde model).
@@ -94,27 +82,63 @@ pub trait Parse: Default + Copy {
         self,
         value: &'de mut Value,
         with_event: bool,
-    ) -> Result<T, Self::DecodeError>;
+    ) -> Result<T, ParserError>;
 
     /// Convert any generic [`Value`] to a type with the default serde impl without binary + event tricks.
     /// This is mainly used for connect payloads.
     fn decode_default<'de, T: Deserialize<'de>>(
         self,
         value: Option<&'de Value>,
-    ) -> Result<T, Self::DecodeError>;
+    ) -> Result<T, ParserError>;
 
     /// Convert any type to a generic [`Value`] with the default serde impl without binary + event tricks.
     /// This is mainly used for connect payloads.
-    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, Self::EncodeError>;
+    fn encode_default<T: ?Sized + Serialize>(self, data: &T) -> Result<Value, ParserError>;
 
     /// Try to read the event name from the given payload data.
     /// The event name should be the first element of the provided array according to the serde model.
-    fn read_event(self, value: &Value) -> Result<&str, Self::DecodeError>;
+    fn read_event(self, value: &Value) -> Result<&str, ParserError>;
 }
 
+/// A parser error that wraps any error that can occur during parsing.
+///
+/// E.g. `serde_json::Error`, `rmp_serde::Error`...
+#[derive(Debug)]
+pub struct ParserError {
+    inner: Box<dyn StdError + Send + Sync + 'static>,
+}
+impl fmt::Display for ParserError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+impl std::error::Error for ParserError {}
+impl Serialize for ParserError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.inner.to_string().serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for ParserError {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        #[derive(Debug, thiserror::Error)]
+        #[error("remote err: {0:?}")]
+        struct RemoteErr(String);
+
+        Ok(Self::new(RemoteErr(s)))
+    }
+}
+impl ParserError {
+    /// Create a new parser error from any error that implements [`std::error::Error`]
+    pub fn new<E: StdError + Send + Sync + 'static>(inner: E) -> Self {
+        Self {
+            inner: Box::new(inner),
+        }
+    }
+}
 /// Errors when parsing/serializing socket.io packets
 #[derive(thiserror::Error, Debug)]
-pub enum ParseError<E: std::error::Error> {
+pub enum ParseError {
     /// Invalid packet type
     #[error("invalid packet type")]
     InvalidPacketType,
@@ -161,24 +185,7 @@ pub enum ParseError<E: std::error::Error> {
 
     /// The inner parser error
     #[error("parser error: {0:?}")]
-    ParserError(#[from] E),
-}
-impl<E: std::error::Error> ParseError<E> {
-    /// Wrap the [`ParseError::ParserError`] variant with a new error type
-    pub fn wrap_err<E1: std::error::Error>(self, f: impl FnOnce(E) -> E1) -> ParseError<E1> {
-        match self {
-            Self::ParserError(e) => ParseError::ParserError(f(e)),
-            ParseError::InvalidPacketType => ParseError::InvalidPacketType,
-            ParseError::InvalidAckId => ParseError::InvalidAckId,
-            ParseError::InvalidEventName => ParseError::InvalidEventName,
-            ParseError::InvalidData => ParseError::InvalidData,
-            ParseError::InvalidNamespace => ParseError::InvalidNamespace,
-            ParseError::InvalidAttachments => ParseError::InvalidAttachments,
-            ParseError::UnexpectedBinaryPacket => ParseError::UnexpectedBinaryPacket,
-            ParseError::UnexpectedStringPacket => ParseError::UnexpectedStringPacket,
-            ParseError::NeedsMoreBinaryData => ParseError::NeedsMoreBinaryData,
-        }
-    }
+    ParserError(#[from] ParserError),
 }
 
 /// A seed that can be used to deserialize only the 1st element of a sequence
@@ -467,8 +474,10 @@ pub fn is_de_tuple<'de, T: serde::Deserialize<'de>>() -> bool {
         Err(IsTupleSerdeError(v)) => v,
     }
 }
+
+#[doc(hidden)]
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use serde::{Deserialize, Serialize};
 
@@ -492,5 +501,76 @@ mod test {
         struct UnitStruct;
         assert!(!is_ser_tuple(&UnitStruct));
         assert!(!is_de_tuple::<UnitStruct>());
+    }
+
+    /// A stub parser that always returns an error. Only used for testing.
+    #[derive(Debug, Default, Clone, Copy)]
+    pub struct StubParser;
+
+    /// A stub error that is used for testing.
+    #[derive(Serialize, Deserialize)]
+    pub struct StubError;
+
+    impl std::fmt::Debug for StubError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("StubError")
+        }
+    }
+    impl std::fmt::Display for StubError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("StubError")
+        }
+    }
+    impl std::error::Error for StubError {}
+
+    fn stub_err() -> ParserError {
+        ParserError {
+            inner: Box::new(StubError),
+        }
+    }
+    /// === impl StubParser ===
+    impl Parse for StubParser {
+        fn encode(self, _: Packet) -> Value {
+            Value::Bytes(Bytes::new())
+        }
+
+        fn decode_str(self, _: &ParserState, _: Str) -> Result<Packet, ParseError> {
+            Err(ParseError::ParserError(stub_err()))
+        }
+
+        fn decode_bin(self, _: &ParserState, _: bytes::Bytes) -> Result<Packet, ParseError> {
+            Err(ParseError::ParserError(stub_err()))
+        }
+
+        fn encode_value<T: ?Sized + serde::Serialize>(
+            self,
+            _: &T,
+            _: Option<&str>,
+        ) -> Result<Value, ParserError> {
+            Err(stub_err())
+        }
+
+        fn decode_value<'de, T: serde::Deserialize<'de>>(
+            self,
+            _: &'de mut Value,
+            _: bool,
+        ) -> Result<T, ParserError> {
+            Err(stub_err())
+        }
+
+        fn decode_default<'de, T: serde::Deserialize<'de>>(
+            self,
+            _: Option<&'de Value>,
+        ) -> Result<T, ParserError> {
+            Err(stub_err())
+        }
+
+        fn encode_default<T: ?Sized + serde::Serialize>(self, _: &T) -> Result<Value, ParserError> {
+            Err(stub_err())
+        }
+
+        fn read_event(self, _: &Value) -> Result<&str, ParserError> {
+            Ok("")
+        }
     }
 }

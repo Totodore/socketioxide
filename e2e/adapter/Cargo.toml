@@ -1,0 +1,51 @@
+[package]
+name = "adapter-e2e"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+v4 = ["socketioxide/v4"]
+v5 = []
+msgpack = ["socketioxide/msgpack"]
+default = ["v5"]
+
+[dependencies]
+socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
+    "tracing",
+] }
+socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
+    "redis",
+    "redis-cluster",
+    "fred",
+] }
+hyper-util = { workspace = true, features = ["tokio"] }
+hyper = { workspace = true, features = ["server", "http1"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+futures-util.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+
+
+[[bin]]
+name = "redis-e2e"
+path = "src/bins/redis.rs"
+
+[[bin]]
+name = "redis-cluster-e2e"
+path = "src/bins/redis_cluster.rs"
+
+[[bin]]
+name = "fred-e2e"
+path = "src/bins/fred.rs"
+
+[[bin]]
+name = "fred-cluster-e2e"
+path = "src/bins/fred_cluster.rs"

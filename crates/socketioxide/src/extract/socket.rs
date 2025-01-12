@@ -1,19 +1,19 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::handler::{FromConnectParts, FromDisconnectParts, FromMessageParts};
 use crate::{
     adapter::{Adapter, LocalAdapter},
-    errors::{DisconnectError, SendError},
-    packet::Packet,
+    handler::{FromConnectParts, FromDisconnectParts, FromMessageParts},
     socket::{DisconnectReason, Socket},
-    SocketIo,
+    SendError, SocketIo,
 };
 use serde::Serialize;
-use socketioxide_core::parser::Parse;
-use socketioxide_core::Value;
+use socketioxide_core::{errors::SocketError, packet::Packet, parser::Parse, Value};
 
 /// An Extractor that returns a reference to a [`Socket`].
+///
+/// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
+/// make sure to have a handler that is [generic over the adapter type](crate#adapters).
 #[derive(Debug)]
 pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
@@ -71,13 +71,16 @@ impl<A: Adapter> SocketRef<A> {
     ///
     /// It will also call the disconnect handler if it is set.
     #[inline(always)]
-    pub fn disconnect(self) -> Result<(), DisconnectError> {
+    pub fn disconnect(self) -> Result<(), SocketError> {
         self.0.disconnect()
     }
 }
 
 /// An Extractor to send an ack response corresponding to the current event.
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
+///
+/// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
+/// make sure to have a handler that is [generic over the adapter type](crate#adapters).
 #[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
     socket: Arc<Socket<A>>,
@@ -111,9 +114,9 @@ impl<A: Adapter> AckSender<A> {
                 }
             };
             let ns = self.socket.ns.path.clone();
-            let data = self.socket.parser().encode_value(data, None)?;
+            let data = self.socket.parser.encode_value(data, None)?;
             let packet = Packet::ack(ns, data, ack_id);
-            permit.send(packet, self.socket.parser());
+            permit.send(packet, self.socket.parser);
             Ok(())
         } else {
             Ok(())

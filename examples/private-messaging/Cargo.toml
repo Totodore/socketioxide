@@ -5,7 +5,7 @@ edition = "2021"
 
 
 [dependencies]
-socketioxide = { path = "../../crates/socketioxide", features = [
+socketioxide = { workspace = true, features = [
     "extensions",
     "state",
     "tracing",

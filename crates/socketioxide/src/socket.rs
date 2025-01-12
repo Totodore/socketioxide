@@ -3,7 +3,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fmt::Debug,
+    fmt::{self, Debug},
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex, RwLock,
@@ -13,29 +13,31 @@ use std::{
 
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Permit};
 use serde::Serialize;
-use tokio::sync::oneshot::{self, Receiver};
+use tokio::sync::{
+    mpsc::error::TrySendError,
+    oneshot::{self, Receiver},
+};
 
 #[cfg(feature = "extensions")]
 use crate::extensions::Extensions;
 
 use crate::{
     ack::{AckInnerStream, AckResult, AckStream},
-    adapter::{Adapter, LocalAdapter, Room},
-    errors::{DisconnectError, Error, SendError},
+    adapter::{Adapter, LocalAdapter},
+    client::SocketData,
+    errors::Error,
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, DisconnectHandler, MakeErasedHandler,
         MessageHandler,
     },
     ns::Namespace,
-    operators::{BroadcastOperators, ConfOperators, RoomParam},
+    operators::{BroadcastOperators, ConfOperators},
     parser::Parser,
-    AckError, SocketIo,
-};
-use crate::{
-    client::SocketData,
-    errors::{AdapterError, SocketError},
+    AckError, SendError, SocketError, SocketIo,
 };
 use socketioxide_core::{
+    adapter::{BroadcastOptions, RemoteSocketData, Room, RoomParam},
+    errors::{AdapterError, BroadcastError},
     packet::{Packet, PacketData},
     parser::Parse,
     Value,
@@ -126,6 +128,144 @@ impl<'a> PermitExt<'a> for Permit<'a> {
     }
 }
 
+/// A RemoteSocket is a [`Socket`] that is remotely connected on another server.
+/// It implements a subset of the [`Socket`] API.
+#[derive(Clone)]
+pub struct RemoteSocket<A> {
+    adapter: Arc<A>,
+    parser: Parser,
+    data: RemoteSocketData,
+}
+
+impl<A> RemoteSocket<A> {
+    pub(crate) fn new(data: RemoteSocketData, adapter: &Arc<A>, parser: Parser) -> Self {
+        Self {
+            data,
+            adapter: adapter.clone(),
+            parser,
+        }
+    }
+    /// Consume the [`RemoteSocket`] and return its underlying data
+    #[inline]
+    pub fn into_data(self) -> RemoteSocketData {
+        self.data
+    }
+    /// Get a ref to the underlying data of the socket
+    #[inline]
+    pub fn data(&self) -> &RemoteSocketData {
+        &self.data
+    }
+}
+impl<A: Adapter> RemoteSocket<A> {
+    /// # Emit a message to a client that is remotely connected on another server.
+    ///
+    /// See [`Socket::emit`] for more info.
+    pub async fn emit<T: ?Sized + Serialize>(
+        &self,
+        event: impl AsRef<str>,
+        data: &T,
+    ) -> Result<(), RemoteActionError> {
+        let opts = self.get_opts();
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
+        let packet = Packet::event(self.data.ns.clone(), data);
+        self.adapter.broadcast(packet, opts).await?;
+        Ok(())
+    }
+
+    /// # Emit a message to a client that is remotely connected on another server and wait for an acknowledgement.
+    ///
+    /// See [`Socket::emit_with_ack`] for more info.
+    pub async fn emit_with_ack<T: ?Sized + Serialize, V: serde::de::DeserializeOwned>(
+        &self,
+        event: impl AsRef<str>,
+        data: &T,
+    ) -> Result<AckStream<V, A>, RemoteActionError> {
+        let opts = self.get_opts();
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
+        let packet = Packet::event(self.data.ns.clone(), data);
+        let stream = self
+            .adapter
+            .broadcast_with_ack(packet, opts, None)
+            .await
+            .map_err(Into::<AdapterError>::into)?;
+        Ok(AckStream::new(stream, self.parser))
+    }
+
+    /// # Get all room names this remote socket is connected to.
+    ///
+    /// See [`Socket::rooms`] for more info.
+    #[inline]
+    pub async fn rooms(&self) -> Result<Vec<Room>, A::Error> {
+        self.adapter.rooms(self.get_opts()).await
+    }
+
+    /// # Add the remote socket to the specified room(s).
+    ///
+    /// See [`Socket::join`] for more info.
+    #[inline]
+    pub async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.adapter.add_sockets(self.get_opts(), rooms).await
+    }
+
+    /// # Remove the remote socket from the specified room(s).
+    ///
+    /// See [`Socket::leave`] for more info.
+    #[inline]
+    pub async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
+        self.adapter.del_sockets(self.get_opts(), rooms).await
+    }
+
+    /// # Disconnect the remote socket from the current namespace,
+    ///
+    /// See [`Socket::disconnect`] for more info.
+    #[inline]
+    pub async fn disconnect(self) -> Result<(), RemoteActionError> {
+        self.adapter.disconnect_socket(self.get_opts()).await?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn get_opts(&self) -> BroadcastOptions {
+        BroadcastOptions::new_remote(&self.data)
+    }
+}
+impl<A> fmt::Debug for RemoteSocket<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RemoteSocket")
+            .field("id", &self.data.id)
+            .field("server_id", &self.data.server_id)
+            .field("ns", &self.data.ns)
+            .finish()
+    }
+}
+
+/// A error that can occur when emitting a message to a remote socket.
+#[derive(Debug, thiserror::Error)]
+pub enum RemoteActionError {
+    /// The message data could not be encoded.
+    #[error("cannot encode data: {0}")]
+    Serialize(#[from] crate::parser::ParserError),
+    /// The remote socket is, in fact, a local socket and we should not emit to it.
+    #[error("cannot send the message to the local socket: {0}")]
+    Socket(crate::SocketError),
+    /// The message could not be sent to the remote server.
+    #[error("cannot propagate the request to the server: {0}")]
+    Adapter(#[from] AdapterError),
+}
+impl From<BroadcastError> for RemoteActionError {
+    fn from(value: BroadcastError) -> Self {
+        // This conversion assumes that we broadcast to a single (remote or not) socket.
+        match value {
+            BroadcastError::Socket(s) if !s.is_empty() => RemoteActionError::Socket(s[0].clone()),
+            BroadcastError::Socket(_) => {
+                panic!("BroadcastError with an empty socket vec is not permitted")
+            }
+            BroadcastError::Adapter(e) => e.into(),
+            BroadcastError::Serialize(e) => e.into(),
+        }
+    }
+}
+
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
@@ -136,6 +276,7 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
     ack_counter: AtomicI64,
     connected: AtomicBool,
+    pub(crate) parser: Parser,
     /// The socket id
     pub id: Sid,
 
@@ -155,6 +296,7 @@ impl<A: Adapter> Socket<A> {
         sid: Sid,
         ns: Arc<Namespace<A>>,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
+        parser: Parser,
     ) -> Self {
         Self {
             ns,
@@ -163,6 +305,7 @@ impl<A: Adapter> Socket<A> {
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
             connected: AtomicBool::new(false),
+            parser,
             id: sid,
             #[cfg(feature = "extensions")]
             extensions: Extensions::new(),
@@ -304,9 +447,9 @@ impl<A: Adapter> Socket<A> {
         };
 
         let ns = self.ns.path.clone();
-        let data = self.parser().encode_value(data, Some(event.as_ref()))?;
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
 
-        permit.send(Packet::event(ns, data), self.parser());
+        permit.send(Packet::event(ns, data), self.parser);
         Ok(())
     }
 
@@ -328,37 +471,78 @@ impl<A: Adapter> Socket<A> {
             }
         };
         let ns = self.ns.path.clone();
-        let data = self.parser().encode_value(data, Some(event.as_ref()))?;
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
         let packet = Packet::event(ns, data);
         let rx = self.send_with_ack_permit(packet, permit);
         let stream = AckInnerStream::send(rx, self.get_io().config().ack_timeout, self.id);
-        Ok(AckStream::<V>::new(stream, self.parser()))
+        Ok(AckStream::<V>::new(stream, self.parser))
     }
 
     // Room actions
 
-    #[doc = include_str!("../docs/operators/join.md")]
-    pub fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.add_all(self.id, rooms)
-    }
-
-    #[doc = include_str!("../docs/operators/leave.md")]
-    pub fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.ns.adapter.del(self.id, rooms)
-    }
-
-    /// # Leave all rooms where the socket is connected.
+    /// # Add the current socket to the specified room(s).
     ///
-    /// ## Errors
-    /// When using a distributed adapter, it can return an [`Adapter::Error`] which is mostly related to network errors.
-    /// For the default [`LocalAdapter`] it is always an [`Infallible`](std::convert::Infallible) error
-    pub fn leave_all(&self) -> Result<(), A::Error> {
-        self.ns.adapter.del_all(self.id)
+    /// # Example
+    /// ```rust
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// async fn handler(socket: SocketRef) {
+    ///     // Add all sockets that are in room1 and room3 to room4 and room5
+    ///     socket.join(["room4", "room5"]);
+    ///     // We should retrieve all the local sockets that are in room3 and room5
+    ///     let sockets = socket.within("room4").within("room5").sockets();
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |s: SocketRef| s.on("test", handler));
+    /// ```
+    pub fn join(&self, rooms: impl RoomParam) {
+        self.ns.adapter.get_local().add_all(self.id, rooms)
     }
 
-    #[doc = include_str!("../docs/operators/rooms.md")]
-    pub fn rooms(&self) -> Result<Vec<Room>, A::Error> {
-        self.ns.adapter.socket_rooms(self.id)
+    /// # Remove the current socket from the specified room(s).
+    ///
+    /// # Example
+    /// ```rust
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// async fn handler(socket: SocketRef) {
+    ///     // Remove all sockets that are in room1 and room3 from room4 and room5
+    ///     socket.within("room1").within("room3").leave(["room4", "room5"]);
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |s: SocketRef| s.on("test", handler));
+    /// ```
+    pub fn leave(&self, rooms: impl RoomParam) {
+        self.ns.adapter.get_local().del(self.id, rooms)
+    }
+
+    /// # Remove the current socket from all its rooms.
+    pub fn leave_all(&self) {
+        self.ns.adapter.get_local().del_all(self.id);
+    }
+
+    /// # Get all room names this socket is connected to.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// async fn handler(socket: SocketRef) {
+    ///     println!("Socket connected to the / namespace with id: {}", socket.id);
+    ///     socket.join(["room1", "room2"]);
+    ///     let rooms = socket.rooms();
+    ///     println!("All rooms in the / namespace: {:?}", rooms);
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", handler);
+    /// ```
+    pub fn rooms(&self) -> Vec<Room> {
+        self.ns
+            .adapter
+            .get_local()
+            .socket_rooms(self.id)
+            .into_iter()
+            .collect()
     }
 
     /// # Return true if the socket is connected to the namespace.
@@ -373,22 +557,22 @@ impl<A: Adapter> Socket<A> {
 
     #[doc = include_str!("../docs/operators/to.md")]
     pub fn to(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).to(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).to(rooms)
     }
 
     #[doc = include_str!("../docs/operators/within.md")]
     pub fn within(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).within(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).within(rooms)
     }
 
     #[doc = include_str!("../docs/operators/except.md")]
     pub fn except(&self, rooms: impl RoomParam) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).except(rooms)
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).except(rooms)
     }
 
     #[doc = include_str!("../docs/operators/local.md")]
     pub fn local(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).local()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).local()
     }
 
     #[doc = include_str!("../docs/operators/timeout.md")]
@@ -398,7 +582,7 @@ impl<A: Adapter> Socket<A> {
 
     #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(&self) -> BroadcastOperators<A> {
-        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser()).broadcast()
+        BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).broadcast()
     }
 
     /// # Get the [`SocketIo`] context related to this socket
@@ -413,13 +597,12 @@ impl<A: Adapter> Socket<A> {
     /// # Disconnect the socket from the current namespace,
     ///
     /// It will also call the disconnect handler if it is set with a [`DisconnectReason::ServerNSDisconnect`].
-    pub fn disconnect(self: Arc<Self>) -> Result<(), DisconnectError> {
+    pub fn disconnect(self: Arc<Self>) -> Result<(), SocketError> {
         let res = self.send(Packet::disconnect(self.ns.path.clone()));
         if let Err(SocketError::InternalChannelFull) = res {
-            return Err(DisconnectError::InternalChannelFull);
+            return Err(SocketError::InternalChannelFull);
         }
-
-        self.close(DisconnectReason::ServerNSDisconnect)?;
+        self.close(DisconnectReason::ServerNSDisconnect);
         Ok(())
     }
 
@@ -482,18 +665,17 @@ impl<A: Adapter> Socket<A> {
         self.connected.store(connected, Ordering::SeqCst);
     }
 
-    #[inline]
-    pub(crate) fn parser(&self) -> Parser {
-        self.get_io().config().parser
-    }
-
     pub(crate) fn reserve(&self) -> Result<Permit<'_>, SocketError> {
-        Ok(self.esocket.reserve()?)
+        match self.esocket.reserve() {
+            Ok(permit) => Ok(permit),
+            Err(TrySendError::Full(_)) => Err(SocketError::InternalChannelFull),
+            Err(TrySendError::Closed(_)) => Err(SocketError::Closed),
+        }
     }
 
     pub(crate) fn send(&self, packet: Packet) -> Result<(), SocketError> {
         let permit = self.reserve()?;
-        permit.send(packet, self.parser());
+        permit.send(packet, self.parser);
         Ok(())
     }
     pub(crate) fn send_raw(&self, value: Value) -> Result<(), SocketError> {
@@ -511,7 +693,7 @@ impl<A: Adapter> Socket<A> {
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        permit.send(packet, self.parser());
+        permit.send(packet, self.parser);
         self.ack_message.lock().unwrap().insert(ack, tx);
         rx
     }
@@ -535,7 +717,7 @@ impl<A: Adapter> Socket<A> {
     /// Called when the socket is gracefully disconnected from the server or the client
     ///
     /// It maybe also close when the underlying transport is closed or failed.
-    pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) -> Result<(), AdapterError> {
+    pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) {
         self.set_connected(false);
 
         let handler = { self.disconnect_handler.lock().unwrap().take() };
@@ -546,8 +728,7 @@ impl<A: Adapter> Socket<A> {
             handler.call(self.clone(), reason);
         }
 
-        self.ns.remove_socket(self.id)?;
-        Ok(())
+        self.ns.remove_socket(self.id);
     }
 
     /// Receive data from client
@@ -555,15 +736,16 @@ impl<A: Adapter> Socket<A> {
         match packet {
             PacketData::Event(d, ack) | PacketData::BinaryEvent(d, ack) => self.recv_event(d, ack),
             PacketData::EventAck(d, ack) | PacketData::BinaryAck(d, ack) => self.recv_ack(d, ack),
-            PacketData::Disconnect => self
-                .close(DisconnectReason::ClientNSDisconnect)
-                .map_err(Error::from),
+            PacketData::Disconnect => {
+                self.close(DisconnectReason::ClientNSDisconnect);
+                Ok(())
+            }
             _ => unreachable!(),
         }
     }
 
     fn recv_event(self: Arc<Self>, data: Value, ack: Option<i64>) -> Result<(), Error> {
-        let event = self.parser().read_event(&data).map_err(|_e| {
+        let event = self.parser.read_event(&data).map_err(|_e| {
             #[cfg(feature = "tracing")]
             tracing::debug!(?_e, "failed to read event");
             Error::InvalidEventName
@@ -602,20 +784,26 @@ impl<A: Adapter> PartialEq for Socket<A> {
 
 #[doc(hidden)]
 #[cfg(feature = "__test_harness")]
-impl<A: Adapter> Socket<A> {
+impl Socket<LocalAdapter> {
     /// Creates a dummy socket for testing purposes
-    pub fn new_dummy(sid: Sid, ns: Arc<Namespace<A>>) -> Socket<A> {
+    pub fn new_dummy(sid: Sid, ns: Arc<Namespace<LocalAdapter>>) -> Socket<LocalAdapter> {
         use crate::client::Client;
         use crate::io::SocketIoConfig;
 
         let close_fn = Box::new(move |_, _| ());
         let config = SocketIoConfig::default();
-        let io = SocketIo::from(Arc::new(Client::<A>::new(
+        let io = SocketIo::from(Arc::new(Client::new(
             config,
+            (),
             #[cfg(feature = "state")]
             std::default::Default::default(),
         )));
-        let s = Socket::new(sid, ns, engineioxide::Socket::new_dummy(sid, close_fn));
+        let s = Socket::new(
+            sid,
+            ns,
+            engineioxide::Socket::new_dummy(sid, close_fn),
+            Parser::default(),
+        );
         s.esocket.data.io.set(io).unwrap();
         s.set_connected(true);
         s
