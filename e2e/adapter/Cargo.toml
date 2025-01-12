@@ -23,6 +23,7 @@ socketioxide = { path = "../../crates/socketioxide", default-features = false, f
 ] }
 socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
     "redis",
+    "redis-cluster",
     "fred",
 ] }
 hyper-util = { workspace = true, features = ["tokio"] }
@@ -38,5 +39,13 @@ name = "redis-e2e"
 path = "src/bins/redis.rs"
 
 [[bin]]
+name = "redis-cluster-e2e"
+path = "src/bins/redis_cluster.rs"
+
+[[bin]]
 name = "fred-e2e"
 path = "src/bins/fred.rs"
+
+[[bin]]
+name = "fred-cluster-e2e"
+path = "src/bins/fred_cluster.rs"

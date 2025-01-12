@@ -271,11 +271,11 @@ jobs:
         run: cat client.txt
   adapter:
     runs-on: ubuntu-latest
-    # needs: [socket_io, engine_io]
+    needs: [socket_io, engine_io]
     strategy:
       matrix:
         socketio-version: [v4, v4-msgpack, v5, v5-msgpack]
-        adapter: [fred-e2e, redis-e2e]
+        adapter: [fred-e2e, redis-e2e, redis-cluster-e2e, fred-cluster-e2e]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -289,7 +289,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+          key: ${{ runner.os }}-cargo-adapter
       - uses: actions/setup-node@v4
         with:
           node-version: 22

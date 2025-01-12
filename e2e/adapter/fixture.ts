@@ -32,6 +32,7 @@ export async function spawn_servers(ports: number[]) {
     exec(`kill $(lsof -t -i:${port})`);
     console.log("spawning server on port", port);
     const file = (await open(`${port}.log`, "w")).createWriteStream();
+    console.log(`EXEC PORT=${port} ${bin} ${args.join(" ")}`);
     const server = spawn(bin, args, {
       shell: true,
       env: {
