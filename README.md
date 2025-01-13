@@ -1,15 +1,20 @@
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
+<img src="https://raw.githubusercontent.com/Totodore/socketioxide/refs/heads/doc-redis/.github/logo_dark.svg" width=150 height=150 align=left>
+
 A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). It integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/), [***`Salvo`***](https://salvo.rs), [***`Viz`***](https://viz.rs) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, authorization, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).
 
-> ⚠️ This crate is under active development and the API is not yet stable.
+<p>
 
+ 
+ ⚠️ This crate is under active development and the API is not yet stable.
+</p>
+
+<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
 [![Crates.io](https://img.shields.io/crates/v/socketioxide.svg)](https://crates.io/crates/socketioxide)
 [![Documentation](https://docs.rs/socketioxide/badge.svg)](https://docs.rs/socketioxide)
 [![CI](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml)
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
 ## Features
 * Integrates with:
