@@ -92,7 +92,7 @@ impl serde::Serialize for Sid {
 }
 
 struct SidVisitor;
-impl<'de> serde::de::Visitor<'de> for SidVisitor {
+impl serde::de::Visitor<'_> for SidVisitor {
     type Value = Sid;
 
     fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {

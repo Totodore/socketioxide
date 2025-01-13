@@ -65,7 +65,7 @@ where
 
     socket.spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
 
-    let packet: String = Packet::Open(packet).try_into().unwrap();
+    let packet: String = Packet::Open(packet).into();
     let packet = {
         #[cfg(feature = "v3")]
         {

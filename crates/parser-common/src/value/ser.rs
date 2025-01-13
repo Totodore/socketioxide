@@ -67,7 +67,7 @@ impl<T: ser::Serialize> ser::Serialize for CompoundWrapper<'_, T> {
     }
 }
 
-impl<'a, I: SerializeSeq> SerializeSeq for Compound<'a, I> {
+impl<I: SerializeSeq> SerializeSeq for Compound<'_, I> {
     type Ok = I::Ok;
     type Error = I::Error;
 
@@ -87,7 +87,7 @@ impl<'a, I: SerializeSeq> SerializeSeq for Compound<'a, I> {
         SerializeSeq::end(self.inner)
     }
 }
-impl<'a, I: SerializeTuple> SerializeTuple for Compound<'a, I> {
+impl<I: SerializeTuple> SerializeTuple for Compound<'_, I> {
     type Ok = I::Ok;
     type Error = I::Error;
     fn serialize_element<T: ?Sized + serde::Serialize>(

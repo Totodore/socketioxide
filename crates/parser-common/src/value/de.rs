@@ -44,7 +44,7 @@ struct Deserializer<'a, D> {
     skip_first_element: bool,
 }
 
-impl<'a, 'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'a, D> {
+impl<'de, D: de::Deserializer<'de>> de::Deserializer<'de> for Deserializer<'_, D> {
     type Error = D::Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -264,7 +264,7 @@ impl<'a, I> WrapperVisitor<'a, I> {
     }
 }
 
-impl<'a, 'de, I: Visitor<'de>> Visitor<'de> for WrapperVisitor<'a, I> {
+impl<'de, I: Visitor<'de>> Visitor<'de> for WrapperVisitor<'_, I> {
     type Value = I::Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -389,7 +389,7 @@ impl<'a, 'de, I: Visitor<'de>> Visitor<'de> for WrapperVisitor<'a, I> {
     }
 }
 
-impl<'a, 'de, I: de::SeqAccess<'de>> de::SeqAccess<'de> for WrapperVisitor<'a, I> {
+impl<'de, I: de::SeqAccess<'de>> de::SeqAccess<'de> for WrapperVisitor<'_, I> {
     type Error = I::Error;
 
     fn next_element_seed<T: serde::de::DeserializeSeed<'de>>(
@@ -402,7 +402,7 @@ impl<'a, 'de, I: de::SeqAccess<'de>> de::SeqAccess<'de> for WrapperVisitor<'a, I
         })
     }
 }
-impl<'a, 'de, I: de::MapAccess<'de>> de::MapAccess<'de> for WrapperVisitor<'a, I> {
+impl<'de, I: de::MapAccess<'de>> de::MapAccess<'de> for WrapperVisitor<'_, I> {
     type Error = I::Error;
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
@@ -425,7 +425,7 @@ impl<'a, 'de, I: de::MapAccess<'de>> de::MapAccess<'de> for WrapperVisitor<'a, I
         })
     }
 }
-impl<'a, 'de, I: de::EnumAccess<'de>> de::EnumAccess<'de> for WrapperVisitor<'a, I> {
+impl<'de, I: de::EnumAccess<'de>> de::EnumAccess<'de> for WrapperVisitor<'_, I> {
     type Error = I::Error;
     type Variant = I::Variant;
 
@@ -444,7 +444,7 @@ struct WrapperSeed<'a, S> {
     seed: S,
     binary_payloads: &'a mut VecDeque<Bytes>,
 }
-impl<'a, 'de, S: de::DeserializeSeed<'de>> de::DeserializeSeed<'de> for WrapperSeed<'a, S> {
+impl<'de, S: de::DeserializeSeed<'de>> de::DeserializeSeed<'de> for WrapperSeed<'_, S> {
     type Value = S::Value;
 
     fn deserialize<D: de::Deserializer<'de>>(
@@ -464,7 +464,7 @@ struct BinaryVisitor<'a, V> {
     inner: V,
 }
 
-impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'a, V> {
+impl<'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'_, V> {
     type Value = V::Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -581,7 +581,7 @@ struct PeekKeyMap<'a, 'de, I> {
     inner: I,
     key: Option<&'de str>,
 }
-impl<'a, 'de, A: de::MapAccess<'de>> de::MapAccess<'de> for PeekKeyMap<'a, 'de, A> {
+impl<'de, A: de::MapAccess<'de>> de::MapAccess<'de> for PeekKeyMap<'_, 'de, A> {
     type Error = A::Error;
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
@@ -612,7 +612,7 @@ struct BinaryAnyVisitor<'a, V> {
     inner: V,
 }
 
-impl<'a, 'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'a, V> {
+impl<'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'_, V> {
     type Value = V::Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
