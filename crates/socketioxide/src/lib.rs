@@ -1,4 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc(html_logo_url = "https://github.com/Totodore/socketioxide/blob/main/.github/logo_dark.svg")]
 #![warn(
     clippy::all,
     clippy::todo,

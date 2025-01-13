@@ -6,7 +6,7 @@ A [***`socket.io`***](https://socket.io) Redis adapter for [***`Socketioxide`***
 
 [![Crates.io](https://img.shields.io/crates/v/socketioxide-redis.svg)](https://crates.io/crates/socketioxide-redis)
 [![Documentation](https://docs.rs/socketioxide-redis/badge.svg)](https://docs.rs/socketioxide-redis)
-[![CI](https://github.com/Totodore/socketioxide-redis/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide-redis/actions/workflows/github-ci.yml)
+[![CI](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml)
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
