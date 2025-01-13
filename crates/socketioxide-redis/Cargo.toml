@@ -10,7 +10,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [features]
 redis = ["dep:redis"]
