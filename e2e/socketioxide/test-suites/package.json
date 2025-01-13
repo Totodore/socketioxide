@@ -1,0 +1,13 @@
+{
+  "name": "socket.io-protocol-test-suite",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^22.10.6",
+    "@types/ws": "^8.5.13",
+    "notepack.io": "~2.2.0",
+    "ts-node": "^10.9.2",
+    "ws": "^8.5.0"
+  }
+}
