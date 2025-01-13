@@ -5,24 +5,26 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 > ⚠️ This crate is under active development and the API is not yet stable.
 
 
-
 [![Crates.io](https://img.shields.io/crates/v/socketioxide.svg)](https://crates.io/crates/socketioxide)
 [![Documentation](https://docs.rs/socketioxide/badge.svg)](https://docs.rs/socketioxide)
 [![CI](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml)
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
-## Features :
-* Integrates with :
+## Features
+* Integrates with:
   * [Axum](https://docs.rs/axum/latest/axum/): [🏓echo example](./examples/axum-echo/axum_echo.rs)
   * [Warp](https://docs.rs/warp/latest/warp/): [🏓echo example](https://github.com/Totodore/socketioxide/blob/v0.8.0/examples/warp-echo/warp_echo.rs) (Not supported with `socketioxide >= 0.9.0` as long as warp doesn't migrate to hyper v1)
   * [Hyper](https://docs.rs/hyper/latest/hyper/): [🏓echo example](./examples/hyper-echo/hyper_echo.rs)
   * [Salvo](https://salvo.rs): [🏓echo example](./examples/salvo-echo/salvo_echo.rs)
   * [Viz](https://viz.rs): [🏓echo example](./examples/viz-echo/viz_echo.rs)
-* Out of the box support for any other middleware based on tower :
+* Out of the box support for any other middleware based on tower:
   * [🔓CORS](https://docs.rs/tower-http/latest/tower_http/cors)
   * [📁Compression](https://docs.rs/tower-http/latest/tower_http/compression)
   * [🔐Authorization](https://docs.rs/tower-http/latest/tower_http/auth)
+* Effortless horizontal scaling with plugable adapters:
+  * [Redis / Valkey](https://docs.rs/socketioxide-redis/latest/socketioxide-redis)
+  * More to come...
 * Namespaces and Dynamic Namespaces
 * Rooms
 * Ack and emit with ack
@@ -33,19 +35,13 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 * Memory efficient http payload parsing with streams
 * Flexible axum-like API to handle events. With extractors to extract data from your handlers
 * Well tested with the official [end to end test-suite](https://github.com/totodore/socketioxide/actions)
-* Socket.io versions supported :
+* All Socket.io versions supported :
   * [🔌protocol v5](https://socket.io/docs/v4/) : socket.io js from v3.0.0..latest, it is enabled by default
   * [🔌protocol v4](https://github.com/socketio/socket.io-protocol/tree/v4) : based on engine.io v3, under the feature flag `v4`, (socket.io js from v1.0.3..latest)
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
-## Planned features :
-* Other adapter to share state between server instances (like redis adapter), currently only the in memory adapter is implemented
-* State recovery when a socket reconnects
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
-
-## Examples :
+## Examples
 <details> <summary><code>Chat app 💬 (see full example <a href="./examples/chat">here</a>)</code></summary>
 
 ```rust
@@ -165,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
-## Contributions and Feedback / Questions :
+## Contributions and Feedback / Questions
 Any contribution is welcome, feel free to open an issue or a PR. If you want to contribute but don't know where to start, you can check the [issues](https://github.com/totodore/socketioxide/issues).
 
 If you have any question or feedback, please open a thread on the [discussions](https://github.com/totodore/socketioxide/discussions) page.

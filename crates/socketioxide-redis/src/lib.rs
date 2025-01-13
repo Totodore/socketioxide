@@ -129,6 +129,9 @@
 //! # }
 //! ```
 //!
+//! Check the [`chat example`](https://github.com/Totodore/socketioxide/tree/main/examples/chat)
+//! for more complete examples.
+//!
 //! ## How does it work?
 //!
 //! An adapter is created for each created namespace and it takes a corresponding [`CoreLocalAdapter`].
