@@ -15,4 +15,9 @@ axum = "0.8"
 hyper-util.version = "0.1.1"
 hyper = { version = "1.0.1", features = ["http1", "server"] }
 socketioxide = { path = "../crates/socketioxide" }
+socketioxide-redis = { path = "../crates/socketioxide-redis", features = [
+    "redis",
+    "redis-cluster",
+    "fred",
+] }
 serde_json = "1"
