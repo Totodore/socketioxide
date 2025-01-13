@@ -88,7 +88,7 @@ pub async fn v4_encoder(
         try_recv_packet(&mut rx, data.len() + PUNCTUATION_LEN, max_payload, true)
     {
         for packet in packets {
-            let packet: String = packet.try_into()?;
+            let packet: String = packet.into();
 
             if !data.is_empty() {
                 data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
@@ -101,7 +101,7 @@ pub async fn v4_encoder(
     if data.is_empty() {
         let packets = recv_packet(&mut rx).await?;
         for packet in packets {
-            let packet: String = packet.try_into()?;
+            let packet: String = packet.into();
             data.push_str(&packet);
         }
     }
@@ -133,7 +133,7 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Resu
             data.extend_from_slice(&bin); // raw data
         }
         packet => {
-            let packet: String = packet.try_into()?;
+            let packet: String = packet.into();
             let len = itoa.format(packet.len());
             let len_len = len.len(); // len is guaranteed to be ascii
 
@@ -156,7 +156,7 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Resu
 pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Result<(), Error> {
     use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
     use bytes::BufMut;
-    let packet: String = packet.try_into()?;
+    let packet: String = packet.into();
     let packet = format!(
         "{}{}{}",
         packet.chars().count(),

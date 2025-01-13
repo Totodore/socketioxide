@@ -16,7 +16,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_tungstenite::{
-    tungstenite::{handshake::derive_accept_key, protocol::Role, Message, Utf8Bytes},
+    tungstenite::{handshake::derive_accept_key, protocol::Role, Message},
     WebSocketStream,
 };
 
@@ -27,9 +27,10 @@ use crate::{
     errors::Error,
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
-    service::{ProtocolVersion, TransportType},
+    service::ProtocolVersion,
+    service::TransportType,
     sid::Sid,
-    DisconnectReason, Socket, Str,
+    DisconnectReason, Socket,
 };
 
 /// Create a response for websocket upgrade
@@ -164,33 +165,28 @@ where
 {
     while let Some(msg) = rx.try_next().await? {
         match msg {
-            Message::Text(msg) => {
-                match Packet::try_from(unsafe { Str::from_bytes_unchecked(msg.into()) })? {
-                    Packet::Close => {
-                        #[cfg(feature = "tracing")]
-                        tracing::debug!("[sid={}] closing session", socket.id);
-                        engine.close_session(socket.id, DisconnectReason::TransportClose);
-                        break;
-                    }
-                    Packet::Pong | Packet::Ping => socket
-                        .heartbeat_tx
-                        .try_send(())
-                        .map_err(|_| Error::HeartbeatTimeout),
-                    Packet::Message(msg) => {
-                        engine.handler.on_message(msg, socket.clone());
-                        Ok(())
-                    }
-                    p => return Err(Error::BadPacket(p)),
+            Message::Text(msg) => match Packet::try_from(msg)? {
+                Packet::Close => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("[sid={}] closing session", socket.id);
+                    engine.close_session(socket.id, DisconnectReason::TransportClose);
+                    break;
                 }
-            }
-            #[allow(unused_mut)]
+                Packet::Pong | Packet::Ping => socket
+                    .heartbeat_tx
+                    .try_send(())
+                    .map_err(|_| Error::HeartbeatTimeout),
+                Packet::Message(msg) => {
+                    engine.handler.on_message(msg, socket.clone());
+                    Ok(())
+                }
+                p => return Err(Error::BadPacket(p)),
+            },
             Message::Binary(mut data) => {
-                let data = if socket.protocol == ProtocolVersion::V3 && !data.is_empty() {
+                if socket.protocol == ProtocolVersion::V3 && !data.is_empty() {
                     // The first byte is the message type, which we don't need.
-                    data.slice(1..)
-                } else {
-                    data
-                };
+                    data = data.split_off(1);
+                }
                 engine.handler.on_binary(data, socket.clone());
                 Ok(())
             }
@@ -224,15 +220,17 @@ where
         macro_rules! map_fn {
             ($item:ident) => {
                 let res = match $item {
-                    Packet::Binary(bin) if socket.protocol != ProtocolVersion::V3 => {
-                        tx.feed(Message::Binary(bin)).await
-                    }
                     Packet::Binary(bin) | Packet::BinaryV3(bin) => {
-                        // v3 protocol requires packet type as the first byte.
-                        let mut buf = Vec::with_capacity(bin.len() + 1);
-                        buf.push(0x04);
-                        buf.extend_from_slice(&bin);
-                        tx.feed(Message::Binary(bin)).await
+                        if socket.protocol == ProtocolVersion::V3 {
+                            // v3 protocol requires packet type as the first byte.
+                            // This requires a new buffer. This is OK as it is only for the V3 protocol.
+                            let mut buff = Vec::with_capacity(bin.len() + 1);
+                            buff.push(0x04);
+                            buff.extend(bin);
+                            tx.feed(Message::Binary(buff.into())).await
+                        } else {
+                            tx.feed(Message::Binary(bin)).await
+                        }
                     }
                     Packet::Close => {
                         tx.send(Message::Close(None)).await.ok();
@@ -245,7 +243,7 @@ where
                     Packet::Noop => Ok(()),
                     _ => {
                         let packet: String = $item.try_into().unwrap();
-                        tx.feed(Message::Text(Utf8Bytes::from(packet))).await
+                        tx.feed(Message::Text(packet.into())).await
                     }
                 };
                 if let Err(_e) = res {
@@ -280,8 +278,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, config));
-    let value: String = packet.try_into()?;
-    ws.send(Message::Text(Utf8Bytes::from(value))).await?;
+    ws.send(Message::Text(packet.into())).await?;
     Ok(())
 }
 
@@ -324,11 +321,10 @@ where
         Some(Ok(Message::Text(d))) => d,
         _ => Err(Error::Upgrade)?,
     };
-    match Packet::try_from(unsafe { Str::from_bytes_unchecked(msg.into()) })? {
+    match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
             // Respond with a PongUpgrade packet
-            let msg: String = Packet::PongUpgrade.try_into()?;
-            ws.send(Message::Text(Utf8Bytes::from(msg))).await?;
+            ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
@@ -350,7 +346,7 @@ where
             Err(Error::Upgrade)?
         }
     };
-    match Packet::try_from(unsafe { Str::from_bytes_unchecked(msg.into()) })? {
+    match Packet::try_from(msg)? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("ws upgraded successful")
