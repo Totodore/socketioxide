@@ -101,7 +101,7 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     .unwrap()
     .0;
 
-    ws.send(Message::Text("40{}".to_string())).await.unwrap();
+    ws.send(Message::Text("40{}".into())).await.unwrap();
 
     ws
 }

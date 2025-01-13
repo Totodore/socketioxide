@@ -185,9 +185,9 @@ where
             Message::Binary(mut data) => {
                 if socket.protocol == ProtocolVersion::V3 && !data.is_empty() {
                     // The first byte is the message type, which we don't need.
-                    let _ = data.remove(0);
+                    data = data.split_off(1);
                 }
-                engine.handler.on_binary(data.into(), socket.clone());
+                engine.handler.on_binary(data, socket.clone());
                 Ok(())
             }
             Message::Close(_) => break,
@@ -221,12 +221,16 @@ where
             ($item:ident) => {
                 let res = match $item {
                     Packet::Binary(bin) | Packet::BinaryV3(bin) => {
-                        let mut bin: Vec<u8> = bin.into();
                         if socket.protocol == ProtocolVersion::V3 {
-                            // v3 protocol requires packet type as the first byte
-                            bin.insert(0, 0x04);
+                            // v3 protocol requires packet type as the first byte.
+                            // This requires a new buffer. This is OK as it is only for the V3 protocol.
+                            let mut buff = Vec::with_capacity(bin.len() + 1);
+                            buff.push(0x04);
+                            buff.extend(bin);
+                            tx.feed(Message::Binary(buff.into())).await
+                        } else {
+                            tx.feed(Message::Binary(bin)).await
                         }
-                        tx.feed(Message::Binary(bin)).await
                     }
                     Packet::Close => {
                         tx.send(Message::Close(None)).await.ok();
@@ -239,7 +243,7 @@ where
                     Packet::Noop => Ok(()),
                     _ => {
                         let packet: String = $item.try_into().unwrap();
-                        tx.feed(Message::Text(packet)).await
+                        tx.feed(Message::Text(packet.into())).await
                     }
                 };
                 if let Err(_e) = res {
@@ -274,7 +278,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, config));
-    ws.send(Message::Text(packet.try_into()?)).await?;
+    ws.send(Message::Text(packet.into())).await?;
     Ok(())
 }
 
@@ -320,8 +324,7 @@ where
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
             // Respond with a PongUpgrade packet
-            ws.send(Message::Text(Packet::PongUpgrade.try_into()?))
-                .await?;
+            ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
         }
         p => Err(Error::BadPacket(p))?,
     };

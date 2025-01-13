@@ -110,12 +110,11 @@ impl Packet {
 }
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
-impl TryInto<String> for Packet {
-    type Error = Error;
-    fn try_into(self) -> Result<String, Self::Error> {
-        let len = self.get_size_hint(true);
+impl From<Packet> for String {
+    fn from(packet: Packet) -> String {
+        let len = packet.get_size_hint(true);
         let mut buffer = String::with_capacity(len);
-        match self {
+        match packet {
             Packet::Open(open) => {
                 buffer.push('0');
                 buffer.push_str(&serde_json::to_string(&open).unwrap());
@@ -140,7 +139,12 @@ impl TryInto<String> for Packet {
                 general_purpose::STANDARD.encode_string(data, &mut buffer);
             }
         };
-        Ok(buffer)
+        buffer
+    }
+}
+impl From<Packet> for tokio_tungstenite::tungstenite::Utf8Bytes {
+    fn from(value: Packet) -> Self {
+        String::from(value).into()
     }
 }
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
@@ -174,6 +178,13 @@ impl TryFrom<Str> for Packet {
             c => Err(Error::InvalidPacketType(Some(*c as char)))?,
         };
         Ok(res)
+    }
+}
+impl TryFrom<tokio_tungstenite::tungstenite::Utf8Bytes> for Packet {
+    type Error = Error;
+    fn try_from(value: tokio_tungstenite::tungstenite::Utf8Bytes) -> Result<Self, Self::Error> {
+        // SAFETY: The utf8 bytes are guaranteed to be valid utf8
+        Packet::try_from(unsafe { Str::from_bytes_unchecked(value.into()) })
     }
 }
 
