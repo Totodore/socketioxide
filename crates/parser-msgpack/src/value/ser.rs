@@ -16,7 +16,7 @@ struct Serializer<'a, S> {
     ser: S,
 }
 
-impl<'a, S: ser::Serializer> serde::Serializer for Serializer<'a, S> {
+impl<S: ser::Serializer> serde::Serializer for Serializer<'_, S> {
     type Ok = S::Ok;
 
     type Error = S::Error;

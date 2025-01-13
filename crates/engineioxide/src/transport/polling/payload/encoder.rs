@@ -137,7 +137,7 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Resu
             let len = itoa.format(packet.len());
             let len_len = len.len(); // len is guaranteed to be ascii
 
-            data.reserve(1 + len_len + 1 + packet.as_bytes().len());
+            data.reserve(1 + len_len + 1 + packet.len());
 
             data.put_u8(0x0); // 0 = string
             for char in len.chars() {

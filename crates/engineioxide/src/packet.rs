@@ -240,14 +240,14 @@ mod tests {
             sid,
             &EngineIoConfig::default(),
         ));
-        let packet_str: String = packet.try_into().unwrap();
+        let packet_str: String = packet.into();
         assert_eq!(packet_str, format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"));
     }
 
     #[test]
     fn test_message_packet() {
         let packet = Packet::Message("hello".into());
-        let packet_str: String = packet.try_into().unwrap();
+        let packet_str: String = packet.into();
         assert_eq!(packet_str, "4hello");
     }
 
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn test_binary_packet() {
         let packet = Packet::Binary(vec![1, 2, 3].into());
-        let packet_str: String = packet.try_into().unwrap();
+        let packet_str: String = packet.into();
         assert_eq!(packet_str, "bAQID");
     }
 
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn test_binary_packet_v3() {
         let packet = Packet::BinaryV3(vec![1, 2, 3].into());
-        let packet_str: String = packet.try_into().unwrap();
+        let packet_str: String = packet.into();
         assert_eq!(packet_str, "b4AQID");
     }
 
