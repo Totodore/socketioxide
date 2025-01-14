@@ -1,5 +1,6 @@
 {
   "name": "adapter-e2e",
+  "type": "module",
   "dependencies": {
     "@types/node": "^22",
     "socket.io-client": "^4.8.1",

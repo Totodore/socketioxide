@@ -33,8 +33,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo test --tests --all-features --workspace
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+      - run: cargo test --all-features --workspace
   udeps:
     runs-on: ubuntu-latest
     steps:
@@ -54,7 +54,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-nightly
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-nightly
       - name: Check unused dependencies on default features
         run: RUSTFLAGS="--cfg fuzzing" cargo udeps
 
@@ -76,7 +76,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ steps.msrv.outputs.version }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-${{ steps.msrv.outputs.version }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
@@ -87,7 +87,6 @@ jobs:
 
   feature_set:
     runs-on: ubuntu-latest
-    needs: [test]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -105,7 +104,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: check --feature-powerset
         run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide -p socketioxide-redis
@@ -125,26 +124,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             examples/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-examples
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-examples
       - run: cd examples && cargo check --all-features
-
-  doctest:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo test --doc --all-features
 
   rust-clippy-analyze:
     runs-on: ubuntu-latest
@@ -169,7 +150,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-clippy
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-clippy
 
       - name: Install required cargo                                                                                                                                                                                                      │
         run: cargo install clippy-sarif sarif-fmt || true
@@ -198,11 +179,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - uses: actions/checkout@v4
-        with:
-          repository: totodore/engine.io-protocol
-          path: engine.io-protocol
-          ref: ${{ matrix.engineio-version }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -215,12 +191,12 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-release
       - name: Install deps & run tests
         run: |
-          cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
-          cargo run -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cd e2e/engineioxide/test-suites && npm install && cd ../../..
+          cargo build -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r
+          cargo run -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r > server.txt & node --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -239,11 +215,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - uses: actions/checkout@v4
-        with:
-          repository: totodore/socket.io-protocol
-          ref: ${{ matrix.socketio-version }}
-          path: socket.io-protocol
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -255,14 +226,14 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-release
       - name: Install deps & run tests
         run: |
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
-          cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cd e2e/socketioxide/test-suites && npm install && cd ../../..
+          cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt & node --test-reporter=spec --experimental-strip-types e2e/socketioxide/test-suites/${{ matrix.socketio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -289,7 +260,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-adapter
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -297,29 +268,20 @@ jobs:
         uses: hoverkraft-tech/compose-action@v2.0.2
         with:
           compose-file: ./.github/workflows/adapter-ci/docker-compose.yml
-      - run: cd e2e/adapter && npm install && npm install ts-node --location=global
+      - run: cd e2e/adapter && npm install
       - name: Install deps & run tests
         run: |
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
           cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER
-          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" ts-node client.ts
+          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" node --experimental-strip-types client.ts
       - name: Server output
         if: always()
         run: cat e2e/adapter/*.log
   all_passed:
     runs-on: ubuntu-latest
     needs:
-      [
-        adapter,
-        feature_set,
-        format,
-        udeps,
-        msrv,
-        examples,
-        doctest,
-        rust-clippy-analyze,
-      ]
+      [adapter, feature_set, format, udeps, msrv, examples, rust-clippy-analyze]
     steps:
       - name: All passed
         run: echo "All tests passed"
