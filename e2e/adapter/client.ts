@@ -1,4 +1,4 @@
-import { spawn_servers, spawn_sockets, TEST, timeout } from "./fixture";
+import { spawn_servers, spawn_sockets, TEST, timeout } from "./fixture.ts";
 import assert from "assert";
 
 assert(!!process.env.CMD, "CMD env var must be set");
@@ -90,7 +90,7 @@ async function fetchSockets() {
       id: socket.id,
       ns: "/",
     }))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => a.id!.localeCompare(b.id!));
 
   for (const socket of sockets) {
     const data: SocketData[] = await timeout(

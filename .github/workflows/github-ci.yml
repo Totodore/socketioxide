@@ -239,11 +239,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - uses: actions/checkout@v4
-        with:
-          repository: totodore/socket.io-protocol
-          ref: ${{ matrix.socketio-version }}
-          path: socket.io-protocol
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -255,14 +250,14 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+          key: ${{ runner.os }}-cargo-socketioxide-e2e
       - name: Install deps & run tests
         run: |
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
-          cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features $VERSION,$PARSER --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          cd e2e/socketioxide && npm install
+          cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt & node ./test-suites/${{ matrix.socketio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -297,13 +292,13 @@ jobs:
         uses: hoverkraft-tech/compose-action@v2.0.2
         with:
           compose-file: ./.github/workflows/adapter-ci/docker-compose.yml
-      - run: cd e2e/adapter && npm install && npm install ts-node --location=global
+      - run: cd e2e/adapter && npm install
       - name: Install deps & run tests
         run: |
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
           cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER
-          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" ts-node client.ts
+          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" node --experimental-strip-types client.ts
       - name: Server output
         if: always()
         run: cat e2e/adapter/*.log

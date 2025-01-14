@@ -1,16 +1,16 @@
-import assert from "assert";
 import { describe, it } from "node:test";
-import { decode, encode } from "notepack.io";
 import {
+  WS_URL,
+  POLLING_URL,
   PING_INTERVAL,
   PING_TIMEOUT,
   sleep,
-  waitForEvent,
+  waitForPackets,
   waitForMessage,
   WebSocketStream,
-  WS_URL,
-  POLLING_URL,
+  waitForEvent,
 } from "./utils.ts";
+import assert from "assert";
 
 async function initLongPollingSession() {
   const response = await fetch(
@@ -28,7 +28,7 @@ async function initSocketIOConnection() {
 
   await waitForMessage(socket); // Engine.IO handshake
 
-  socket.send(encode({ type: 0, nsp: "/" }));
+  socket.send("40");
 
   await waitForMessage(socket); // Socket.IO handshake
   await waitForMessage(socket); // "auth" packet
@@ -148,7 +148,6 @@ describe("Engine.IO protocol", () => {
         );
 
         socket.on("error", () => {});
-
         waitForEvent(socket, "close");
 
         const socket2 = new WebSocketStream(
@@ -273,7 +272,6 @@ describe("Engine.IO protocol", () => {
         const pollResponse2 = await fetch(
           `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
         );
-
         assert.equal(pollResponse2.status, 400);
       });
     });
@@ -324,7 +322,6 @@ describe("Engine.IO protocol", () => {
       await waitForEvent(socket, "open");
       socket.send("2probe");
       socket.send("5");
-      // await sleep(250);
 
       const pollResponse = await fetch(
         `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
@@ -362,25 +359,17 @@ describe("Socket.IO protocol", () => {
 
       await waitForMessage(socket); // Engine.IO handshake
 
-      socket.send(encode({ type: 0, nsp: "/", data: undefined }));
+      socket.send("40");
 
       const data: string = await waitForMessage(socket);
-      const handshake = decode(data);
-      assert.deepStrictEqual(Object.keys(handshake).sort(), [
-        "data",
-        "nsp",
-        "type",
-      ]);
-      assert.equal(typeof handshake.data.sid, "string");
-      assert.equal(handshake.type, 0);
-      assert.equal(handshake.nsp, "/");
+      assert.equal(data.substring(0, 2), "40");
+      const handshake = JSON.parse(data.substring(2));
+      assert.deepStrictEqual(Object.keys(handshake), ["sid"]);
+      assert.equal(typeof handshake.sid, "string");
 
-      const authPacket = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(authPacket, {
-        type: 2,
-        nsp: "/",
-        data: ["auth", null],
-      });
+      const authPacket = await waitForMessage(socket);
+
+      assert.equal(authPacket, '42["auth",{}]');
     });
 
     it("should allow connection to the main namespace with a payload", async () => {
@@ -390,24 +379,20 @@ describe("Socket.IO protocol", () => {
 
       await waitForMessage(socket); // Engine.IO handshake
 
-      socket.send(encode({ type: 0, nsp: "/", data: { token: "123" } }));
+      socket.send('40{"token":"123"}');
 
-      const handshake = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(Object.keys(handshake).sort(), [
-        "data",
-        "nsp",
-        "type",
-      ]);
-      assert.equal(typeof handshake.data.sid, "string");
-      assert.equal(handshake.type, 0);
-      assert.equal(handshake.nsp, "/");
+      const data: string = await waitForMessage(socket);
 
-      const authPacket = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(authPacket, {
-        type: 2,
-        nsp: "/",
-        data: ["auth", { token: "123" }],
-      });
+      assert.equal(data.substring(0, 2), "40");
+
+      const handshake = JSON.parse(data.substring(2));
+
+      assert.deepStrictEqual(Object.keys(handshake), ["sid"]);
+      assert.equal(typeof handshake.sid, "string");
+
+      const authPacket = await waitForMessage(socket);
+
+      assert.equal(authPacket, '42["auth",{"token":"123"}]');
     });
 
     it("should allow connection to a custom namespace", async () => {
@@ -416,24 +401,21 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
-      socket.send(encode({ type: 0, nsp: "/custom" }));
 
-      const handshake = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(Object.keys(handshake).sort(), [
-        "data",
-        "nsp",
-        "type",
-      ]);
-      assert.equal(typeof handshake.data.sid, "string");
-      assert.equal(handshake.type, 0);
-      assert.equal(handshake.nsp, "/custom");
+      socket.send("40/custom,");
 
-      const authPacket = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(authPacket, {
-        type: 2,
-        nsp: "/custom",
-        data: ["auth", null],
-      });
+      const data: string = await waitForMessage(socket);
+
+      assert.equal(data.substring(0, 2), "40");
+
+      const handshake = JSON.parse(data.substring(10));
+
+      assert.deepStrictEqual(Object.keys(handshake), ["sid"]);
+      assert.equal(typeof handshake.sid, "string");
+
+      const authPacket = await waitForMessage(socket);
+
+      assert.equal(authPacket, '42/custom,["auth",{}]');
     });
 
     it("should allow connection to a custom namespace with a payload", async () => {
@@ -442,24 +424,21 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
-      socket.send(encode({ type: 0, nsp: "/custom", data: { token: "abc" } }));
 
-      const handshake = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(Object.keys(handshake).sort(), [
-        "data",
-        "nsp",
-        "type",
-      ]);
-      assert.equal(typeof handshake.data.sid, "string");
-      assert.equal(handshake.type, 0);
-      assert.equal(handshake.nsp, "/custom");
+      socket.send('40/custom,{"token":"abc"}');
 
-      const authPacket = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(authPacket, {
-        type: 2,
-        nsp: "/custom",
-        data: ["auth", { token: "abc" }],
-      });
+      const data: string = await waitForMessage(socket);
+
+      assert.equal(data.substring(0, 10), "40/custom,");
+
+      const handshake = JSON.parse(data.substring(10));
+
+      assert.deepStrictEqual(Object.keys(handshake), ["sid"]);
+      assert.equal(typeof handshake.sid, "string");
+
+      const authPacket = await waitForMessage(socket);
+
+      assert.equal(authPacket, '42/custom,["auth",{"token":"abc"}]');
     });
 
     it("should disallow connection to an unknown namespace", async () => {
@@ -468,14 +447,12 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
-      socket.send(encode({ type: 0, nsp: "/random" }));
 
-      const msg = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(msg, {
-        type: 4,
-        nsp: "/random",
-        data: { message: "Invalid namespace" },
-      });
+      socket.send("40/random");
+
+      const data = await waitForMessage(socket);
+
+      assert.equal(data, '44/random,{"message":"Invalid namespace"}');
     });
 
     it("should disallow connection with an invalid handshake", async () => {
@@ -485,7 +462,7 @@ describe("Socket.IO protocol", () => {
 
       await waitForMessage(socket); // Engine.IO handshake
 
-      socket.send(new Uint8Array([4, 132, 23, 2]));
+      socket.send("4abc");
 
       await waitForEvent(socket, "close");
     });
@@ -495,9 +472,10 @@ describe("Socket.IO protocol", () => {
     it("should disconnect from the main namespace", async () => {
       const socket = await initSocketIOConnection();
 
-      socket.send(encode({ type: 1, nsp: "/" }));
+      socket.send("41");
 
       const data = await waitForMessage(socket);
+
       assert.equal(data, "2");
     });
 
@@ -505,87 +483,57 @@ describe("Socket.IO protocol", () => {
       const socket = await initSocketIOConnection();
 
       await waitForMessage(socket); // ping
-      socket.send(encode({ type: 0, nsp: "/custom" }));
+
+      socket.send("40/custom");
 
       await waitForMessage(socket); // Socket.IO handshake
       await waitForMessage(socket); // auth packet
-      socket.send(encode({ type: 1, nsp: "/custom" }));
-      socket.send(
-        encode({
-          type: 2,
-          nsp: "/",
-          data: ["message", "message to main namespace", "test", 1],
-        }),
-      );
-      const test = await waitForMessage(socket);
-      const data = decode(test);
-      assert.deepStrictEqual(data, {
-        type: 2,
-        nsp: "/",
-        data: ["message-back", "message to main namespace", "test", 1],
-      });
+
+      socket.send("41/custom");
+      socket.send('42["message","message to main namespace",1,2]');
+
+      const data = await waitForMessage(socket);
+
+      assert.equal(data, '42["message-back","message to main namespace",1,2]');
+    });
+  });
+
+  describe("acknowledgements", () => {
+    it("should emit with an ack expectation", async () => {
+      const socket = await initSocketIOConnection();
+
+      socket.send('42["emit-with-ack",1,"2",{"3":[true]}]');
+
+      const data = await waitForMessage(socket);
+      assert.equal(data, '421["emit-with-ack",1,"2",{"3":[true]}]');
+      socket.send('431[1,"2",{"3":[true]}]');
+
+      const data2 = await waitForMessage(socket);
+      assert.equal(data2, '42["emit-with-ack",1,"2",{"3":[true]}]');
     });
 
-    describe("acknowledgements", () => {
-      it("should emit with an ack expectation", async () => {
-        const socket = await initSocketIOConnection();
-        socket.send(
-          encode({
-            type: 2,
-            nsp: "/",
-            data: ["emit-with-ack", 1, "2", { 3: [true] }],
-          }),
-        );
+    it("should emit with a binary ack expectation", async () => {
+      const socket = await initSocketIOConnection();
+      const DATA =
+        '{"_placeholder":true,"num":0},{"_placeholder":true,"num":1},"test"';
 
-        const data = decode(await waitForMessage(socket));
-        assert.deepStrictEqual(data, {
-          type: 2,
-          nsp: "/",
-          id: 1,
-          data: ["emit-with-ack", 1, "2", { 3: [true] }],
-        });
-        socket.send(
-          encode({ type: 3, nsp: "/", id: 1, data: [1, "2", { 3: [true] }] }),
-        );
+      socket.send(`452-["emit-with-ack",${DATA}]`);
+      socket.send(Uint8Array.from([1, 2, 3]));
+      socket.send(Uint8Array.from([4, 5, 6]));
 
-        const data2 = decode(await waitForMessage(socket));
-        assert.deepStrictEqual(data2, {
-          type: 2,
-          nsp: "/",
-          data: ["emit-with-ack", 1, "2", { 3: [true] }],
-        });
-      });
+      let packets = await waitForPackets(socket, 3);
+      assert.deepStrictEqual(packets[0], `452-1["emit-with-ack",${DATA}]`);
+      assert.deepStrictEqual(packets[1], Uint8Array.from([1, 2, 3]).buffer);
+      assert.deepStrictEqual(packets[2], Uint8Array.from([4, 5, 6]).buffer);
 
-      it("should emit with a binary ack expectation", async () => {
-        const socket = await initSocketIOConnection();
-        const BINS = [Buffer.from([1, 2, 3]), Buffer.from([4, 5, 6])];
-        socket.send(
-          encode({
-            type: 2,
-            nsp: "/",
-            data: ["emit-with-ack", ...BINS, "test"],
-          }),
-        );
+      socket.send(`462-1[${DATA}]`);
+      socket.send(Uint8Array.from([1, 2, 3]));
+      socket.send(Uint8Array.from([4, 5, 6]));
 
-        let packet = decode(await waitForMessage(socket));
-        assert.deepStrictEqual(packet, {
-          type: 2,
-          nsp: "/",
-          id: 1,
-          data: ["emit-with-ack", ...BINS, "test"],
-        });
-
-        socket.send(
-          encode({ type: 3, nsp: "/", id: 1, data: [...BINS, "test"] }),
-        );
-
-        packet = decode(await waitForMessage(socket));
-        assert.deepStrictEqual(packet, {
-          type: 2,
-          nsp: "/",
-          data: ["emit-with-ack", ...BINS, "test"],
-        });
-      });
+      packets = await waitForPackets(socket, 3);
+      assert.deepStrictEqual(packets[0], `452-["emit-with-ack",${DATA}]`);
+      assert.deepStrictEqual(packets[1], Uint8Array.from([1, 2, 3]).buffer);
+      assert.deepStrictEqual(packets[2], Uint8Array.from([4, 5, 6]).buffer);
     });
   });
 
@@ -593,91 +541,69 @@ describe("Socket.IO protocol", () => {
     it("should send a plain-text packet", async () => {
       const socket = await initSocketIOConnection();
 
-      socket.send(
-        encode({
-          type: 2,
-          nsp: "/",
-          data: ["message", 1, "2", { 3: [true] }],
-        }),
-      );
+      socket.send('42["message",1,"2",{"3":[true]}]');
 
-      const data = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(data, {
-        type: 2,
-        nsp: "/",
-        data: ["message-back", 1, "2", { 3: [true] }],
-      });
+      const data = await waitForMessage(socket);
+
+      assert.equal(data, '42["message-back",1,"2",{"3":[true]}]');
     });
 
     it("should send a packet with binary attachments", async () => {
       const socket = await initSocketIOConnection();
-      const BINS = [Buffer.from([1, 2, 3]), Buffer.from([4, 5, 6])];
 
       socket.send(
-        encode({
-          type: 2,
-          nsp: "/",
-          data: ["message", ...BINS, "test"],
-        }),
+        '452-["message",1,{"_placeholder":true,"num":0},{"_placeholder":true,"num":1}]',
       );
-      const data = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(data, {
-        type: 2,
-        nsp: "/",
-        data: ["message-back", ...BINS, "test"],
-      });
+      socket.send(Uint8Array.from([1, 2, 3]));
+      socket.send(Uint8Array.from([4, 5, 6]));
+
+      const packets = await waitForPackets(socket, 3);
+
+      assert.deepStrictEqual(
+        packets[0],
+        '452-["message-back",1,{"_placeholder":true,"num":0},{"_placeholder":true,"num":1}]',
+      );
+      assert.deepStrictEqual(packets[1], Uint8Array.from([1, 2, 3]).buffer);
+      assert.deepStrictEqual(packets[2], Uint8Array.from([4, 5, 6]).buffer);
 
       socket.close();
     });
 
     it("should send a plain-text packet with an ack", async () => {
       const socket = await initSocketIOConnection();
-      socket.send(
-        encode({
-          type: 2,
-          id: 456,
-          nsp: "/",
-          data: ["message-with-ack", 1, "2", { 3: [false] }],
-        }),
-      );
 
-      const data = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(data, {
-        type: 3,
-        id: 456,
-        nsp: "/",
-        data: [1, "2", { 3: [false] }],
-      });
+      socket.send('42456["message-with-ack",1,"2",{"3":[false]}]');
+
+      const data = await waitForMessage(socket);
+
+      assert.equal(data, '43456[1,"2",{"3":[false]}]');
     });
 
     it("should send a packet with binary attachments and an ack", async () => {
       const socket = await initSocketIOConnection();
-      const BINS = [Buffer.from([1, 2, 3]), Buffer.from([4, 5, 6])];
 
       socket.send(
-        encode({
-          type: 2,
-          nsp: "/",
-          id: 789,
-          data: ["message-with-ack", ...BINS, "test"],
-        }),
+        '452-789["message-with-ack",1,{"_placeholder":true,"num":0},{"_placeholder":true,"num":1}]',
       );
+      socket.send(Uint8Array.from([1, 2, 3]));
+      socket.send(Uint8Array.from([4, 5, 6]));
 
-      const data = decode(await waitForMessage(socket));
-      assert.deepStrictEqual(data, {
-        type: 3,
-        id: 789,
-        data: [...BINS, "test"],
-        nsp: "/",
-      });
+      const packets = await waitForPackets(socket, 3);
+
+      assert.deepStrictEqual(
+        packets[0],
+        '462-789[1,{"_placeholder":true,"num":0},{"_placeholder":true,"num":1}]',
+      );
+      assert.deepStrictEqual(packets[1], Uint8Array.from([1, 2, 3]).buffer);
+      assert.deepStrictEqual(packets[2], Uint8Array.from([4, 5, 6]).buffer);
 
       socket.close();
     });
 
     it("should close the connection upon invalid format (unknown packet type)", async () => {
       const socket = await initSocketIOConnection();
+
       socket.send("4abc");
-      socket.send(Buffer.from([1, 2, 3, 4]));
 
       await waitForEvent(socket, "close");
     });
