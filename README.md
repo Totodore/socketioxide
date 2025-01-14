@@ -1,8 +1,8 @@
 # [`Socketioxide`](https://github.com/totodore/socketioxide) 🚀🦀
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Totodore/socketioxide/blob/main/.github/logo_dark.svg">
-  <img width=150 height=150 align=left alt="Shows Anuraghazra's GitHub Stats." src="https://github.com/Totodore/socketioxide/blob/main/.github/logo_light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Totodore/socketioxide/refs/heads/main/.github/logo_dark.svg">
+  <img width=150 height=150 align=left alt="Shows Anuraghazra's GitHub Stats." src="https://raw.githubusercontent.com/Totodore/socketioxide/refs/heads/main/.github/logo_light.svg">
 </picture>
 
 A [***`socket.io`***](https://socket.io) server implementation in Rust that integrates with the [***`Tower`***](https://tokio.rs/#tk-lib-tower) ecosystem and the [***`Tokio stack`***](https://tokio.rs). It integrates with any server framework based on tower like [***`Axum`***](https://docs.rs/axum/latest/axum/), [***`Warp`***](https://docs.rs/warp/latest/warp/), [***`Salvo`***](https://salvo.rs), [***`Viz`***](https://viz.rs) or [***`Hyper`***](https://docs.rs/hyper/latest/hyper/). Add any other tower based middleware on top of socketioxide such as CORS, authorization, compression, etc with [***`tower-http`***](https://docs.rs/tower-http/latest/tower_http/).

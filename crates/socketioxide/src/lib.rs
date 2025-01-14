@@ -1,5 +1,10 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![doc(html_logo_url = "https://github.com/Totodore/socketioxide/blob/main/.github/logo_dark.svg")]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/Totodore/socketioxide/refs/heads/main/.github/logo_dark.svg"
+)]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/Totodore/socketioxide/refs/heads/main/.github/logo_dark.ico"
+)]
 #![warn(
     clippy::all,
     clippy::todo,
