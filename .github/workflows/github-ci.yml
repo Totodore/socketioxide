@@ -33,7 +33,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
       - run: cargo test --tests --all-features --workspace
   udeps:
     runs-on: ubuntu-latest
@@ -54,7 +54,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-nightly
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-nightly
       - name: Check unused dependencies on default features
         run: RUSTFLAGS="--cfg fuzzing" cargo udeps
 
@@ -76,7 +76,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ steps.msrv.outputs.version }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-${{ steps.msrv.outputs.version }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
@@ -105,7 +105,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: check --feature-powerset
         run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide -p socketioxide-redis
@@ -125,7 +125,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             examples/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-examples
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-examples
       - run: cd examples && cargo check --all-features
 
   doctest:
@@ -143,7 +143,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
       - run: cargo test --doc --all-features
 
   rust-clippy-analyze:
@@ -169,7 +169,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-clippy
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-clippy
 
       - name: Install required cargo                                                                                                                                                                                                      │
         run: cargo install clippy-sarif sarif-fmt || true
@@ -215,7 +215,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-release
       - name: Install deps & run tests
         run: |
           cd engine.io-protocol/test-suite && npm install && cd ../..
@@ -250,14 +250,14 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-socketioxide-e2e
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-release
       - name: Install deps & run tests
         run: |
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
-          cd e2e/socketioxide && npm install
+          cd e2e/socketioxide/test-suites && npm install
           cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt & node ./test-suites/${{ matrix.socketio-version }}.ts > client.txt
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt & node --experimental-strip-types ${{ matrix.socketio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -284,7 +284,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-adapter
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
