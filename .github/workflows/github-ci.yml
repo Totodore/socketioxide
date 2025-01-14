@@ -179,11 +179,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - uses: actions/checkout@v4
-        with:
-          repository: totodore/engine.io-protocol
-          path: engine.io-protocol
-          ref: ${{ matrix.engineio-version }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -199,9 +194,9 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-release
       - name: Install deps & run tests
         run: |
-          cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
-          cargo run -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cd e2e/engineioxide/test-suites && npm install && cd ../../..
+          cargo build -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r
+          cargo run -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r > server.txt & node --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
