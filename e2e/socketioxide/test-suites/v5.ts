@@ -227,6 +227,7 @@ describe("Engine.IO protocol", () => {
         const pollResponse = await fetch(
           `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
         );
+
         assert(
           pollResponse.status == 400 ||
             (pollResponse.status == 200 && (await pollResponse.text()) == "1"),
