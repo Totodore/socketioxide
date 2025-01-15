@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(all(feature = "v4", not(feature = "msgpack")))]
     info!("Starting server with v4 protocol and common parser");
 
-    let listener = TcpListener::bind("127.0.0.1:3000").await?;
+    let listener = TcpListener::bind("0.0.0.0:3000").await?;
 
     // We start a loop to continuously accept incoming connections
     loop {

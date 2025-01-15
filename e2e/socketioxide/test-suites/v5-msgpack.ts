@@ -17,7 +17,16 @@ async function initLongPollingSession() {
     `${POLLING_URL}/socket.io/?EIO=4&transport=polling`,
   );
   const content = await response.text();
-  return JSON.parse(content.substring(1)).sid;
+  const sid = JSON.parse(content.substring(1)).sid;
+  // receive ping packet
+  const pingRes = await fetch(
+    `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
+  );
+  assert.equal(pingRes.status, 200);
+  const ping = await pingRes.text();
+  assert.equal(ping, "2");
+
+  return sid;
 }
 
 async function initSocketIOConnection() {
@@ -27,6 +36,7 @@ async function initSocketIOConnection() {
   socket.binaryType = "arraybuffer";
 
   await waitForMessage(socket); // Engine.IO handshake
+  await waitForMessage(socket); // Engine.IO ping
 
   socket.send(encode({ type: 0, nsp: "/" }));
 
@@ -181,7 +191,11 @@ describe("Engine.IO protocol", () => {
   describe("heartbeat", { timeout: 5000 }, function () {
     describe("HTTP long-polling", () => {
       it("should send ping/pong packets", async () => {
-        const sid = await initLongPollingSession();
+        const response = await fetch(
+          `${POLLING_URL}/socket.io/?EIO=4&transport=polling`,
+        );
+        const content = await response.text();
+        const sid = JSON.parse(content.substring(1)).sid;
 
         for (let i = 0; i < 3; i++) {
           const pollResponse = await fetch(
@@ -364,6 +378,7 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
+      await waitForMessage(socket); // Engine.IO ping
 
       socket.send(encode({ type: 0, nsp: "/", data: undefined }));
 
@@ -392,6 +407,7 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
+      await waitForMessage(socket); // Engine.IO ping
 
       socket.send(encode({ type: 0, nsp: "/", data: { token: "123" } }));
 
@@ -419,6 +435,7 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
+      await waitForMessage(socket); // Engine.IO ping
       socket.send(encode({ type: 0, nsp: "/custom" }));
 
       const handshake = decode(await waitForMessage(socket));
@@ -445,6 +462,8 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
+      await waitForMessage(socket); // Engine.IO ping
+
       socket.send(encode({ type: 0, nsp: "/custom", data: { token: "abc" } }));
 
       const handshake = decode(await waitForMessage(socket));
@@ -471,6 +490,7 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
+      await waitForMessage(socket); // Engine.IO ping
       socket.send(encode({ type: 0, nsp: "/random" }));
 
       const msg = decode(await waitForMessage(socket));
@@ -487,6 +507,7 @@ describe("Socket.IO protocol", () => {
       );
 
       await waitForMessage(socket); // Engine.IO handshake
+      await waitForMessage(socket); // Engine.IO ping
 
       socket.send(new Uint8Array([4, 132, 23, 2]));
 
@@ -500,14 +521,13 @@ describe("Socket.IO protocol", () => {
 
       socket.send(encode({ type: 1, nsp: "/" }));
 
-      const data = await waitForMessage(socket);
-      assert.equal(data, "2");
+      // The socket heartbeat should timeout.
+      await waitForEvent(socket, "close");
     });
 
     it("should connect then disconnect from a custom namespace", async () => {
       const socket = await initSocketIOConnection();
 
-      await waitForMessage(socket); // ping
       socket.send(encode({ type: 0, nsp: "/custom" }));
 
       await waitForMessage(socket); // Socket.IO handshake

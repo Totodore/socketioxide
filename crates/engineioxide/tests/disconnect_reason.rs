@@ -54,7 +54,6 @@ impl EngineIoHandler for MyHandler {
 pub async fn polling_heartbeat_timeout() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
     create_server(MyHandler { disconnect_tx }, 1234).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
     create_polling_connection(1234).await;
 
     let data = tokio::time::timeout(Duration::from_millis(500), rx.recv())
@@ -93,7 +92,7 @@ pub async fn polling_transport_closed() {
     )
     .await;
 
-    let data = tokio::time::timeout(Duration::from_millis(1), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(10), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::TransportClose")
         .unwrap();
@@ -122,6 +121,13 @@ pub async fn multiple_http_polling() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
     create_server(MyHandler { disconnect_tx }, 1236).await;
     let sid = create_polling_connection(1236).await;
+    send_req(
+        1236,
+        format!("transport=polling&sid={sid}"),
+        http::Method::GET,
+        None,
+    )
+    .await; // we eat the first ping from the server.
 
     tokio::spawn(futures_util::future::join_all(vec![
         send_req(

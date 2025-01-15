@@ -16,7 +16,17 @@ async function initLongPollingSession() {
     `${POLLING_URL}/engine.io/?EIO=4&transport=polling`,
   );
   const content = await response.text();
-  return JSON.parse(content.substring(1)).sid;
+  const sid = JSON.parse(content.substring(1)).sid;
+
+  // receive ping packet
+  const pingRes = await fetch(
+    `${POLLING_URL}/engine.io/?EIO=4&transport=polling&sid=${sid}`,
+  );
+  assert.equal(pingRes.status, 200);
+  const ping = await pingRes.text();
+  assert.equal(ping, "2");
+
+  return sid;
 }
 
 describe("Engine.IO protocol", () => {
@@ -309,6 +319,7 @@ describe("Engine.IO protocol", () => {
         await waitForEvent(socket, "open");
 
         await waitForMessage(socket); // handshake
+        await waitForMessage(socket); // ping
 
         socket.send("4hello");
 
@@ -326,6 +337,7 @@ describe("Engine.IO protocol", () => {
         socket.binaryType = "arraybuffer";
 
         await waitForMessage(socket); // handshake
+        await waitForMessage(socket); // ping
 
         socket.send(Uint8Array.from([1, 2, 3, 4]));
 
@@ -342,6 +354,7 @@ describe("Engine.IO protocol", () => {
         );
 
         await waitForMessage(socket); // handshake
+        await waitForMessage(socket); // ping
 
         socket.send("abc");
 
@@ -355,7 +368,11 @@ describe("Engine.IO protocol", () => {
   describe("heartbeat", { timeout: 5000 }, function () {
     describe("HTTP long-polling", () => {
       it("sends ping/pong packets", async () => {
-        const sid = await initLongPollingSession();
+        const response = await fetch(
+          `${POLLING_URL}/engine.io/?EIO=4&transport=polling`,
+        );
+        const content = await response.text();
+        const sid = JSON.parse(content.substring(1)).sid;
 
         for (let i = 0; i < 3; i++) {
           const pollResponse = await fetch(
@@ -462,6 +479,7 @@ describe("Engine.IO protocol", () => {
         );
 
         await waitForMessage(socket); // handshake
+        await waitForMessage(socket); // ping
 
         socket.send("1");
 

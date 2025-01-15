@@ -7,7 +7,7 @@ use std::{
 };
 
 use engineioxide::service::NotFoundService;
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::server::conn::http1;
@@ -101,7 +101,12 @@ pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<T
     .unwrap()
     .0;
 
+    assert!(matches!(ws.next().await, Some(Ok(Message::Text(msg))) if msg.starts_with("0"))); // engine.io connect.
+    assert!(matches!(ws.next().await, Some(Ok(Message::Text(msg))) if msg == "2")); // engine.io ping.
     ws.send(Message::Text("40{}".into())).await.unwrap();
+
+    // wait the time that the socket is connected.
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     ws
 }

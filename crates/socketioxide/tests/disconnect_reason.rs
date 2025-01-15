@@ -253,7 +253,6 @@ pub async fn server_ws_closing() {
     let mut streams =
         futures_util::future::join_all((0..100).map(|_| create_ws_connection(12350))).await;
     futures_util::future::join_all(streams.iter_mut().map(|s| async move {
-        s.next().await; // engine.io open packet
         s.next().await; // socket.io open packet
     }))
     .await;
