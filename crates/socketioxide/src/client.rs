@@ -419,7 +419,7 @@ mod test {
     use tokio::sync::mpsc;
 
     use crate::adapter::LocalAdapter;
-    const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
+    const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(50);
 
     fn create_client() -> Arc<super::Client<LocalAdapter>> {
         let config = crate::SocketIoConfig {
@@ -457,25 +457,28 @@ mod test {
     #[tokio::test]
     async fn connect_timeout_fail() {
         let client = create_client();
-        let (tx, mut rx) = mpsc::channel(1);
-        let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
+        let (close_tx, mut close_rx) = mpsc::channel(1);
+        let close_fn = Box::new(move |_, reason| close_tx.try_send(reason).unwrap());
         let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
         client.on_connect(sock.clone());
-        tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
+        // The socket is closed
+        let res = tokio::time::timeout(CONNECT_TIMEOUT * 2, close_rx.recv())
             .await
-            .unwrap()
             .unwrap();
+        // applied in case of ns timeout
+        assert_eq!(res, Some(EIoDisconnectReason::TransportClose));
     }
 
     #[tokio::test]
     async fn connect_timeout() {
         let client = create_client();
-        let (tx, mut rx) = mpsc::channel(1);
-        let close_fn = Box::new(move |_, _| tx.try_send(()).unwrap());
+        let (close_tx, mut close_rx) = mpsc::channel(1);
+        let close_fn = Box::new(move |_, reason| close_tx.try_send(reason).unwrap());
         let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
         client.clone().on_connect(sock.clone());
         client.on_message("0".into(), sock.clone());
-        tokio::time::timeout(CONNECT_TIMEOUT * 2, rx.recv())
+        // The socket is not closed.
+        tokio::time::timeout(CONNECT_TIMEOUT * 2, close_rx.recv())
             .await
             .unwrap_err();
     }

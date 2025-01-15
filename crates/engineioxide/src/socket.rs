@@ -329,13 +329,6 @@ where
             .try_lock()
             .expect("Pong rx should be locked only once");
 
-        let instant = tokio::time::Instant::now();
-        // Sleep for an interval minus the time it took to get here
-        tokio::time::sleep(interval.saturating_sub(Duration::from_millis(
-            15 + instant.elapsed().as_millis() as u64,
-        )))
-        .await;
-
         #[cfg(feature = "tracing")]
         tracing::debug!(sid = ?self.id, "heartbeat sender routine started");
 
@@ -513,7 +506,14 @@ where
         sid: Sid,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
     ) -> Arc<Socket<D>> {
-        Socket::new_dummy_piped(sid, close_fn, 1024).0
+        let (s, mut rx) = Socket::new_dummy_piped(sid, close_fn, 1024);
+        tokio::spawn(async move {
+            while let Some(el) = rx.recv().await {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(?sid, ?el, "emitting eio msg");
+            }
+        });
+        s
     }
 
     /// Create a dummy socket for testing purpose with a
