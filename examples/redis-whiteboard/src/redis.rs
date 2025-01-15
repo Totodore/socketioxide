@@ -8,8 +8,8 @@ use socketioxide::{
     extract::{Data, SocketRef},
     ParserConfig, SocketIo,
 };
-use socketioxide_redis::{RedisAdapter, RedisAdapterCtr};
 use socketioxide_redis::drivers::redis::redis_client as redis;
+use socketioxide_redis::{RedisAdapter, RedisAdapterCtr};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     io.ns("/", on_connect).await?;
 
     let app = axum::Router::new()
-        .nest_service("/", ServeDir::new("dist"))
+        .fallback_service(ServeDir::new("dist"))
         .layer(
             ServiceBuilder::new()
                 .layer(CorsLayer::permissive()) // Enable CORS policy

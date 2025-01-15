@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let app = axum::Router::new()
-        .nest_service("/", ServeDir::new("public"))
+        .fallback_service(ServeDir::new("public"))
         .layer(
             ServiceBuilder::new()
                 .layer(CorsLayer::permissive()) // Enable CORS policy
