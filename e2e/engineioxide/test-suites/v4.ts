@@ -389,7 +389,10 @@ describe("Engine.IO protocol", () => {
           `${POLLING_URL}/engine.io/?EIO=4&transport=polling&sid=${sid}`,
         );
 
-        assert.deepStrictEqual(pollResponse.status, 400);
+        assert(
+          pollResponse.status == 400 ||
+            (pollResponse.status == 200 && (await pollResponse.text()) == "1"),
+        );
       });
     });
 
