@@ -537,6 +537,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         timeout: Option<Duration>,
     ) -> Result<Self::AckStream, Self::Error> {
         if is_local_op(self.uid, &opts) {
+            tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
             let stream = AckStream::new_local(local);
             return Ok(stream);
@@ -588,7 +589,9 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
 
         // First get the remote stream because redis might send
         // the responses before subscription is done.
-        let stream = self.get_res::<()>(req_id, PACKET_IDX).await?;
+        let stream = self
+            .get_res::<()>(req_id, PACKET_IDX, opts.server_id)
+            .await?;
         self.send_req(req, opts.server_id).await?;
         let local = self.local.rooms(opts);
         let rooms = stream
@@ -641,7 +644,9 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         let req_id = req.id;
         // First get the remote stream because redis might send
         // the responses before subscription is done.
-        let remote = self.get_res::<RemoteSocketData>(req_id, PACKET_IDX).await?;
+        let remote = self
+            .get_res::<RemoteSocketData>(req_id, PACKET_IDX, opts.server_id)
+            .await?;
 
         self.send_req(req, opts.server_id).await?;
         let local = self.local.fetch_sockets(opts);
@@ -909,9 +914,15 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         &self,
         req_id: Sid,
         response_idx: u8,
+        target_uid: Option<Uid>,
     ) -> Result<impl Stream<Item = Response<D>>, Error<R>> {
-        let remote_serv_cnt = self.server_count().await?.saturating_sub(1) as usize;
-        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
+        // Check for specific target node
+        let remote_serv_cnt = if target_uid.is_none() {
+            self.server_count().await?.saturating_sub(1) as usize
+        } else {
+            1
+        };
+        let (tx, rx) = mpsc::channel(std::cmp::max(dbg!(remote_serv_cnt), 1));
         self.responses.lock().unwrap().insert(req_id, tx);
         let stream = MessageStream::new(rx)
             .filter_map(|item| {
@@ -946,11 +957,17 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
 /// sent to the current server.
 #[inline]
 fn is_local_op(uid: Uid, opts: &BroadcastOptions) -> bool {
-    opts.has_flag(BroadcastFlags::Local)
+    if opts.has_flag(BroadcastFlags::Local)
         || (!opts.has_flag(BroadcastFlags::Broadcast)
             && opts.server_id == Some(uid)
             && opts.rooms.is_empty()
             && opts.sid.is_some())
+    {
+        tracing::debug!(?opts, "operation is local");
+        true
+    } else {
+        false
+    }
 }
 
 /// Checks if the namespace path is valid
