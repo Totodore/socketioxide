@@ -86,7 +86,6 @@ impl<A: Adapter> fmt::Debug for SocketRef<A> {
 ///
 /// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
 /// make sure to have a handler that is [generic over the adapter type](crate#adapters).
-#[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
     socket: Arc<Socket<A>>,
     ack_id: Option<i64>,
