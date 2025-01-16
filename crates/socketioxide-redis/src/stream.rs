@@ -139,13 +139,18 @@ where
     S: Stream<Item = AckStreamItem<E>> + FusedStream,
 {
     type Item = AckStreamItem<E>;
-
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project().local.poll_next(cx) {
-            Poll::Pending | Poll::Ready(None) => self.poll_remote(cx),
+            Poll::Pending => match self.poll_remote(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
+                Poll::Ready(None) => Poll::Pending,
+            },
             Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
+            Poll::Ready(None) => self.poll_remote(cx),
         }
     }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (lower, upper) = self.local.size_hint();
         (lower, upper.map(|upper| upper + self.total_ack_cnt))

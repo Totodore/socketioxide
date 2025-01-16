@@ -255,9 +255,7 @@ impl<T: DeserializeOwned, A: Adapter> Future for AckStream<T, A> {
         match self.project().inner.poll_next(cx) {
             Poll::Ready(Some(v)) => Poll::Ready(map_ack_response(v.1, parser)),
             Poll::Pending => Poll::Pending,
-            Poll::Ready(None) => {
-                unreachable!("stream should at least yield 1 value")
-            }
+            Poll::Ready(None) => Poll::Ready(Err(AckError::Timeout)),
         }
     }
 }

@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::fmt;
 use std::sync::Arc;
 
 use crate::{
@@ -14,7 +15,6 @@ use socketioxide_core::{errors::SocketError, packet::Packet, parser::Parse, Valu
 ///
 /// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
 /// make sure to have a handler that is [generic over the adapter type](crate#adapters).
-#[derive(Debug)]
 pub struct SocketRef<A: Adapter = LocalAdapter>(Arc<Socket<A>>);
 
 impl<A: Adapter> FromConnectParts<A> for SocketRef<A> {
@@ -75,13 +75,17 @@ impl<A: Adapter> SocketRef<A> {
         self.0.disconnect()
     }
 }
+impl<A: Adapter> fmt::Debug for SocketRef<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
 
 /// An Extractor to send an ack response corresponding to the current event.
 /// If the client sent a normal message without expecting an ack, the ack callback will do nothing.
 ///
 /// It is generic over the [`Adapter`] type. If you plan to use it with another adapter than the default,
 /// make sure to have a handler that is [generic over the adapter type](crate#adapters).
-#[derive(Debug)]
 pub struct AckSender<A: Adapter = LocalAdapter> {
     socket: Arc<Socket<A>>,
     ack_id: Option<i64>,

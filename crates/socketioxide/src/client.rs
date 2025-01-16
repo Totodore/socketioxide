@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bytes::Bytes;
@@ -212,7 +213,6 @@ impl<A: Adapter> Client<A> {
     }
 }
 
-#[derive(Debug)]
 pub struct SocketData<A: Adapter> {
     pub parser_state: ParserState,
     /// Channel used to notify the socket that it has been connected to a namespace for v5
@@ -228,6 +228,14 @@ impl<A: Adapter> Default for SocketData<A> {
             connect_recv_tx: Mutex::new(None),
             io: OnceLock::new(),
         }
+    }
+}
+impl<A: Adapter> fmt::Debug for SocketData<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SocketData")
+            .field("parser_state", &self.parser_state)
+            .field("connect_recv_tx", &self.connect_recv_tx)
+            .finish()
     }
 }
 
