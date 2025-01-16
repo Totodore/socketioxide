@@ -4,6 +4,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::{self, Debug},
+    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex, RwLock,
@@ -130,7 +131,6 @@ impl<'a> PermitExt<'a> for Permit<'a> {
 
 /// A RemoteSocket is a [`Socket`] that is remotely connected on another server.
 /// It implements a subset of the [`Socket`] API.
-#[derive(Clone)]
 pub struct RemoteSocket<A> {
     adapter: Arc<A>,
     parser: Parser,
@@ -203,16 +203,19 @@ impl<A: Adapter> RemoteSocket<A> {
     ///
     /// See [`Socket::join`] for more info.
     #[inline]
-    pub async fn join(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.adapter.add_sockets(self.get_opts(), rooms).await
+    pub fn join(&self, rooms: impl RoomParam) -> impl Future<Output = Result<(), A::Error>> + '_ {
+        self.adapter.add_sockets(self.get_opts(), rooms)
     }
 
     /// # Remove the remote socket from the specified room(s).
     ///
     /// See [`Socket::leave`] for more info.
     #[inline]
-    pub async fn leave(&self, rooms: impl RoomParam) -> Result<(), A::Error> {
-        self.adapter.del_sockets(self.get_opts(), rooms).await
+    pub fn leave(
+        &self,
+        rooms: impl RoomParam,
+    ) -> impl Future<Output = Result<(), A::Error>> + Send + '_ {
+        self.adapter.del_sockets(self.get_opts(), rooms)
     }
 
     /// # Disconnect the remote socket from the current namespace,
@@ -236,6 +239,15 @@ impl<A> fmt::Debug for RemoteSocket<A> {
             .field("server_id", &self.data.server_id)
             .field("ns", &self.data.ns)
             .finish()
+    }
+}
+impl<A> Clone for RemoteSocket<A> {
+    fn clone(&self) -> Self {
+        Self {
+            adapter: self.adapter.clone(),
+            parser: self.parser,
+            data: self.data.clone(),
+        }
     }
 }
 
