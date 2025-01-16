@@ -922,7 +922,7 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         } else {
             1
         };
-        let (tx, rx) = mpsc::channel(std::cmp::max(dbg!(remote_serv_cnt), 1));
+        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
         self.responses.lock().unwrap().insert(req_id, tx);
         let stream = MessageStream::new(rx)
             .filter_map(|item| {
