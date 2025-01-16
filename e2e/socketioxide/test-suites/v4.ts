@@ -220,7 +220,7 @@ describe("Engine.IO protocol", () => {
       it("should close the session upon ping timeout", async () => {
         const sid = await initLongPollingSession();
 
-        await sleep(PING_INTERVAL + PING_TIMEOUT);
+        await sleep(PING_INTERVAL + PING_TIMEOUT + 100);
 
         const pollResponse = await fetch(
           `${POLLING_URL}/socket.io/?EIO=3&transport=polling&sid=${sid}`,
