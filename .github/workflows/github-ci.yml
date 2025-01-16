@@ -274,7 +274,7 @@ jobs:
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
           cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER
-          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" node --experimental-strip-types client.ts
+          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" node --experimental-strip-types --test-reporter=spec client.ts
       - name: Server output
         if: always()
         run: cat e2e/adapter/*.log
