@@ -1,3 +1,30 @@
+_From now all crate versions are disjoined._
+
+# socketioxide 0.16.0
+* feat(*breaking*): remote adapters, see [this article](https://github.com/Totodore/socketioxide/discussions/440) for more details.
+* deps: bump `thiserror` to 2.0
+* deps: bump `axum` to 0.8
+* deps: bump `engineioxide` to 0.16.0
+* docs: fix grammar/typos
+
+# socketioxide-parser-msgpack 0.16.0
+* feat(*breaking*): remote adapters
+
+# socketioxide-parser-common 0.16.0
+* feat(*breaking*): remote adapters
+
+# socketioxide-core 0.16.0
+* feat(*breaking*): remote adapters
+
+# socketioxide-redis 0.1.0
+* Initial release!
+
+# engineioxide 0.16.0
+* deps: bump `thiserror` to 2.0
+* deps: bump `tokio-tungstenite` to 0.26
+* docs: fix grammar/typos
+* fix(engineio): heartbeat start delay
+
 # 0.15.1
 ## socketioxide
 * deps: remove smallvec deps
