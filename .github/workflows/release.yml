@@ -61,6 +61,8 @@ jobs:
             path: crates/parser-msgpack
           - crate: socketioxide
             path: crates/socketioxide
+          - crate: socketioxide_redis
+            path: crates/socketioxide-redis
     steps:
       - uses: dtolnay/rust-toolchain@stable
         with:

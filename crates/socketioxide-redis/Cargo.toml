@@ -19,7 +19,7 @@ fred = ["dep:fred"]
 default = ["redis"]
 
 [dependencies]
-socketioxide-core = { version = "0.15", path = "../socketioxide-core" }
+socketioxide-core = { version = "0.16", path = "../socketioxide-core" }
 futures-core.workspace = true
 futures-util.workspace = true
 pin-project-lite.workspace = true
