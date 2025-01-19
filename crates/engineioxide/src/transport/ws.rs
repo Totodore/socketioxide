@@ -100,7 +100,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
 /// Sends an open packet if it is not an upgrade from a polling request
 ///
 /// Read packets from the websocket and handle them, it will block until the connection is closed
-pub async fn on_init<H: EngineIoHandler, S>(
+async fn on_init<H: EngineIoHandler, S>(
     engine: Arc<EngineIo<H>>,
     conn: S,
     protocol: ProtocolVersion,
