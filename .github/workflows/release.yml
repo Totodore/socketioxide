@@ -3,45 +3,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  git-tag:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get releasing version
-        working-directory: .
-        run: |
-          NEXT_VERSION=$(sed -nE 's/^\s*version = "(.*?)"/\1/p' Cargo.toml) >> $GITHUB_ENV
-          echo NEXT_VERSION=$NEXT_VERSION >> $GITHUB_ENV
-          echo $NEXT_VERSION
-
-      - name: Check published version
-        run: |
-          PREV_VERSION=$(cargo search socketioxide --limit 1 | sed -nE 's/^[^"]*"//; s/".*//1p' -)
-          echo PREV_VERSION=$PREV_VERSION >> $GITHUB_ENV
-          echo $PREV_VERSION
-
-      - name: Cancel run
-        if: env.NEXT_VERSION == env.PREV_VERSION
-        uses: andymckay/cancel-action@0.3
-
-      - name: Auto tag latest version
-        uses: bullrich/commit-autotag@main
-        if: env.NEXT_VERSION != env.PREV_VERSION
-        env:
-          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        with:
-          strategy: regex
-          root: Cargo.toml
-          regex_pattern: "version\\s*=\\s*\"([0-9\\.]+)\""
-          tag_prefix: "v"
-          version: "${{ env.NEXT_VERSION }}"
-
   publish:
     runs-on: ubuntu-latest
     needs:
