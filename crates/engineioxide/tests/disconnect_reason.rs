@@ -18,10 +18,10 @@ use tokio::sync::mpsc;
 
 mod fixture;
 
-use fixture::{create_server, create_ws_connection, send_req};
+use fixture::{create_server, send_req};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::fixture::create_polling_connection;
+use crate::fixture::{create_polling_connection, create_ws_connection};
 
 #[derive(Debug, Clone)]
 struct MyHandler {
@@ -53,8 +53,8 @@ impl EngineIoHandler for MyHandler {
 #[tokio::test]
 pub async fn polling_heartbeat_timeout() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
-    let mut svc = create_server(MyHandler { disconnect_tx }).await;
-    create_polling_connection(&mut svc).await;
+    create_server(MyHandler { disconnect_tx }, 1234).await;
+    create_polling_connection(1234).await;
 
     let data = tokio::time::timeout(Duration::from_millis(500), rx.recv())
         .await
@@ -67,8 +67,8 @@ pub async fn polling_heartbeat_timeout() {
 #[tokio::test]
 pub async fn ws_heartbeat_timeout() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
-    let mut svc = create_server(MyHandler { disconnect_tx }).await;
-    let _stream = create_ws_connection(&mut svc).await;
+    create_server(MyHandler { disconnect_tx }, 12344).await;
+    let _stream = create_ws_connection(12344).await;
 
     let data = tokio::time::timeout(Duration::from_millis(500), rx.recv())
         .await
@@ -81,11 +81,11 @@ pub async fn ws_heartbeat_timeout() {
 #[tokio::test]
 pub async fn polling_transport_closed() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
-    let mut svc = create_server(MyHandler { disconnect_tx }).await;
-    let sid = create_polling_connection(&mut svc).await;
+    create_server(MyHandler { disconnect_tx }, 1235).await;
+    let sid = create_polling_connection(1235).await;
 
     send_req(
-        &mut svc,
+        1235,
         format!("transport=polling&sid={sid}"),
         http::Method::POST,
         Some("1".into()),
@@ -103,8 +103,8 @@ pub async fn polling_transport_closed() {
 #[tokio::test]
 pub async fn ws_transport_closed() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
-    let mut svc = create_server(MyHandler { disconnect_tx }).await;
-    let mut stream = create_ws_connection(&mut svc).await;
+    create_server(MyHandler { disconnect_tx }, 12345).await;
+    let mut stream = create_ws_connection(12345).await;
 
     stream.send(Message::Text("1".into())).await.unwrap();
 
@@ -119,10 +119,10 @@ pub async fn ws_transport_closed() {
 #[tokio::test]
 pub async fn multiple_http_polling() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
-    let mut svc = create_server(MyHandler { disconnect_tx }).await;
-    let sid = create_polling_connection(&mut svc).await;
+    create_server(MyHandler { disconnect_tx }, 1236).await;
+    let sid = create_polling_connection(1236).await;
     send_req(
-        &mut svc,
+        1236,
         format!("transport=polling&sid={sid}"),
         http::Method::GET,
         None,
@@ -131,13 +131,13 @@ pub async fn multiple_http_polling() {
 
     tokio::spawn(futures_util::future::join_all(vec![
         send_req(
-            &mut svc,
+            1236,
             format!("transport=polling&sid={sid}"),
             http::Method::GET,
             None,
         ),
         send_req(
-            &mut svc,
+            1236,
             format!("transport=polling&sid={sid}"),
             http::Method::GET,
             None,
@@ -155,10 +155,10 @@ pub async fn multiple_http_polling() {
 #[tokio::test]
 pub async fn polling_packet_parsing() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
-    let mut svc = create_server(MyHandler { disconnect_tx }).await;
-    let sid = create_polling_connection(&mut svc).await;
+    create_server(MyHandler { disconnect_tx }, 1237).await;
+    let sid = create_polling_connection(1237).await;
     send_req(
-        &mut svc,
+        1237,
         format!("transport=polling&sid={sid}"),
         http::Method::POST,
         Some("aizdunazidaubdiz".into()),
@@ -176,8 +176,8 @@ pub async fn polling_packet_parsing() {
 #[tokio::test]
 pub async fn ws_packet_parsing() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
-    let mut svc = create_server(MyHandler { disconnect_tx }).await;
-    let mut stream = create_ws_connection(&mut svc).await;
+    create_server(MyHandler { disconnect_tx }, 12347).await;
+    let mut stream = create_ws_connection(12347).await;
     stream
         .send(Message::Text("aizdunazidaubdiz".into()))
         .await

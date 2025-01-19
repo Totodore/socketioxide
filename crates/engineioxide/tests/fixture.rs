@@ -1,30 +1,21 @@
 use std::{
     collections::VecDeque,
-    future::Future,
-    io,
-    pin::Pin,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
-    task::{Context, Poll},
     time::Duration,
 };
 
-use bytes::{BufMut, Bytes};
-use engineioxide::{
-    config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, sid::Sid,
-    ProtocolVersion,
-};
+use engineioxide::{config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService};
 use http::Request;
 use http_body_util::{BodyExt, Either, Empty, Full};
+use hyper::server::conn::http1;
+use hyper_util::{
+    client::legacy::Client,
+    rt::{TokioExecutor, TokioIo},
+};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
-    sync::mpsc,
-};
-use tokio_tungstenite::{
-    tungstenite::{handshake::client::generate_key, protocol::Role},
-    WebSocketStream,
-};
-use tower_service::Service;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// An OpenPacket is used to initiate a connection
 #[derive(Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -38,12 +29,12 @@ struct OpenPacket {
 }
 
 /// Params should be in the form of `key1=value1&key2=value2`
-pub fn send_req<H: EngineIoHandler>(
-    svc: &mut EngineIoService<H>,
+pub async fn send_req(
+    port: u16,
     params: String,
     method: http::Method,
     body: Option<String>,
-) -> impl Future<Output = String> + 'static {
+) -> String {
     let body = match body {
         Some(b) => Either::Left(Full::new(VecDeque::from(b.into_bytes()))),
         None => Either::Right(Empty::<VecDeque<u8>>::new()),
@@ -51,30 +42,28 @@ pub fn send_req<H: EngineIoHandler>(
 
     let req = Request::builder()
         .method(method)
-        .uri(format!("http://127.0.0.1/engine.io/?EIO=4&{}", params))
+        .uri(format!(
+            "http://127.0.0.1:{port}/engine.io/?EIO=4&{}",
+            params
+        ))
         .body(body)
         .unwrap();
-    let res = svc.call(req);
-    async move {
-        let body = res
-            .await
-            .unwrap()
-            .body_mut()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes();
-        String::from_utf8(body.to_vec())
-            .unwrap()
-            .chars()
-            .skip(1)
-            .collect()
-    }
+    let mut res = Client::builder(TokioExecutor::new())
+        .build_http()
+        .request(req)
+        .await
+        .unwrap();
+    let body = res.body_mut().collect().await.unwrap().to_bytes();
+    String::from_utf8(body.to_vec())
+        .unwrap()
+        .chars()
+        .skip(1)
+        .collect()
 }
 
-pub async fn create_polling_connection<H: EngineIoHandler>(svc: &mut EngineIoService<H>) -> String {
+pub async fn create_polling_connection(port: u16) -> String {
     let body = send_req(
-        svc,
+        port,
         "transport=polling".to_string(),
         http::Method::GET,
         None,
@@ -83,88 +72,48 @@ pub async fn create_polling_connection<H: EngineIoHandler>(svc: &mut EngineIoSer
     let open_packet: OpenPacket = serde_json::from_str(&body).unwrap();
     open_packet.sid
 }
-pub async fn create_ws_connection<H: EngineIoHandler>(
-    svc: &mut EngineIoService<H>,
-) -> WebSocketStream<StreamImpl> {
-    new_ws_mock_conn(svc, ProtocolVersion::V4, None).await
-}
-
-pub struct StreamImpl(mpsc::UnboundedSender<Bytes>, mpsc::UnboundedReceiver<Bytes>);
-
-impl AsyncRead for StreamImpl {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        self.1.poll_recv(cx).map(|e| {
-            if let Some(e) = e {
-                buf.put(e);
-            }
-            Ok(())
-        })
-    }
-}
-impl AsyncWrite for StreamImpl {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
-        let len = buf.len();
-        self.0.send(Bytes::copy_from_slice(buf)).unwrap();
-        Poll::Ready(Ok(len))
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Result<(), io::Error>> {
-        self.1.close();
-        Poll::Ready(Ok(()))
-    }
-}
-async fn new_ws_mock_conn<H: EngineIoHandler>(
-    svc: &mut EngineIoService<H>,
-    protocol: ProtocolVersion,
-    sid: Option<Sid>,
-) -> WebSocketStream<StreamImpl> {
-    let (tx, rx) = mpsc::unbounded_channel();
-    let (tx1, rx1) = mpsc::unbounded_channel();
-
-    let parts = Request::builder()
-        .method("GET")
-        .header("Host", "127.0.0.1")
-        .header("Connection", "Upgrade")
-        .header("Upgrade", "websocket")
-        .header("Sec-WebSocket-Version", "13")
-        .header("Sec-WebSocket-Key", generate_key())
-        .uri("ws://127.0.0.1/engine.io/?EIO=4&transport=websocket")
-        .body(http_body_util::Empty::<Bytes>::new())
-        .unwrap()
-        .into_parts()
-        .0;
-
-    tokio::spawn(svc.ws_init(StreamImpl(tx, rx1), protocol, sid, parts));
-
-    tokio_tungstenite::WebSocketStream::from_raw_socket(
-        StreamImpl(tx1, rx),
-        Role::Client,
-        Default::default(),
-    )
+pub async fn create_ws_connection(port: u16) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
+    tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/engine.io/?EIO=4&transport=websocket"
+    ))
     .await
+    .unwrap()
+    .0
 }
 
-pub async fn create_server<H: EngineIoHandler>(handler: H) -> EngineIoService<H> {
+pub async fn create_server<H: EngineIoHandler>(handler: H, port: u16) {
     let config = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
         .max_payload(1e6 as u64)
         .build();
 
-    EngineIoService::with_config(Arc::new(handler), config)
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+
+    let svc = EngineIoService::with_config(Arc::new(handler), config);
+
+    let listener = TcpListener::bind(&addr).await.unwrap();
+    tokio::spawn(async move {
+        // We start a loop to continuously accept incoming connections
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+
+            // Use an adapter to access something implementing `tokio::io` traits as if they implement
+            // `hyper::rt` IO traits.
+            let io = TokioIo::new(stream);
+            let svc = svc.clone();
+
+            // Spawn a tokio task to serve multiple connections concurrently
+            tokio::task::spawn(async move {
+                // Finally, we bind the incoming connection to our `hello` service
+                if let Err(err) = http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .with_upgrades()
+                    .await
+                {
+                    println!("Error serving connection: {:?}", err);
+                }
+            });
+        }
+    });
 }
