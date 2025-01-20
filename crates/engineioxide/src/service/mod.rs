@@ -159,6 +159,29 @@ where
     }
 }
 
+#[cfg(feature = "__test_harness")]
+#[doc(hidden)]
+impl<H, Svc> EngineIoService<H, Svc>
+where
+    H: EngineIoHandler,
+{
+    /// Create a new engine.io conn over websocket through a raw stream.
+    /// Mostly used for testing.
+    pub fn ws_init<S>(
+        &self,
+        conn: S,
+        protocol: ProtocolVersion,
+        sid: Option<crate::sid::Sid>,
+        req_data: http::request::Parts,
+    ) -> impl std::future::Future<Output = Result<(), crate::errors::Error>>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let engine = self.engine.clone();
+        crate::transport::ws::on_init(engine, conn, protocol, sid, req_data)
+    }
+}
+
 /// A MakeService that always returns a clone of the [`EngineIoService`] it was created with.
 pub struct MakeEngineIoService<H: EngineIoHandler, S> {
     svc: EngineIoService<H, S>,

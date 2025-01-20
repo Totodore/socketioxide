@@ -54,7 +54,8 @@ tracing-subscriber.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }
 criterion.workspace = true
 axum.workspace = true
-hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"], default-features = false }
 
 [features]
 v3 = ["memchr", "unicode-segmentation", "itoa"]
