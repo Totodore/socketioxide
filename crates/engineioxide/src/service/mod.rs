@@ -165,7 +165,7 @@ impl<H, Svc> EngineIoService<H, Svc>
 where
     H: EngineIoHandler,
 {
-    /// Create a new engine.io over websocket through a raw stream.
+    /// Create a new engine.io conn over websocket through a raw stream.
     /// Mostly used for testing.
     pub fn ws_init<S>(
         &self,
