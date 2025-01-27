@@ -98,7 +98,7 @@ impl<A: Adapter> Client<A> {
             );
             esocket.close(EIoDisconnectReason::TransportClose);
         } else {
-            let path = Str::copy_from_slice(&ns_path);
+            let path = Str::copy_from_slice(ns_path);
             let packet = self
                 .parser()
                 .encode(Packet::connect_error(path, "Invalid namespace"));
