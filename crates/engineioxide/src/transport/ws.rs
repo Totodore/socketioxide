@@ -16,7 +16,11 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_tungstenite::{
-    tungstenite::{handshake::derive_accept_key, protocol::Role, Message},
+    tungstenite::{
+        handshake::derive_accept_key,
+        protocol::{Role, WebSocketConfig},
+        Message,
+    },
     WebSocketStream,
 };
 
@@ -110,7 +114,8 @@ pub async fn on_init<H: EngineIoHandler, S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, None);
+    let ws_config = WebSocketConfig::default().read_buffer_size(engine.config.ws_read_buffer_size);
+    let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, Some(ws_config));
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {
             None => return Err(Error::UnknownSessionID(sid)),
