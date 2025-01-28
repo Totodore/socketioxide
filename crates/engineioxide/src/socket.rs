@@ -159,8 +159,13 @@ impl Permit<'_> {
     }
 }
 
-/// Buffered packets to send to the client
-pub(crate) type PacketBuf = SmallVec<[Packet; 10]>;
+/// Buffered packets to send to the client.
+/// It is used to ensure atomicity when sending multiple packets to the client.
+///
+/// The [`PacketBuf`] stack size will impact the dynamically allocated buffer
+/// of the internal mpsc channel.
+pub(crate) type PacketBuf = SmallVec<[Packet; 2]>;
+
 /// A [`Socket`] represents a client connection to the server.
 /// It is agnostic to the [`TransportType`].
 ///

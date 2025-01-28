@@ -46,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ github.head_ref }}.${{ github.sha }}
-          path: *.txt
+          path: "*.txt"
       - name: Publish memory benchmark
         uses: actions/upload-artifact@v4
         with:
