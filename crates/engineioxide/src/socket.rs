@@ -164,7 +164,7 @@ impl Permit<'_> {
 ///
 /// The [`PacketBuf`] stack size will impact the dynamically allocated buffer
 /// of the internal mpsc channel.
-pub(crate) type PacketBuf = SmallVec<[Packet; 4]>;
+pub(crate) type PacketBuf = SmallVec<[Packet; 2]>;
 
 /// A [`Socket`] represents a client connection to the server.
 /// It is agnostic to the [`TransportType`].
