@@ -66,22 +66,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting server");
 
-    // We should not have to create two builders. This is a limitation of the current redis API.
-    // https://github.com/redis-rs/redis-rs/issues/1486
-    const CLUSTER: [&str; 6] = [
+    let client = redis::cluster::ClusterClient::new([
         "redis://127.0.0.1:7000?protocol=resp3",
         "redis://127.0.0.1:7001?protocol=resp3",
         "redis://127.0.0.1:7002?protocol=resp3",
         "redis://127.0.0.1:7003?protocol=resp3",
         "redis://127.0.0.1:7004?protocol=resp3",
         "redis://127.0.0.1:7005?protocol=resp3",
-    ];
+    ])?;
 
-    let client = redis::cluster::ClusterClient::builder(CLUSTER);
-
-    let adapter = RedisAdapterCtr::new_with_cluster(client).await?;
-    let client = redis::cluster::ClusterClient::builder(CLUSTER);
-    let conn = client.build().unwrap().get_async_connection().await?;
+    let adapter = RedisAdapterCtr::new_with_cluster(&client).await?;
+    let conn = client.get_async_connection().await?;
 
     let (layer, io) = SocketIo::builder()
         .with_state(RemoteUserCnt::new(conn))
