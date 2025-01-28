@@ -98,20 +98,14 @@ impl RedisDriver {
 impl ClusterDriver {
     /// Create a new redis driver from a redis cluster client.
     #[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
-    pub async fn new(
-        client_builder: redis::cluster::ClusterClientBuilder,
-    ) -> Result<Self, redis::RedisError> {
+    pub async fn new(client: &redis::cluster::ClusterClient) -> Result<Self, redis::RedisError> {
         let handlers = Arc::new(RwLock::new(HashMap::new()));
         let handlers_clone = handlers.clone();
-        let conn = client_builder
-            .push_sender(move |msg| {
-                handle_msg(msg, handlers_clone.clone());
-                Ok::<(), std::convert::Infallible>(())
-            })
-            .build()
-            .unwrap()
-            .get_async_connection()
-            .await?;
+        let config = redis::cluster::ClusterConfig::new().set_push_sender(move |msg| {
+            handle_msg(msg, handlers_clone.clone());
+            Ok::<(), std::convert::Infallible>(())
+        });
+        let conn = client.get_async_connection_with_config(config).await?;
 
         Ok(Self { conn, handlers })
     }
