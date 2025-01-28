@@ -12,6 +12,7 @@ fn on_connect(socket: SocketRef) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt::init();
     let (svc, io) = SocketIo::new_svc();
 
     io.ns("/", on_connect);

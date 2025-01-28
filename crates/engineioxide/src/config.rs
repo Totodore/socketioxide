@@ -57,8 +57,15 @@ pub struct EngineIoConfig {
     pub max_buffer_size: usize,
 
     /// The maximum number of bytes that can be received per http request.
-    /// Defaults to 100kb.
+    /// Defaults to 100KB.
     pub max_payload: u64,
+
+    /// The size of the read buffer for the websocket transport.
+    /// You can tweak this value depending on your use case. By default it is set to 4KiB.
+    ///
+    /// Setting it to a higher value will improve performance on heavy read scenarios
+    /// but will consume more memory.
+    pub ws_read_buffer_size: usize,
 
     /// Allowed transports on this server
     /// It is represented as a bitfield to allow to combine any number of transports easily
@@ -73,6 +80,7 @@ impl Default for EngineIoConfig {
             ping_timeout: Duration::from_millis(20000),
             max_buffer_size: 128,
             max_payload: 1e5 as u64, // 100kb
+            ws_read_buffer_size: 4096,
             transports: TransportType::Polling as u8 | TransportType::Websocket as u8,
         }
     }
@@ -170,6 +178,16 @@ impl EngineIoConfigBuilder {
     /// Defaults to 100kb.
     pub fn max_payload(mut self, max_payload: u64) -> Self {
         self.config.max_payload = max_payload;
+        self
+    }
+
+    /// The size of the read buffer for the websocket transport.
+    /// You can tweak this value depending on your use case. Defaults to 4KiB.
+    ///
+    /// Setting it to a higher value will improve performance on heavy read scenarios
+    /// but will consume more memory.
+    pub fn ws_read_buffer_size(mut self, ws_read_buffer_size: usize) -> Self {
+        self.config.ws_read_buffer_size = ws_read_buffer_size;
         self
     }
 

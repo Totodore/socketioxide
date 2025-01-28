@@ -158,6 +158,19 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// The size of the read buffer for the websocket transport.
+    /// You can tweak this value depending on your use case. Defaults to 4KiB.
+    ///
+    /// Setting it to a higher value will improve performance on heavy read scenarios
+    /// but will consume more memory.
+    #[inline]
+    pub fn ws_read_buffer_size(mut self, ws_read_buffer_size: usize) -> Self {
+        self.engine_config_builder = self
+            .engine_config_builder
+            .ws_read_buffer_size(ws_read_buffer_size);
+        self
+    }
+
     /// Allowed transports on this server
     ///
     /// The `transports` array should have a size of 1 or 2

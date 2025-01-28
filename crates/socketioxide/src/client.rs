@@ -61,7 +61,7 @@ impl<A: Adapter> Client<A> {
     fn sock_connect(
         self: &Arc<Self>,
         auth: Option<Value>,
-        ns_path: Str,
+        ns_path: &str,
         esocket: &Arc<engineioxide::Socket<SocketData<A>>>,
     ) {
         #[cfg(feature = "tracing")]
@@ -77,12 +77,10 @@ impl<A: Adapter> Client<A> {
                 }
             };
 
-        if let Some(ns) = self.get_ns(&ns_path) {
+        if let Some(ns) = self.get_ns(ns_path) {
             tokio::spawn(connect(ns, esocket.clone()));
-        } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(&ns_path) {
-            // We have to create a new `Str` otherwise, we would keep a ref to the original connect packet
-            // for the entire lifetime of the Namespace.
-            let path = Str::copy_from_slice(&ns_path);
+        } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(ns_path) {
+            let path = Str::copy_from_slice(ns_path);
             let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, &self.config);
             let this = self.clone();
             let esocket = esocket.clone();
@@ -100,9 +98,10 @@ impl<A: Adapter> Client<A> {
             );
             esocket.close(EIoDisconnectReason::TransportClose);
         } else {
+            let path = Str::copy_from_slice(ns_path);
             let packet = self
                 .parser()
-                .encode(Packet::connect_error(ns_path, "Invalid namespace"));
+                .encode(Packet::connect_error(path, "Invalid namespace"));
             let _ = match packet {
                 Value::Str(p, _) => esocket.emit(p).map_err(|_e| {
                     #[cfg(feature = "tracing")]
@@ -257,7 +256,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             ProtocolVersion::V4 => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("connecting to default namespace for v4");
-                self.sock_connect(None, Str::from("/"), &socket);
+                self.sock_connect(None, "/", &socket);
             }
             ProtocolVersion::V5 => self.spawn_connect_timeout_task(socket),
         }
@@ -302,7 +301,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => {
-                self.sock_connect(auth, packet.ns, &socket);
+                self.sock_connect(auth, &packet.ns, &socket);
                 Ok(())
             }
             _ => self.sock_propagate_packet(packet, socket.id),
@@ -339,7 +338,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
 
         let res: Result<(), Error> = match packet.inner {
             PacketData::Connect(auth) => {
-                self.sock_connect(auth, packet.ns, &socket);
+                self.sock_connect(auth, &packet.ns, &socket);
                 Ok(())
             }
             _ => self.sock_propagate_packet(packet, socket.id),

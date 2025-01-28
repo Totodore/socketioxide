@@ -91,7 +91,9 @@ impl Parse for CommonParser {
                 ..
             }) => {
                 let binaries = binaries.get_or_insert(VecDeque::new());
-                binaries.push_back(data);
+                // We copy the data to avoid holding a ref to the engine.io
+                // websocket buffer too long.
+                binaries.push_back(Bytes::copy_from_slice(&data));
                 if state.incoming_binary_cnt.load(Ordering::Relaxed) > binaries.len() {
                     Err(ParseError::NeedsMoreBinaryData)
                 } else {
