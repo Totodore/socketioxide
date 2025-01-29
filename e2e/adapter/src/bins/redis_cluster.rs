@@ -15,15 +15,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)?;
-    let builder = redis::cluster::ClusterClient::builder([
+    let client = redis::cluster::ClusterClient::new([
         "redis://127.0.0.1:7000?protocol=resp3",
         "redis://127.0.0.1:7001?protocol=resp3",
         "redis://127.0.0.1:7002?protocol=resp3",
         "redis://127.0.0.1:7003?protocol=resp3",
         "redis://127.0.0.1:7004?protocol=resp3",
         "redis://127.0.0.1:7005?protocol=resp3",
-    ]);
-    let adapter = RedisAdapterCtr::new_with_cluster(builder).await?;
+    ])?;
+    let adapter = RedisAdapterCtr::new_with_cluster(&client).await?;
     #[allow(unused_mut)]
     let mut builder =
         SocketIo::builder().with_adapter::<socketioxide_redis::ClusterAdapter<_>>(adapter);

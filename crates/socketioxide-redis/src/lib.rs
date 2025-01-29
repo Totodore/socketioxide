@@ -117,10 +117,8 @@
 //! async fn on_event<A: Adapter>(socket: SocketRef<A>, Data(data): Data<String>) {}
 //!
 //! // single node cluster
-//! let builder = redis::cluster::ClusterClient::builder(std::iter::once(
-//!     "redis://127.0.0.1:6379?protocol=resp3",
-//! ));
-//! let adapter = RedisAdapterCtr::new_with_cluster(builder).await?;
+//! let client = redis::cluster::ClusterClient::new(["redis://127.0.0.1:6379?protocol=resp3"])?;
+//! let adapter = RedisAdapterCtr::new_with_cluster(&client).await?;
 //!
 //! let (layer, io) = SocketIo::builder()
 //!     .with_adapter::<ClusterAdapter<_>>(adapter)
@@ -334,18 +332,18 @@ impl RedisAdapterCtr<drivers::redis::ClusterDriver> {
     /// Create a new adapter constructor with the [`redis`] driver and a default config.
     #[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
     pub async fn new_with_cluster(
-        builder: redis::cluster::ClusterClientBuilder,
+        client: &redis::cluster::ClusterClient,
     ) -> redis::RedisResult<Self> {
-        Self::new_with_cluster_config(builder, RedisAdapterConfig::default()).await
+        Self::new_with_cluster_config(client, RedisAdapterConfig::default()).await
     }
 
     /// Create a new adapter constructor with the [`redis`] driver and a default config.
     #[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
     pub async fn new_with_cluster_config(
-        builder: redis::cluster::ClusterClientBuilder,
+        client: &redis::cluster::ClusterClient,
         config: RedisAdapterConfig,
     ) -> redis::RedisResult<Self> {
-        let driver = drivers::redis::ClusterDriver::new(builder).await?;
+        let driver = drivers::redis::ClusterDriver::new(client).await?;
         Ok(Self::new_with_driver(driver, config))
     }
 }

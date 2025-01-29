@@ -24,10 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("connecting to redis");
     // single node cluster. In a real world scenario, you would have multiple nodes.
-    let builder = redis::cluster::ClusterClient::builder(std::iter::once(
-        "redis://127.0.0.1:6379?protocol=resp3",
-    ));
-    let adapter = RedisAdapterCtr::new_with_cluster(builder).await?;
+    let client = redis::cluster::ClusterClient::new(["redis://127.0.0.1:6379?protocol=resp3"])?;
+    let adapter = RedisAdapterCtr::new_with_cluster(&client).await?;
     info!("starting server");
 
     let (layer, io) = SocketIo::builder()
