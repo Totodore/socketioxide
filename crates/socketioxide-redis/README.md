@@ -2,8 +2,6 @@
 
 A [***`socket.io`***](https://socket.io) Redis adapter for [***`Socketioxide`***](https://github.com/totodore/socketioxide), enabling effortless horizontal scaling through Redis. This adapter supports multiple Redis client implementations and handles various Redis topologies, ensuring seamless scalability even on sharded, clustered setups.
 
-> ⚠️ This crate is under active development, and the API is not yet stable.
-
 [![Crates.io](https://img.shields.io/crates/v/socketioxide-redis.svg)](https://crates.io/crates/socketioxide-redis)
 [![Documentation](https://docs.rs/socketioxide-redis/badge.svg)](https://docs.rs/socketioxide-redis)
 [![CI](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml)
