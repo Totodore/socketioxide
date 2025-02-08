@@ -1,3 +1,20 @@
+# engineioxide 0.16.1
+* feat: add `Config::ws_read_buffer_size` to set the read buffer size for each websocket.
+It will default to 4KiB (previously 128KiB). You can increase it if you have high message throughput and less sockets.
+
+# socketioxide 0.16.1
+* feat: add `Config::ws_read_buffer_size` to set the read buffer size for each websocket.
+* deps: bump `engineioxide` to 0.16.1.
+
+# socketioxide-parser-common 0.16.1
+* fix: clone partial packets when keeping them to avoid holding a reference to the ws read buffer for too long. Otherwise it cause the
+ws read buffer to grows indefinitely in a many binary packets scenario.
+
+# socketioxide-redis 0.2
+* deps: bump `redis` to 0.28.2
+* feat(*breaking*): the redis cluster adapter constructor now takes a `&redis::cluster::ClusterClient`
+to match all other adapter constructors.
+
 _From now all crate versions are disjoined._
 
 # socketioxide 0.16.0
