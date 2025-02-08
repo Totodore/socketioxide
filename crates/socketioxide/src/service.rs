@@ -1,46 +1,21 @@
 //! ## A Tower [`Service`](tower_service::Service) and Hyper [`Service`](hyper::service::Service) for socket.io so it
 //! can be used with frameworks supporting tower and hyper services.
 //!
-//! #### Example with a raw `hyper` standalone service (most of the time it is easier to use a framework like `axum` or `salvo`):
-//!
-//! ```no_run
+//! #### Example with axum :
+//! ```rust
 //! # use socketioxide::SocketIo;
-//! # use std::net::SocketAddr;
-//! # use hyper::server::conn::http1;
-//! # use tokio::net::TcpListener;
+//! # use axum::routing::get;
+//! // Create a socket.io service
+//! let (svc, io) = SocketIo::new_svc();
 //!
-//! #[tokio::main]
-//! async fn main() {
-//!     let (svc, io) = SocketIo::new_svc();
+//! // Add io namespaces and events...
 //!
-//!      // Add io namespaces and events...
+//! let app = axum::Router::<()>::new()
+//!     .route("/", get(|| async { "Hello, World!" }))
+//!     .route_service("/socket.io", svc);
 //!
-//!      // Spawn raw hyper server
-//!      let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-//!      let listener = TcpListener::bind(addr).await.unwrap();
+//! // Spawn axum server
 //!
-//!      // We start a loop to continuously accept incoming connections
-//!      loop {
-//!          let (stream, _) = listener.accept().await.unwrap();
-//!
-//!          // Use an adapter to access something implementing `tokio::io` traits as if they implement
-//!          // `hyper::rt` IO traits.
-//!          let io = hyper_util::rt::TokioIo::new(stream);
-//!          let svc = svc.clone();
-//!
-//!          // Spawn a tokio task to serve multiple connections concurrently
-//!          tokio::task::spawn(async move {
-//!              // Finally, we bind the incoming connection to our `hello` service
-//!              if let Err(err) = http1::Builder::new()
-//!                  .serve_connection(io, svc)
-//!                  .with_upgrades()
-//!                  .await
-//!              {
-//!                  println!("Error serving connection: {:?}", err);
-//!             }
-//!         });
-//!     }
-//! }
 //! ```
 
 use engineioxide::service::{EngineIoService, MakeEngineIoService};
