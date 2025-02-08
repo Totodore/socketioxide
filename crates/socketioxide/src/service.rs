@@ -150,3 +150,31 @@ impl<A: Adapter, S: Clone> Clone for SocketIoService<S, A> {
         }
     }
 }
+
+#[cfg(feature = "__test_harness")]
+#[doc(hidden)]
+impl<Svc, A> SocketIoService<Svc, A>
+where
+    Svc: Clone,
+    A: Adapter,
+{
+    /// Create a new socket.io conn over websocket through a raw stream.
+    /// Mostly used for testing.
+    pub fn ws_init<S>(
+        &self,
+        conn: S,
+        protocol: crate::ProtocolVersion,
+        sid: Option<crate::socket::Sid>,
+        req_data: http::request::Parts,
+    ) -> impl std::future::Future<Output = ()>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let svc = self.engine_svc.clone();
+        async move {
+            if let Err(e) = svc.ws_init(conn, protocol.into(), sid, req_data).await {
+                eprintln!("Error initializing websocket connection {e}");
+            }
+        }
+    }
+}
