@@ -23,13 +23,8 @@ use crate::fixture::{create_polling_connection, create_ws_connection};
 
 fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectReason> {
     let (tx, rx) = mpsc::channel::<DisconnectReason>(chan_size);
-    io.ns("/", move |socket: SocketRef| {
-        println!("Socket connected on / namespace with id: {}", socket.id);
-        let tx = tx.clone();
-        socket.on_disconnect(move |s: SocketRef, reason: DisconnectReason| {
-            println!("Socket.IO disconnected: {} {}", s.id, reason);
-            tx.try_send(reason).unwrap();
-        });
+    io.ns("/", move |s: SocketRef| {
+        s.on_disconnect(move |r: DisconnectReason| tx.try_send(r).unwrap())
     });
     rx
 }
@@ -38,9 +33,9 @@ fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectR
 
 #[tokio::test]
 pub async fn polling_heartbeat_timeout() {
-    let io = create_server(1234).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    create_polling_connection(1234).await;
+    create_polling_connection(&svc).await;
 
     let data = tokio::time::timeout(Duration::from_millis(500), rx.recv())
         .await
@@ -52,9 +47,9 @@ pub async fn polling_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn ws_heartbeat_timeout() {
-    let io = create_server(12344).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    let _stream = create_ws_connection(12344).await;
+    let _stream = create_ws_connection(&svc).await;
 
     let data = tokio::time::timeout(Duration::from_millis(500), rx.recv())
         .await
@@ -66,19 +61,19 @@ pub async fn ws_heartbeat_timeout() {
 
 #[tokio::test]
 pub async fn polling_transport_closed() {
-    let io = create_server(1235).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    let sid = create_polling_connection(1235).await;
+    let sid = create_polling_connection(&svc).await;
 
     send_req(
-        1235,
+        &svc,
         format!("transport=polling&sid={sid}"),
         http::Method::POST,
         Some("1".into()),
     )
     .await;
 
-    let data = tokio::time::timeout(Duration::from_millis(1), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(100), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::TransportClose")
         .unwrap();
@@ -88,13 +83,13 @@ pub async fn polling_transport_closed() {
 
 #[tokio::test]
 pub async fn ws_transport_closed() {
-    let io = create_server(12345).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    let mut stream = create_ws_connection(12345).await;
+    let mut stream = create_ws_connection(&svc).await;
 
     stream.send(Message::Text("1".into())).await.unwrap();
 
-    let data = tokio::time::timeout(Duration::from_millis(10), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(100), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::TransportClose")
         .unwrap();
@@ -104,56 +99,60 @@ pub async fn ws_transport_closed() {
 
 #[tokio::test]
 pub async fn multiple_http_polling() {
-    let io = create_server(1236).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    let sid = create_polling_connection(1236).await;
+    let sid = create_polling_connection(&svc).await;
 
     // First request to flush the server buffer containing the open packet
     send_req(
-        1236,
+        &svc,
         format!("transport=polling&sid={sid}"),
         http::Method::GET,
         None,
     )
     .await;
 
-    tokio::spawn(futures_util::future::join_all(vec![
+    let (_, _, data) = futures_util::future::join3(
         send_req(
-            1236,
+            &svc,
             format!("transport=polling&sid={sid}"),
             http::Method::GET,
             None,
         ),
         send_req(
-            1236,
+            &svc,
             format!("transport=polling&sid={sid}"),
             http::Method::GET,
             None,
         ),
-    ]));
-
-    let data = tokio::time::timeout(Duration::from_millis(10), rx.recv())
-        .await
-        .expect("timeout waiting for DisconnectReason::DisconnectError::MultipleHttpPolling")
-        .unwrap();
+        async move {
+            tokio::time::timeout(Duration::from_millis(100), rx.recv())
+                .await
+                .expect(
+                    "timeout waiting for DisconnectReason::DisconnectError::MultipleHttpPolling",
+                )
+                .unwrap()
+        },
+    )
+    .await;
 
     assert_eq!(data, DisconnectReason::MultipleHttpPollingError);
 }
 
 #[tokio::test]
 pub async fn polling_packet_parsing() {
-    let io = create_server(1237).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    let sid = create_polling_connection(1237).await;
+    let sid = create_polling_connection(&svc).await;
     send_req(
-        1237,
+        &svc,
         format!("transport=polling&sid={sid}"),
         http::Method::POST,
         Some("aizdunazidaubdiz".into()),
     )
     .await;
 
-    let data = tokio::time::timeout(Duration::from_millis(1), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(100), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::PacketParsingError")
         .unwrap();
@@ -163,15 +162,15 @@ pub async fn polling_packet_parsing() {
 
 #[tokio::test]
 pub async fn ws_packet_parsing() {
-    let io = create_server(12347).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    let mut stream = create_ws_connection(12347).await;
+    let mut stream = create_ws_connection(&svc).await;
     stream
         .send(Message::Text("aizdunazidaubdiz".into()))
         .await
         .unwrap();
 
-    let data = tokio::time::timeout(Duration::from_millis(1), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(100), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::PacketParsingError")
         .unwrap();
@@ -183,13 +182,13 @@ pub async fn ws_packet_parsing() {
 
 #[tokio::test]
 pub async fn client_ns_disconnect() {
-    let io = create_server(12348).await;
+    let (svc, io) = create_server().await;
     let mut rx = attach_handler(&io, 1);
-    let mut stream = create_ws_connection(12348).await;
+    let mut stream = create_ws_connection(&svc).await;
 
     stream.send(Message::Text("41".into())).await.unwrap();
 
-    let data = tokio::time::timeout(Duration::from_millis(10), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(100), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::ClientNSDisconnect")
         .unwrap();
@@ -200,27 +199,20 @@ pub async fn client_ns_disconnect() {
 #[tokio::test]
 pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
-    let io = create_server(12349).await;
+    let (svc, io) = create_server().await;
     io.ns("/", move |socket: SocketRef, io: SocketIo| {
-        let id = socket.id;
-        println!("Socket connected on / namespace with id: {}", id);
-        let tx = tx.clone();
-
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             let s = io.sockets().into_iter().next().unwrap();
             s.disconnect().unwrap();
         });
 
-        socket.on_disconnect(move |socket: SocketRef, reason: DisconnectReason| {
-            println!("Socket.IO disconnected: {} {}", socket.id, reason);
-            tx.try_send(reason).unwrap();
-        });
+        socket.on_disconnect(move |reason: DisconnectReason| tx.try_send(reason).unwrap());
     });
 
-    let _stream = create_ws_connection(12349).await;
+    let _stream = create_ws_connection(&svc).await;
 
-    let data = tokio::time::timeout(Duration::from_millis(20), rx.recv())
+    let data = tokio::time::timeout(Duration::from_millis(100), rx.recv())
         .await
         .expect("timeout waiting for DisconnectReason::ServerNSDisconnect")
         .unwrap();
@@ -230,13 +222,13 @@ pub async fn server_ns_disconnect() {
 #[tokio::test]
 pub async fn server_ns_close() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
-    let io = create_server(12353).await;
+    let (svc, io) = create_server().await;
     io.ns("/test", move |socket: SocketRef, io: SocketIo| {
         socket.on_disconnect(move |reason: DisconnectReason| tx.try_send(reason).unwrap());
         io.delete_ns("/test");
     });
 
-    let mut ws = create_ws_connection(12353).await;
+    let mut ws = create_ws_connection(&svc).await;
     ws.send(Message::Text("40/test,{}".into())).await.unwrap();
     let data = tokio::time::timeout(Duration::from_millis(20), rx.recv())
         .await
@@ -247,17 +239,19 @@ pub async fn server_ns_close() {
 
 #[tokio::test]
 pub async fn server_ws_closing() {
-    let io = create_server(12350).await;
+    let (svc, io) = create_server().await;
     let _rx = attach_handler(&io, 100);
 
     let mut streams =
-        futures_util::future::join_all((0..100).map(|_| create_ws_connection(12350))).await;
+        futures_util::future::join_all((0..100).map(|_| create_ws_connection(&svc))).await;
     futures_util::future::join_all(streams.iter_mut().map(|s| async move {
+        s.next().await; // engine.io open packet
         s.next().await; // socket.io open packet
+        s.next().await; // engine.io ping packet
     }))
     .await;
 
-    tokio::time::timeout(Duration::from_millis(20), io.close())
+    tokio::time::timeout(Duration::from_millis(100), io.close())
         .await
         .expect("timeout waiting for server closing");
     let packets = futures_util::future::join_all(streams.iter_mut().map(|s| async move {
@@ -272,13 +266,13 @@ pub async fn server_ws_closing() {
 
 #[tokio::test]
 pub async fn server_http_closing() {
-    let io = create_server(12351).await;
+    let (svc, io) = create_server().await;
     let _rx = attach_handler(&io, 100);
     let mut sids =
-        futures_util::future::join_all((0..100).map(|_| create_polling_connection(12351))).await;
+        futures_util::future::join_all((0..100).map(|_| create_polling_connection(&svc))).await;
     futures_util::future::join_all(sids.iter_mut().map(|s| {
         send_req(
-            12351,
+            &svc,
             format!("transport=polling&sid={s}"),
             http::Method::GET,
             None,
@@ -291,7 +285,7 @@ pub async fn server_http_closing() {
         .expect("timeout waiting for server closing");
     let packets = futures_util::future::join_all(sids.iter_mut().map(|s| {
         send_req(
-            12351,
+            &svc,
             format!("transport=polling&sid={s}"),
             http::Method::GET,
             None,

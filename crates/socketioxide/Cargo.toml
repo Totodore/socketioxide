@@ -61,9 +61,9 @@ tokio = { workspace = true, features = [
 ] }
 tracing-subscriber.workspace = true
 criterion.workspace = true
-hyper = { workspace = true, features = ["server", "http1"] }
-hyper-util = { workspace = true, features = ["tokio", "client-legacy"] }
 http-body-util.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
 rand = { version = "0.8", default-features = false }
 
 # docs.rs-specific configuration
