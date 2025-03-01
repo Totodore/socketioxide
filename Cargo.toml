@@ -14,7 +14,8 @@ categories = [
 license = "MIT"
 
 [workspace]
-members = ["crates/*", "e2e/*", "crates/*/fuzz"]
+members = ["crates/*", "e2e/*"]
+exclude = ["crates/parser-common/fuzz", "crates/parser-msgpack/fuzz"]
 default-members = ["crates/*"]
 resolver = "2"
 
