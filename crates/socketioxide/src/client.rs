@@ -9,11 +9,10 @@ use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EI
 use engineioxide::Str;
 use futures_util::{FutureExt, TryFutureExt};
 
-use engineioxide::sid::Sid;
 use matchit::{Match, Router};
 use socketioxide_core::packet::{Packet, PacketData};
 use socketioxide_core::parser::{Parse, ParserState};
-use socketioxide_core::Value;
+use socketioxide_core::{Sid, Value};
 use tokio::sync::oneshot;
 
 use crate::{

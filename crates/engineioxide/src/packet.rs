@@ -1,11 +1,10 @@
 use base64::{engine::general_purpose, Engine};
 use bytes::Bytes;
+use engineioxide_core::{Sid, Str};
 use serde::Serialize;
 
 use crate::config::EngineIoConfig;
 use crate::errors::Error;
-use crate::sid::Sid;
-use crate::str::Str;
 use crate::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client

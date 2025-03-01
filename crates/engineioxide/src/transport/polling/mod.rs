@@ -7,6 +7,8 @@ use http::{Request, Response, StatusCode};
 use http_body::Body;
 use http_body_util::Full;
 
+use engineioxide_core::Sid;
+
 use crate::{
     body::ResponseBody,
     engine::EngineIo,
@@ -14,7 +16,6 @@ use crate::{
     handler::EngineIoHandler,
     packet::{OpenPacket, Packet},
     service::{ProtocolVersion, TransportType},
-    sid::Sid,
     transport::polling::payload::Payload,
     DisconnectReason,
 };

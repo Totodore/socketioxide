@@ -19,6 +19,7 @@ features = ["v3"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+engineioxide-core = { path = "../engineioxide-core", version = "0.1.0" }
 bytes.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
@@ -38,7 +39,6 @@ smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
 base64 = "0.22"
-rand = "0.9"
 
 # Tracing
 tracing = { workspace = true, optional = true }

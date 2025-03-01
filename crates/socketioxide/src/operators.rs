@@ -8,8 +8,8 @@
 //! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
 use std::{future::Future, sync::Arc, time::Duration};
 
-use engineioxide::sid::Sid;
 use serde::Serialize;
+use socketioxide_core::Sid;
 
 use crate::{
     ack::{AckInnerStream, AckStream},

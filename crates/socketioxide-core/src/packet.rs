@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use engineioxide::{sid::Sid, Str};
+pub use engineioxide_core::{Sid, Str};
 
 use crate::Value;
 

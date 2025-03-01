@@ -10,7 +10,7 @@ use std::{
 
 use bytes::Bytes;
 use engineioxide::{
-    config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, sid::Sid,
+    config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, socket::Sid,
     ProtocolVersion,
 };
 use http::Request;

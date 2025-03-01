@@ -4,7 +4,7 @@ use tokio_tungstenite::tungstenite;
 
 use crate::body::ResponseBody;
 use crate::packet::Packet;
-use crate::sid::Sid;
+use engineioxide_core::Sid;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

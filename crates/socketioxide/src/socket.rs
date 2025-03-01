@@ -44,7 +44,7 @@ use socketioxide_core::{
     Value,
 };
 
-pub use engineioxide::sid::Sid;
+pub use socketioxide_core::Sid;
 
 /// All the possible reasons for a [`Socket`] to be disconnected from a namespace.
 ///

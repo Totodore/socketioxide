@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::sid::Sid;
 use futures_core::{FusedFuture, FusedStream, Future, Stream};
 use futures_util::stream::FuturesUnordered;
 use serde::de::DeserializeOwned;
@@ -19,7 +18,7 @@ use crate::{
     socket::Socket,
     SocketError,
 };
-use socketioxide_core::{packet::Packet, parser::Parse, Value};
+use socketioxide_core::{packet::Packet, parser::Parse, Sid, Value};
 pub(crate) type AckResult<T> = Result<T, AckError>;
 
 pin_project_lite::pin_project! {
@@ -275,7 +274,6 @@ fn map_ack_response<T: DeserializeOwned>(ack: AckResult<Value>, parser: Parser) 
 mod test {
     use std::sync::Arc;
 
-    use engineioxide::sid::Sid;
     use futures_util::StreamExt;
     use socketioxide_parser_common::CommonParser;
 

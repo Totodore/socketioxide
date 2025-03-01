@@ -5,13 +5,14 @@ use std::{str::FromStr, sync::Arc};
 use futures_core::Future;
 use http::{Method, Request, Response};
 
+use engineioxide_core::Sid;
+
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
     handler::EngineIoHandler,
     service::futures::ResponseFuture,
-    sid::Sid,
     transport::{polling, ws},
 };
 
