@@ -1,9 +1,11 @@
-use engineioxide::{sid::Sid, socket::DisconnectReason as EIoDisconnectReason};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use tokio::time::error::Elapsed;
 
 pub use matchit::InsertError as NsInsertError;
+
+use engineioxide::socket::DisconnectReason as EIoDisconnectReason;
+use socketioxide_core::Sid;
 
 pub use crate::parser::ParserError;
 pub use socketioxide_core::errors::{AdapterError, BroadcastError, SocketError};

@@ -63,7 +63,15 @@ use std::{
     time::Duration,
 };
 
+use crate::{
+    config::EngineIoConfig,
+    errors::Error,
+    packet::Packet,
+    peekable::PeekableReceiver,
+    service::{ProtocolVersion, TransportType},
+};
 use bytes::Bytes;
+use engineioxide_core::Str;
 use http::request::Parts;
 use smallvec::{smallvec, SmallVec};
 use tokio::{
@@ -76,11 +84,7 @@ use tokio::{
 };
 use tokio_tungstenite::tungstenite;
 
-use crate::{
-    config::EngineIoConfig, errors::Error, packet::Packet, peekable::PeekableReceiver,
-    service::ProtocolVersion, Str,
-};
-use crate::{service::TransportType, sid::Sid};
+pub use engineioxide_core::Sid;
 
 /// A [`DisconnectReason`] represents the reason why a [`Socket`] was closed.
 #[derive(Debug, Clone, PartialEq, Eq)]

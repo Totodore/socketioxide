@@ -42,9 +42,9 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use engineioxide_core::Str;
 
 use crate::socket::{DisconnectReason, Socket};
-use crate::str::Str;
 
 /// The [`EngineIoHandler`] trait can be implemented on any struct to handle socket events
 ///

@@ -26,7 +26,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use engineioxide::Str;
+use engineioxide_core::Str;
 use serde::{de::Visitor, ser::Impossible, Deserialize, Serialize};
 
 use crate::{packet::Packet, Value};

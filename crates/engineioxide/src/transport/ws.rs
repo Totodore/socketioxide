@@ -24,6 +24,8 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
+use engineioxide_core::Sid;
+
 use crate::{
     body::ResponseBody,
     config::EngineIoConfig,
@@ -33,7 +35,6 @@ use crate::{
     packet::{OpenPacket, Packet},
     service::ProtocolVersion,
     service::TransportType,
-    sid::Sid,
     DisconnectReason, Socket,
 };
 

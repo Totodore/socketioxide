@@ -1,10 +1,4 @@
-//! [`Socket`](crate::Socket) id type and generator
-//!
-//! It is stored as a 128-bit id and it represent a base64 16 char string
-use std::{
-    fmt::{Debug, Display, Formatter},
-    str::FromStr,
-};
+use std::{fmt, str::FromStr};
 
 use base64::Engine;
 use rand::Rng;
@@ -29,16 +23,22 @@ impl Sid {
 }
 
 /// Error type for [`Sid::from_str`]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum SidDecodeError {
     /// Invalid base64 string
-    #[error("Invalid url base64 string")]
     InvalidBase64String,
-
     /// Invalid length
-    #[error("Invalid sid length")]
     InvalidLength,
 }
+impl fmt::Display for SidDecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SidDecodeError::InvalidBase64String => write!(f, "Invalid url base64 string"),
+            SidDecodeError::InvalidLength => write!(f, "Invalid sid length"),
+        }
+    }
+}
+impl std::error::Error for SidDecodeError {}
 
 impl FromStr for Sid {
     type Err = SidDecodeError;
@@ -70,7 +70,7 @@ impl Default for Sid {
         let mut random = [0u8; 12]; // 12 bytes = 16 chars base64
         let mut id = [0u8; 16];
 
-        rand::thread_rng().fill(&mut random);
+        rand::rng().fill(&mut random);
 
         base64::prelude::BASE64_URL_SAFE_NO_PAD
             .encode_slice(random, &mut id)
@@ -80,8 +80,8 @@ impl Default for Sid {
     }
 }
 
-impl Display for Sid {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Sid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
@@ -95,7 +95,7 @@ struct SidVisitor;
 impl serde::de::Visitor<'_> for SidVisitor {
     type Value = Sid;
 
-    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a valid sid")
     }
 
@@ -109,8 +109,8 @@ impl<'de> serde::Deserialize<'de> for Sid {
     }
 }
 
-impl Debug for Sid {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Sid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }

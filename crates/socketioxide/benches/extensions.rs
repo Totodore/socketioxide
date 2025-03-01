@@ -21,7 +21,7 @@ fn bench_extensions(c: &mut Criterion) {
     group.bench_function("concurrent_get_inserts", |b| {
         let ext = Extensions::new();
         b.iter_batched(
-            || rand::thread_rng().gen_range(0..3),
+            || rand::rng().random_range(0..3),
             |i| {
                 if i == 0 {
                     ext.insert(i);

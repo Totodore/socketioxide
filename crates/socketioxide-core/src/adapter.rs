@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use engineioxide::{sid::Sid, Str};
+use engineioxide_core::{Sid, Str};
 use futures_core::{FusedStream, Stream};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use smallvec::SmallVec;

@@ -435,6 +435,7 @@ dependencies = [
  "base64",
  "bytes",
  "criterion",
+ "engineioxide-core",
  "futures-core",
  "futures-util",
  "http",
@@ -445,7 +446,6 @@ dependencies = [
  "itoa",
  "memchr",
  "pin-project-lite",
- "rand 0.9.0",
  "serde",
  "serde_json",
  "smallvec",
@@ -459,6 +459,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "engineioxide-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "rand 0.9.0",
+ "serde",
 ]
 
 [[package]]
@@ -1622,7 +1632,7 @@ version = "0.16.0"
 dependencies = [
  "arbitrary",
  "bytes",
- "engineioxide",
+ "engineioxide-core",
  "futures-core",
  "serde",
  "serde_json",

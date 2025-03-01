@@ -3,15 +3,15 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use engineioxide_core::Sid;
 use http::request::Parts;
 
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
-    service::TransportType,
+    service::{ProtocolVersion, TransportType},
     socket::{DisconnectReason, Socket},
 };
-use crate::{service::ProtocolVersion, sid::Sid};
 
 type SocketMap<T> = RwLock<HashMap<Sid, Arc<T>>>;
 
@@ -95,8 +95,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
 
 #[cfg(test)]
 mod tests {
-    use crate::str::Str;
     use bytes::Bytes;
+    use engineioxide_core::Str;
     use http::Request;
 
     use super::*;

@@ -14,7 +14,7 @@ readme.workspace = true
 
 [dependencies]
 bytes.workspace = true
-engineioxide = { version = "0.16", path = "../engineioxide" }
+engineioxide-core = { version = "0.1", path = "../engineioxide-core" }
 serde.workspace = true
 thiserror.workspace = true
 futures-core.workspace = true

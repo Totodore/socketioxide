@@ -3,13 +3,12 @@ use std::{borrow::Cow, fmt, sync::Arc, time::Duration};
 use engineioxide::{
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
-    sid::Sid,
     TransportType,
 };
 use serde::Serialize;
 use socketioxide_core::{
     adapter::{DefinedAdapter, Room, RoomParam},
-    Uid,
+    Sid, Uid,
 };
 use socketioxide_parser_common::CommonParser;
 #[cfg(feature = "msgpack")]

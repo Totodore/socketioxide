@@ -40,7 +40,7 @@ pub mod parser;
 use std::{collections::VecDeque, ops::Deref};
 
 use bytes::Bytes;
-pub use engineioxide::{sid::Sid, Str};
+pub use engineioxide_core::{Sid, Str};
 use serde::{Deserialize, Serialize};
 
 /// Represents a unique identifier for a server.

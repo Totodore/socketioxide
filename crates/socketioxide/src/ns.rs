@@ -14,13 +14,12 @@ use crate::{
     socket::{DisconnectReason, Socket},
     ProtocolVersion, SocketIoConfig,
 };
-use engineioxide::{sid::Sid, Str};
 use socketioxide_core::{
     adapter::{BroadcastIter, CoreLocalAdapter, RemoteSocketData, SocketEmitter},
     errors::SocketError,
     packet::{ConnectPacket, Packet, PacketData},
     parser::Parse,
-    Uid, Value,
+    Sid, Str, Uid, Value,
 };
 
 /// A [`Namespace`] constructor used for dynamic namespaces

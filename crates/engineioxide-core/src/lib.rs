@@ -1,4 +1,3 @@
-#![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(
     clippy::all,
     clippy::todo,
@@ -29,25 +28,10 @@
     nonstandard_style,
     missing_docs
 )]
-#![doc = include_str!("../Readme.md")]
+#![doc = include_str!("../README.md")]
 
-pub use engineioxide_core::Str;
-pub use service::{ProtocolVersion, TransportType};
-pub use socket::{DisconnectReason, Socket};
+mod sid;
+mod str;
 
-#[doc(hidden)]
-#[cfg(feature = "__test_harness")]
-pub use packet::*;
-
-pub mod config;
-pub mod handler;
-pub mod layer;
-pub mod service;
-pub mod socket;
-
-mod body;
-mod engine;
-mod errors;
-mod packet;
-mod peekable;
-mod transport;
+pub use sid::Sid;
+pub use str::Str;

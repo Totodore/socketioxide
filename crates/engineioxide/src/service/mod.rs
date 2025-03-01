@@ -171,7 +171,7 @@ where
         &self,
         conn: S,
         protocol: ProtocolVersion,
-        sid: Option<crate::sid::Sid>,
+        sid: Option<engineioxide_core::Sid>,
         req_data: http::request::Parts,
     ) -> impl std::future::Future<Output = Result<(), crate::errors::Error>>
     where
