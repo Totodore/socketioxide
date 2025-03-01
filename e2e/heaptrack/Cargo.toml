@@ -12,4 +12,4 @@ hyper-util = { workspace = true, features = ["tokio"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 tracing-subscriber.workspace = true
 serde_json.workspace = true
-rand = "0.8.4"
+rand = "0.9.0"

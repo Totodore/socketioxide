@@ -38,7 +38,7 @@ smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
 base64 = "0.22"
-rand = "0.8"
+rand = "0.9"
 
 # Tracing
 tracing = { workspace = true, optional = true }

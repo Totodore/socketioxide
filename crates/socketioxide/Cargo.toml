@@ -64,7 +64,7 @@ criterion.workspace = true
 http-body-util.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
-rand = { version = "0.8", default-features = false }
+rand = { version = "0.9", default-features = false }
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
