@@ -55,6 +55,12 @@
 //!     If not, you can implement your own driver using the <code>RESP2</code> protocol.
 //! </div>
 //!
+//! <div class="warning">
+//!     Socketioxide-Redis is not compatible with <code>@socketio/redis-adapter</code>
+//!     and <code>@socketio/redis-emitter</code>. They use completely different protocols and
+//!     cannot be used together. Do not mix socket.io JS servers with socketioxide rust servers.
+//! </div>
+//!
 //! ## Example with the [`redis`] driver
 //! ```rust
 //! # use socketioxide::{SocketIo, extract::{SocketRef, Data}, adapter::Adapter};

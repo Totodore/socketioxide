@@ -6,6 +6,12 @@ A [***`socket.io`***](https://socket.io) Redis adapter for [***`Socketioxide`***
 [![Documentation](https://docs.rs/socketioxide-redis/badge.svg)](https://docs.rs/socketioxide-redis)
 [![CI](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide/actions/workflows/github-ci.yml)
 
+
+> [!WARNING]
+> Socketioxide-Redis is not compatible with `@socketio/redis-adapter` and `@socketio/redis-emitter`.
+> They use completely different protocols and cannot be used together.
+> Do not mix socket.io JS servers with socketioxide rust servers.
+
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
 
 ## Features
