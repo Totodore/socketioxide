@@ -20,7 +20,7 @@ default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bytes = { version = "1.7", features = ["serde"] }
+bytes = { version = "1.10", features = ["serde"] }
 futures-core = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio = "1.40"
