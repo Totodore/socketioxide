@@ -329,14 +329,12 @@ where
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
+            socket.start_upgrade();
             // Respond with a PongUpgrade packet
             ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
-
-    // send a NOOP packet to any pending polling request so it closes gracefully
-    socket.send(Packet::Noop)?;
 
     // Fetch the next packet from the ws stream, it should be an Upgrade packet
     let msg = match ws.next().await {
