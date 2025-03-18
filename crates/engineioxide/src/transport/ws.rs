@@ -336,6 +336,9 @@ where
         p => Err(Error::BadPacket(p))?,
     };
 
+    // send a NOOP packet to any pending polling request so it closes gracefully
+    socket.send(Packet::Noop)?;
+
     // Fetch the next packet from the ws stream, it should be an Upgrade packet
     let msg = match ws.next().await {
         Some(Ok(Message::Text(d))) => d,

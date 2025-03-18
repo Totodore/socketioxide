@@ -104,20 +104,13 @@ where
 
     // If the socket is already locked, it means that the socket is being used by another request
     // In case of multiple http polling, session should be closed
-    let mut rx = match socket.internal_rx.try_lock() {
+    let rx = match socket.internal_rx.try_lock() {
         Ok(s) => s,
         Err(_) => {
             socket.close(DisconnectReason::MultipleHttpPollingError);
             return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
         }
     };
-
-    // If the socket is currently being upgraded and that we don't have any pending packets,
-    // send a noop packet to any incoming polling request.
-    // This is to prevent the client from timing out while waiting for the upgrade to complete.
-    if socket.is_upgrading() && rx.try_recv().is_err() {
-        socket.send(Packet::Noop).ok();
-    }
 
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={sid}] polling request");

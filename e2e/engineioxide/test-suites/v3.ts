@@ -597,43 +597,5 @@ describe("Engine.IO protocol", () => {
 
       assert.deepStrictEqual(data, "4hello");
     });
-
-    it("closes any number of polling requests with Noop while upgrading", async () => {
-      const sid = await initLongPollingSession();
-
-      const socket = new WebSocketStream(
-        `${WS_URL}/engine.io/?EIO=3&transport=websocket&sid=${sid}`,
-      );
-
-      await waitForEvent(socket, "open");
-
-      // send probe
-      socket.send("2probe");
-
-      const probeResponse = await waitForMessage(socket);
-
-      assert.deepStrictEqual(probeResponse, "3probe");
-
-      for (let i = 0; i < 3; i++) {
-        const pollResponse = await fetch(
-          `${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`,
-        );
-
-        assert.deepStrictEqual(pollResponse.status, 200);
-
-        const pollContent = await pollResponse.text();
-
-        assert.deepStrictEqual(pollContent, "1:6"); // "noop" packet to cleanly end the HTTP long-polling request
-      }
-
-      // complete upgrade
-      socket.send("5");
-
-      socket.send("4hello");
-
-      const data = await waitForMessage(socket);
-
-      assert.deepStrictEqual(data, "4hello");
-    });
   });
 });

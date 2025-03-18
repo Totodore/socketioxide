@@ -356,6 +356,12 @@ where
         // Some clients send the pong packet in first. If that happens, we should consume it.
         heartbeat_rx.try_recv().ok();
         loop {
+            // If we are currently upgrading we should pause the heartbeat process
+            if self.is_upgrading() {
+                interval_tick.tick().await;
+                continue;
+            }
+
             #[cfg(feature = "tracing")]
             tracing::trace!(sid = ?self.id, "emitting ping");
 
