@@ -27,6 +27,7 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 * Effortless horizontal scaling with plugable adapters:
   * [Redis / Valkey](https://docs.rs/socketioxide-redis/latest/socketioxide-redis)
   * More to come...
+* Remote cluster communication with [Socketioxide-emitter](https://github.com/Totodore/socketioxide-emitter)
 * Namespaces and Dynamic Namespaces
 * Rooms
 * Ack and emit with ack
