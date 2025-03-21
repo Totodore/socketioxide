@@ -85,6 +85,21 @@ impl BroadcastOptions {
             ..Default::default()
         }
     }
+
+    /// Check if the selected options are local to the current server.
+    #[inline]
+    pub fn is_local(&self, uid: Uid) -> bool {
+        if self.has_flag(BroadcastFlags::Local)
+            || (!self.has_flag(BroadcastFlags::Broadcast)
+                && self.server_id == Some(uid)
+                && self.rooms.is_empty()
+                && self.sid.is_some())
+        {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// A trait for types that can be used as a room parameter.
@@ -1058,5 +1073,20 @@ mod test {
             .apply_opts(&opts, &adapter.rooms.read().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(sids.len(), 1);
+    }
+
+    #[test]
+    fn test_is_local_opts() {
+        let server_id = Uid::new();
+        let remote = RemoteSocketData {
+            id: Sid::new(),
+            server_id,
+            ns: "/".into(),
+        };
+        let opts = BroadcastOptions::new_remote(&remote);
+        assert!(opts.is_local(server_id));
+        assert!(!opts.is_local(Uid::new()));
+        let opts = BroadcastOptions::new(Sid::new());
+        assert!(!opts.is_local(Uid::new()));
     }
 }

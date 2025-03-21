@@ -1,0 +1,54 @@
+[package]
+name = "socketioxide-mongodb"
+description = "MongoDB adapter for socketioxide"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[features]
+mongodb = ["dep:mongodb"]
+default = ["mongodb"]
+
+[dependencies]
+socketioxide-core = { version = "0.16", path = "../socketioxide-core" }
+futures-core.workspace = true
+futures-util.workspace = true
+pin-project-lite.workspace = true
+serde.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
+tokio = { workspace = true, features = ["macros", "time", "rt", "sync"] }
+rmp-serde.workspace = true
+rmp.workspace = true
+bytes.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+# Mongodb implementation
+mongodb = { version = "3", default-features = false, optional = true, features = [
+    "rustls-tls",
+    "compat-3-0-0",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = [
+    "macros",
+    "parking_lot",
+    "rt-multi-thread",
+] }
+socketioxide = { path = "../socketioxide", features = [
+    "tracing",
+    "__test_harness",
+] }
+tracing-subscriber.workspace = true
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
