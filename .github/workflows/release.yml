@@ -10,10 +10,10 @@ jobs:
       max-parallel: 1
       matrix:
         package:
-          - crate: engineioxide
-            path: crates/engineioxide
           - crate: engineioxide_core
             path: crates/engineioxide-core
+          - crate: engineioxide
+            path: crates/engineioxide
           - crate: socketioxide_core
             path: crates/socketioxide-core
           - crate: socketioxide_parser_common
