@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide"
 description = "Socket IO server implementation in rust as a Tower Service."
-version = "0.16.1"
+version = "0.16.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -13,7 +13,7 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.16.1" }
+engineioxide = { path = "../engineioxide", version = "0.16.2" }
 socketioxide-core = { path = "../socketioxide-core", version = "0.16" }
 
 bytes.workspace = true

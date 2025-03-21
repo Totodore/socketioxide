@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide-core"
 description = "Core of the socketioxide library. Contains basic types and interfaces for the socketioxide crate and all other related sub-crates."
-version = "0.16.0"
+version = "0.16.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

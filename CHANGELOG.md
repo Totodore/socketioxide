@@ -1,3 +1,17 @@
+# engineioxide-core 0.1.0
+* New crate to share engineioxide core types.
+
+# engineioxide 0.16.2
+* fix: pause heartbeat when the socket is being upgraded to avoid the client
+from resending polling requests to respond to ping packets.
+* deps: use engineioxide-core 0.1 as a dependency
+
+# socketioxide-redis 0.2.1
+* doc: add an incompatibility warning with the `@socket.io/redis-adapter` package.
+
+# socketioxide-core 0.16.1
+* deps: use engineioxide-core 0.1 rather than engineioxide
+
 # engineioxide 0.16.1
 * feat: add `Config::ws_read_buffer_size` to set the read buffer size for each websocket.
 It will default to 4KiB (previously 128KiB). You can increase it if you have high message throughput and less sockets.

@@ -45,6 +45,12 @@ pub mod layer;
 pub mod service;
 pub mod socket;
 
+/// Socket id type and generator
+pub mod sid {
+    #[deprecated(since = "0.16.2", note = "Use engineioxide::socket::Sid instead")]
+    pub use engineioxide_core::Sid;
+}
+
 mod body;
 mod engine;
 mod errors;
