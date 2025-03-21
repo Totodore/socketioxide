@@ -9,8 +9,8 @@ from resending polling requests to respond to ping packets.
 # socketioxide-redis 0.2.1
 * doc: add an incompatibility warning with the `@socket.io/redis-adapter` package.
 
-# socketioxide 0.16.2
-* deps: bump engineioxide to 0.16.2
+# socketioxide-core 0.16.1
+* deps: use engineioxide-core 0.1 rather than engineioxide
 
 # engineioxide 0.16.1
 * feat: add `Config::ws_read_buffer_size` to set the read buffer size for each websocket.
