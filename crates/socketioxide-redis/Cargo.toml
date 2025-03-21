@@ -54,3 +54,8 @@ socketioxide = { path = "../socketioxide", features = [
     "__test_harness",
 ] }
 tracing-subscriber.workspace = true
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
