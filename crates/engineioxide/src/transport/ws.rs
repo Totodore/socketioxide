@@ -329,6 +329,7 @@ where
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
+            socket.start_upgrade();
             // Respond with a PongUpgrade packet
             ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
         }

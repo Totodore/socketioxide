@@ -57,7 +57,7 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
     time::Duration,
@@ -193,6 +193,9 @@ where
     /// without any mutex
     transport: AtomicU8,
 
+    /// Whether the socket is currently upgrading to a new transport.
+    upgrading: AtomicBool,
+
     /// Channel to send [`PacketBuf`] to the connection
     ///
     /// It is used and managed by the [`EngineIo`](crate::engine) struct depending on the transport type
@@ -254,6 +257,7 @@ where
             id: Sid::new(),
             protocol,
             transport: AtomicU8::new(transport as u8),
+            upgrading: AtomicBool::new(false),
 
             internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
             internal_tx,
@@ -289,6 +293,12 @@ where
                 TrySendError::Closed(mut p) => TrySendError::Closed(p.pop().unwrap()),
             })?;
         Ok(())
+    }
+    pub(crate) fn is_upgrading(&self) -> bool {
+        self.upgrading.load(Ordering::Relaxed)
+    }
+    pub(crate) fn start_upgrade(&self) {
+        self.upgrading.store(true, Ordering::Relaxed);
     }
 
     /// Spawn the heartbeat job
@@ -346,6 +356,12 @@ where
         // Some clients send the pong packet in first. If that happens, we should consume it.
         heartbeat_rx.try_recv().ok();
         loop {
+            // If we are currently upgrading we should pause the heartbeat process
+            if self.is_upgrading() {
+                interval_tick.tick().await;
+                continue;
+            }
+
             #[cfg(feature = "tracing")]
             tracing::trace!(sid = ?self.id, "emitting ping");
 
@@ -404,6 +420,7 @@ where
     /// Sets the [`TransportType`] to WebSocket
     /// Used when the client upgrade the connection from HTTP to WebSocket
     pub(crate) fn upgrade_to_websocket(&self) {
+        self.upgrading.store(false, Ordering::Relaxed);
         self.transport
             .store(TransportType::Websocket as u8, Ordering::Relaxed);
     }
@@ -539,6 +556,7 @@ where
             id: sid,
             protocol: ProtocolVersion::V4,
             transport: AtomicU8::new(TransportType::Websocket as u8),
+            upgrading: AtomicBool::new(false),
 
             internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
             internal_tx,
