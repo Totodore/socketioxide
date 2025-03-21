@@ -12,6 +12,8 @@ jobs:
         package:
           - crate: engineioxide
             path: crates/engineioxide
+          - crate: engineioxide_core
+            path: crates/engineioxide-core
           - crate: socketioxide_core
             path: crates/socketioxide-core
           - crate: socketioxide_parser_common
