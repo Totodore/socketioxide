@@ -31,26 +31,65 @@
 )]
 
 use std::{
+    collections::HashMap,
     fmt,
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
     time::Duration,
 };
 
 use drivers::Driver;
-use futures_core::future::Future;
+use futures_core::{future::Future, Stream};
+use request::{RequestOut, RequestTypeOut, Response};
+use serde::{de::DeserializeOwned, Serialize};
 use socketioxide_core::{
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
     },
-    errors::BroadcastError,
+    errors::{AdapterError, BroadcastError},
     packet::Packet,
-    Uid,
+    Sid, Uid,
 };
+use stream::{AckStream, DropStream};
+use tokio::sync::mpsc;
 mod drivers;
 mod request;
+mod stream;
+
+#[derive(Debug, Clone)]
+pub struct MongoDbAdapterConfig {
+    hb_timeout: Duration,
+    hb_interval: Duration,
+    request_timeout: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct MongoDbAdapterCtr<D> {
+    driver: D,
+    config: MongoDbAdapterConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct Error<E>(E);
+impl<E: fmt::Display> fmt::Display for Error<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl<E: std::error::Error> std::error::Error for Error<E> {}
+impl<E: std::error::Error + Send + 'static> From<Error<E>> for AdapterError {
+    fn from(e: Error<E>) -> AdapterError {
+        AdapterError(Box::new(e))
+    }
+}
+impl<E> From<E> for Error<E> {
+    fn from(e: E) -> Self {
+        Error(e)
+    }
+}
+pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Vec<u8>>>;
 
 /// The mongodb adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the mongodb server.
@@ -61,20 +100,22 @@ pub struct CustomMongoDbAdapter<E, D> {
     /// All the redis adapter instances share the same driver.
     driver: D,
     /// The configuration of the adapter.
-    // config: RedisAdapterConfig,
+    config: MongoDbAdapterConfig,
     /// A unique identifier for the adapter to identify itself in the redis server.
     uid: Uid,
     /// The local adapter, used to manage local rooms and socket stores.
     local: CoreLocalAdapter<E>,
-    // A map of response handlers used to await for responses from the remote servers.
-    // responses: Arc<Mutex<ResponseHandlers>>,
+    /// A map of nodes liveness, with the last time the node was seen alive.
+    nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
+    /// A map of response handlers used to await for responses from the remote servers.
+    responses: Arc<Mutex<ResponseHandlers>>,
 }
 
 impl<E, D> DefinedAdapter for CustomMongoDbAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> {
-    type Error = Error<D>;
-    type State = ();
-    type AckStream = ();
+    type Error = Error<D::Error>;
+    type State = MongoDbAdapterCtr<D>;
+    type AckStream = AckStream<E::AckStream>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -84,6 +125,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             uid,
             driver: state.driver.clone(),
             config: state.config.clone(),
+            nodes_liveness: Mutex::new(Vec::new()),
             responses: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -91,19 +133,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
         let fut = async move {
             check_ns(self.local.path())?;
-            let global_stream = self.subscribe(self.req_chan.clone()).await?;
-            let specific_stream = self.subscribe(self.get_req_chan(Some(self.uid))).await?;
-            let response_chan = format!(
-                "{}-response#{}#{}#",
-                &self.config.prefix,
-                self.local.path(),
-                self.uid
-            );
-
-            let response_stream = self.subscribe(response_chan.clone()).await?;
-            let stream = futures_util::stream::select(global_stream, specific_stream);
-            let stream = futures_util::stream::select(stream, response_stream);
-            tokio::spawn(self.pipe_stream(stream, response_chan));
+            let stream = self.driver.watch().await.map_err(InitError::Driver)?;
+            tokio::spawn(self.clone().handle_ev_stream(stream));
+            tokio::spawn(self.clone().heartbeat_job());
             on_success();
             Ok(())
         };
@@ -116,7 +148,10 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     /// Get the number of servers by getting the number of subscribers to the request channel.
     async fn server_count(&self) -> Result<u16, Self::Error> {
-        Ok(0)
+        let now = std::time::Instant::now();
+        let mut nodes_liveness = self.nodes_liveness.lock().unwrap();
+        nodes_liveness.retain(|(_, v)| v > &now);
+        Ok(nodes_liveness.len() as u16)
     }
 
     /// Broadcast a packet to all the servers to send them through their sockets.
@@ -126,10 +161,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         opts: BroadcastOptions,
     ) -> Result<(), BroadcastError> {
         if !opts.is_local(self.uid) {
-            // let req = RequestOut::new(self.uid, RequestTypeOut::Broadcast(&packet), &opts);
-            // self.send_req(req, opts.server_id)
-            // .await
-            // .map_err(AdapterError::from)?;
+            let req = RequestOut::new(self.uid, RequestTypeOut::Broadcast(&packet), &opts);
+            self.send_req(req).await.map_err(AdapterError::from)?;
         }
 
         self.local.broadcast(packet, opts)?;
@@ -171,9 +204,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     ) -> Result<Self::AckStream, Self::Error> {
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
-            // let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            // let stream = AckStream::new_local(local);
-            // return Ok(stream);
+            let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
+            let stream = AckStream::new_local(local);
+            return Ok(stream);
         }
         // let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
         // let req_id = req.id;
@@ -183,7 +216,6 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         // let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         // self.responses.lock().unwrap().insert(req_id, tx);
         // let remote = MessageStream::new(rx);
-
         // self.send_req(req, opts.server_id).await?;
         // let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
@@ -198,11 +230,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
-        if !opts.is_local_op(self.uid) {
-            // let req = RequestOut::new(self.uid, RequestTypeOut::DisconnectSockets, &opts);
-            // self.send_req(req, opts.server_id)
-            //     .await
-            //     .map_err(AdapterError::from)?;
+        if !opts.is_local(self.uid) {
+            let req = RequestOut::new(self.uid, RequestTypeOut::DisconnectSockets, &opts);
+            self.send_req(req).await.map_err(AdapterError::from)?;
         }
         self.local
             .disconnect_socket(opts)
@@ -213,8 +243,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     async fn rooms(&self, opts: BroadcastOptions) -> Result<Vec<Room>, Self::Error> {
         const PACKET_IDX: u8 = 2;
-
-        if opts.is_local_op(self.uid) {
+        if opts.is_local(self.uid) {
             return Ok(self.local.rooms(opts).into_iter().collect());
         }
         // let req = RequestOut::new(self.uid, RequestTypeOut::AllRooms, &opts);
@@ -244,8 +273,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     ) -> Result<(), Self::Error> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         if !opts.is_local(self.uid) {
-            // let req = RequestOut::new(self.uid, RequestTypeOut::AddSockets(&rooms), &opts);
-            // self.send_req(req, opts.server_id).await?;
+            let req = RequestOut::new(self.uid, RequestTypeOut::AddSockets(&rooms), &opts);
+            self.send_req(req).await?;
         }
         self.local.add_sockets(opts, rooms);
         Ok(())
@@ -258,10 +287,10 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     ) -> Result<(), Self::Error> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         if !opts.is_local(self.uid) {
-            // let req = RequestOut::new(self.uid, RequestTypeOut::DelSockets(&rooms), &opts);
-            // self.send_req(req, opts.server_id).await?;
+            let req = RequestOut::new(self.uid, RequestTypeOut::DelSockets(&rooms), &opts);
+            self.send_req(req).await?;
         }
-        // self.local.del_sockets(opts, rooms);
+        self.local.del_sockets(opts, rooms);
         Ok(())
     }
 
@@ -295,6 +324,90 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     fn get_local(&self) -> &CoreLocalAdapter<E> {
         &self.local
+    }
+}
+
+impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
+    async fn heartbeat_job(self: Arc<Self>) -> Result<(), Error<D::Error>> {
+        let mut interval = tokio::time::interval(self.config.hb_interval);
+        const OPTS: BroadcastOptions = BroadcastOptions::new_empty();
+        loop {
+            interval.tick().await;
+            self.send_req(RequestOut::new(self.uid, RequestTypeOut::Heartbeat, &OPTS))
+                .await?;
+        }
+    }
+
+    async fn handle_ev_stream(
+        self: Arc<Self>,
+        stream: impl Stream<Item = Result<Vec<u8>, D::Error>>,
+    ) {
+        use futures_util::StreamExt;
+        stream
+            .for_each(|item| async move {
+                match item {
+                    Ok(data) => {}
+                    Err(err) => {}
+                }
+            })
+            .await;
+    }
+
+    async fn send_req(&self, req: RequestOut<'_>) -> Result<(), Error<D::Error>> {
+        tracing::trace!(?req, "sending request");
+        let req = rmp_serde::to_vec(&req).unwrap();
+        self.driver.emit(&req).await?;
+        Ok(())
+    }
+
+    fn send_res<T: Serialize + fmt::Debug>(
+        &self,
+        req_id: Sid,
+        res: Response<T>,
+    ) -> impl Future<Output = Result<(), Error<D::Error>>> + Send + 'static {
+        tracing::trace!(?res, "sending response for {req_id} req");
+        // We send the req_id separated from the response object.
+        // This allows to partially decode the response and route by the req_id
+        // before fully deserializing it.
+        let res = rmp_serde::to_vec(&(req_id, res));
+        let driver = self.driver.clone();
+        async move {
+            driver.emit(&res?).await?;
+            Ok(())
+        }
+    }
+
+    /// Await for all the responses from the remote servers.
+    async fn get_res<T: DeserializeOwned + fmt::Debug>(
+        &self,
+        req_id: Sid,
+        response_idx: u8,
+        target_uid: Option<Uid>,
+    ) -> Result<impl Stream<Item = Response<T>>, Error<D::Error>> {
+        // Check for specific target node
+        let remote_serv_cnt = if target_uid.is_none() {
+            self.server_count().await?.saturating_sub(1) as usize
+        } else {
+            1
+        };
+        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
+        self.responses.lock().unwrap().insert(req_id, tx);
+        let stream = MessageStream::new(rx)
+            .filter_map(|item| {
+                let data = match rmp_serde::from_slice::<(Sid, Response<D>)>(&item) {
+                    Ok((_, data)) => Some(data),
+                    Err(e) => {
+                        tracing::warn!("error decoding response: {e}");
+                        None
+                    }
+                };
+                future::ready(data)
+            })
+            .filter(move |item| future::ready(item.r#type.to_u8() == response_idx))
+            .take(remote_serv_cnt)
+            .take_until(tokio::time::sleep(self.config.request_timeout));
+        let stream = DropStream::new(stream, self.responses.clone(), req_id);
+        Ok(stream)
     }
 }
 

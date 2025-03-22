@@ -25,6 +25,8 @@ pub enum RequestTypeOut<'a> {
     DelSockets(&'a Vec<Room>),
     /// Fetch socket data.
     FetchSockets,
+    /// Heartbeat
+    Heartbeat,
 }
 impl RequestTypeOut<'_> {
     fn to_u8(&self) -> u8 {
@@ -36,6 +38,7 @@ impl RequestTypeOut<'_> {
             Self::AddSockets(_) => 4,
             Self::DelSockets(_) => 5,
             Self::FetchSockets => 6,
+            Self::Heartbeat => 7,
         }
     }
 }
@@ -56,6 +59,8 @@ pub enum RequestTypeIn {
     DelSockets(Vec<Room>),
     /// Fetch socket data.
     FetchSockets,
+    /// Heartbeat
+    Heartbeat,
 }
 
 #[derive(Debug, PartialEq)]
@@ -134,6 +139,7 @@ impl<'de> Deserialize<'de> for RequestIn {
             4 => RequestTypeIn::AddSockets(raw.rooms.ok_or(err("room"))?),
             5 => RequestTypeIn::DelSockets(raw.rooms.ok_or(err("room"))?),
             6 => RequestTypeIn::FetchSockets,
+            7 => RequestTypeIn::Heartbeat,
             _ => return Err(serde::de::Error::custom("invalid request type")),
         };
         Ok(Self {
@@ -256,6 +262,7 @@ mod tests {
                     RequestTypeIn::AddSockets(r) => RequestTypeOut::AddSockets(r),
                     RequestTypeIn::DelSockets(r) => RequestTypeOut::DelSockets(r),
                     RequestTypeIn::FetchSockets => RequestTypeOut::FetchSockets,
+                    RequestTypeIn::Heartbeat => RequestTypeOut::Heartbeat,
                 },
             }
         }
