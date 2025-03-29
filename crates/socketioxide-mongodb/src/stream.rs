@@ -11,10 +11,9 @@ use futures_util::{stream::TakeUntil, StreamExt};
 use pin_project_lite::pin_project;
 use serde::de::DeserializeOwned;
 use socketioxide_core::{adapter::AckStreamItem, Sid};
-use tokio::time;
+use tokio::{sync::mpsc, time};
 
 use crate::{
-    drivers::MessageStream,
     request::{Response, ResponseType},
     ResponseHandlers,
 };
@@ -33,7 +32,7 @@ pin_project! {
         #[pin]
         local: S,
         #[pin]
-        remote: DropStream<TakeUntil<MessageStream<Vec<u8>>, time::Sleep>>,
+        remote: DropStream<TakeUntil<ChanStream, time::Sleep>>,
         ack_cnt: u32,
         total_ack_cnt: usize,
         serv_cnt: u16,
@@ -43,13 +42,13 @@ pin_project! {
 impl<S> AckStream<S> {
     pub fn new(
         local: S,
-        remote: MessageStream<Vec<u8>>,
+        rx: mpsc::Receiver<Vec<u8>>,
         timeout: Duration,
         serv_cnt: u16,
         req_id: Sid,
         handlers: Arc<Mutex<ResponseHandlers>>,
     ) -> Self {
-        let remote = remote.take_until(time::sleep(timeout));
+        let remote = ChanStream::new(rx).take_until(time::sleep(timeout));
         let remote = DropStream::new(remote, handlers, req_id);
         Self {
             local,
@@ -61,7 +60,8 @@ impl<S> AckStream<S> {
     }
     pub fn new_local(local: S) -> Self {
         let handlers = Arc::new(Mutex::new(ResponseHandlers::new()));
-        let remote = MessageStream::new_empty().take_until(time::sleep(Duration::ZERO));
+        let rx = mpsc::channel(1).1;
+        let remote = ChanStream::new(rx).take_until(time::sleep(Duration::ZERO));
         let remote = DropStream::new(remote, handlers, Sid::ZERO);
         Self {
             local,
@@ -182,6 +182,25 @@ impl<S> fmt::Debug for AckStream<S> {
     }
 }
 
+pin_project! {
+    /// A stream of messages received from a channel.
+    pub struct ChanStream {
+        #[pin]
+        rx: mpsc::Receiver<Vec<u8>>
+    }
+}
+impl ChanStream {
+    pub fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
+        Self { rx }
+    }
+}
+impl Stream for ChanStream {
+    type Item = Vec<u8>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().rx.poll_recv(cx)
+    }
+}
 pin_project! {
     /// A stream that unsubscribes from its source channel when dropped.
     pub struct DropStream<S> {

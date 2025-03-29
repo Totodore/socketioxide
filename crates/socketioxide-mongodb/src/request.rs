@@ -1,6 +1,6 @@
-//! Custom request and response types for the Redis adapter.
+//! Custom request and response types for the MongoDB adapter.
 //! Custom serialization/deserialization to reduce the size of the messages.
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 
 use serde::{de::SeqAccess, Deserialize, Serialize};
 use socketioxide_core::{
@@ -38,7 +38,7 @@ impl RequestTypeOut<'_> {
             Self::AddSockets(_) => 4,
             Self::DelSockets(_) => 5,
             Self::FetchSockets => 6,
-            Self::Heartbeat => 7,
+            Self::Heartbeat => 20,
         }
     }
 }
@@ -139,7 +139,7 @@ impl<'de> Deserialize<'de> for RequestIn {
             4 => RequestTypeIn::AddSockets(raw.rooms.ok_or(err("room"))?),
             5 => RequestTypeIn::DelSockets(raw.rooms.ok_or(err("room"))?),
             6 => RequestTypeIn::FetchSockets,
-            7 => RequestTypeIn::Heartbeat,
+            20 => RequestTypeIn::Heartbeat,
             _ => return Err(serde::de::Error::custom("invalid request type")),
         };
         Ok(Self {
@@ -227,19 +227,6 @@ impl<D> Response<D> {
             _ => None,
         }
     }
-}
-
-/// Extract the request id from a data encoded as `[Sid, ...]`
-pub fn read_req_id(data: &[u8]) -> Option<Sid> {
-    let mut rd = data;
-    let len = rmp::decode::read_array_len(&mut rd).ok()?;
-    if len < 1 {
-        return None;
-    }
-
-    let mut buff = [0u8; Sid::ZERO.as_str().len()];
-    let str = rmp::decode::read_str(&mut rd, &mut buff).ok()?;
-    Sid::from_str(str).ok()
 }
 
 #[cfg(test)]
@@ -366,37 +353,5 @@ mod tests {
         let serialized = rmp_serde::to_vec(&res).unwrap();
         let deserialized: Response<Sid> = rmp_serde::from_slice(&serialized).unwrap();
         assert_eq!(res, deserialized);
-    }
-
-    #[test]
-    fn read_req_id() {
-        let sid = Sid::new();
-        let buff: [u8; 4] = [0, 1, 3, 4];
-        let data = rmp_serde::to_vec(&(sid, buff)).unwrap();
-        let req_id = super::read_req_id(&data);
-        assert_eq!(req_id, Some(sid));
-    }
-
-    #[test]
-    fn read_req_bad_id() {
-        let buff: [u8; 4] = [0, 1, 3, 4];
-        let data = rmp_serde::to_vec(&("test", buff)).unwrap();
-        let req_id = super::read_req_id(&data);
-        assert_eq!(req_id, None);
-    }
-
-    #[test]
-    fn read_req_id_not_array() {
-        let sid = Sid::new();
-        let data = rmp_serde::to_vec(&sid).unwrap();
-        let req_id = super::read_req_id(&data);
-        assert_eq!(req_id, None);
-    }
-
-    #[test]
-    fn read_req_id_empty_array() {
-        let data = rmp_serde::to_vec::<[u8; 0]>(&[]).unwrap();
-        let req_id = super::read_req_id(&data);
-        assert_eq!(req_id, None);
     }
 }

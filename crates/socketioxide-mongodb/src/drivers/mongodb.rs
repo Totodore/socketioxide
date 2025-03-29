@@ -1,20 +1,20 @@
-use super::Driver;
+use super::{Driver, Item};
 use futures_core::Stream;
 use mongodb::change_stream::{event::ChangeStreamEvent, ChangeStream};
 
 #[derive(Debug, Clone)]
 pub struct MongoDbDriver {
-    collec: mongodb::Collection<Vec<u8>>,
+    collec: mongodb::Collection<Item>,
 }
 
 pin_project_lite::pin_project! {
     pub struct EvStream {
         #[pin]
-        stream: ChangeStream<ChangeStreamEvent<Vec<u8>>>,
+        stream: ChangeStream<ChangeStreamEvent<Item>>,
     }
 }
 impl Stream for EvStream {
-    type Item = Result<Vec<u8>, mongodb::error::Error>;
+    type Item = Result<Item, mongodb::error::Error>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -36,7 +36,7 @@ impl Driver for MongoDbDriver {
         Ok(EvStream { stream })
     }
 
-    async fn emit(&self, data: &Vec<u8>) -> Result<(), Self::Error> {
+    async fn emit(&self, data: &Item) -> Result<(), Self::Error> {
         self.collec.insert_one(data).await?;
         Ok(())
     }
