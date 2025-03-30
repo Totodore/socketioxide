@@ -53,7 +53,7 @@ use socketioxide_core::{
 use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
-use drivers::{Driver, Item, ItemId};
+use drivers::{Driver, Item, ItemHead};
 use request::{RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType};
 
 pub mod drivers;
@@ -196,7 +196,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
         let fut = async move {
-            let stream = self.driver.watch().await?;
+            let stream = self.driver.watch(self.uid).await?;
             tokio::spawn(self.clone().handle_ev_stream(stream));
             tokio::spawn(self.clone().heartbeat_job());
             on_success();
@@ -410,27 +410,29 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     ) {
         while let Some(item) = stream.next().await {
             match item {
-                Ok((ItemId::Req(uid), data)) if uid.map_or(true, |id| id == self.uid) => {
-                    tracing::debug!(?uid, "request header");
+                Ok((ItemHead::Req { target, .. }, data))
+                    if target.map_or(true, |id| id == self.uid) =>
+                {
+                    tracing::debug!(?target, "request header");
                     if let Err(e) = self.recv_req(data).await {
                         tracing::warn!("error receiving request from driver: {e}");
                     }
                 }
-                Ok((ItemId::Req(node_id), _)) => {
+                Ok((ItemHead::Req { target, .. }, _)) => {
                     tracing::debug!(
-                        ?node_id,
+                        ?target,
                         "receiving request which is not for us, skipping..."
                     );
                 }
-                Ok((ItemId::Res(req_id), data)) => {
-                    tracing::trace!(?req_id, "received response");
+                Ok((ItemHead::Res { request, .. }, data)) => {
+                    tracing::trace!(?request, "received response");
                     let handlers = self.responses.lock().unwrap();
-                    if let Some(tx) = handlers.get(&req_id) {
+                    if let Some(tx) = handlers.get(&request) {
                         if let Err(e) = tx.try_send(data) {
                             tracing::warn!("error sending response to handler: {e}");
                         }
                     } else {
-                        tracing::warn!(?req_id, "could not find req handler");
+                        tracing::warn!(?request, "could not find req handler");
                     }
                 }
                 Err(e) => {
@@ -566,9 +568,13 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         }
     }
 
-    async fn send_req(&self, req: RequestOut<'_>, target_uid: Option<Uid>) -> Result<(), Error<D>> {
+    async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
-        let req = (ItemId::Req(target_uid), rmp_serde::to_vec(&req).unwrap());
+        let head = ItemHead::Req {
+            target,
+            origin: self.uid,
+        };
+        let req = (head, rmp_serde::to_vec(&req)?);
         self.driver.emit(&req).await.map_err(Error::from_driver)?;
         Ok(())
     }
@@ -579,11 +585,12 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         res: Response<T>,
     ) -> impl Future<Output = Result<(), Error<D>>> + Send + 'static {
         tracing::trace!(?res, "sending response for {req_id} req");
-        // We send the req_id separated from the response object.
-        // This allows to partially decode the response and route by the req_id
-        // before fully deserializing it.
         let driver = self.driver.clone();
-        let res = rmp_serde::to_vec(&res).map(|res| (ItemId::Res(req_id), res));
+        let head = ItemHead::Res {
+            request: req_id,
+            origin: self.uid,
+        };
+        let res = rmp_serde::to_vec(&res).map(|res| (head, res));
         async move {
             driver.emit(&res?).await.map_err(Error::from_driver)?;
             Ok(())

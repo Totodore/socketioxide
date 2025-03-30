@@ -2256,7 +2256,6 @@ dependencies = [
  "futures-util",
  "mongodb",
  "pin-project-lite",
- "rmp",
  "rmp-serde",
  "serde",
  "smallvec",

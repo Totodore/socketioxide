@@ -25,8 +25,6 @@ serde.workspace = true
 smallvec = { workspace = true, features = ["serde", "const_new"] }
 tokio = { workspace = true, features = ["time", "rt", "sync"] }
 rmp-serde.workspace = true
-rmp.workspace = true
-bytes.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 
@@ -47,6 +45,7 @@ socketioxide = { path = "../socketioxide", features = [
     "__test_harness",
 ] }
 tracing-subscriber.workspace = true
+bytes.workspace = true
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
