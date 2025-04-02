@@ -82,46 +82,49 @@ where
     /// We expect `serv_cnt` of `BroadcastAckCount` messages to be received, then we expect
     /// `ack_cnt` of `BroadcastAck` messages.
     fn poll_remote<E: DeserializeOwned + fmt::Debug>(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> Poll<Option<AckStreamItem<E>>> {
         // remote stream is not fused, so we need to check if it is terminated
         if FusedStream::is_terminated(&self) {
             return Poll::Ready(None);
         }
-
-        let projection = self.as_mut().project();
-        match projection.remote.poll_next(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Ready(Some((header, item))) => {
-                let res = rmp_serde::from_slice::<Response<E>>(&item);
-                match res {
-                    Ok(Response {
-                        node_id: uid,
-                        r#type: ResponseType::BroadcastAckCount(count),
-                    }) if *projection.serv_cnt > 0 => {
-                        tracing::trace!(?uid, ?header, "receiving broadcast ack count {count}");
-                        *projection.ack_cnt += count;
-                        *projection.total_ack_cnt += count as usize;
-                        *projection.serv_cnt -= 1;
-                        self.poll_remote(cx)
-                    }
-                    Ok(Response {
-                        node_id: uid,
-                        r#type: ResponseType::BroadcastAck((sid, res)),
-                    }) if *projection.ack_cnt > 0 => {
-                        tracing::trace!(?uid, ?header, "receiving broadcast ack {sid} {:?}", res);
-                        *projection.ack_cnt -= 1;
-                        Poll::Ready(Some((sid, res)))
-                    }
-                    Ok(Response { node_id: uid, .. }) => {
-                        tracing::warn!(?uid, ?header, ?self, "unexpected response type");
-                        self.poll_remote(cx)
-                    }
-                    Err(e) => {
-                        tracing::warn!("error decoding ack response: {e}");
-                        self.poll_remote(cx)
+        let mut projection = self.project();
+        loop {
+            match projection.remote.as_mut().poll_next(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Ready(Some((header, item))) => {
+                    let res = rmp_serde::from_slice::<Response<E>>(&item);
+                    match res {
+                        Ok(Response {
+                            node_id: uid,
+                            r#type: ResponseType::BroadcastAckCount(count),
+                        }) if *projection.serv_cnt > 0 => {
+                            tracing::trace!(?uid, ?header, "receiving broadcast ack count {count}");
+                            *projection.ack_cnt += count;
+                            *projection.total_ack_cnt += count as usize;
+                            *projection.serv_cnt -= 1;
+                        }
+                        Ok(Response {
+                            node_id: uid,
+                            r#type: ResponseType::BroadcastAck((sid, res)),
+                        }) if *projection.ack_cnt > 0 => {
+                            tracing::trace!(
+                                ?uid,
+                                ?header,
+                                "receiving broadcast ack {sid} {:?}",
+                                res
+                            );
+                            *projection.ack_cnt -= 1;
+                            return Poll::Ready(Some((sid, res)));
+                        }
+                        Ok(Response { node_id: uid, .. }) => {
+                            tracing::warn!(?uid, ?header, "unexpected response type");
+                        }
+                        Err(e) => {
+                            tracing::warn!("error decoding ack response: {e}");
+                        }
                     }
                 }
             }
