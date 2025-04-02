@@ -53,7 +53,7 @@ use socketioxide_core::{
 use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
-use drivers::{Driver, Item, ItemHead};
+use drivers::{Driver, Item, ItemHeader};
 use request::{RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType};
 
 pub mod drivers;
@@ -153,7 +153,7 @@ impl<R: Driver> From<Error<R>> for AdapterError {
     }
 }
 
-pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Vec<u8>>>;
+pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Item>>;
 
 /// The mongodb adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the mongodb server.
@@ -199,6 +199,19 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             let stream = self.driver.watch(self.uid).await?;
             tokio::spawn(self.clone().handle_ev_stream(stream));
             tokio::spawn(self.clone().heartbeat_job());
+
+            // Send initial heartbeat when starting.
+            const HB_OPTS: BroadcastOptions = BroadcastOptions::new_empty();
+            self.send_req(
+                RequestOut::new(self.uid, RequestTypeOut::Heartbeat, &HB_OPTS),
+                None,
+            )
+            .await
+            .map_err(|e| match e {
+                Error::Driver(e) => e,
+                Error::Encode(_) | Error::Decode(_) => unreachable!(),
+            })?;
+
             on_success();
             Ok(())
         };
@@ -211,11 +224,10 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     /// Get the number of servers by getting the number of subscribers to the request channel.
     async fn server_count(&self) -> Result<u16, Self::Error> {
-        //TODO: check valid timeout
         let treshold = std::time::Instant::now() - self.config.hb_timeout;
         let mut nodes_liveness = self.nodes_liveness.lock().unwrap();
-        nodes_liveness.retain(|(_, v)| v < &treshold);
-        Ok(nodes_liveness.len() as u16)
+        nodes_liveness.retain(|(_, v)| v > &treshold);
+        Ok((nodes_liveness.len() + 1) as u16)
     }
 
     /// Broadcast a packet to all the servers to send them through their sockets.
@@ -276,6 +288,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         let req_id = req.id;
 
         let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
+        tracing::trace!(?remote_serv_cnt, "expecting acks from remote servers");
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
@@ -392,8 +405,10 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
 impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     async fn heartbeat_job(self: Arc<Self>) -> Result<(), Error<D>> {
-        let mut interval = tokio::time::interval(self.config.hb_interval);
         const OPTS: BroadcastOptions = BroadcastOptions::new_empty();
+
+        let mut interval = tokio::time::interval(self.config.hb_interval);
+        interval.tick().await; // first tick yields immediately
         loop {
             interval.tick().await;
             self.send_req(
@@ -410,7 +425,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     ) {
         while let Some(item) = stream.next().await {
             match item {
-                Ok((ItemHead::Req { target, .. }, data))
+                Ok((ItemHeader::Req { target, .. }, data))
                     if target.map_or(true, |id| id == self.uid) =>
                 {
                     tracing::debug!(?target, "request header");
@@ -418,17 +433,17 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                         tracing::warn!("error receiving request from driver: {e}");
                     }
                 }
-                Ok((ItemHead::Req { target, .. }, _)) => {
+                Ok((ItemHeader::Req { target, .. }, _)) => {
                     tracing::debug!(
                         ?target,
                         "receiving request which is not for us, skipping..."
                     );
                 }
-                Ok((ItemHead::Res { request, .. }, data)) => {
+                Ok((header @ ItemHeader::Res { request, .. }, data)) => {
                     tracing::trace!(?request, "received response");
                     let handlers = self.responses.lock().unwrap();
                     if let Some(tx) = handlers.get(&request) {
-                        if let Err(e) = tx.try_send(data) {
+                        if let Err(e) = tx.try_send((header, data)) {
                             tracing::warn!("error sending response to handler: {e}");
                         }
                     } else {
@@ -560,17 +575,20 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     }
     fn recv_heartbeat(&self, req: RequestIn) {
         tracing::debug!(?req.node_id, "heartbeat received");
-        for (id, liveness) in &mut *self.nodes_liveness.lock().unwrap() {
+        let mut node_liveness = self.nodes_liveness.lock().unwrap();
+        for (id, liveness) in node_liveness.iter_mut() {
             if *id == req.node_id {
                 *liveness = Instant::now();
-                break;
+                return;
             }
         }
+
+        node_liveness.push((req.node_id, Instant::now()));
     }
 
     async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
-        let head = ItemHead::Req {
+        let head = ItemHeader::Req {
             target,
             origin: self.uid,
         };
@@ -586,7 +604,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     ) -> impl Future<Output = Result<(), Error<D>>> + Send + 'static {
         tracing::trace!(?res, "sending response for {req_id} req");
         let driver = self.driver.clone();
-        let head = ItemHead::Res {
+        let head = ItemHeader::Res {
             request: req_id,
             origin: self.uid,
         };
@@ -613,7 +631,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
         self.responses.lock().unwrap().insert(req_id, tx);
         let stream = ChanStream::new(rx)
-            .filter_map(|item| {
+            .filter_map(|(_header, item)| {
                 let data = match rmp_serde::from_slice::<(Sid, Response<T>)>(&item) {
                     Ok((_, data)) => Some(data),
                     Err(e) => {

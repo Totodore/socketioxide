@@ -14,6 +14,7 @@ use socketioxide_core::{adapter::AckStreamItem, Sid};
 use tokio::{sync::mpsc, time};
 
 use crate::{
+    drivers::Item,
     request::{Response, ResponseType},
     ResponseHandlers,
 };
@@ -42,7 +43,7 @@ pin_project! {
 impl<S> AckStream<S> {
     pub fn new(
         local: S,
-        rx: mpsc::Receiver<Vec<u8>>,
+        rx: mpsc::Receiver<Item>,
         timeout: Duration,
         serv_cnt: u16,
         req_id: Sid,
@@ -93,35 +94,29 @@ where
         match projection.remote.poll_next(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(None) => Poll::Ready(None),
-            Poll::Ready(Some(item)) => {
-                let res = rmp_serde::from_slice::<(Sid, Response<E>)>(&item);
+            Poll::Ready(Some((header, item))) => {
+                let res = rmp_serde::from_slice::<Response<E>>(&item);
                 match res {
-                    Ok((
-                        req_id,
-                        Response {
-                            node_id: uid,
-                            r#type: ResponseType::BroadcastAckCount(count),
-                        },
-                    )) if *projection.serv_cnt > 0 => {
-                        tracing::trace!(?uid, ?req_id, "receiving broadcast ack count {count}");
+                    Ok(Response {
+                        node_id: uid,
+                        r#type: ResponseType::BroadcastAckCount(count),
+                    }) if *projection.serv_cnt > 0 => {
+                        tracing::trace!(?uid, ?header, "receiving broadcast ack count {count}");
                         *projection.ack_cnt += count;
                         *projection.total_ack_cnt += count as usize;
                         *projection.serv_cnt -= 1;
                         self.poll_remote(cx)
                     }
-                    Ok((
-                        req_id,
-                        Response {
-                            node_id: uid,
-                            r#type: ResponseType::BroadcastAck((sid, res)),
-                        },
-                    )) if *projection.ack_cnt > 0 => {
-                        tracing::trace!(?uid, ?req_id, "receiving broadcast ack {sid} {:?}", res);
+                    Ok(Response {
+                        node_id: uid,
+                        r#type: ResponseType::BroadcastAck((sid, res)),
+                    }) if *projection.ack_cnt > 0 => {
+                        tracing::trace!(?uid, ?header, "receiving broadcast ack {sid} {:?}", res);
                         *projection.ack_cnt -= 1;
                         Poll::Ready(Some((sid, res)))
                     }
-                    Ok((req_id, Response { node_id: uid, .. })) => {
-                        tracing::warn!(?uid, ?req_id, ?self, "unexpected response type");
+                    Ok(Response { node_id: uid, .. }) => {
+                        tracing::warn!(?uid, ?header, ?self, "unexpected response type");
                         self.poll_remote(cx)
                     }
                     Err(e) => {
@@ -186,16 +181,16 @@ pin_project! {
     /// A stream of messages received from a channel.
     pub struct ChanStream {
         #[pin]
-        rx: mpsc::Receiver<Vec<u8>>
+        rx: mpsc::Receiver<Item>
     }
 }
 impl ChanStream {
-    pub fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
+    pub fn new(rx: mpsc::Receiver<Item>) -> Self {
         Self { rx }
     }
 }
 impl Stream for ChanStream {
-    type Item = Vec<u8>;
+    type Item = Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().rx.poll_recv(cx)

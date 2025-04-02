@@ -5,19 +5,19 @@ use socketioxide_core::{Sid, Uid};
 #[cfg(feature = "mongodb")]
 mod mongodb;
 
-pub type Item = (ItemHead, Vec<u8>);
+pub type Item = (ItemHeader, Vec<u8>);
 
 /// A header to identify the type of message being sent, its origin, and its target.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum ItemHead {
+pub enum ItemHeader {
     Req { target: Option<Uid>, origin: Uid },
     Res { request: Sid, origin: Uid },
 }
-impl ItemHead {
+impl ItemHeader {
     pub fn get_origin(&self) -> Uid {
         match self {
-            ItemHead::Req { origin, .. } => *origin,
-            ItemHead::Res { origin, .. } => *origin,
+            ItemHeader::Req { origin, .. } => *origin,
+            ItemHeader::Res { origin, .. } => *origin,
         }
     }
 }
