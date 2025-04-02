@@ -100,16 +100,11 @@ impl BroadcastOptions {
     /// Check if the selected options are local to the current server.
     #[inline]
     pub fn is_local(&self, uid: Uid) -> bool {
-        if self.has_flag(BroadcastFlags::Local)
-            || (!self.has_flag(BroadcastFlags::Broadcast)
-                && self.server_id == Some(uid)
-                && self.rooms.is_empty()
-                && self.sid.is_some())
-        {
-            true
-        } else {
-            false
-        }
+        let target_sock_is_local = !self.has_flag(BroadcastFlags::Broadcast)
+            && self.server_id == Some(uid)
+            && self.rooms.is_empty()
+            && self.sid.is_some();
+        self.has_flag(BroadcastFlags::Local) || target_sock_is_local
     }
 }
 
