@@ -3,14 +3,16 @@
 use futures_core::Stream;
 use socketioxide_core::Uid;
 use socketioxide_mongodb::{
-    drivers::{Driver, Item},
+    drivers::{Driver, Item, ItemHeader},
     CustomMongoDbAdapter, MongoDbAdapterConfig, MongoDbAdapterCtr,
 };
 use std::{
     convert::Infallible,
     pin::Pin,
+    str::FromStr,
     sync::{Arc, RwLock},
     task,
+    time::Duration,
 };
 use tokio::sync::mpsc;
 
@@ -20,7 +22,44 @@ use socketioxide::{adapter::Emitter, SocketIo, SocketIoConfig};
 /// Every server will be connected to every other server.
 pub fn spawn_servers<const N: usize>() -> [SocketIo<CustomMongoDbAdapter<Emitter, StubDriver>>; N] {
     let sync_buff = Arc::new(RwLock::new(Vec::with_capacity(N)));
+    spawn_inner(sync_buff, MongoDbAdapterConfig::default())
+}
 
+pub fn spawn_buggy_servers<const N: usize>(
+    timeout: Duration,
+) -> [SocketIo<CustomMongoDbAdapter<Emitter, StubDriver>>; N] {
+    let sync_buff = Arc::new(RwLock::new(Vec::with_capacity(N)));
+    let config = MongoDbAdapterConfig::default().with_request_timeout(timeout);
+    let res = spawn_inner(sync_buff.clone(), config);
+
+    // Reinject a false heartbeat request to simulate a bad number of servers.
+    // This will trigger timeouts when expecting responses from all servers.
+    let uid: Uid = Uid::from_str("PHHq01ObWy7Godqx").unwrap();
+    let header = ItemHeader::Req {
+        target: None,
+        origin: uid,
+    };
+    // Heartbeat request
+    let data = vec![
+        150, 176, 80, 72, 72, 113, 48, 49, 79, 98, 87, 121, 55, 71, 111, 100, 113, 120, 176, 90,
+        71, 57, 75, 49, 114, 55, 120, 83, 76, 66, 105, 74, 89, 87, 68, 20, 192, 192, 149, 0, 144,
+        144, 192, 192,
+    ];
+    sync_buff
+        .read()
+        .unwrap()
+        .first()
+        .unwrap()
+        .1
+        .try_send((header, data))
+        .unwrap();
+    res
+}
+
+fn spawn_inner<const N: usize>(
+    sync_buff: Arc<RwLock<ResponseHandlers>>,
+    config: MongoDbAdapterConfig,
+) -> [SocketIo<CustomMongoDbAdapter<Emitter, StubDriver>>; N] {
     [0; N].map(|_| {
         let server_id = Uid::new();
         let (driver, mut rx, tx) = StubDriver::new();
@@ -29,18 +68,18 @@ pub fn spawn_servers<const N: usize>() -> [SocketIo<CustomMongoDbAdapter<Emitter
         sync_buff.write().unwrap().push((server_id, tx));
         let sync_buff = sync_buff.clone();
         tokio::spawn(async move {
-            while let Some((chan, data)) = rx.recv().await {
-                tracing::debug!("received data to broadcast {:?}", chan);
+            while let Some((header, data)) = rx.recv().await {
+                tracing::debug!("received data to broadcast {:?}", header);
                 for (server_id, tx) in sync_buff.read().unwrap().iter() {
-                    if chan.get_origin() != *server_id {
-                        tracing::debug!("sending data for {:?}", chan);
-                        tx.try_send((chan.clone(), data.clone())).unwrap();
+                    if header.get_origin() != *server_id {
+                        tracing::debug!("sending data for {:?}", header);
+                        tx.try_send((header.clone(), data.clone())).unwrap();
                     }
                 }
             }
         });
 
-        let adapter = MongoDbAdapterCtr::new_with_driver(driver, MongoDbAdapterConfig::default());
+        let adapter = MongoDbAdapterCtr::new_with_driver(driver, config.clone());
         let mut config = SocketIoConfig::default();
         config.server_id = server_id;
         let (_svc, io) = SocketIo::builder()

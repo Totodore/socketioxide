@@ -37,7 +37,7 @@ pub mod errors;
 pub mod packet;
 pub mod parser;
 
-use std::{collections::VecDeque, ops::Deref};
+use std::{collections::VecDeque, ops::Deref, str::FromStr};
 
 use bytes::Bytes;
 pub use engineioxide_core::{Sid, Str};
@@ -55,6 +55,12 @@ impl Deref for Uid {
 impl std::fmt::Display for Uid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+impl FromStr for Uid {
+    type Err = <Sid as FromStr>::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(Sid::from_str(s)?))
     }
 }
 impl Uid {
