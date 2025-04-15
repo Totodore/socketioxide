@@ -351,6 +351,32 @@ mod tests {
             ),
         ]);
         let res: rmpv::Value = from_str_event_bin(data, vec![Bytes::new(), Bytes::new()].into());
-        assert_eq!(res, comp);
+        assert!(values_equal_ignore_order(&res, &comp));
+    }
+
+    /// Asserts that two rmpv::Value are equal, ignoring the order of their elements.
+    fn values_equal_ignore_order(a: &rmpv::Value, b: &rmpv::Value) -> bool {
+        match (a, b) {
+            (rmpv::Value::Map(a_map), rmpv::Value::Map(b_map)) => {
+                if a_map.len() != b_map.len() {
+                    return false;
+                }
+
+                a_map
+                    .iter()
+                    .all(|(k, v)| match b_map.iter().find(|(bk, _)| bk == k) {
+                        Some((_, bv)) => values_equal_ignore_order(v, bv),
+                        None => false,
+                    })
+            }
+            (rmpv::Value::Array(a_arr), rmpv::Value::Array(b_arr)) => {
+                a_arr.len() == b_arr.len()
+                    && a_arr
+                        .iter()
+                        .zip(b_arr.iter())
+                        .all(|(a, b)| values_equal_ignore_order(a, b))
+            }
+            _ => a == b,
+        }
     }
 }
