@@ -121,7 +121,7 @@ impl<D: Driver> MongoDbAdapterCtr<D> {
 /// Represent any error that might happen when using this adapter.
 #[derive(thiserror::Error)]
 pub enum Error<D: Driver> {
-    /// Redis driver error
+    /// Mongo driver error
     #[error("driver error: {0}")]
     Driver(D::Error),
     // /// Packet encoding error
@@ -160,12 +160,12 @@ pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Item>>;
 /// And over the [`SocketEmitter`] used to communicate with the local server. This allows to
 /// avoid cyclic dependencies between the adapter, `socketioxide-core` and `socketioxide` crates.
 pub struct CustomMongoDbAdapter<E, D> {
-    /// The driver used by the adapter. This is used to communicate with the redis server.
-    /// All the redis adapter instances share the same driver.
+    /// The driver used by the adapter. This is used to communicate with the mongodb server.
+    /// All the mongodb adapter instances share the same driver.
     driver: D,
     /// The configuration of the adapter.
     config: MongoDbAdapterConfig,
-    /// A unique identifier for the adapter to identify itself in the redis server.
+    /// A unique identifier for the adapter to identify itself in the mongodb server.
     uid: Uid,
     /// The local adapter, used to manage local rooms and socket stores.
     local: CoreLocalAdapter<E>,
@@ -325,7 +325,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         let req = RequestOut::new(self.uid, RequestTypeOut::AllRooms, &opts);
         let req_id = req.id;
 
-        // First get the remote stream because redis might send
+        // First get the remote stream because mongodb might send
         // the responses before subscription is done.
         let stream = self
             .get_res::<()>(req_id, PACKET_IDX, opts.server_id)
@@ -379,11 +379,10 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         }
         const PACKET_IDX: u8 = 3;
         let req = RequestOut::new(self.uid, RequestTypeOut::FetchSockets, &opts);
-        let req_id = req.id;
-        // First get the remote stream because redis might send
+        // First get the remote stream because mongodb might send
         // the responses before subscription is done.
         let remote = self
-            .get_res::<RemoteSocketData>(req_id, PACKET_IDX, opts.server_id)
+            .get_res::<RemoteSocketData>(req.id, PACKET_IDX, opts.server_id)
             .await?;
 
         self.send_req(req, None).await?;
@@ -447,7 +446,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                             tracing::warn!("error sending response to handler: {e}");
                         }
                     } else {
-                        tracing::warn!(?request, "could not find req handler");
+                        tracing::warn!(?header, ?handlers, "could not find req handler");
                     }
                 }
                 Err(e) => {
@@ -632,10 +631,10 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         self.responses.lock().unwrap().insert(req_id, tx);
         let stream = ChanStream::new(rx)
             .filter_map(|(_header, item)| {
-                let data = match rmp_serde::from_slice::<(Sid, Response<T>)>(&item) {
-                    Ok((_, data)) => Some(data),
+                let data = match rmp_serde::from_slice::<Response<T>>(&item) {
+                    Ok(data) => Some(data),
                     Err(e) => {
-                        tracing::warn!("error decoding response: {e}");
+                        tracing::warn!(header = ?_header, "error decoding response: {e}");
                         None
                     }
                 };

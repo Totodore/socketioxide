@@ -45,14 +45,10 @@ pub fn spawn_buggy_servers<const N: usize>(
         71, 57, 75, 49, 114, 55, 120, 83, 76, 66, 105, 74, 89, 87, 68, 20, 192, 192, 149, 0, 144,
         144, 192, 192,
     ];
-    sync_buff
-        .read()
-        .unwrap()
-        .first()
-        .unwrap()
-        .1
-        .try_send((header, data))
-        .unwrap();
+    for (_, tx) in sync_buff.read().unwrap().iter() {
+        tx.try_send((header.clone(), data.clone())).unwrap();
+    }
+
     res
 }
 
