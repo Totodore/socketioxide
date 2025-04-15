@@ -197,7 +197,7 @@ jobs:
           cd e2e/engineioxide/test-suites && npm install && cd ../../..
           cargo build -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r
           cargo run -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r > server.txt && sleep 1 & \
-          node --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
+          node --test --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -235,7 +235,7 @@ jobs:
           cd e2e/socketioxide/test-suites && npm install && cd ../../..
           cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r
           cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt && sleep 1 & \
-          node --test-reporter=spec --experimental-strip-types e2e/socketioxide/test-suites/${{ matrix.socketio-version }}.ts > client.txt
+          node --test --test-reporter=spec --experimental-strip-types e2e/socketioxide/test-suites/${{ matrix.socketio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -283,7 +283,7 @@ jobs:
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
           cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER
-          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" node --experimental-strip-types --test-reporter=spec client.ts
+          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" node --experimental-strip-types --test-reporter=spec --test client.ts
       - name: Server output
         if: always()
         run: cat e2e/adapter/*.log
