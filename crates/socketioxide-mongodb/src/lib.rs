@@ -30,6 +30,7 @@
 )]
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt, future,
     pin::Pin,
@@ -71,6 +72,8 @@ pub struct MongoDbAdapterConfig {
     /// If you have a lot of servers/sockets and that you may miss acknowledgement because they arrive faster
     /// than you poll them with the returned stream, you might want to increase this value.
     pub ack_response_buffer: usize,
+    /// The collection name used to store socket.io data. Default is "socket.io-adapter".
+    pub collection: Cow<'static, str>,
 }
 
 impl MongoDbAdapterConfig {
@@ -80,6 +83,7 @@ impl MongoDbAdapterConfig {
             hb_interval: Duration::from_secs(10),
             request_timeout: Duration::from_secs(5),
             ack_response_buffer: 255,
+            collection: Cow::Borrowed("socket.io-adapter"),
         }
     }
     pub fn with_hb_timeout(mut self, hb_timeout: Duration) -> Self {
@@ -112,6 +116,22 @@ pub struct MongoDbAdapterCtr<D> {
     config: MongoDbAdapterConfig,
 }
 
+#[cfg(feature = "mongodb")]
+impl MongoDbAdapterCtr<drivers::mongodb::MongoDbDriver> {
+    pub fn new_with_mongodb(db: mongodb::Database) -> Self {
+        let config = MongoDbAdapterConfig::default();
+        Self {
+            driver: drivers::mongodb::MongoDbDriver::new(db, &config.collection),
+            config,
+        }
+    }
+    pub fn new_with_mongodb_config(db: mongodb::Database, config: MongoDbAdapterConfig) -> Self {
+        Self {
+            driver: drivers::mongodb::MongoDbDriver::new(db, &config.collection),
+            config,
+        }
+    }
+}
 impl<D: Driver> MongoDbAdapterCtr<D> {
     pub fn new_with_driver(driver: D, config: MongoDbAdapterConfig) -> Self {
         Self { driver, config }
@@ -154,6 +174,9 @@ impl<R: Driver> From<Error<R>> for AdapterError {
 }
 
 pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Item>>;
+
+#[cfg(feature = "mongodb")]
+pub type MongoDbAdapter<E> = CustomMongoDbAdapter<E, drivers::mongodb::MongoDbDriver>;
 
 /// The mongodb adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the mongodb server.

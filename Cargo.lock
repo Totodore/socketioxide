@@ -10,6 +10,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "socketioxide",
+ "socketioxide-mongodb",
  "socketioxide-redis",
  "tokio",
  "tracing",

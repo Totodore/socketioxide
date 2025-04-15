@@ -248,7 +248,14 @@ jobs:
     strategy:
       matrix:
         socketio-version: [v4, v4-msgpack, v5, v5-msgpack]
-        adapter: [fred-e2e, redis-e2e, redis-cluster-e2e, fred-cluster-e2e]
+        adapter:
+          [
+            fred-e2e,
+            redis-e2e,
+            redis-cluster-e2e,
+            fred-cluster-e2e,
+            mongodb-e2e,
+          ]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master

@@ -110,3 +110,13 @@ services:
       - REDIS_CLUSTER_DYNAMIC_IPS=no
       - REDIS_NODES=127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
       - REDIS_CLUSTER_CREATOR=yes
+  mongodb:
+    image: docker.io/mongo
+    network_mode: host
+    ports:
+      - 27017:27017
+    healthcheck:
+      test: "curl -f http://localhost:27017"
+      interval: 2s
+      timeout: 5s
+    command: --replSet rs0

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use socketioxide_core::{Sid, Uid};
 
 #[cfg(feature = "mongodb")]
-mod mongodb;
+pub mod mongodb;
 
 pub type Item = (ItemHeader, Vec<u8>);
 

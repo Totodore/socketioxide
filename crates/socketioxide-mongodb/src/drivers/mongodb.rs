@@ -8,9 +8,18 @@ use mongodb::change_stream::{
 };
 use socketioxide_core::Uid;
 
+pub use mongodb as mongodb_client;
+
 #[derive(Debug, Clone)]
 pub struct MongoDbDriver {
     collec: mongodb::Collection<Item>,
+}
+
+impl MongoDbDriver {
+    pub fn new(db: mongodb::Database, collection: &str) -> Self {
+        let collec = db.collection(collection);
+        Self { collec }
+    }
 }
 
 pin_project_lite::pin_project! {

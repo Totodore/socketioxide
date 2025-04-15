@@ -26,6 +26,7 @@ socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
     "redis-cluster",
     "fred",
 ] }
+socketioxide-mongodb = { path = "../../crates/socketioxide-mongodb" }
 hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -49,3 +50,7 @@ path = "src/bins/fred.rs"
 [[bin]]
 name = "fred-cluster-e2e"
 path = "src/bins/fred_cluster.rs"
+
+[[bin]]
+name = "mongodb-e2e"
+path = "src/bins/mongodb.rs"
