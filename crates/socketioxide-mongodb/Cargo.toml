@@ -14,7 +14,8 @@ readme = "README.md"
 
 [features]
 mongodb = ["dep:mongodb"]
-default = ["mongodb"]
+ttl-index = ["dep:bson"]
+default = ["mongodb", "ttl-index"]
 
 [dependencies]
 socketioxide-core = { version = "0.16", path = "../socketioxide-core" }
@@ -27,6 +28,9 @@ tokio = { workspace = true, features = ["time", "rt", "sync"] }
 rmp-serde.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+
+# BSON implementation for TtlIndex data expiration strategy only
+bson = { version = "2", default-features = false, optional = true }
 
 # Mongodb implementation
 mongodb = { version = "3", default-features = false, optional = true, features = [

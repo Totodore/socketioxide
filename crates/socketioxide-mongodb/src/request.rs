@@ -163,22 +163,30 @@ pub struct Response<D = ()> {
     pub r#type: ResponseType<D>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ResponseTypeId {
+    BroadcastAck = 0,
+    BroadcastAckCount = 1,
+    AllRooms = 2,
+    FetchSockets = 3,
+}
+impl<D> From<&ResponseType<D>> for ResponseTypeId {
+    fn from(r#type: &ResponseType<D>) -> Self {
+        match r#type {
+            ResponseType::BroadcastAck(_) => Self::BroadcastAck,
+            ResponseType::BroadcastAckCount(_) => Self::BroadcastAckCount,
+            ResponseType::AllRooms(_) => Self::AllRooms,
+            ResponseType::FetchSockets(_) => Self::FetchSockets,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ResponseType<D = ()> {
     BroadcastAck((Sid, Result<Value, D>)),
     BroadcastAckCount(u32),
     AllRooms(HashSet<Room>),
     FetchSockets(Vec<D>),
-}
-impl<D> ResponseType<D> {
-    pub fn to_u8(&self) -> u8 {
-        match self {
-            Self::BroadcastAck(_) => 0,
-            Self::BroadcastAckCount(_) => 1,
-            Self::AllRooms(_) => 2,
-            Self::FetchSockets(_) => 3,
-        }
-    }
 }
 impl<D: Serialize> Serialize for ResponseType<D> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

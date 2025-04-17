@@ -16,12 +16,15 @@ use socketioxide_core::Uid;
 
 pub use mongodb as mongodb_client;
 
+/// A driver implementation for the [mongodb](docs.rs/mongodb) change stream backend.
 #[derive(Debug, Clone)]
 pub struct MongoDbDriver {
     collec: mongodb::Collection<Item>,
 }
 
 impl MongoDbDriver {
+    /// Create a new [`MongoDbDriver`] with a connection to a [`mongodb`] database,
+    /// a collection and an eviction strategy.
     pub async fn new(
         db: mongodb::Database,
         collection: &str,
@@ -29,6 +32,7 @@ impl MongoDbDriver {
     ) -> Result<Self, mongodb::error::Error> {
         let collec = match eviction_strategy {
             MessageExpirationStrategy::CappedCollection(size) => {
+                tracing::debug!(?size, "configuring capped collection as an expiration strategy");
                 db.create_collection(collection)
                     .capped(true)
                     .size(*size)
@@ -36,6 +40,7 @@ impl MongoDbDriver {
                 db.collection(collection)
             }
             MessageExpirationStrategy::TtlIndex(ttl) => {
+                tracing::debug!(?ttl, "configuring TTL index as an expiration strategy");
                 let options = IndexOptions::builder()
                     .expire_after(*ttl)
                     .background(true)
@@ -55,6 +60,7 @@ impl MongoDbDriver {
 }
 
 pin_project_lite::pin_project! {
+    /// The stream of document insertion returned by the mongodb change stream.
     pub struct EvStream {
         #[pin]
         stream: ChangeStream<ChangeStreamEvent<Item>>,
@@ -84,17 +90,18 @@ impl Driver for MongoDbDriver {
     type Error = mongodb::error::Error;
     type EvStream = EvStream;
 
-    async fn watch(&self, server_id: Uid) -> Result<EvStream, Self::Error> {
+    async fn watch(&self, server_id: Uid, ns: &str) -> Result<EvStream, Self::Error> {
         let stream = self
             .collec
             .watch()
             .pipeline([mongodb::bson::doc! {
               "$match": {
                     "fullDocument.origin": { "$ne": server_id.as_str() },
+                    "fullDocument.ns": { "$eq": ns },
                     "$or": [
                         { "fullDocument.target": server_id.as_str() },
                         { "fullDocument.target": { "$exists": false } }
-                    ]
+                    ],
               },
             }])
             .await?;

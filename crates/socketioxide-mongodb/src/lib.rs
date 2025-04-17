@@ -26,8 +26,97 @@
     clippy::unnested_or_patterns,
     rust_2018_idioms,
     future_incompatible,
-    nonstandard_style
+    nonstandard_style,
+    missing_docs
 )]
+//! # A mongodb adapter implementation for the socketioxide crate.
+//! The adapter is used to communicate with other nodes of the same application.
+//! This allows to broadcast messages to sockets connected on other servers,
+//! to get the list of rooms, to add or remove sockets from rooms, etc.
+//!
+//! To achieve this, the adapter uses [change streams](https://www.mongodb.com/docs/manual/changeStreams/)
+//! on a collection. The message expiration process is either handled with TTL-indexes or a capped collection.
+//! If you change the message expiration strategy, make sure to first drop the collection.
+//! MongoDB doesn't support switching from capped to TTL-indexes on an existing collection.
+//!
+//! The [`Driver`] abstraction allows the use of any mongodb client.
+//! One implementation is provided:
+//! * [`MongoDbDriver`](crate::drivers::mongodb::MongoDbDriver) for the [`mongodb`] crate.
+//!
+//! You can also implement your own driver by implementing the [`Driver`] trait.
+//!
+//! <div class="warning">
+//!     The provided driver implementation is using change streams.
+//!     They are only available on replica sets and sharded clusters.
+//!     Make sure your mongodb server/cluster is configured accordingly.
+//! </div>
+//!
+//! <div class="warning">
+//!     Socketioxide-mongodb is not compatible with <code>@socketio/mongodb-adapter</code>
+//!     and <code>@socketio/mongodb-emitter</code>. They use completely different protocols and
+//!     cannot be used together. Do not mix socket.io JS servers with socketioxide rust servers.
+//! </div>
+//!
+//! ## Example with the default driver
+//! ```rust
+//! # use socketioxide::{SocketIo, extract::{SocketRef, Data}, adapter::Adapter};
+//! # use socketioxide_mongodb::{MongoDbAdapterCtr, MongoDbAdapter};
+//! # async fn doc_main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn on_connect<A: Adapter>(socket: SocketRef<A>) {
+//!     socket.join("room1");
+//!     socket.on("event", on_event);
+//!     let _ = socket.broadcast().emit("hello", "world").await.ok();
+//! }
+//! async fn on_event<A: Adapter>(socket: SocketRef<A>, Data(data): Data<String>) {}
+//!
+//! const URI: &str = "mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true";
+//! let client = mongodb::Client::with_uri_str(URI).await?;
+//! let adapter = MongoDbAdapterCtr::new_with_mongodb(client.database("test")).await?;
+//! let (layer, io) = SocketIo::builder()
+//!     .with_adapter::<MongoDbAdapter<_>>(adapter)
+//!     .build_layer();
+//! Ok(())
+//! # }
+//! ```
+//!
+//! Check the [`chat example`](https://github.com/Totodore/socketioxide/tree/main/examples/chat)
+//! for more complete examples.
+//!
+//! ## How does it work?
+//!
+//! The [`MongoDbAdapterCtr`] is a constructor for the [`MongoDbAdapter`] which is an implementation of the [`Adapter`] trait.
+//! The constructor takes a [`mongodb::Database`] as an argument and will configure a collection
+//! according to the chosen message expiration strategy (TTL indexes or capped collection).
+//!
+//! Then, for each namespace, an adapter is created and it takes a corresponding [`CoreLocalAdapter`].
+//! The [`CoreLocalAdapter`] allows to manage the local rooms and local sockets. The default `LocalAdapter`
+//! is simply a wrapper around this [`CoreLocalAdapter`].
+//!
+//! Once it is created the adapter is initialized with the [`MongoDbAdapter::init`] method. It will create a new
+//! This will subscribe to 3 channels:
+//! * `"{prefix}-request#{namespace}#"`: A global channel to receive broadcasted requests.
+//! * `"{prefix}-request#{namespace}#{uid}#"`: A specific channel to receive requests only for this server.
+//! * `"{prefix}-response#{namespace}#{uid}#"`: A specific channel to receive responses only for this server.
+//!     Messages sent to this channel will be always in the form `[req_id, data]`. This will allow the adapter to extract the request id
+//!     and route the response to the approriate stream before deserializing the data.
+//!
+//! All messages are encoded with msgpack.
+//!
+//! There are 7 types of requests:
+//! * Broadcast a packet to all the matching sockets.
+//! * Broadcast a packet to all the matching sockets and wait for a stream of acks.
+//! * Disconnect matching sockets.
+//! * Get all the rooms.
+//! * Add matching sockets to rooms.
+//! * Remove matching sockets to rooms.
+//! * Fetch all the remote sockets matching the options.
+//!
+//! For ack streams, the adapter will first send a `BroadcastAckCount` response to the server that sent the request,
+//! and then send the acks as they are received (more details in [`RedisAdapter::broadcast_with_ack`] fn).
+//!
+//! On the other side, each time an action has to be performed on the local server, the adapter will
+//! first broadcast a request to all the servers and then perform the action locally.
+
 
 use std::{
     borrow::Cow,
@@ -55,18 +144,27 @@ use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
 use drivers::{Driver, Item, ItemHeader};
-use request::{RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType};
+use request::{RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId};
 
+/// Drivers are an abstraction over the pub/sub backend used by the adapter.
+/// You can use the provided implementation or implement your own.
 pub mod drivers;
 
 mod request;
 mod stream;
 
+/// The configuration of the [`MongoDbAdapter`].
 #[derive(Debug, Clone)]
 pub struct MongoDbAdapterConfig {
-    hb_timeout: Duration,
-    hb_interval: Duration,
-    request_timeout: Duration,
+    /// The heartbeat timeout duration. If a remote node does not respond within this duration,
+    /// it will be considered disconnected. Default is 60 seconds.
+    pub hb_timeout: Duration,
+    /// The heartbeat interval duration. The current node will broadcast a heartbeat to the
+    /// remote nodes at this interval. Default is 10 seconds.
+    pub hb_interval: Duration,
+    /// The request timeout. When expecting a response from remote nodes, if they do not respond within
+    /// this duration, the request will be considered failed. Default is 5 seconds.
+    pub request_timeout: Duration,
     /// The channel size used to receive ack responses. Default is 255.
     ///
     /// If you have a lot of servers/sockets and that you may miss acknowledgement because they arrive faster
@@ -74,16 +172,30 @@ pub struct MongoDbAdapterConfig {
     pub ack_response_buffer: usize,
     /// The collection name used to store socket.io data. Default is "socket.io-adapter".
     pub collection: Cow<'static, str>,
-    /// The eviction strategy used to remove old documents. Default is `Ttl(Duration::from_secs(60))`.
+    /// The [`MessageExpirationStrategy`] used to remove old documents.
+    /// Default is `Ttl(Duration::from_secs(60))`.
     pub expiration_strategy: MessageExpirationStrategy,
 }
+
+/// The strategy used to remove old documents in the mongodb collection.
+/// The default mongodb driver supports both [TTL indexes](https://www.mongodb.com/docs/manual/core/index-ttl/)
+/// and [capped collections](https://www.mongodb.com/docs/manual/core/capped-collections/).
+///
+/// Prefer the [`MessageExpirationStrategy::TtlIndex`] strategy for better performance and usability.
 #[derive(Debug, Clone)]
 pub enum MessageExpirationStrategy {
+    /// Use a TTL index to expire documents after a certain duration.
+    #[cfg(feature = "ttl-index")]
     TtlIndex(Duration),
+    /// Use a capped collection to limit the size in bytes of the collection. Older messages are removed.
+    ///
+    /// Be aware that if you send a message that is bigger than your capped collection's size,
+    /// it will be rejected and won't be broadcast.
     CappedCollection(u64),
 }
 
 impl MongoDbAdapterConfig {
+    /// Create a new [`MongoDbAdapterConfig`] with default values.
     pub fn new() -> Self {
         Self {
             hb_timeout: Duration::from_secs(60),
@@ -91,23 +203,48 @@ impl MongoDbAdapterConfig {
             request_timeout: Duration::from_secs(5),
             ack_response_buffer: 255,
             collection: Cow::Borrowed("socket.io-adapter"),
-            expiration_strategy: MessageExpirationStrategy::CappedCollection(1_000_000), // 1MB
+            #[cfg(feature = "ttl-index")]
+            expiration_strategy: MessageExpirationStrategy::TtlIndex(Duration::from_secs(60)),
+            #[cfg(not(feature = "ttl-index"))]
+            expiration_strategy: MessageExpirationStrategy::CappedCollection(1024 * 1024), // 1MB
         }
     }
+    /// The heartbeat timeout duration. If a remote node does not respond within this duration,
+    /// it will be considered disconnected. Default is 60 seconds.
     pub fn with_hb_timeout(mut self, hb_timeout: Duration) -> Self {
         self.hb_timeout = hb_timeout;
         self
     }
+    /// The heartbeat interval duration. The current node will broadcast a heartbeat to the
+    /// remote nodes at this interval. Default is 10 seconds.
     pub fn with_hb_interval(mut self, hb_interval: Duration) -> Self {
         self.hb_interval = hb_interval;
         self
     }
+    /// The request timeout. When expecting a response from remote nodes, if they do not respond within
+    /// this duration, the request will be considered failed. Default is 5 seconds.
     pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
         self.request_timeout = request_timeout;
         self
     }
+    /// The channel size used to receive ack responses. Default is 255.
+    ///
+    /// If you have a lot of servers/sockets and that you may miss acknowledgement because they arrive faster
+    /// than you poll them with the returned stream, you might want to increase this value.
     pub fn with_ack_response_buffer(mut self, ack_response_buffer: usize) -> Self {
         self.ack_response_buffer = ack_response_buffer;
+        self
+    }
+    /// The collection name used to store socket.io data. Default is "socket.io-adapter".
+    pub fn with_collection(mut self, collection: impl Into<Cow<'static, str>>) -> Self {
+        self.collection = collection.into();
+        self
+    }
+    /// The [`MessageExpirationStrategy`] used to remove old documents.
+    /// Default is `TtlIndex(Duration::from_secs(60))` with the `ttl-index` feature enabled.
+    /// Otherwise it is `CappedCollection(1MB)`
+    pub fn with_expiration_strategy(mut self, expiration_strategy: MessageExpirationStrategy) -> Self {
+        self.expiration_strategy = expiration_strategy;
         self
     }
 }
@@ -118,6 +255,9 @@ impl Default for MongoDbAdapterConfig {
     }
 }
 
+
+/// The adapter constructor. For each namespace you define, a new adapter instance is created
+/// from this constructor.
 #[derive(Debug, Clone)]
 pub struct MongoDbAdapterCtr<D> {
     driver: D,
@@ -126,11 +266,15 @@ pub struct MongoDbAdapterCtr<D> {
 
 #[cfg(feature = "mongodb")]
 impl MongoDbAdapterCtr<drivers::mongodb::MongoDbDriver> {
+    /// Create a new adapter constructor with the [`mongodb`](drivers::mongodb) driver
+    /// and a default config.
     pub async fn new_with_mongodb(
         db: mongodb::Database,
     ) -> Result<Self, drivers::mongodb::mongodb_client::error::Error> {
         Self::new_with_mongodb_config(db, MongoDbAdapterConfig::default()).await
     }
+    /// Create a new adapter constructor with the [`mongodb`](drivers::mongodb) driver
+    /// and a custom config.
     pub async fn new_with_mongodb_config(
         db: mongodb::Database,
         config: MongoDbAdapterConfig,
@@ -142,6 +286,10 @@ impl MongoDbAdapterCtr<drivers::mongodb::MongoDbDriver> {
     }
 }
 impl<D: Driver> MongoDbAdapterCtr<D> {
+    /// Create a new adapter constructor with a custom mongodb driver and a config.
+    ///
+    /// You can implement your own driver by implementing the [`Driver`] trait with any mongodb client.
+    /// Check the [`drivers`] module for more information.
     pub fn new_with_driver(driver: D, config: MongoDbAdapterConfig) -> Self {
         Self { driver, config }
     }
@@ -153,7 +301,7 @@ pub enum Error<D: Driver> {
     /// Mongo driver error
     #[error("driver error: {0}")]
     Driver(D::Error),
-    // /// Packet encoding error
+    /// Packet encoding error
     #[error("packet encoding error: {0}")]
     Encode(#[from] rmp_serde::encode::Error),
     /// Packet decoding error
@@ -184,6 +332,7 @@ impl<R: Driver> From<Error<R>> for AdapterError {
 
 pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Item>>;
 
+/// The mongodb adapter with the [mongodb](drivers::mongodb::mongodb_client) driver.
 #[cfg(feature = "mongodb")]
 pub type MongoDbAdapter<E> = CustomMongoDbAdapter<E, drivers::mongodb::MongoDbDriver>;
 
@@ -201,7 +350,7 @@ pub struct CustomMongoDbAdapter<E, D> {
     uid: Uid,
     /// The local adapter, used to manage local rooms and socket stores.
     local: CoreLocalAdapter<E>,
-    /// A map of nodes liveness, with the last time the node was seen alive.
+    /// A map of nodes liveness, with the last time remote nodes were seen alive.
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
     /// A map of response handlers used to await for responses from the remote servers.
     responses: Arc<Mutex<ResponseHandlers>>,
@@ -228,7 +377,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
         let fut = async move {
-            let stream = self.driver.watch(self.uid).await?;
+            let stream = self.driver.watch(self.uid, self.local.path()).await?;
             tokio::spawn(self.clone().handle_ev_stream(stream));
             tokio::spawn(self.clone().heartbeat_job());
 
@@ -248,7 +397,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         Ok(())
     }
 
-    /// Get the number of servers by getting the number of subscribers to the request channel.
+    /// Get the number of servers by iterating over the node liveness heartbeats.
     async fn server_count(&self) -> Result<u16, Self::Error> {
         let treshold = std::time::Instant::now() - self.config.hb_timeout;
         let mut nodes_liveness = self.nodes_liveness.lock().unwrap();
@@ -273,7 +422,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     /// Broadcast a packet to all the servers to send them through their sockets.
     ///
-    /// Returns a Stream that is a combination of the local ack stream and a remote [`MessageStream`].
+    /// Returns a Stream that is a combination of the local ack stream and a remote ack stream.
     /// Here is a specific protocol in order to know how many message the server expect to close
     /// the stream at the right time:
     /// * Get the number `n` of remote servers.
@@ -344,7 +493,6 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     }
 
     async fn rooms(&self, opts: BroadcastOptions) -> Result<Vec<Room>, Self::Error> {
-        const PACKET_IDX: u8 = 2;
         if opts.is_local(self.uid) {
             return Ok(self.local.rooms(opts).into_iter().collect());
         }
@@ -354,7 +502,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         // First get the remote stream because mongodb might send
         // the responses before subscription is done.
         let stream = self
-            .get_res::<()>(req_id, PACKET_IDX, opts.server_id)
+            .get_res::<()>(req_id, ResponseTypeId::AllRooms, opts.server_id)
             .await?;
         self.send_req(req, None).await?;
         let local = self.local.rooms(opts);
@@ -403,12 +551,11 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         if opts.is_local(self.uid) {
             return Ok(self.local.fetch_sockets(opts));
         }
-        const PACKET_IDX: u8 = 3;
         let req = RequestOut::new(self.uid, RequestTypeOut::FetchSockets, &opts);
         // First get the remote stream because mongodb might send
         // the responses before subscription is done.
         let remote = self
-            .get_res::<RemoteSocketData>(req.id, PACKET_IDX, opts.server_id)
+            .get_res::<RemoteSocketData>(req.id, ResponseTypeId::FetchSockets, opts.server_id)
             .await?;
 
         self.send_req(req, None).await?;
@@ -637,10 +784,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     /// Send a request to a specific target node or broadcast it to all nodes if no target is specified.
     async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
-        let head = ItemHeader::Req {
-            target,
-            origin: self.uid,
-        };
+        let head = ItemHeader::Req { target, };
         let req = self.new_packet(head, &req)?;
         self.driver.emit(&req).await.map_err(Error::from_driver)?;
         Ok(())
@@ -657,7 +801,6 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         let driver = self.driver.clone();
         let head = ItemHeader::Res {
             request: req_id,
-            origin: self.uid,
             target: req_origin,
         };
         let res = self.new_packet(head, &res);
@@ -673,7 +816,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     async fn get_res<T: DeserializeOwned + fmt::Debug>(
         &self,
         req_id: Sid,
-        response_idx: u8,
+        response_type: ResponseTypeId,
         target: Option<Uid>,
     ) -> Result<impl Stream<Item = Response<T>>, Error<D>> {
         // Check for specific target node
@@ -695,7 +838,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                 };
                 future::ready(data)
             })
-            .filter(move |item| future::ready(item.r#type.to_u8() == response_idx))
+            .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
             .take(remote_serv_cnt)
             .take_until(tokio::time::sleep(self.config.request_timeout));
         let stream = DropStream::new(stream, self.responses.clone(), req_id);
@@ -724,9 +867,12 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         .await
     }
     fn new_packet(&self, head: ItemHeader, data: &impl Serialize) -> Result<Item, Error<D>> {
+        let ns = &self.local.path();
+        let uid = self.uid;
         match self.config.expiration_strategy {
-            MessageExpirationStrategy::TtlIndex(_) => Ok(Item::new_ttl(head, data)?),
-            MessageExpirationStrategy::CappedCollection(_) => Ok(Item::new(head, data)?),
+            #[cfg(feature = "ttl-index")]
+            MessageExpirationStrategy::TtlIndex(_) => Ok(Item::new_ttl(head, data, uid, ns)?),
+            MessageExpirationStrategy::CappedCollection(_) => Ok(Item::new(head, data, uid, ns)?),
         }
     }
 }
