@@ -94,8 +94,8 @@ where
             match projection.remote.as_mut().poll_next(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Ready(Some((header, item))) => {
-                    let res = rmp_serde::from_slice::<Response<E>>(&item);
+                Poll::Ready(Some(Item { header, data, .. })) => {
+                    let res = rmp_serde::from_slice::<Response<E>>(&data);
                     match res {
                         Ok(Response {
                             node_id: uid,

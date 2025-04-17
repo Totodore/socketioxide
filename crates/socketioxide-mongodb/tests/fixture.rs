@@ -46,7 +46,12 @@ pub fn spawn_buggy_servers<const N: usize>(
         144, 192, 192,
     ];
     for (_, tx) in sync_buff.read().unwrap().iter() {
-        tx.try_send((header.clone(), data.clone())).unwrap();
+        tx.try_send(Item {
+            header: header.clone(),
+            data: data.clone(),
+            created_at: None,
+        })
+        .unwrap();
     }
 
     res
@@ -64,12 +69,12 @@ fn spawn_inner<const N: usize>(
         sync_buff.write().unwrap().push((server_id, tx));
         let sync_buff = sync_buff.clone();
         tokio::spawn(async move {
-            while let Some((header, data)) = rx.recv().await {
+            while let Some(ref item @ Item { ref header, .. }) = rx.recv().await {
                 tracing::debug!("received data to broadcast {:?}", header);
                 for (server_id, tx) in sync_buff.read().unwrap().iter() {
                     if header.get_origin() != *server_id {
                         tracing::debug!("sending data for {:?}", header);
-                        tx.try_send((header.clone(), data.clone())).unwrap();
+                        tx.try_send(item.clone()).unwrap();
                     }
                 }
             }
@@ -107,16 +112,16 @@ impl StubDriver {
 }
 
 async fn pipe_handlers(mut rx: mpsc::Receiver<Item>, handlers: Arc<RwLock<ResponseHandlers>>) {
-    while let Some((head, data)) = rx.recv().await {
+    while let Some(ref item @ Item { ref header, .. }) = rx.recv().await {
         let handlers = handlers.read().unwrap();
         tracing::debug!(
             handlers = handlers.len(),
             "received data to broadcast {:?}",
-            head
+            header
         );
         for (uid, handler) in &*handlers {
-            if *uid != head.get_origin() {
-                handler.try_send((head.clone(), data.clone())).unwrap();
+            if *uid != header.get_origin() {
+                handler.try_send(item.clone()).unwrap();
             }
         }
     }
@@ -144,8 +149,8 @@ impl Driver for StubDriver {
     type Error = Infallible;
     type EvStream = StreamWrapper;
 
-    async fn emit(&self, (head, data): &Item) -> Result<(), Self::Error> {
-        self.tx.try_send((head.clone(), data.clone())).unwrap();
+    async fn emit(&self, item: &Item) -> Result<(), Self::Error> {
+        self.tx.try_send(item.clone()).unwrap();
         Ok(())
     }
     async fn watch(&self, server_id: Uid) -> Result<Self::EvStream, Self::Error> {

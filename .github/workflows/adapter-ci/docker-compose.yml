@@ -116,7 +116,27 @@ services:
     ports:
       - 27017:27017
     healthcheck:
-      test: "curl -f http://localhost:27017"
+      test: "echo 'db.runCommand({ ping: 1 })' | mongosh localhost:27017/test --quiet"
       interval: 2s
       timeout: 5s
-    command: --replSet rs0
+      retries: 5
+    command: >
+      bash -c "
+        mongod --replSet rs0 --bind_ip_all &
+        until mongosh --eval 'db.adminCommand(\"ping\")' >/dev/null 2>&1; do
+          echo 'Waiting for MongoDB to be ready...';
+          sleep 1;
+        done;
+        echo 'Initiating replica set...';
+        mongosh --eval '
+          try {
+            rs.initiate({
+              _id: \"rs0\",
+              members: [{ _id: 0, host: \"localhost:27017\" }]
+            })
+          } catch (e) {
+            print(\"Replica set already initialized or failed: \" + e);
+          }
+        ';
+        wait
+      "

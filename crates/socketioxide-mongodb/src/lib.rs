@@ -74,6 +74,13 @@ pub struct MongoDbAdapterConfig {
     pub ack_response_buffer: usize,
     /// The collection name used to store socket.io data. Default is "socket.io-adapter".
     pub collection: Cow<'static, str>,
+    /// The eviction strategy used to remove old documents. Default is `Ttl(Duration::from_secs(60))`.
+    pub expiration_strategy: MessageExpirationStrategy,
+}
+#[derive(Debug, Clone)]
+pub enum MessageExpirationStrategy {
+    TtlIndex(Duration),
+    CappedCollection(u64),
 }
 
 impl MongoDbAdapterConfig {
@@ -84,6 +91,7 @@ impl MongoDbAdapterConfig {
             request_timeout: Duration::from_secs(5),
             ack_response_buffer: 255,
             collection: Cow::Borrowed("socket.io-adapter"),
+            expiration_strategy: MessageExpirationStrategy::CappedCollection(1_000_000), // 1MB
         }
     }
     pub fn with_hb_timeout(mut self, hb_timeout: Duration) -> Self {
@@ -118,18 +126,19 @@ pub struct MongoDbAdapterCtr<D> {
 
 #[cfg(feature = "mongodb")]
 impl MongoDbAdapterCtr<drivers::mongodb::MongoDbDriver> {
-    pub fn new_with_mongodb(db: mongodb::Database) -> Self {
-        let config = MongoDbAdapterConfig::default();
-        Self {
-            driver: drivers::mongodb::MongoDbDriver::new(db, &config.collection),
-            config,
-        }
+    pub async fn new_with_mongodb(
+        db: mongodb::Database,
+    ) -> Result<Self, drivers::mongodb::mongodb_client::error::Error> {
+        Self::new_with_mongodb_config(db, MongoDbAdapterConfig::default()).await
     }
-    pub fn new_with_mongodb_config(db: mongodb::Database, config: MongoDbAdapterConfig) -> Self {
-        Self {
-            driver: drivers::mongodb::MongoDbDriver::new(db, &config.collection),
-            config,
-        }
+    pub async fn new_with_mongodb_config(
+        db: mongodb::Database,
+        config: MongoDbAdapterConfig,
+    ) -> Result<Self, drivers::mongodb::mongodb_client::error::Error> {
+        use drivers::mongodb::MongoDbDriver;
+        let driver =
+            MongoDbDriver::new(db, &config.collection, &config.expiration_strategy).await?;
+        Ok(Self { driver, config })
     }
 }
 impl<D: Driver> MongoDbAdapterCtr<D> {
@@ -224,13 +233,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             tokio::spawn(self.clone().heartbeat_job());
 
             // Send initial heartbeat when starting.
-            const HB_OPTS: BroadcastOptions = BroadcastOptions::new_empty();
-            self.send_req(
-                RequestOut::new(self.uid, RequestTypeOut::Heartbeat, &HB_OPTS),
-                None,
-            )
-            .await
-            .map_err(|e| match e {
+            self.emit_init_heartbeat().await.map_err(|e| match e {
                 Error::Driver(e) => e,
                 Error::Encode(_) | Error::Decode(_) => unreachable!(),
             })?;
@@ -427,17 +430,11 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
 impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     async fn heartbeat_job(self: Arc<Self>) -> Result<(), Error<D>> {
-        const OPTS: BroadcastOptions = BroadcastOptions::new_empty();
-
         let mut interval = tokio::time::interval(self.config.hb_interval);
         interval.tick().await; // first tick yields immediately
         loop {
             interval.tick().await;
-            self.send_req(
-                RequestOut::new(self.uid, RequestTypeOut::Heartbeat, &OPTS),
-                None,
-            )
-            .await?;
+            self.emit_heartbeat(None).await?;
         }
     }
 
@@ -447,29 +444,39 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     ) {
         while let Some(item) = stream.next().await {
             match item {
-                Ok((ItemHeader::Req { target, .. }, data))
-                    if target.map_or(true, |id| id == self.uid) =>
-                {
+                Ok(Item {
+                    header: ItemHeader::Req { target, .. },
+                    data,
+                    ..
+                }) if target.map_or(true, |id| id == self.uid) => {
                     tracing::debug!(?target, "request header");
                     if let Err(e) = self.recv_req(data).await {
                         tracing::warn!("error receiving request from driver: {e}");
                     }
                 }
-                Ok((ItemHeader::Req { target, .. }, _)) => {
+                Ok(Item {
+                    header: ItemHeader::Req { target, .. },
+                    ..
+                }) => {
                     tracing::debug!(
                         ?target,
                         "receiving request which is not for us, skipping..."
                     );
                 }
-                Ok((header @ ItemHeader::Res { request, .. }, data)) => {
+                Ok(
+                    item @ Item {
+                        header: ItemHeader::Res { request, .. },
+                        ..
+                    },
+                ) => {
                     tracing::trace!(?request, "received response");
                     let handlers = self.responses.lock().unwrap();
                     if let Some(tx) = handlers.get(&request) {
-                        if let Err(e) = tx.try_send((header, data)) {
+                        if let Err(e) = tx.try_send(item) {
                             tracing::warn!("error sending response to handler: {e}");
                         }
                     } else {
-                        tracing::warn!(?header, ?handlers, "could not find req handler");
+                        tracing::warn!(?request, ?handlers, "could not find req handler");
                     }
                 }
                 Err(e) => {
@@ -490,7 +497,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
             RequestTypeIn::AddSockets(rooms) => self.recv_add_sockets(req.opts, rooms),
             RequestTypeIn::DelSockets(rooms) => self.recv_del_sockets(req.opts, rooms),
             RequestTypeIn::FetchSockets => self.recv_fetch_sockets(req),
-            RequestTypeIn::Heartbeat => self.recv_heartbeat(req),
+            RequestTypeIn::Heartbeat | RequestTypeIn::InitHeartbeat => self.recv_heartbeat(req),
         }
         Ok(())
     }
@@ -537,7 +544,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                 r#type: ResponseType::<()>::BroadcastAckCount(count),
                 node_id: self.uid,
             };
-            if let Err(err) = self.send_res(req.id, res).await {
+            if let Err(err) = self.send_res(req.id, req.node_id, res).await {
                 on_err(err);
                 return;
             }
@@ -549,7 +556,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                     r#type: ResponseType::BroadcastAck(ack),
                     node_id: self.uid,
                 };
-                if let Err(err) = self.send_res(req.id, res).await {
+                if let Err(err) = self.send_res(req.id, req.node_id, res).await {
                     on_err(err);
                     return;
                 }
@@ -563,7 +570,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
             r#type: ResponseType::<()>::AllRooms(rooms),
             node_id: self.uid,
         };
-        let fut = self.send_res(req.id, res);
+        let fut = self.send_res(req.id, req.node_id, res);
         let ns = self.local.path().clone();
         let uid = self.uid;
         tokio::spawn(async move {
@@ -586,7 +593,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
             node_id: self.uid,
             r#type: ResponseType::FetchSockets(sockets),
         };
-        let fut = self.send_res(req.id, res);
+        let fut = self.send_res(req.id, req.node_id, res);
         let ns = self.local.path().clone();
         let uid = self.uid;
         tokio::spawn(async move {
@@ -595,9 +602,14 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
             }
         });
     }
-    fn recv_heartbeat(&self, req: RequestIn) {
-        tracing::debug!(?req.node_id, "heartbeat received");
+
+    /// Receive a heartbeat from a remote node.
+    /// It might be a FirstHeartbeat packet, in which case we are re-emitting a heartbeat to the remote node.
+    fn recv_heartbeat(self: &Arc<Self>, req: RequestIn) {
+        tracing::debug!(?req.node_id, "{:?} received", req.r#type);
         let mut node_liveness = self.nodes_liveness.lock().unwrap();
+        // Even with a FirstHeartbeat packet we first consume the node liveness to
+        // ensure that the node is not already in the list.
         for (id, liveness) in node_liveness.iter_mut() {
             if *id == req.node_id {
                 *liveness = Instant::now();
@@ -606,31 +618,50 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         }
 
         node_liveness.push((req.node_id, Instant::now()));
+
+        if matches!(req.r#type, RequestTypeIn::InitHeartbeat) {
+            tracing::debug!(?req.node_id, "initial heartbeat detected, saying hello to the new node");
+
+            let this = self.clone();
+            tokio::spawn(async move {
+                if let Err(err) = this.emit_heartbeat(Some(req.node_id)).await {
+                    tracing::warn!(
+                        "could not re-emit heartbeat after new node detection: {:?}",
+                        err
+                    );
+                }
+            });
+        }
     }
 
+    /// Send a request to a specific target node or broadcast it to all nodes if no target is specified.
     async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
         let head = ItemHeader::Req {
             target,
             origin: self.uid,
         };
-        let req = (head, rmp_serde::to_vec(&req)?);
+        let req = self.new_packet(head, &req)?;
         self.driver.emit(&req).await.map_err(Error::from_driver)?;
         Ok(())
     }
 
+    /// Send a response to the node that sent the request.
     fn send_res<T: Serialize + fmt::Debug>(
         &self,
         req_id: Sid,
+        req_origin: Uid,
         res: Response<T>,
     ) -> impl Future<Output = Result<(), Error<D>>> + Send + 'static {
-        tracing::trace!(?res, "sending response for {req_id} req");
+        tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
         let driver = self.driver.clone();
         let head = ItemHeader::Res {
             request: req_id,
             origin: self.uid,
+            target: req_origin,
         };
-        let res = rmp_serde::to_vec(&res).map(|res| (head, res));
+        let res = self.new_packet(head, &res);
+
         async move {
             driver.emit(&res?).await.map_err(Error::from_driver)?;
             Ok(())
@@ -638,14 +669,15 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     }
 
     /// Await for all the responses from the remote servers.
+    /// If the target node is specified, only await for the response from that node.
     async fn get_res<T: DeserializeOwned + fmt::Debug>(
         &self,
         req_id: Sid,
         response_idx: u8,
-        target_uid: Option<Uid>,
+        target: Option<Uid>,
     ) -> Result<impl Stream<Item = Response<T>>, Error<D>> {
         // Check for specific target node
-        let remote_serv_cnt = if target_uid.is_none() {
+        let remote_serv_cnt = if target.is_none() {
             self.server_count().await?.saturating_sub(1) as usize
         } else {
             1
@@ -653,11 +685,11 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
         self.responses.lock().unwrap().insert(req_id, tx);
         let stream = ChanStream::new(rx)
-            .filter_map(|(_header, item)| {
-                let data = match rmp_serde::from_slice::<Response<T>>(&item) {
+            .filter_map(|Item { header, data, .. }| {
+                let data = match rmp_serde::from_slice::<Response<T>>(&data) {
                     Ok(data) => Some(data),
                     Err(e) => {
-                        tracing::warn!(header = ?_header, "error decoding response: {e}");
+                        tracing::warn!(header = ?header, "error decoding response: {e}");
                         None
                     }
                 };
@@ -668,6 +700,34 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
             .take_until(tokio::time::sleep(self.config.request_timeout));
         let stream = DropStream::new(stream, self.responses.clone(), req_id);
         Ok(stream)
+    }
+
+    /// Emit a heartbeat to the specified target node or broadcast to all nodes.
+    async fn emit_heartbeat(&self, target: Option<Uid>) -> Result<(), Error<D>> {
+        // Send heartbeat when starting.
+        const HB_OPTS: BroadcastOptions = BroadcastOptions::new_empty();
+        self.send_req(
+            RequestOut::new(self.uid, RequestTypeOut::Heartbeat, &HB_OPTS),
+            target,
+        )
+        .await
+    }
+
+    /// Emit an initial heartbeat to all nodes.
+    async fn emit_init_heartbeat(&self) -> Result<(), Error<D>> {
+        // Send initial heartbeat when starting.
+        const HB_OPTS: BroadcastOptions = BroadcastOptions::new_empty();
+        self.send_req(
+            RequestOut::new(self.uid, RequestTypeOut::InitHeartbeat, &HB_OPTS),
+            None,
+        )
+        .await
+    }
+    fn new_packet(&self, head: ItemHeader, data: &impl Serialize) -> Result<Item, Error<D>> {
+        match self.config.expiration_strategy {
+            MessageExpirationStrategy::TtlIndex(_) => Ok(Item::new_ttl(head, data)?),
+            MessageExpirationStrategy::CappedCollection(_) => Ok(Item::new(head, data)?),
+        }
     }
 }
 

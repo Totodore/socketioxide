@@ -254,7 +254,8 @@ jobs:
             redis-e2e,
             redis-cluster-e2e,
             fred-cluster-e2e,
-            mongodb-e2e,
+            mongodb-ttl-e2e,
+            mongodb-capped-e2e,
           ]
     steps:
       - uses: actions/checkout@v4

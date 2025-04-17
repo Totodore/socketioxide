@@ -1,10 +1,16 @@
 use std::task::Poll;
 
+use crate::MessageExpirationStrategy;
+
 use super::{Driver, Item};
 use futures_core::Stream;
-use mongodb::change_stream::{
-    event::{ChangeStreamEvent, OperationType},
-    ChangeStream,
+use mongodb::{
+    change_stream::{
+        event::{ChangeStreamEvent, OperationType},
+        ChangeStream,
+    },
+    options::IndexOptions,
+    IndexModel,
 };
 use socketioxide_core::Uid;
 
@@ -16,9 +22,35 @@ pub struct MongoDbDriver {
 }
 
 impl MongoDbDriver {
-    pub fn new(db: mongodb::Database, collection: &str) -> Self {
-        let collec = db.collection(collection);
-        Self { collec }
+    pub async fn new(
+        db: mongodb::Database,
+        collection: &str,
+        eviction_strategy: &MessageExpirationStrategy,
+    ) -> Result<Self, mongodb::error::Error> {
+        let collec = match eviction_strategy {
+            MessageExpirationStrategy::CappedCollection(size) => {
+                db.create_collection(collection)
+                    .capped(true)
+                    .size(*size)
+                    .await?;
+                db.collection(collection)
+            }
+            MessageExpirationStrategy::TtlIndex(ttl) => {
+                let options = IndexOptions::builder()
+                    .expire_after(*ttl)
+                    .background(true)
+                    .build();
+                let index = IndexModel::builder()
+                    .keys(mongodb::bson::doc! { "createdAt": 1 })
+                    .options(options)
+                    .build();
+
+                let collec = db.collection(collection);
+                collec.create_index(index).await?;
+                collec
+            }
+        };
+        Ok(Self { collec })
     }
 }
 
@@ -58,9 +90,11 @@ impl Driver for MongoDbDriver {
             .watch()
             .pipeline([mongodb::bson::doc! {
               "$match": {
-                "fullDocument.uid": {
-                  "$ne": server_id.as_str(), // ignore events from self
-                },
+                    "fullDocument.origin": { "$ne": server_id.as_str() },
+                    "$or": [
+                        { "fullDocument.target": server_id.as_str() },
+                        { "fullDocument.target": { "$exists": false } }
+                    ]
               },
             }])
             .await?;

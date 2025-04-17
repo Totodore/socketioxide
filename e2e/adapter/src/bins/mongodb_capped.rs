@@ -15,8 +15,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let client = mongodb::Client::with_uri_str("mongodb://127.0.0.1:27017").await?;
-    let adapter = MongoDbAdapterCtr::new_with_mongodb(client.database("test"));
+    const URI: &str = "mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true";
+    let client = mongodb::Client::with_uri_str(URI).await?;
+    let adapter = MongoDbAdapterCtr::new_with_mongodb(client.database("test")).await?;
     #[allow(unused_mut)]
     let mut builder =
         SocketIo::builder().with_adapter::<socketioxide_mongodb::MongoDbAdapter<_>>(adapter);

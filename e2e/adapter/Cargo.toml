@@ -52,5 +52,9 @@ name = "fred-cluster-e2e"
 path = "src/bins/fred_cluster.rs"
 
 [[bin]]
-name = "mongodb-e2e"
-path = "src/bins/mongodb.rs"
+name = "mongodb-capped-e2e"
+path = "src/bins/mongodb_capped.rs"
+
+[[bin]]
+name = "mongodb-ttl-e2e"
+path = "src/bins/mongodb_ttl.rs"
