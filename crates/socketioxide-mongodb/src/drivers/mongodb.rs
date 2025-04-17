@@ -32,7 +32,10 @@ impl MongoDbDriver {
     ) -> Result<Self, mongodb::error::Error> {
         let collec = match eviction_strategy {
             MessageExpirationStrategy::CappedCollection(size) => {
-                tracing::debug!(?size, "configuring capped collection as an expiration strategy");
+                tracing::debug!(
+                    ?size,
+                    "configuring capped collection as an expiration strategy"
+                );
                 db.create_collection(collection)
                     .capped(true)
                     .size(*size)

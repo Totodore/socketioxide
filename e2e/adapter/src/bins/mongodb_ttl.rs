@@ -2,9 +2,11 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
 use socketioxide_mongodb::drivers::mongodb::mongodb_client as mongodb;
-use socketioxide_mongodb::{MongoDbAdapterCtr, MongoDbAdapter, MessageExpirationStrategy, MongoDbAdapterConfig};
-use tokio::net::TcpListener;
+use socketioxide_mongodb::{
+    MessageExpirationStrategy, MongoDbAdapter, MongoDbAdapterConfig, MongoDbAdapterCtr,
+};
 use std::time::Duration;
+use tokio::net::TcpListener;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -20,10 +22,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = mongodb::Client::with_uri_str(URI).await?;
     let strategy = MessageExpirationStrategy::TtlIndex(Duration::from_secs(1));
     let config = MongoDbAdapterConfig::new().with_expiration_strategy(strategy);
-    let adapter = MongoDbAdapterCtr::new_with_mongodb_config(client.database("test"), config).await?;
+    let adapter =
+        MongoDbAdapterCtr::new_with_mongodb_config(client.database("test"), config).await?;
     #[allow(unused_mut)]
-    let mut builder =
-        SocketIo::builder().with_adapter::<MongoDbAdapter<_>>(adapter);
+    let mut builder = SocketIo::builder().with_adapter::<MongoDbAdapter<_>>(adapter);
 
     #[cfg(feature = "msgpack")]
     {

@@ -35,10 +35,7 @@ pub fn spawn_buggy_servers<const N: usize>(
     // Reinject a false heartbeat request to simulate a bad number of servers.
     // This will trigger timeouts when expecting responses from all servers.
     let uid: Uid = Uid::from_str("PHHq01ObWy7Godqx").unwrap();
-    let header = ItemHeader::Req {
-        target: None,
-        origin: uid,
-    };
+    let header = ItemHeader::Req { target: None };
     // Heartbeat request
     let data = vec![
         150, 176, 80, 72, 72, 113, 48, 49, 79, 98, 87, 121, 55, 71, 111, 100, 113, 120, 176, 90,
@@ -47,7 +44,9 @@ pub fn spawn_buggy_servers<const N: usize>(
     ];
     for (_, tx) in sync_buff.read().unwrap().iter() {
         tx.try_send(Item {
+            origin: uid,
             header: header.clone(),
+            ns: "/".to_string(),
             data: data.clone(),
             created_at: None,
         })
@@ -72,7 +71,7 @@ fn spawn_inner<const N: usize>(
             while let Some(ref item @ Item { ref header, .. }) = rx.recv().await {
                 tracing::debug!("received data to broadcast {:?}", header);
                 for (server_id, tx) in sync_buff.read().unwrap().iter() {
-                    if header.get_origin() != *server_id {
+                    if item.origin != *server_id {
                         tracing::debug!("sending data for {:?}", header);
                         tx.try_send(item.clone()).unwrap();
                     }
@@ -120,7 +119,7 @@ async fn pipe_handlers(mut rx: mpsc::Receiver<Item>, handlers: Arc<RwLock<Respon
             header
         );
         for (uid, handler) in &*handlers {
-            if *uid != header.get_origin() {
+            if *uid != item.origin {
                 handler.try_send(item.clone()).unwrap();
             }
         }
@@ -153,7 +152,7 @@ impl Driver for StubDriver {
         self.tx.try_send(item.clone()).unwrap();
         Ok(())
     }
-    async fn watch(&self, server_id: Uid) -> Result<Self::EvStream, Self::Error> {
+    async fn watch(&self, server_id: Uid, _ns: &str) -> Result<Self::EvStream, Self::Error> {
         let (tx, rx) = mpsc::channel(255);
         self.handlers.write().unwrap().push((server_id, tx));
         Ok(StreamWrapper { rx })

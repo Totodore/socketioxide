@@ -117,7 +117,6 @@
 //! On the other side, each time an action has to be performed on the local server, the adapter will
 //! first broadcast a request to all the servers and then perform the action locally.
 
-
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -144,7 +143,9 @@ use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
 use drivers::{Driver, Item, ItemHeader};
-use request::{RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId};
+use request::{
+    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
+};
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
@@ -243,7 +244,10 @@ impl MongoDbAdapterConfig {
     /// The [`MessageExpirationStrategy`] used to remove old documents.
     /// Default is `TtlIndex(Duration::from_secs(60))` with the `ttl-index` feature enabled.
     /// Otherwise it is `CappedCollection(1MB)`
-    pub fn with_expiration_strategy(mut self, expiration_strategy: MessageExpirationStrategy) -> Self {
+    pub fn with_expiration_strategy(
+        mut self,
+        expiration_strategy: MessageExpirationStrategy,
+    ) -> Self {
         self.expiration_strategy = expiration_strategy;
         self
     }
@@ -254,7 +258,6 @@ impl Default for MongoDbAdapterConfig {
         Self::new()
     }
 }
-
 
 /// The adapter constructor. For each namespace you define, a new adapter instance is created
 /// from this constructor.
@@ -784,7 +787,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     /// Send a request to a specific target node or broadcast it to all nodes if no target is specified.
     async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
-        let head = ItemHeader::Req { target, };
+        let head = ItemHeader::Req { target };
         let req = self.new_packet(head, &req)?;
         self.driver.emit(&req).await.map_err(Error::from_driver)?;
         Ok(())
