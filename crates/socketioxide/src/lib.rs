@@ -31,6 +31,7 @@
     clippy::verbose_file_reads,
     clippy::unnested_or_patterns,
     rust_2018_idioms,
+    rust_2024_compatibility,
     future_incompatible,
     nonstandard_style,
     missing_docs

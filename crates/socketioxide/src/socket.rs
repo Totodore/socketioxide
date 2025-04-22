@@ -6,8 +6,8 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     sync::{
-        atomic::{AtomicBool, AtomicI64, Ordering},
         Arc, Mutex, RwLock,
+        atomic::{AtomicBool, AtomicI64, Ordering},
     },
     time::Duration,
 };
@@ -23,6 +23,7 @@ use tokio::sync::{
 use crate::extensions::Extensions;
 
 use crate::{
+    AckError, SendError, SocketError, SocketIo,
     ack::{AckInnerStream, AckResult, AckStream},
     adapter::{Adapter, LocalAdapter},
     client::SocketData,
@@ -34,14 +35,13 @@ use crate::{
     ns::Namespace,
     operators::{BroadcastOperators, ConfOperators},
     parser::Parser,
-    AckError, SendError, SocketError, SocketIo,
 };
 use socketioxide_core::{
+    Value,
     adapter::{BroadcastOptions, RemoteSocketData, Room, RoomParam},
     errors::{AdapterError, BroadcastError},
     packet::{Packet, PacketData},
     parser::Parse,
-    Value,
 };
 
 pub use socketioxide_core::Sid;
@@ -383,7 +383,7 @@ impl<A: Adapter> Socket<A> {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
+    ///     socket.on("test", async |socket: SocketRef, Data::<MyData>(data), ack: AckSender| {
     ///         println!("Received a test message {:?}", data);
     ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
@@ -422,11 +422,11 @@ impl<A: Adapter> Socket<A> {
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
     /// io.ns("/", |socket: SocketRef| {
-    ///     socket.on("test", |socket: SocketRef| async move {
+    ///     socket.on("test", async |socket: SocketRef| {
     ///         // Close the current socket
     ///         socket.disconnect().ok();
     ///     });
-    ///     socket.on_disconnect(|socket: SocketRef, reason: DisconnectReason| async move {
+    ///     socket.on_disconnect(async |socket: SocketRef, reason: DisconnectReason| {
     ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.id, socket.ns(), reason);
     ///     });
     /// });

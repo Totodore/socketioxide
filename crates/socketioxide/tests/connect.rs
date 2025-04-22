@@ -3,8 +3,8 @@ mod utils;
 use bytes::Bytes;
 use engineioxide::Packet::*;
 use serde::Serialize;
-use socketioxide::{extract::SocketRef, handler::ConnectHandler, SendError, SocketError, SocketIo};
-use socketioxide_core::{packet::Packet, parser::Parse, Value};
+use socketioxide::{SendError, SocketError, SocketIo, extract::SocketRef, handler::ConnectHandler};
+use socketioxide_core::{Value, packet::Packet, parser::Parse};
 use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
 
@@ -88,11 +88,7 @@ pub async fn connect_middleware_error() {
         let tx1 = tx.clone();
         move || {
             tx1.try_send(i).unwrap();
-            if e {
-                Err(MyError)
-            } else {
-                Ok(())
-            }
+            if e { Err(MyError) } else { Ok(()) }
         }
     };
 

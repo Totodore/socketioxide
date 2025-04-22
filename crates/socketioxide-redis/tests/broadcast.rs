@@ -33,7 +33,7 @@ pub async fn broadcast() {
 pub async fn broadcast_rooms() {
     let [io1, io2, io3] = fixture::spawn_servers();
     let handler = |room: &'static str, to: &'static str| {
-        move |socket: SocketRef<_>| async move {
+        async move |socket: SocketRef<_>| {
             // delay to ensure all socket/servers are connected
             socket.join(room);
             tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
@@ -79,9 +79,8 @@ pub async fn broadcast_with_ack() {
             .emit_with_ack::<_, String>("test", "bar")
             .await
             .unwrap()
-            .for_each(|(_, res)| {
+            .for_each(async |(_, res)| {
                 socket.emit("ack_res", &res).unwrap();
-                async move {}
             })
             .await;
     }
@@ -117,9 +116,8 @@ pub async fn broadcast_with_ack_timeout() {
             .emit_with_ack::<_, String>("test", "bar")
             .await
             .unwrap()
-            .for_each(|(_, res)| {
+            .for_each(async |(_, res)| {
                 socket.emit("ack_res", &res).unwrap();
-                async move {}
             })
             .await;
         socket.emit("ack_res", "timeout").unwrap();
@@ -138,7 +136,7 @@ pub async fn broadcast_with_ack_timeout() {
     timeout_rcv!(&mut rx2); // Connect "/" packet
 
     assert_eq!(timeout_rcv!(&mut rx2), r#"421["test","bar"]"#); // emit with ack message
-                                                                // We do not answer
+    // We do not answer
     assert_eq!(
         timeout_rcv!(&mut rx1, TIMEOUT.as_millis() as u64 + 100),
         r#"42["ack_res","timeout"]"#

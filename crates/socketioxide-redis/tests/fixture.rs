@@ -8,10 +8,10 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-use socketioxide::{adapter::Emitter, SocketIo};
+use socketioxide::{SocketIo, adapter::Emitter};
 use socketioxide_redis::{
-    drivers::{Driver, MessageStream},
     CustomRedisAdapter, RedisAdapterConfig, RedisAdapterCtr,
+    drivers::{Driver, MessageStream},
 };
 
 /// Spawns a number of servers with a stub driver for testing.

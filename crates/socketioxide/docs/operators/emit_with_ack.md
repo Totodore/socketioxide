@@ -21,7 +21,7 @@ an [`AckError::Decode`] will be yielded.
 
 [`SocketIoBuilder::ack_timeout`]: crate::SocketIoBuilder#method.ack_timeout
 [`Stream`]: futures_core::stream::Stream
-[`Future`]: futures_core::future::Future
+[`Future`]: std::future::Future
 [`AckError`]: crate::AckError
 [`AckError::Decode`]: crate::AckError::Decode
 [`AckError::Timeout`]: crate::AckError::Timeout
@@ -84,7 +84,7 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
         .emit_with_ack::<_, String>("message-back", &data)
         .await
         .unwrap();
-    ack_stream.for_each(|(id, ack)| async move {
+    ack_stream.for_each(async |(id, ack)| {
         match ack {
             Ok(ack) => println!("Ack received, socket {} {:?}", id, ack),
             Err(err) => println!("Ack error, socket {} {:?}", id, err),

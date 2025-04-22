@@ -29,7 +29,6 @@ thiserror.workspace = true
 hyper.workspace = true
 matchit.workspace = true
 pin-project-lite.workspace = true
-rustversion.workspace = true
 
 # Parsers
 socketioxide-parser-common = { path = "../parser-common", version = "0.16" }

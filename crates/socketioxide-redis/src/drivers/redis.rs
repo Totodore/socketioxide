@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use redis::{aio::MultiplexedConnection, AsyncCommands, FromRedisValue, PushInfo, RedisResult};
+use redis::{AsyncCommands, FromRedisValue, PushInfo, RedisResult, aio::MultiplexedConnection};
 use tokio::sync::mpsc;
 
 use super::{ChanItem, Driver, MessageStream};

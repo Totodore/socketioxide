@@ -21,10 +21,10 @@ use std::sync::Arc;
 use tower_layer::Layer;
 
 use crate::{
+    SocketIoConfig,
     adapter::{Adapter, LocalAdapter},
     client::Client,
     service::SocketIoService,
-    SocketIoConfig,
 };
 
 /// A [`Layer`] for [`SocketIoService`], acting as a middleware.

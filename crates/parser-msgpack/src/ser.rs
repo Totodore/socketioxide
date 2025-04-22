@@ -1,8 +1,8 @@
 use bytes::BufMut;
 use rmp::encode;
 use socketioxide_core::{
-    packet::{Packet, PacketData},
     Value,
+    packet::{Packet, PacketData},
 };
 
 /// Manual packet serialization.

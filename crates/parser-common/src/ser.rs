@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use bytes::{BufMut, BytesMut};
 use socketioxide_core::{
-    packet::{Packet, PacketData},
     Str, Value,
+    packet::{Packet, PacketData},
 };
 
 pub fn serialize_packet(packet: Packet) -> Value {
@@ -167,7 +167,7 @@ fn get_size_hint(packet: &Packet) -> usize {
 mod tests {
     use bytes::Bytes;
     use serde_json::json;
-    use socketioxide_core::{packet::ConnectPacket, Sid};
+    use socketioxide_core::{Sid, packet::ConnectPacket};
 
     use super::*;
 

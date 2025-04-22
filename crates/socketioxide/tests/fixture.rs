@@ -15,15 +15,15 @@ use http::Request;
 use http_body_util::{BodyExt, Either, Empty, Full};
 
 use serde::{Deserialize, Serialize};
-use socketioxide::{service::SocketIoService, ProtocolVersion, SocketIo};
+use socketioxide::{ProtocolVersion, SocketIo, service::SocketIoService};
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     sync::mpsc,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_tungstenite::{
-    tungstenite::{handshake::client::generate_key, protocol::Role, Message},
     WebSocketStream,
+    tungstenite::{Message, handshake::client::generate_key, protocol::Role},
 };
 use tokio_util::io::StreamReader;
 use tower_service::Service;

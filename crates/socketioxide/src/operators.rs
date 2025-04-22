@@ -12,13 +12,13 @@ use serde::Serialize;
 use socketioxide_core::Sid;
 
 use crate::{
+    BroadcastError, EmitWithAckError, SendError,
     ack::{AckInnerStream, AckStream},
     adapter::{Adapter, LocalAdapter},
     extract::SocketRef,
     ns::Namespace,
     parser::Parser,
     socket::{RemoteSocket, Socket},
-    BroadcastError, EmitWithAckError, SendError,
 };
 
 use socketioxide_core::{
@@ -101,8 +101,8 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<(), SendError> {
-        use crate::socket::PermitExt;
         use crate::SocketError;
+        use crate::socket::PermitExt;
         if !self.socket.connected() {
             return Err(SendError::Socket(SocketError::Closed));
         }

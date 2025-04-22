@@ -22,14 +22,14 @@
 use std::{
     error::Error as StdError,
     fmt,
-    sync::{atomic::AtomicUsize, Mutex},
+    sync::{Mutex, atomic::AtomicUsize},
 };
 
 use bytes::Bytes;
 use engineioxide_core::Str;
-use serde::{de::Visitor, ser::Impossible, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Visitor, ser::Impossible};
 
-use crate::{packet::Packet, Value};
+use crate::{Value, packet::Packet};
 
 /// The parser state that is shared between the parser and the socket.io system.
 /// Used to handle partial binary packets when receiving binary packets that have

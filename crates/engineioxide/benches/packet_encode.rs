@@ -1,6 +1,6 @@
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use engineioxide::{config::EngineIoConfig, socket::Sid, OpenPacket, Packet, TransportType};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use engineioxide::{OpenPacket, Packet, TransportType, config::EngineIoConfig, socket::Sid};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("engineio_packet/encode");

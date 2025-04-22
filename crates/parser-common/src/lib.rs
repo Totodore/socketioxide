@@ -24,6 +24,7 @@
     clippy::verbose_file_reads,
     clippy::unnested_or_patterns,
     rust_2018_idioms,
+    rust_2024_compatibility,
     future_incompatible,
     nonstandard_style,
     missing_docs
@@ -44,9 +45,9 @@ use bytes::Bytes;
 
 use serde::{Deserialize, Serialize};
 use socketioxide_core::{
+    Str, Value,
     packet::{Packet, PacketData},
     parser::{Parse, ParseError, ParserError, ParserState},
-    Str, Value,
 };
 
 mod de;
@@ -166,7 +167,7 @@ mod test {
 
     use super::*;
     use serde_json::json;
-    use socketioxide_core::{packet::ConnectPacket, Sid};
+    use socketioxide_core::{Sid, packet::ConnectPacket};
 
     fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {
         CommonParser.encode_value(data, Some(event)).unwrap()
