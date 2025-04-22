@@ -7,7 +7,7 @@ use socketioxide_mongodb::{
 };
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]

@@ -5,12 +5,12 @@ use crate::MessageExpirationStrategy;
 use super::{Driver, Item};
 use futures_core::Stream;
 use mongodb::{
+    IndexModel,
     change_stream::{
-        event::{ChangeStreamEvent, OperationType},
         ChangeStream,
+        event::{ChangeStreamEvent, OperationType},
     },
     options::IndexOptions,
-    IndexModel,
 };
 use socketioxide_core::Uid;
 

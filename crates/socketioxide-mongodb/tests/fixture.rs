@@ -3,8 +3,8 @@
 use futures_core::Stream;
 use socketioxide_core::Uid;
 use socketioxide_mongodb::{
-    drivers::{Driver, Item, ItemHeader},
     CustomMongoDbAdapter, MongoDbAdapterConfig, MongoDbAdapterCtr,
+    drivers::{Driver, Item, ItemHeader},
 };
 use std::{
     convert::Infallible,
@@ -16,7 +16,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-use socketioxide::{adapter::Emitter, SocketIo, SocketIoConfig};
+use socketioxide::{SocketIo, SocketIoConfig, adapter::Emitter};
 
 /// Spawns a number of servers with a stub driver for testing.
 /// Every server will be connected to every other server.

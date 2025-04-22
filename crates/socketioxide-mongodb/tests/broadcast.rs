@@ -137,7 +137,7 @@ pub async fn broadcast_with_ack_timeout() {
     timeout_rcv!(&mut rx2); // Connect "/" packet
 
     assert_eq!(timeout_rcv!(&mut rx2), r#"421["test","bar"]"#); // emit with ack message
-                                                                // We do not answer
+    // We do not answer
     assert_eq!(
         timeout_rcv!(&mut rx1, TIMEOUT.as_millis() as u64 + 100),
         r#"42["ack_res","timeout"]"#

@@ -1,10 +1,10 @@
 use std::{str::FromStr, time::Duration};
 
 use socketioxide::{
-    adapter::Adapter, extract::SocketRef, operators::BroadcastOperators, socket::RemoteSocket,
-    SocketIo,
+    SocketIo, adapter::Adapter, extract::SocketRef, operators::BroadcastOperators,
+    socket::RemoteSocket,
 };
-use socketioxide_core::{adapter::RemoteSocketData, Sid, Str};
+use socketioxide_core::{Sid, Str, adapter::RemoteSocketData};
 use tokio::time::Instant;
 
 mod fixture;

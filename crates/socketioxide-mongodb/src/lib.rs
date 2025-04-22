@@ -127,17 +127,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_core::{future::Future, Stream};
+use futures_core::{Stream, future::Future};
 use futures_util::StreamExt;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::{
+    Sid, Uid,
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
     },
     errors::{AdapterError, BroadcastError},
     packet::Packet,
-    Sid, Uid,
 };
 use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
