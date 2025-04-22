@@ -25,6 +25,7 @@
     clippy::verbose_file_reads,
     clippy::unnested_or_patterns,
     rust_2018_idioms,
+    rust_2024_compatibility,
     future_incompatible,
     nonstandard_style,
     missing_docs
@@ -147,8 +148,8 @@
 //! * `"{prefix}-request#{namespace}#"`: A global channel to receive broadcasted requests.
 //! * `"{prefix}-request#{namespace}#{uid}#"`: A specific channel to receive requests only for this server.
 //! * `"{prefix}-response#{namespace}#{uid}#"`: A specific channel to receive responses only for this server.
-//!     Messages sent to this channel will be always in the form `[req_id, data]`. This will allow the adapter to extract the request id
-//!     and route the response to the approriate stream before deserializing the data.
+//!   Messages sent to this channel will be always in the form `[req_id, data]`. This will allow the adapter to extract the request id
+//!   and route the response to the appropriate stream before deserializing the data.
 //!
 //! All messages are encoded with msgpack.
 //!
