@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Get MSRV from package metadata
         id: msrv
-        run: grep rust-versiCargo.lock | cut -d'"' -f2 | sed 's/^/version=/' >> $GITHUB_OUTPUT
+        run: grep rust-version Cargo.toml | cut -d'"' -f2 | sed 's/^/version=/' >> $GITHUB_OUTPUT
       - uses: actions/cache@v4
         with:
           path: |
