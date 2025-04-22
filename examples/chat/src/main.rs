@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     io.ns("/", |s: SocketRef| {
         s.on(
             "new message",
-            |s: SocketRef, Data::<String>(msg), Extension::<Username>(username)| async move {
+            async |s: SocketRef, Data::<String>(msg), Extension::<Username>(username)| {
                 let msg = &Res::Message {
                     username,
                     message: msg,
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "add user",
-            |s: SocketRef, Data::<String>(username), user_cnt: State<UserCnt>| async move {
+            async |s: SocketRef, Data::<String>(username), user_cnt: State<UserCnt>| {
                 if s.extensions.get::<Username>().is_some() {
                     return;
                 }
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "typing",
-            |s: SocketRef, Extension::<Username>(username)| async move {
+            async |s: SocketRef, Extension::<Username>(username)| {
                 s.broadcast()
                     .emit("typing", &Res::Username { username })
                     .await
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "stop typing",
-            |s: SocketRef, Extension::<Username>(username)| async move {
+            async |s: SocketRef, Extension::<Username>(username)| {
                 s.broadcast()
                     .emit("stop typing", &Res::Username { username })
                     .await
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         s.on_disconnect(
-            |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| async move {
+            async |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| {
                 let num_users = user_cnt.remove_user();
                 let res = &Res::UserEvent {
                     num_users,

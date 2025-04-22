@@ -8,10 +8,10 @@ edition = "2021"
 [dependencies]
 socketioxide = { workspace = true, features = ["state"] }
 tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing.workspace = true
+tracing-subscriber.workspace = true
 axum.workspace = true
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
+tower.workspace = true
 tower-http = { version = "0.5.0", features = ["cors"] }
-tower = "0.4"
 chrono = { version = "0.4", features = ["serde"] }

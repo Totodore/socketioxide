@@ -182,17 +182,17 @@ use drivers::{ChanItem, Driver, MessageStream};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use request::{
-    read_req_id, RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType,
+    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, read_req_id,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::{
+    Sid, Uid,
     adapter::{
         BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter,
         RemoteSocketData, Room, RoomParam, SocketEmitter, Spawnable,
     },
     errors::{AdapterError, BroadcastError},
     packet::Packet,
-    Sid, Uid,
 };
 use stream::{AckStream, DropStream};
 use tokio::{sync::mpsc, time};
@@ -600,7 +600,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         let local = self.local.rooms(opts);
         let rooms = stream
             .filter_map(|item| future::ready(item.into_rooms()))
-            .fold(local, |mut acc, item| async move {
+            .fold(local, async |mut acc, item| {
                 acc.extend(item);
                 acc
             })
@@ -656,7 +656,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         let local = self.local.fetch_sockets(opts);
         let sockets = remote
             .filter_map(|item| future::ready(item.into_fetch_sockets()))
-            .fold(local, |mut acc, item| async move {
+            .fold(local, async |mut acc, item| {
                 acc.extend(item);
                 acc
             })
@@ -988,7 +988,7 @@ fn check_ns<D: Driver>(path: &str) -> Result<(), InitError<D>> {
 mod tests {
     use super::*;
     use futures_util::stream::{self, FusedStream, StreamExt};
-    use socketioxide_core::{adapter::AckStreamItem, Str, Value};
+    use socketioxide_core::{Str, Value, adapter::AckStreamItem};
     use std::convert::Infallible;
 
     #[derive(Clone)]

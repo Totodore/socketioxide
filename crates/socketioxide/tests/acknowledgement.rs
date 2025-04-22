@@ -3,8 +3,8 @@ mod utils;
 
 use engineioxide::Packet::*;
 use futures_util::StreamExt;
-use socketioxide::extract::SocketRef;
 use socketioxide::SocketIo;
+use socketioxide::extract::SocketRef;
 use socketioxide_core::packet::PacketData;
 use socketioxide_core::parser::Parse;
 use socketioxide_parser_common::CommonParser;
@@ -16,7 +16,7 @@ pub async fn emit_with_ack() {
     let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(4);
 
-    io.ns("/", move |s: SocketRef| async move {
+    io.ns("/", async move |s: SocketRef| {
         let res = assert_ok!(s.emit_with_ack::<_, [String; 1]>("test", "foo")).await;
         let ack = assert_ok!(res);
         assert_ok!(tx.try_send(ack));
@@ -52,14 +52,13 @@ pub async fn broadcast_with_ack() {
     let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<[String; 1]>(100);
 
-    io.ns("/", move |socket: SocketRef, io: SocketIo| async move {
+    io.ns("/", async move |socket: SocketRef, io: SocketIo| {
         let res = io.emit_with_ack::<_, [String; 1]>("test", "foo").await;
         let res = assert_ok!(res);
-        res.for_each(|(id, res)| {
+        res.for_each(async |(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
             assert_some!(io.sockets().iter().find(|s| s.id == id));
-            async move {}
         })
         .await;
 
@@ -68,11 +67,10 @@ pub async fn broadcast_with_ack() {
             .emit_with_ack::<_, [String; 1]>("test", "foo")
             .await;
         let res = assert_ok!(res);
-        res.for_each(|(id, res)| {
+        res.for_each(async |(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
             assert_some!(io.sockets().iter().find(|s| s.id == id));
-            async move {}
         })
         .await;
 
@@ -82,11 +80,10 @@ pub async fn broadcast_with_ack() {
             .emit_with_ack::<_, [String; 1]>("test", "foo")
             .await;
         let res = assert_ok!(res);
-        res.for_each(|(id, res)| {
+        res.for_each(async |(id, res)| {
             let ack = assert_ok!(res);
             assert_ok!(tx.try_send(ack));
             assert_some!(io.sockets().iter().find(|s| s.id == id));
-            async move {}
         })
         .await;
     });

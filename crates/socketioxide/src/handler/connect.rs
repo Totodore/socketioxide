@@ -41,12 +41,12 @@
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! // Here the handler is async and extract the current socket and the auth payload
-//! io.ns("/", move |io: SocketIo, s: SocketRef, TryData(auth): TryData<String>| async move {
+//! io.ns("/", async |io: SocketIo, s: SocketRef, TryData(auth): TryData<String>| {
 //!     println!("Socket connected on / namespace with id and auth data: {} {:?}", s.id, auth);
 //! });
 //! // Here the handler is async and only extract the current socket.
 //! // The auth payload won't be deserialized and will be dropped
-//! io.ns("/async_nsp", move |s: SocketRef| async move {
+//! io.ns("/async_nsp", async |s: SocketRef| {
 //!     println!("Socket connected on /async_nsp namespace with id: {}", s.id);
 //! });
 //! ```
@@ -109,11 +109,11 @@
 //! io.ns("/", handler.with(middleware).with(other_middleware));
 //! ```
 
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::{adapter::Adapter, socket::Socket};
-use futures_core::Future;
 use socketioxide_core::Value;
 
 use super::MakeErasedHandler;
@@ -142,13 +142,10 @@ pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "Function argument is not a valid socketio extractor.
+#[diagnostic::on_unimplemented(
+    note = "Function argument is not a valid socketio extractor.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details",
-        label = "Invalid extractor"
-    )
+    label = "Invalid extractor"
 )]
 pub trait FromConnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
@@ -165,16 +162,13 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect middlewares.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "This function is not a ConnectMiddleware. Check that:
+#[diagnostic::on_unimplemented(
+    note = "This function is not a ConnectMiddleware. Check that:
 * It is a clonable sync or async `FnOnce` that returns `Result<(), E> where E: Display`.
 * All its arguments are valid connect extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
-        label = "Invalid ConnectMiddleware"
-    )
+    label = "Invalid ConnectMiddleware"
 )]
 pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// Call the middleware with the given arguments.
@@ -195,16 +189,13 @@ pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'stati
 ///
 /// * See the [`connect`](super::connect) module doc for more details on connect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "This function is not a ConnectHandler. Check that:
+#[diagnostic::on_unimplemented(
+    note = "This function is not a ConnectHandler. Check that:
 * It is a clonable sync or async `FnOnce` that returns nothing.
 * All its arguments are valid connect extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
-        label = "Invalid ConnectHandler"
-    )
+    label = "Invalid ConnectHandler"
 )]
 pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// Call the handler with the given arguments.
@@ -324,6 +315,7 @@ where
     }
 }
 
+#[diagnostic::do_not_recommend]
 impl<A, H, M, T, T1> ConnectHandler<A, T> for LayeredConnectHandler<A, H, M, T, T1>
 where
     A: Adapter,
@@ -360,6 +352,8 @@ where
         }
     }
 }
+
+#[diagnostic::do_not_recommend]
 impl<A, H, N, T, T1> ConnectMiddleware<A, T1> for LayeredConnectHandler<A, H, N, T, T1>
 where
     A: Adapter,
@@ -399,6 +393,7 @@ where
     }
 }
 
+#[diagnostic::do_not_recommend]
 impl<A, M, N, T, T1> ConnectMiddleware<A, T> for ConnectMiddlewareLayer<M, N, T, T1>
 where
     A: Adapter,
@@ -425,6 +420,7 @@ macro_rules! impl_handler_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
+        #[diagnostic::do_not_recommend]
         impl<A, F, Fut, $($ty,)*> ConnectHandler<A, (private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
@@ -457,6 +453,7 @@ macro_rules! impl_handler {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
+        #[diagnostic::do_not_recommend]
         impl<A, F, $($ty,)*> ConnectHandler<A, (private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
@@ -486,6 +483,7 @@ macro_rules! impl_middleware_async {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
+        #[diagnostic::do_not_recommend]
         impl<A, F, Fut, E, $($ty,)*> ConnectMiddleware<A, (private::Async, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
@@ -528,6 +526,7 @@ macro_rules! impl_middleware {
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
+        #[diagnostic::do_not_recommend]
         impl<A, F, E, $($ty,)*> ConnectMiddleware<A, (private::Sync, $($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Result<(), E> + Send + Sync + Clone + 'static,

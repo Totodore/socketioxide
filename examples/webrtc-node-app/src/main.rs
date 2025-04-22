@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     io.ns("/", |s: SocketRef| {
         s.on(
             "join",
-            |s: SocketRef, Data(room_id): Data<String>| async move {
+            async |s: SocketRef, Data(room_id): Data<String>| {
                 let socket_cnt = s.within(room_id.clone()).sockets().len();
                 if socket_cnt == 0 {
                     tracing::info!(
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         s.on(
             "start_call",
-            |s: SocketRef, Data(room_id): Data<String>| async move {
+            async |s: SocketRef, Data(room_id): Data<String>| {
                 tracing::info!("broadcasting start_call event to peers in room {room_id}");
                 s.to(room_id.clone())
                     .emit("start_call", &room_id)
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         s.on(
             "webrtc_offer",
-            |s: SocketRef, Data(event): Data<Event>| async move {
+            async |s: SocketRef, Data(event): Data<Event>| {
                 tracing::info!(
                     "broadcasting webrtc_offer event to peers in room {}",
                     event.room_id
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         s.on(
             "webrtc_answer",
-            |s: SocketRef, Data(event): Data<Event>| async move {
+            async |s: SocketRef, Data(event): Data<Event>| {
                 tracing::info!(
                     "broadcasting webrtc_answer event to peers in room {}",
                     event.room_id
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         s.on(
             "webrtc_ice_candidate",
-            |s: SocketRef, Data(event): Data<IceCandidate>| async move {
+            async |s: SocketRef, Data(event): Data<IceCandidate>| {
                 tracing::info!(
                     "broadcasting ice_candidate event to peers in room {}",
                     event.room_id

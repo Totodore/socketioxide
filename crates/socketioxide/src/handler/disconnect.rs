@@ -25,7 +25,7 @@
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! io.ns("/", |s: SocketRef| {
-//!     s.on_disconnect(move |s: SocketRef| async move {
+//!     s.on_disconnect(async |s: SocketRef| {
 //!         println!("Socket {} was disconnected", s.id);
 //!     });
 //! });
@@ -51,9 +51,8 @@
 //!     s.on_disconnect(handler);
 //! });
 //! ```
+use std::future::Future;
 use std::sync::Arc;
-
-use futures_core::Future;
 
 use crate::{
     adapter::Adapter,
@@ -96,13 +95,10 @@ where
 ///
 /// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "This function argument is not a valid socketio extractor.
+#[diagnostic::on_unimplemented(
+    note = "This function argument is not a valid socketio extractor.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details\n",
-        label = "Invalid extractor"
-    )
+    label = "Invalid extractor"
 )]
 pub trait FromDisconnectParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
@@ -121,16 +117,13 @@ pub trait FromDisconnectParts<A: Adapter>: Sized {
 ///
 /// * See the [`disconnect`](super::disconnect) module doc for more details on disconnect handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "This function is not a DisconnectHandler. Check that:
+#[diagnostic::on_unimplemented(
+    note = "This function is not a DisconnectHandler. Check that:
 * It is a clonable sync or async `FnOnce` that returns nothing.
 * All its arguments are valid disconnect extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
-        label = "Invalid DisconnectHandler"
-    )
+    label = "Invalid DisconnectHandler"
 )]
 pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
@@ -153,6 +146,7 @@ macro_rules! impl_handler_async {
     (
         [$($ty:ident),*]
     ) => {
+        #[diagnostic::do_not_recommend]
         #[allow(non_snake_case, unused)]
         impl<A, F, Fut, $($ty,)*> DisconnectHandler<A, (private::Async, $($ty,)*)> for F
         where
@@ -185,6 +179,7 @@ macro_rules! impl_handler {
     (
         [$($ty:ident),*]
     ) => {
+        #[diagnostic::do_not_recommend]
         #[allow(non_snake_case, unused)]
         impl<A, F, $($ty,)*> DisconnectHandler<A, (private::Sync, $($ty,)*)> for F
         where

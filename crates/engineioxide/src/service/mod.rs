@@ -173,7 +173,7 @@ where
         protocol: ProtocolVersion,
         sid: Option<engineioxide_core::Sid>,
         req_data: http::request::Parts,
-    ) -> impl std::future::Future<Output = Result<(), crate::errors::Error>>
+    ) -> impl std::future::Future<Output = Result<(), crate::errors::Error>> + 'static
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     {

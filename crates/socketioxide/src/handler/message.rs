@@ -41,12 +41,12 @@
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
 //! io.ns("/", |s: SocketRef| {
-//!     s.on("event", move |s: SocketRef, Data::<String>(data)| async move {
+//!     s.on("event", async |s: SocketRef, Data::<String>(data)| {
 //!        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 //!        println!("Socket received event with data: {}", data);
 //!     });
 //!     // `Bin` extractor must be the last argument because it consumes the rest of the packet
-//!     s.on("/binary_event", move |s: SocketRef, TryData::<String>(data)| async move {
+//!     s.on("/binary_event", async |s: SocketRef, TryData::<String>(data)| {
 //!       println!("Socket received event with data: {:?}", data);
 //!     })
 //! });
@@ -68,9 +68,9 @@
 //!     s.on("event_2", on_event);
 //! });
 //! ```
+use std::future::Future;
 use std::sync::Arc;
 
-use futures_core::Future;
 use socketioxide_core::Value;
 
 use crate::adapter::Adapter;
@@ -90,16 +90,13 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "This function is not a MessageHandler. Check that:
+#[diagnostic::on_unimplemented(
+    note = "This function is not a MessageHandler. Check that:
 * It is a clonable sync or async `FnOnce` that returns nothing.
 * All its arguments are valid message extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
-        label = "Invalid MessageHandler"
-    )
+    label = "Invalid MessageHandler"
 )]
 pub trait MessageHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments
@@ -152,13 +149,10 @@ mod private {
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "This function argument is not a valid socketio extractor.
+#[diagnostic::on_unimplemented(
+    note = "This function argument is not a valid socketio extractor.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details\n",
-        label = "Invalid extractor"
-    )
+    label = "Invalid extractor"
 )]
 pub trait FromMessageParts<A: Adapter>: Sized {
     /// The error type returned by the extractor
@@ -178,13 +172,10 @@ pub trait FromMessageParts<A: Adapter>: Sized {
 ///
 /// * See the [`message`](super::message) module doc for more details on message handler.
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
-#[rustversion::attr(
-    since(1.78),
-    diagnostic::on_unimplemented(
-        note = "This function argument is not a valid socketio extractor.
+#[diagnostic::on_unimplemented(
+    note = "This function argument is not a valid socketio extractor.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details\n",
-        label = "Invalid extractor"
-    )
+    label = "Invalid extractor"
 )]
 pub trait FromMessage<A: Adapter, M = private::ViaRequest>: Sized {
     /// The error type returned by the extractor
@@ -240,6 +231,7 @@ macro_rules! impl_async_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
+        #[diagnostic::do_not_recommend]
         impl<A, F, M, $($ty,)* $last, Fut> MessageHandler<A, (private::Async, M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) -> Fut + Send + Sync + Clone + 'static,
@@ -279,6 +271,7 @@ macro_rules! impl_handler {
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
+        #[diagnostic::do_not_recommend]
         impl<A, F, M, $($ty,)* $last> MessageHandler<A, (private::Sync, M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) + Send + Sync + Clone + 'static,

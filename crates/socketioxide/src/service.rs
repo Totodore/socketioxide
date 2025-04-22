@@ -29,9 +29,9 @@ use std::{
 use tower_service::Service as TowerSvc;
 
 use crate::{
+    SocketIoConfig,
     adapter::{Adapter, LocalAdapter},
     client::Client,
-    SocketIoConfig,
 };
 
 /// A [`Tower`](TowerSvc)/[`Hyper`](HyperSvc) Service that wraps [`EngineIoService`] and
@@ -130,7 +130,7 @@ impl<A: Adapter, S: Clone> Clone for SocketIoService<S, A> {
 #[doc(hidden)]
 impl<Svc, A> SocketIoService<Svc, A>
 where
-    Svc: Clone,
+    Svc: Clone + 'static,
     A: Adapter,
 {
     /// Create a new socket.io conn over websocket through a raw stream.
@@ -141,7 +141,7 @@ where
         protocol: crate::ProtocolVersion,
         sid: Option<crate::socket::Sid>,
         req_data: http::request::Parts,
-    ) -> impl std::future::Future<Output = ()>
+    ) -> impl std::future::Future<Output = ()> + 'static
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     {

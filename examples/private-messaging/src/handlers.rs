@@ -71,10 +71,10 @@ pub async fn on_connection(
 
     s.on(
         "private message",
-        |s: SocketRef,
+        async |s: SocketRef,
          Data(PrivateMessageReq { to, content }),
          State::<Messages>(msgs),
-         Extension::<Arc<Session>>(session)| async move {
+         Extension::<Arc<Session>>(session)| {
             let message = Message {
                 from: session.user_id,
                 to,
@@ -89,7 +89,7 @@ pub async fn on_connection(
     );
 
     s.on_disconnect(
-        |s: SocketRef, Extension::<Arc<Session>>(session)| async move {
+        async |s: SocketRef, Extension::<Arc<Session>>(session)| {
             session.set_connected(false);
             let res = UserDisconnectedRes {
                 user_id: &session.user_id,
