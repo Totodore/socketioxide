@@ -10,6 +10,7 @@ use http_body_util::Full;
 use engineioxide_core::Sid;
 
 use crate::{
+    DisconnectReason,
     body::ResponseBody,
     engine::EngineIo,
     errors::Error,
@@ -17,7 +18,6 @@ use crate::{
     packet::{OpenPacket, Packet},
     service::{ProtocolVersion, TransportType},
     transport::polling::payload::Payload,
-    DisconnectReason,
 };
 
 mod payload;

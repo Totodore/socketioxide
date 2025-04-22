@@ -52,9 +52,9 @@ use de::deserialize_packet;
 use ser::serialize_packet;
 use serde::Deserialize;
 use socketioxide_core::{
+    Str, Value,
     packet::Packet,
     parser::{Parse, ParseError, ParserError, ParserState},
-    Str, Value,
 };
 
 mod de;
@@ -125,7 +125,7 @@ mod tests {
     use std::str::FromStr;
 
     use serde_json::json;
-    use socketioxide_core::{packet::ConnectPacket, Sid};
+    use socketioxide_core::{Sid, packet::ConnectPacket};
 
     use super::*;
     const BIN: Bytes = Bytes::from_static(&[1, 2, 3, 4]);

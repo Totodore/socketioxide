@@ -19,7 +19,7 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
           .emit_with_ack::<_, Value>("message-back", &data)
           .await
           .unwrap()
-          .for_each(|(id, ack)| async move {
+          .for_each(async |(id, ack)| {
             match ack {
                 Ok(ack) => println!("Ack received from socket {}: {:?}", id, ack),
                 Err(err) => println!("Ack error from socket {}: {:?}", id, err),

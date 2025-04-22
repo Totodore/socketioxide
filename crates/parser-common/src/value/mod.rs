@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
-use serde::{de::Error, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error};
 use socketioxide_core::{
-    parser::{is_de_tuple, is_ser_tuple, FirstElement},
     Str, Value,
+    parser::{FirstElement, is_de_tuple, is_ser_tuple},
 };
 
 mod de;

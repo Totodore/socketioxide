@@ -1,9 +1,9 @@
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use socketioxide_core::{
+    Sid, Value,
     packet::{ConnectPacket, Packet},
     parser::Parse,
-    Sid, Value,
 };
 use socketioxide_parser_common::CommonParser;
 

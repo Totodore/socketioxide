@@ -7,16 +7,16 @@ use std::{
 };
 
 use futures_core::{FusedStream, Stream};
-use futures_util::{stream::TakeUntil, StreamExt};
+use futures_util::{StreamExt, stream::TakeUntil};
 use pin_project_lite::pin_project;
 use serde::de::DeserializeOwned;
-use socketioxide_core::{adapter::AckStreamItem, Sid};
+use socketioxide_core::{Sid, adapter::AckStreamItem};
 use tokio::time;
 
 use crate::{
+    ResponseHandlers,
     drivers::MessageStream,
     request::{Response, ResponseType},
-    ResponseHandlers,
 };
 
 pin_project! {

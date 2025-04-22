@@ -4,9 +4,9 @@ use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bytes::Bytes;
+use engineioxide::Str;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::socket::{DisconnectReason as EIoDisconnectReason, Socket as EIoSocket};
-use engineioxide::Str;
 use futures_util::{FutureExt, TryFutureExt};
 
 use matchit::{Match, Router};
@@ -16,13 +16,13 @@ use socketioxide_core::{Sid, Value};
 use tokio::sync::oneshot;
 
 use crate::{
+    ProtocolVersion, SocketIo, SocketIoConfig,
     adapter::Adapter,
     errors::Error,
     handler::ConnectHandler,
     ns::{Namespace, NamespaceCtr},
     parser::{ParseError, Parser},
     socket::DisconnectReason,
-    ProtocolVersion, SocketIo, SocketIoConfig,
 };
 
 pub struct Client<A: Adapter> {
@@ -66,15 +66,14 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
         let protocol: ProtocolVersion = esocket.protocol.into();
-        let connect =
-            move |ns: Arc<Namespace<A>>, esocket: Arc<engineioxide::Socket<SocketData<A>>>| async move {
-                if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
-                    // cancel the connect timeout task for v5
-                    if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                        tx.send(()).ok();
-                    }
+        let connect = async move |ns: Arc<Namespace<A>>, esocket: Arc<EIoSocket<SocketData<A>>>| {
+            if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
+                // cancel the connect timeout task for v5
+                if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+                    tx.send(()).ok();
                 }
-            };
+            }
+        };
 
         if let Some(ns) = self.get_ns(ns_path) {
             tokio::spawn(connect(ns, esocket.clone()));
@@ -176,7 +175,9 @@ impl<A: Adapter> Client<A> {
     pub fn delete_ns(&self, path: &str) {
         #[cfg(feature = "v4")]
         if path == "/" {
-            panic!("the root namespace \"/\" cannot be deleted for the socket.io v4 protocol. See https://socket.io/docs/v3/namespaces/#main-namespace for more info");
+            panic!(
+                "the root namespace \"/\" cannot be deleted for the socket.io v4 protocol. See https://socket.io/docs/v3/namespaces/#main-namespace for more info"
+            );
         }
 
         #[cfg(feature = "tracing")]

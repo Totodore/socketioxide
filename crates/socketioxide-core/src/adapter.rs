@@ -6,7 +6,7 @@
 //! operations (`broadcast_with_ack`, `broadcast`, `rooms`, etc...).
 use std::{
     borrow::Cow,
-    collections::{hash_map, hash_set, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map, hash_set},
     error::Error as StdError,
     future::{self, Future},
     hash::Hash,
@@ -17,14 +17,14 @@ use std::{
 
 use engineioxide_core::{Sid, Str};
 use futures_core::{FusedStream, Stream};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use smallvec::SmallVec;
 
 use crate::{
+    Uid, Value,
     errors::{AdapterError, BroadcastError, SocketError},
     packet::Packet,
     parser::Parse,
-    Uid, Value,
 };
 
 /// A room identifier

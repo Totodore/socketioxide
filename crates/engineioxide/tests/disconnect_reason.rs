@@ -9,9 +9,9 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use engineioxide::{
+    Str,
     handler::EngineIoHandler,
     socket::{DisconnectReason, Socket},
-    Str,
 };
 use futures_util::SinkExt;
 use tokio::sync::mpsc;

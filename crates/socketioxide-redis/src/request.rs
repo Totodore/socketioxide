@@ -2,11 +2,11 @@
 //! Custom serialization/deserialization to reduce the size of the messages.
 use std::{collections::HashSet, str::FromStr};
 
-use serde::{de::SeqAccess, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::SeqAccess};
 use socketioxide_core::{
+    Sid, Uid, Value,
     adapter::{BroadcastOptions, Room},
     packet::Packet,
-    Sid, Uid, Value,
 };
 
 #[derive(Debug, PartialEq)]

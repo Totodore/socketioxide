@@ -6,11 +6,11 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use rmpv::Value;
 use socketioxide::{
-    extract::{AckSender, Data, SocketRef},
     SocketIo,
+    extract::{AckSender, Data, SocketRef},
 };
 use tokio::net::TcpListener;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
@@ -25,7 +25,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     // keep this handler async to test async message handlers
     socket.on(
         "message-with-ack",
-        |Data::<[Value; 3]>(data), ack: AckSender| async move {
+        async |Data::<[Value; 3]>(data), ack: AckSender| {
             info!(?data, "Received event:");
             ack.send(&data).unwrap();
         },
@@ -33,7 +33,7 @@ fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
 
     socket.on(
         "emit-with-ack",
-        |s: SocketRef, Data::<[Value; 3]>(data)| async move {
+        async |s: SocketRef, Data::<[Value; 3]>(data)| {
             info!(?data, "Received event:");
             let ack: [Value; 3] = s
                 .emit_with_ack("emit-with-ack", &data)

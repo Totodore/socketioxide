@@ -57,8 +57,8 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
     time::Duration,
 };
@@ -73,12 +73,12 @@ use crate::{
 use bytes::Bytes;
 use engineioxide_core::Str;
 use http::request::Parts;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use tokio::{
     sync::{
-        mpsc::{self},
-        mpsc::{error::TrySendError, Receiver},
         Mutex,
+        mpsc::{self},
+        mpsc::{Receiver, error::TrySendError},
     },
     task::JoinHandle,
 };
@@ -534,9 +534,9 @@ where
     ) -> Arc<Socket<D>> {
         let (s, mut rx) = Socket::new_dummy_piped(sid, close_fn, 1024);
         tokio::spawn(async move {
-            while let Some(el) = rx.recv().await {
+            while let Some(_el) = rx.recv().await {
                 #[cfg(feature = "tracing")]
-                tracing::debug!(?sid, ?el, "emitting eio msg");
+                tracing::debug!(?sid, ?_el, "emitting eio msg");
             }
         });
         s

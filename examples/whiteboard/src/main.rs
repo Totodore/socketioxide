@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_layer();
 
     io.ns("/", |s: SocketRef| {
-        s.on("drawing", |s: SocketRef, Data::<Value>(data)| async move {
+        s.on("drawing", async |s: SocketRef, Data::<Value>(data)| {
             s.broadcast().emit("drawing", &data).await.unwrap();
         });
     });

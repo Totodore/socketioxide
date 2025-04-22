@@ -1,24 +1,25 @@
 //! Acknowledgement related types and functions.
 use std::{
+    future::Future,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
 
-use futures_core::{FusedFuture, FusedStream, Future, Stream};
+use futures_core::{FusedFuture, FusedStream, Stream};
 use futures_util::stream::FuturesUnordered;
 use serde::de::DeserializeOwned;
 use tokio::{sync::oneshot::Receiver, time::Timeout};
 
 use crate::{
+    SocketError,
     adapter::{Adapter, LocalAdapter},
     errors::AckError,
     parser::Parser,
     socket::Socket,
-    SocketError,
 };
-use socketioxide_core::{packet::Packet, parser::Parse, Sid, Value};
+use socketioxide_core::{Sid, Value, packet::Packet, parser::Parse};
 pub(crate) type AckResult<T> = Result<T, AckError>;
 
 pin_project_lite::pin_project! {
@@ -83,7 +84,7 @@ pin_project_lite::pin_project! {
     /// # use futures_util::StreamExt;
     /// # use socketioxide::SocketIo;
     /// let (svc, io) = SocketIo::new_svc();
-    /// io.ns("/test", move |socket: SocketRef| async move {
+    /// io.ns("/test", async |socket: SocketRef| {
     ///     // We wait for the acknowledgement of the first emit (only one in this case)
     ///     let ack = socket.emit_with_ack::<_, String>("test", "test").unwrap().await;
     ///     println!("Ack: {:?}", ack);
@@ -92,7 +93,7 @@ pin_project_lite::pin_project! {
     ///     socket.broadcast().emit_with_ack::<_, String>("test", "test")
     ///         .await
     ///         .unwrap()
-    ///         .for_each(|(id, ack)| async move { println!("Ack: {} {:?}", id, ack); }).await;
+    ///         .for_each(async |(id, ack)| { println!("Ack: {} {:?}", id, ack); }).await;
     /// });
     /// ```
     #[must_use = "futures and streams do nothing unless you `.await` or poll them"]

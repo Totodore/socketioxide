@@ -6,13 +6,13 @@ mod utils;
 
 use bytes::Bytes;
 use engineioxide::Packet::*;
-use socketioxide::{extract::SocketRef, SocketIo};
+use socketioxide::{SocketIo, extract::SocketRef};
 
 #[tokio::test]
 pub async fn emit() {
     const BUFFER_SIZE: usize = 10000;
     let (_svc, io) = SocketIo::builder().max_buffer_size(BUFFER_SIZE).build_svc();
-    io.ns("/", move |socket: SocketRef| async move {
+    io.ns("/", async |socket: SocketRef| {
         for _ in 0..100 {
             let s = socket.clone();
             static DATA: (&str, Bytes, Bytes) = (

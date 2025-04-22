@@ -58,10 +58,12 @@ where
                 .status(*code)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-            ResFutProj::AsyncResponse { future } => ready!(future
-                .as_mut()
-                .poll(cx)
-                .map(|r| r.unwrap_or_else(|e| e.into()))),
+            ResFutProj::AsyncResponse { future } => ready!(
+                future
+                    .as_mut()
+                    .poll(cx)
+                    .map(|r| r.unwrap_or_else(|e| e.into()))
+            ),
             ResFutProj::ReadyResponse { res } => res.take().unwrap().unwrap_or_else(|e| e.into()),
         };
         Poll::Ready(Ok(res))

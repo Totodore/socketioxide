@@ -14,7 +14,7 @@ tracing.workspace = true
 rmpv.workspace = true
 tower.workspace = true
 tower-http = { version = "0.5.0", features = ["cors"] }
-salvo = { version = "0.66", features = ["tower-compat"] }
+salvo = { version = "0.78", features = ["tower-compat"] }
 
 [[bin]]
 name = "salvo-echo"

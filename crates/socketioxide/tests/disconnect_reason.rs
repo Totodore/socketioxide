@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use socketioxide::{extract::SocketRef, socket::DisconnectReason, SocketIo};
+use socketioxide::{SocketIo, extract::SocketRef, socket::DisconnectReason};
 use tokio::sync::mpsc;
 
 mod fixture;
@@ -244,7 +244,7 @@ pub async fn server_ws_closing() {
 
     let mut streams =
         futures_util::future::join_all((0..100).map(|_| create_ws_connection(&svc))).await;
-    futures_util::future::join_all(streams.iter_mut().map(|s| async move {
+    futures_util::future::join_all(streams.iter_mut().map(async |s| {
         s.next().await; // engine.io open packet
         s.next().await; // socket.io open packet
         s.next().await; // engine.io ping packet
@@ -254,7 +254,7 @@ pub async fn server_ws_closing() {
     tokio::time::timeout(Duration::from_millis(100), io.close())
         .await
         .expect("timeout waiting for server closing");
-    let packets = futures_util::future::join_all(streams.iter_mut().map(|s| async move {
+    let packets = futures_util::future::join_all(streams.iter_mut().map(async |s| {
         (s.next().await, s.next().await) // Closing packet / None
     }))
     .await;

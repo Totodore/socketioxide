@@ -7,26 +7,27 @@
 use std::sync::Arc;
 
 use futures_util::{
-    stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryStreamExt,
+    stream::{SplitSink, SplitStream},
 };
-use http::{request::Parts, HeaderValue, Request, Response, StatusCode};
+use http::{HeaderValue, Request, Response, StatusCode, request::Parts};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     task::JoinHandle,
 };
 use tokio_tungstenite::{
+    WebSocketStream,
     tungstenite::{
+        Message,
         handshake::derive_accept_key,
         protocol::{Role, WebSocketConfig},
-        Message,
     },
-    WebSocketStream,
 };
 
 use engineioxide_core::Sid;
 
 use crate::{
+    DisconnectReason, Socket,
     body::ResponseBody,
     config::EngineIoConfig,
     engine::EngineIo,
@@ -35,7 +36,6 @@ use crate::{
     packet::{OpenPacket, Packet},
     service::ProtocolVersion,
     service::TransportType,
-    DisconnectReason, Socket,
 };
 
 /// Create a response for websocket upgrade

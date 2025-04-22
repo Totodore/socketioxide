@@ -1,8 +1,7 @@
 //! A Parser module to parse any `EngineIo` query
 
-use std::{str::FromStr, sync::Arc};
+use std::{future::Future, str::FromStr, sync::Arc};
 
-use futures_core::Future;
 use http::{Method, Request, Response};
 
 use engineioxide_core::Sid;

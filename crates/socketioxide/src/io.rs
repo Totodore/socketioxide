@@ -1,20 +1,21 @@
 use std::{borrow::Cow, fmt, sync::Arc, time::Duration};
 
 use engineioxide::{
+    TransportType,
     config::{EngineIoConfig, EngineIoConfigBuilder},
     service::NotFoundService,
-    TransportType,
 };
 use serde::Serialize;
 use socketioxide_core::{
-    adapter::{DefinedAdapter, Room, RoomParam},
     Sid, Uid,
+    adapter::{DefinedAdapter, Room, RoomParam},
 };
 use socketioxide_parser_common::CommonParser;
 #[cfg(feature = "msgpack")]
 use socketioxide_parser_msgpack::MsgPackParser;
 
 use crate::{
+    BroadcastError, EmitWithAckError,
     ack::AckStream,
     adapter::{Adapter, LocalAdapter},
     client::Client,
@@ -25,7 +26,6 @@ use crate::{
     parser::Parser,
     service::SocketIoService,
     socket::RemoteSocket,
-    BroadcastError, EmitWithAckError,
 };
 
 /// The parser to use to encode and decode socket.io packets
@@ -627,7 +627,7 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data), ack: AckSender| async move {
+    ///     socket.on("test", async |socket: SocketRef, Data::<MyData>(data), ack: AckSender| {
     ///         println!("Received a test message {:?}", data);
     ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
@@ -656,7 +656,7 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     ///         socket.disconnect().ok();
     ///         return;
     ///     }
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| async move {
+    ///     socket.on("test", async |socket: SocketRef, Data::<MyData>(data)| {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });

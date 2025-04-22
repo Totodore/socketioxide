@@ -27,7 +27,7 @@ async fn on_connect(socket: SocketRef) {
 
     socket.on(
         "join",
-        |socket: SocketRef, Data::<String>(room), store: State<state::MessageStore>| async move {
+        async |socket: SocketRef, Data::<String>(room), store: State<state::MessageStore>| {
             info!("Received join: {:?}", room);
             socket.leave_all();
             socket.join(room.clone());
@@ -38,7 +38,7 @@ async fn on_connect(socket: SocketRef) {
 
     socket.on(
         "message",
-        |socket: SocketRef, Data::<MessageIn>(data), store: State<state::MessageStore>| async move {
+        async |socket: SocketRef, Data::<MessageIn>(data), store: State<state::MessageStore>| {
             info!("Received message: {:?}", data);
 
             let response = state::Message {
