@@ -534,9 +534,9 @@ where
     ) -> Arc<Socket<D>> {
         let (s, mut rx) = Socket::new_dummy_piped(sid, close_fn, 1024);
         tokio::spawn(async move {
-            while let Some(el) = rx.recv().await {
+            while let Some(_el) = rx.recv().await {
                 #[cfg(feature = "tracing")]
-                tracing::debug!(?sid, ?el, "emitting eio msg");
+                tracing::debug!(?sid, ?_el, "emitting eio msg");
             }
         });
         s
