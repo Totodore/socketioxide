@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::handler::{FromConnectParts, FromMessageParts};
 use crate::{adapter::Adapter, socket::Socket};
 use serde::de::DeserializeOwned;
-use socketioxide_core::parser::{Parse, ParserError};
 use socketioxide_core::Value;
+use socketioxide_core::parser::{Parse, ParserError};
 
 /// An Extractor that returns the deserialized data without checking errors.
 /// If a deserialization error occurs, the handler won't be called

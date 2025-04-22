@@ -1,7 +1,7 @@
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use socketioxide_core::{parser::Parse, Value};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use socketioxide_core::{Value, parser::Parse};
 use socketioxide_parser_common::CommonParser;
 
 #[derive(Serialize, Deserialize)]

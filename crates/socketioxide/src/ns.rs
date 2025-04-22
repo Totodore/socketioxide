@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    ProtocolVersion, SocketIoConfig,
     ack::AckInnerStream,
     adapter::Adapter,
     client::SocketData,
@@ -12,14 +13,13 @@ use crate::{
     handler::{BoxedConnectHandler, ConnectHandler, MakeErasedHandler},
     parser::Parser,
     socket::{DisconnectReason, Socket},
-    ProtocolVersion, SocketIoConfig,
 };
 use socketioxide_core::{
+    Sid, Str, Uid, Value,
     adapter::{BroadcastIter, CoreLocalAdapter, RemoteSocketData, SocketEmitter},
     errors::SocketError,
     packet::{ConnectPacket, Packet, PacketData},
     parser::Parse,
-    Sid, Str, Uid, Value,
 };
 
 /// A [`Namespace`] constructor used for dynamic namespaces
@@ -260,11 +260,7 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
             .filter_map(|sid| sockets.get(&sid))
             .filter_map(|socket| socket.send_raw(data.clone()).err())
             .collect();
-        if errs.is_empty() {
-            Ok(())
-        } else {
-            Err(errs)
-        }
+        if errs.is_empty() { Ok(()) } else { Err(errs) }
     }
 
     fn send_many_with_ack(
@@ -296,11 +292,7 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
             .into_iter()
             .filter_map(|socket| socket.disconnect().err())
             .collect::<Vec<_>>();
-        if errs.is_empty() {
-            Ok(())
-        } else {
-            Err(errs)
-        }
+        if errs.is_empty() { Ok(()) } else { Err(errs) }
     }
 }
 

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use socketioxide_core::{
-    parser::{is_de_tuple, is_ser_tuple, FirstElement},
     Value,
+    parser::{FirstElement, is_de_tuple, is_ser_tuple},
 };
 
 mod de;

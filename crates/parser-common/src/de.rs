@@ -2,9 +2,9 @@ use std::io::Cursor;
 
 use bytes::Buf;
 use socketioxide_core::{
+    Str, Value,
     packet::{Packet, PacketData},
     parser::ParseError,
-    Str, Value,
 };
 
 pub fn deserialize_packet(data: Str) -> Result<(Packet, Option<usize>), ParseError> {
@@ -58,7 +58,7 @@ fn read_attachments(reader: &mut Cursor<&str>) -> Option<usize> {
             Some(b'-') if reader.position() as usize > start_index => {
                 break data[start_index..reader.position() as usize - 1]
                     .parse()
-                    .ok()
+                    .ok();
             }
             _ => {
                 reader.set_position(reader.position() - 1);

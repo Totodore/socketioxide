@@ -1,11 +1,11 @@
-use base64::{engine::general_purpose, Engine};
+use base64::{Engine, engine::general_purpose};
 use bytes::Bytes;
 use engineioxide_core::{Sid, Str};
 use serde::Serialize;
 
+use crate::TransportType;
 use crate::config::EngineIoConfig;
 use crate::errors::Error;
-use crate::TransportType;
 
 /// A Packet type to use when receiving and sending data from the client
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -240,7 +240,12 @@ mod tests {
             &EngineIoConfig::default(),
         ));
         let packet_str: String = packet.into();
-        assert_eq!(packet_str, format!("0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"));
+        assert_eq!(
+            packet_str,
+            format!(
+                "0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"
+            )
+        );
     }
 
     #[test]

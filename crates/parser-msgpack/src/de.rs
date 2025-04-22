@@ -3,14 +3,14 @@ use std::{io::Cursor, ops::Range};
 
 use bytes::{Buf, Bytes};
 use rmp::{
-    decode::{self, read_map_len, RmpRead, ValueReadError},
     Marker,
+    decode::{self, RmpRead, ValueReadError, read_map_len},
 };
 use rmp_serde::decode::Error as DecodeError;
 use socketioxide_core::{
+    Str, Value,
     packet::{Packet, PacketData},
     parser::{ParseError, ParserError},
-    Str, Value,
 };
 
 pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError> {

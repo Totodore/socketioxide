@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use rmp_serde::{decode::from_slice, encode::to_vec_named};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use socketioxide_core::{parser::Parse, Value};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use socketioxide_core::{Value, parser::Parse};
 use socketioxide_parser_msgpack::MsgPackParser;
 
 #[derive(Serialize, Deserialize)]

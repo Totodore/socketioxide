@@ -10,8 +10,8 @@ use std::{
 
 use bytes::Bytes;
 use engineioxide::{
-    config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService, socket::Sid,
-    ProtocolVersion,
+    ProtocolVersion, config::EngineIoConfig, handler::EngineIoHandler, service::EngineIoService,
+    socket::Sid,
 };
 use http::Request;
 use http_body_util::{BodyExt, Either, Empty, Full};
@@ -22,8 +22,8 @@ use tokio::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_tungstenite::{
-    tungstenite::{handshake::client::generate_key, protocol::Role},
     WebSocketStream,
+    tungstenite::{handshake::client::generate_key, protocol::Role},
 };
 use tokio_util::io::StreamReader;
 use tower_service::Service;

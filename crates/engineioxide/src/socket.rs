@@ -57,8 +57,8 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
     time::Duration,
 };
@@ -73,12 +73,12 @@ use crate::{
 use bytes::Bytes;
 use engineioxide_core::Str;
 use http::request::Parts;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use tokio::{
     sync::{
-        mpsc::{self},
-        mpsc::{error::TrySendError, Receiver},
         Mutex,
+        mpsc::{self},
+        mpsc::{Receiver, error::TrySendError},
     },
     task::JoinHandle,
 };

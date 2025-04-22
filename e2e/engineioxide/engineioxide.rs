@@ -4,11 +4,11 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use engineioxide::{
+    Str,
     config::EngineIoConfig,
     handler::EngineIoHandler,
     service::EngineIoService,
     socket::{DisconnectReason, Socket},
-    Str,
 };
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;

@@ -5,9 +5,9 @@
 use bytes::Bytes;
 
 use socketioxide_core::{
+    Str, Value,
     packet::Packet,
     parser::{Parse, ParserState},
-    Str, Value,
 };
 
 use serde::{Deserialize, Serialize};

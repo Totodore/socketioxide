@@ -3,11 +3,11 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 use serde_json::json;
+use socketioxide::ParserError;
 use socketioxide::extract::{Data, Extension, MaybeExtension, SocketRef, State, TryData};
 use socketioxide::handler::ConnectHandler;
-use socketioxide::ParserError;
-use socketioxide_core::parser::Parse;
 use socketioxide_core::Value;
+use socketioxide_core::parser::Parse;
 use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
 

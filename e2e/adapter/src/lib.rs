@@ -11,10 +11,10 @@
 
 use futures_util::StreamExt;
 use socketioxide::{
+    SocketIo,
     adapter::Adapter,
     extract::{AckSender, Data, SocketRef},
     socket::Sid,
-    SocketIo,
 };
 pub async fn handler<A: Adapter>(s: SocketRef<A>) {
     s.join(["room1", "room2", "room4", "room5"]);
