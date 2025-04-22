@@ -598,7 +598,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                     header: ItemHeader::Req { target, .. },
                     data,
                     ..
-                }) if target.map_or(true, |id| id == self.uid) => {
+                }) if target.is_none_or(|id| id == self.uid) => {
                     tracing::debug!(?target, "request header");
                     if let Err(e) = self.recv_req(data).await {
                         tracing::warn!("error receiving request from driver: {e}");
