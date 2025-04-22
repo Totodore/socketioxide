@@ -100,7 +100,7 @@ impl Driver for MongoDbDriver {
             .pipeline([mongodb::bson::doc! {
               "$match": {
                     "fullDocument.origin": { "$ne": server_id.as_str() },
-                    "fullDocument.ns": { "$eq": ns },
+                    "fullDocument.ns": ns,
                     "$or": [
                         { "fullDocument.target": server_id.as_str() },
                         { "fullDocument.target": { "$exists": false } }

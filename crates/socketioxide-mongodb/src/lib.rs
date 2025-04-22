@@ -507,7 +507,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         let stream = self
             .get_res::<()>(req_id, ResponseTypeId::AllRooms, opts.server_id)
             .await?;
-        self.send_req(req, None).await?;
+        self.send_req(req, opts.server_id).await?;
         let local = self.local.rooms(opts);
         let rooms = stream
             .filter_map(|item| future::ready(item.into_rooms()))
@@ -527,7 +527,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         if !opts.is_local(self.uid) {
             let req = RequestOut::new(self.uid, RequestTypeOut::AddSockets(&rooms), &opts);
-            self.send_req(req, None).await?;
+            self.send_req(req, opts.server_id).await?;
         }
         self.local.add_sockets(opts, rooms);
         Ok(())
@@ -541,7 +541,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
         if !opts.is_local(self.uid) {
             let req = RequestOut::new(self.uid, RequestTypeOut::DelSockets(&rooms), &opts);
-            self.send_req(req, None).await?;
+            self.send_req(req, opts.server_id).await?;
         }
         self.local.del_sockets(opts, rooms);
         Ok(())
@@ -561,7 +561,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             .get_res::<RemoteSocketData>(req.id, ResponseTypeId::FetchSockets, opts.server_id)
             .await?;
 
-        self.send_req(req, None).await?;
+        self.send_req(req, opts.server_id).await?;
         let local = self.local.fetch_sockets(opts);
         let sockets = remote
             .filter_map(|item| future::ready(item.into_fetch_sockets()))
