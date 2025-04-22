@@ -21,7 +21,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const URI: &str = "mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true";
     let client = mongodb::Client::with_uri_str(URI).await?;
     let strategy = MessageExpirationStrategy::TtlIndex(Duration::from_secs(1));
-    let config = MongoDbAdapterConfig::new().with_expiration_strategy(strategy);
+    let config = MongoDbAdapterConfig::new()
+        .with_expiration_strategy(strategy)
+        .with_collection("socket.io-ttl");
     let adapter =
         MongoDbAdapterCtr::new_with_mongodb_config(client.database("test"), config).await?;
     #[allow(unused_mut)]
