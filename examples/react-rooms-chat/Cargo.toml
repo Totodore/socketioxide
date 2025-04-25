@@ -13,5 +13,5 @@ tracing-subscriber.workspace = true
 axum.workspace = true
 serde.workspace = true
 tower.workspace = true
-tower-http = { version = "0.5.0", features = ["cors"] }
+tower-http.workspace = true
 chrono = { version = "0.4", features = ["serde"] }

@@ -1,39 +1,3 @@
-# [`Socketioxide-MongoDB`](https://github.com/totodore/socketioxide-mongodb) 🚀🦀
-
-A [***`socket.io`***](https://socket.io) adapter for [***`Socketioxide`***](https://github.com/totodore/socketioxide), using [MongoDB Change Streams](https://www.mongodb.com/docs/manual/changeStreams/) for event broadcasting. This adapter enables **horizontal scaling** of your Socketioxide servers across distributed deployments by leveraging MongoDB as a message bus.
-
-[![Crates.io](https://img.shields.io/crates/v/socketioxide-mongodb.svg)](https://crates.io/crates/socketioxide-mongodb)
-[![Documentation](https://docs.rs/socketioxide-mongodb/badge.svg)](https://docs.rs/socketioxide-mongodb)
-[![CI](https://github.com/Totodore/socketioxide-mongodb/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide-mongodb/actions/workflows/github-ci.yml)
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
-
-## Features
-
-- ✅ **MongoDB Change Stream-based adapter**
-- 📦 **Support for any MongoDB client** via the [`Driver`] abstraction
-- 🧩 Built-in driver for the [mongodb](https://docs.rs/mongodb) crate: [`MongoDbDriver`](https://docs.rs/socketioxide-mongodb/latest/socketioxide_mongodb/drivers/mongodb/struct.MongoDbDriver.html)
-- ⌛ **Message expiration** via:
-  - **Capped collections**
-  - **TTL indexes**
-- 🧵 Fully compatible with the asynchronous Rust ecosystem
-- 🛠️ Implement your own custom driver by implementing the `Driver` trait
-
-> [!WARNING]
-> Change streams require your MongoDB deployment to be a **replica set** or a **sharded cluster**.
-> They are **not supported on standalone MongoDB instances**.
-> Ensure your environment meets this requirement before using this adapter.
-
-> [!WARNING]
-> This adapter is **not compatible** with [`@socket.io/mongodb-adapter`](https://github.com/socketio/socket.io-mongodb-adapter) or [`@socket.io/mongodb-emitter`](https://github.com/socketio/socket.io-mongodb-emitter).
-> These projects use entirely different protocols and cannot interoperate.
-> **Do not mix Socket.IO JavaScript servers with Socketioxide Rust servers**.
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
-
-## Example: Using the MongoDB Adapter with Axum
-
-```rust
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -252,19 +216,3 @@ const fn make_object_id(timestamp: [u8; 4], machine: [u8; 4], pid: [u8; 2]) -> O
         0,
     ])
 }
-
-```
-
-> 🧪 Check out the [examples folder](./examples) for more advanced usage.
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
-
-## Contributions and Feedback / Questions
-
-Contributions are very welcome! Feel free to open an issue or a PR. If you're unsure where to start, check the [issues](https://github.com/totodore/socketioxide-mongodb/issues).
-
-For feedback or questions, join the discussion on the [discussions](https://github.com/totodore/socketioxide-mongodb/discussions) page.
-
-## License 🔐
-
-This project is licensed under the [MIT license](./LICENSE).

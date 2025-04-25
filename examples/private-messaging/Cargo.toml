@@ -12,8 +12,8 @@ socketioxide = { workspace = true, features = [
 ] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tower-http = { version = "0.5.0", features = ["cors", "fs"] }
-uuid = { version = "1.6.1", features = ["v4", "serde"] }
+tower-http.workspace = true
+uuid = { version = "1.6", features = ["v4", "serde"] }
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true

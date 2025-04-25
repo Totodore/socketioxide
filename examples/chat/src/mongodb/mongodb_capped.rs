@@ -1,41 +1,3 @@
-# [`Socketioxide-MongoDB`](https://github.com/totodore/socketioxide-mongodb) 🚀🦀
-
-A [***`socket.io`***](https://socket.io) adapter for [***`Socketioxide`***](https://github.com/totodore/socketioxide), using [MongoDB Change Streams](https://www.mongodb.com/docs/manual/changeStreams/) for event broadcasting. This adapter enables **horizontal scaling** of your Socketioxide servers across distributed deployments by leveraging MongoDB as a message bus.
-
-[![Crates.io](https://img.shields.io/crates/v/socketioxide-mongodb.svg)](https://crates.io/crates/socketioxide-mongodb)
-[![Documentation](https://docs.rs/socketioxide-mongodb/badge.svg)](https://docs.rs/socketioxide-mongodb)
-[![CI](https://github.com/Totodore/socketioxide-mongodb/actions/workflows/github-ci.yml/badge.svg)](https://github.com/Totodore/socketioxide-mongodb/actions/workflows/github-ci.yml)
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
-
-## Features
-
-- ✅ **MongoDB Change Stream-based adapter**
-- 📦 **Support for any MongoDB client** via the [`Driver`] abstraction
-- 🧩 Built-in driver for the [mongodb](https://docs.rs/mongodb) crate: [`MongoDbDriver`](https://docs.rs/socketioxide-mongodb/latest/socketioxide_mongodb/drivers/mongodb/struct.MongoDbDriver.html)
-- ⌛ **Message expiration** via:
-  - **Capped collections**
-  - **TTL indexes**
-- 🧵 Fully compatible with the asynchronous Rust ecosystem
-- 🛠️ Implement your own custom driver by implementing the `Driver` trait
-
-> [!WARNING]
-> Change streams require your MongoDB deployment to be a **replica set** or a **sharded cluster**.
-> They are **not supported on standalone MongoDB instances**.
-> Ensure your environment meets this requirement before using this adapter.
-
-> [!WARNING]
-> This adapter is **not compatible** with [`@socket.io/mongodb-adapter`](https://github.com/socketio/socket.io-mongodb-adapter) or [`@socket.io/mongodb-emitter`](https://github.com/socketio/socket.io-mongodb-emitter).
-> These projects use entirely different protocols and cannot interoperate.
-> **Do not mix Socket.IO JavaScript servers with Socketioxide Rust servers**.
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
-
-## Example: Using the MongoDB Adapter with Axum
-
-```rust
-use std::time::Duration;
-
 use serde::{Deserialize, Serialize};
 use socketioxide::{
     adapter::Adapter,
@@ -66,7 +28,7 @@ impl ChatDocument {
     const ID: ObjectId = make_object_id(
         [0x66, 0x2A, 0x15, 0x49],
         [0xE9, 0x2C, 0x3C, 0x8D],
-        [0x5E, 0x8B],
+        [0x5E, 0x8C],
     );
 }
 
@@ -112,6 +74,7 @@ impl RemoteUserCnt {
         let doc = self
             .collec
             .find_one_and_update(where_doc, doc! { "$inc": { "remote_user_count": 1 } })
+            .upsert(true)
             .return_document(ReturnDocument::After)
             .await?;
         Ok(doc.map_or(0, |doc| doc.remote_user_count))
@@ -122,7 +85,8 @@ impl RemoteUserCnt {
         };
         let doc = self
             .collec
-            .find_one_and_update(where_doc, doc! { "$dec": { "remote_user_count": 1 } })
+            .find_one_and_update(where_doc, doc! { "$inc": { "remote_user_count": -1 } })
+            .upsert(true)
             .return_document(ReturnDocument::After)
             .await?;
         Ok(doc.map_or(0, |doc| doc.remote_user_count))
@@ -141,11 +105,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const DB: &str = "chat";
     let db = mongodb::Client::with_uri_str(URI).await?.database(DB);
 
-    // This is the default expiration strategy for messages in the database.
-    let strategy = MessageExpirationStrategy::TtlIndex(Duration::from_secs(60));
+    let strategy = MessageExpirationStrategy::CappedCollection(8_000_000);
     let config = MongoDbAdapterConfig::new()
         .with_expiration_strategy(strategy)
-        .with_collection("socket.io-adapter-ttl");
+        .with_collection("socket.io-adapter-capped");
     let adapter = MongoDbAdapterCtr::new_with_mongodb_config(db.clone(), config).await?;
     let (layer, io) = SocketIo::builder()
         .with_state(RemoteUserCnt::new(db))
@@ -252,19 +215,3 @@ const fn make_object_id(timestamp: [u8; 4], machine: [u8; 4], pid: [u8; 2]) -> O
         0,
     ])
 }
-
-```
-
-> 🧪 Check out the [examples folder](./examples) for more advanced usage.
-
-<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/solar.png">
-
-## Contributions and Feedback / Questions
-
-Contributions are very welcome! Feel free to open an issue or a PR. If you're unsure where to start, check the [issues](https://github.com/totodore/socketioxide-mongodb/issues).
-
-For feedback or questions, join the discussion on the [discussions](https://github.com/totodore/socketioxide-mongodb/discussions) page.
-
-## License 🔐
-
-This project is licensed under the [MIT license](./LICENSE).

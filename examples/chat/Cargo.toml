@@ -8,9 +8,10 @@ edition = "2021"
 [dependencies]
 socketioxide = { workspace = true, features = ["extensions", "state"] }
 socketioxide-redis.workspace = true
+socketioxide-mongodb.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tower-http = { version = "0.5.0", features = ["cors", "fs"] }
+tower-http.workspace = true
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
@@ -31,3 +32,10 @@ path = "src/redis/redis_fred.rs"
 [[bin]]
 name = "redis-adapter-cluster"
 path = "src/redis/redis_cluster.rs"
+
+[[bin]]
+name = "mongodb-adapter-capped"
+path = "src/mongodb/mongodb_capped.rs"
+[[bin]]
+name = "mongodb-adapter-ttl"
+path = "src/mongodb/mongodb_ttl.rs"
