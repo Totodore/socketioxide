@@ -24,6 +24,8 @@ jobs:
             path: crates/socketioxide
           - crate: socketioxide_redis
             path: crates/socketioxide-redis
+          - crate: socketioxide_mongodb
+            path: crates/socketioxide-mongodb
     steps:
       - uses: dtolnay/rust-toolchain@stable
         with:
