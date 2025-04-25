@@ -1,10 +1,8 @@
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
-use socketioxide_mongodb::drivers::mongodb::mongodb_client as mongodb;
-use socketioxide_mongodb::{
-    MessageExpirationStrategy, MongoDbAdapter, MongoDbAdapterConfig, MongoDbAdapterCtr,
-};
+use socketioxide_redis::drivers::redis::redis_client as redis;
+use socketioxide_redis::{RedisAdapterConfig, RedisAdapterCtr};
 use tokio::net::TcpListener;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
@@ -15,21 +13,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_line_number(true)
         .with_max_level(Level::TRACE)
         .finish();
+
     tracing::subscriber::set_global_default(subscriber)?;
+    let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
     let variant = std::env::args().next().unwrap();
     let variant = variant.split("/").last().unwrap();
+    let config = RedisAdapterConfig::new().with_prefix(format!("socket.io-{variant}"));
+    let adapter = RedisAdapterCtr::new_with_redis_config(&client, config).await?;
 
-    let collection = format!("socket.io-capped-{variant}");
-    const URI: &str = "mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true";
-    let client = mongodb::Client::with_uri_str(URI).await?;
-    let strategy = MessageExpirationStrategy::CappedCollection(100_000_000); // 100MB
-    let config = MongoDbAdapterConfig::new()
-        .with_expiration_strategy(strategy)
-        .with_collection(collection);
-    let adapter =
-        MongoDbAdapterCtr::new_with_mongodb_config(client.database("test"), config).await?;
     let (svc, io) = SocketIo::builder()
-        .with_adapter::<MongoDbAdapter<_>>(adapter)
+        .with_adapter::<socketioxide_redis::RedisAdapter<_>>(adapter)
+        .with_parser(socketioxide::ParserConfig::msgpack())
         .build_svc();
 
     io.ns("/", adapter_e2e::handler).await.unwrap();

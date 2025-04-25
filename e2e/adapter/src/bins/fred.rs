@@ -2,8 +2,8 @@ use fred::types::RespVersion;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
-use socketioxide_redis::RedisAdapterCtr;
 use socketioxide_redis::drivers::fred::fred_client as fred;
+use socketioxide_redis::{RedisAdapterConfig, RedisAdapterCtr};
 use tokio::net::TcpListener;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
@@ -18,24 +18,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = fred::prelude::Config::from_url("redis://127.0.0.1:6379?protocol=resp3")?;
     config.version = RespVersion::RESP3;
     let client = fred::prelude::Builder::from_config(config).build_subscriber_client()?;
-    let adapter = RedisAdapterCtr::new_with_fred(client).await?;
-    #[allow(unused_mut)]
-    let mut builder =
-        SocketIo::builder().with_adapter::<socketioxide_redis::FredAdapter<_>>(adapter);
+    let variant = std::env::args().next().unwrap();
+    let variant = variant.split("/").last().unwrap();
+    let config = RedisAdapterConfig::new().with_prefix(format!("socket.io-{variant}"));
+    let adapter = RedisAdapterCtr::new_with_fred_config(client, config).await?;
 
-    #[cfg(feature = "msgpack")]
-    {
-        builder = builder.with_parser(socketioxide::ParserConfig::msgpack());
-    };
-
-    let (svc, io) = builder.build_svc();
+    let (svc, io) = SocketIo::builder()
+        .with_adapter::<socketioxide_redis::FredAdapter<_>>(adapter)
+        .build_svc();
 
     io.ns("/", adapter_e2e::handler).await.unwrap();
 
-    #[cfg(feature = "v5")]
     info!("Starting server with v5 protocol");
-    #[cfg(feature = "v4")]
-    info!("Starting server with v4 protocol");
+
     let port: u16 = std::env::var("PORT")
         .expect("a PORT env var should be set")
         .parse()

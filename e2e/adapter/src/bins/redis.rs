@@ -1,8 +1,8 @@
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
-use socketioxide_redis::RedisAdapterCtr;
 use socketioxide_redis::drivers::redis::redis_client as redis;
+use socketioxide_redis::{RedisAdapterConfig, RedisAdapterCtr};
 use tokio::net::TcpListener;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
@@ -16,23 +16,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::subscriber::set_global_default(subscriber)?;
     let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
-    let adapter = RedisAdapterCtr::new_with_redis(&client).await?;
-    #[allow(unused_mut)]
-    let mut builder =
-        SocketIo::builder().with_adapter::<socketioxide_redis::RedisAdapter<_>>(adapter);
-    #[cfg(feature = "msgpack")]
-    {
-        builder = builder.with_parser(socketioxide::ParserConfig::msgpack());
-    };
-
-    let (svc, io) = builder.build_svc();
+    let variant = std::env::args().next().unwrap();
+    let variant = variant.split("/").last().unwrap();
+    let config = RedisAdapterConfig::new().with_prefix(format!("socket.io-{variant}"));
+    let adapter = RedisAdapterCtr::new_with_redis_config(&client, config).await?;
+    let (svc, io) = SocketIo::builder()
+        .with_adapter::<socketioxide_redis::RedisAdapter<_>>(adapter)
+        .build_svc();
 
     io.ns("/", adapter_e2e::handler).await.unwrap();
 
-    #[cfg(feature = "v5")]
     info!("Starting server with v5 protocol");
-    #[cfg(feature = "v4")]
-    info!("Starting server with v4 protocol");
     let port: u16 = std::env::var("PORT")
         .expect("a PORT env var should be set")
         .parse()

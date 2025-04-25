@@ -30,6 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         MongoDbAdapterCtr::new_with_mongodb_config(client.database("test"), config).await?;
     let (svc, io) = SocketIo::builder()
         .with_adapter::<MongoDbAdapter<_>>(adapter)
+        .with_parser(socketioxide::ParserConfig::msgpack())
         .build_svc();
 
     io.ns("/", adapter_e2e::handler).await.unwrap();

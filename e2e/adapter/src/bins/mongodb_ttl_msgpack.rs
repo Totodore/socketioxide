@@ -5,6 +5,7 @@ use socketioxide_mongodb::drivers::mongodb::mongodb_client as mongodb;
 use socketioxide_mongodb::{
     MessageExpirationStrategy, MongoDbAdapter, MongoDbAdapterConfig, MongoDbAdapterCtr,
 };
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
@@ -19,17 +20,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let variant = std::env::args().next().unwrap();
     let variant = variant.split("/").last().unwrap();
 
-    let collection = format!("socket.io-capped-{variant}");
     const URI: &str = "mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true";
     let client = mongodb::Client::with_uri_str(URI).await?;
-    let strategy = MessageExpirationStrategy::CappedCollection(100_000_000); // 100MB
+    let strategy = MessageExpirationStrategy::TtlIndex(Duration::from_secs(1));
+    let collection = format!("socket.io-ttl-{variant}");
     let config = MongoDbAdapterConfig::new()
         .with_expiration_strategy(strategy)
         .with_collection(collection);
     let adapter =
         MongoDbAdapterCtr::new_with_mongodb_config(client.database("test"), config).await?;
+
     let (svc, io) = SocketIo::builder()
         .with_adapter::<MongoDbAdapter<_>>(adapter)
+        .with_parser(socketioxide::ParserConfig::msgpack())
         .build_svc();
 
     io.ns("/", adapter_e2e::handler).await.unwrap();
