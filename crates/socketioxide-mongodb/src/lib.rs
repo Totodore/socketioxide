@@ -57,7 +57,7 @@
 //!     cannot be used together. Do not mix socket.io JS servers with socketioxide rust servers.
 //! </div>
 //!
-//! ## Example with the default driver
+//! ## Example with the default mongodb driver
 //! ```rust
 //! # use socketioxide::{SocketIo, extract::{SocketRef, Data}, adapter::Adapter};
 //! # use socketioxide_mongodb::{MongoDbAdapterCtr, MongoDbAdapter};
@@ -84,7 +84,8 @@
 //!
 //! ## How does it work?
 //!
-//! The [`MongoDbAdapterCtr`] is a constructor for the [`MongoDbAdapter`] which is an implementation of the [`Adapter`] trait.
+//! The [`MongoDbAdapterCtr`] is a constructor for the [`MongoDbAdapter`] which is an implementation of
+//! the [`Adapter`](https://docs.rs/socketioxide/latest/socketioxide/adapter/trait.Adapter.html) trait.
 //! The constructor takes a [`mongodb::Database`] as an argument and will configure a collection
 //! according to the chosen message expiration strategy (TTL indexes or capped collection).
 //!
@@ -92,13 +93,10 @@
 //! The [`CoreLocalAdapter`] allows to manage the local rooms and local sockets. The default `LocalAdapter`
 //! is simply a wrapper around this [`CoreLocalAdapter`].
 //!
-//! Once it is created the adapter is initialized with the [`MongoDbAdapter::init`] method. It will create a new
-//! This will subscribe to 3 channels:
-//! * `"{prefix}-request#{namespace}#"`: A global channel to receive broadcasted requests.
-//! * `"{prefix}-request#{namespace}#{uid}#"`: A specific channel to receive requests only for this server.
-//! * `"{prefix}-response#{namespace}#{uid}#"`: A specific channel to receive responses only for this server.
-//!     Messages sent to this channel will be always in the form `[req_id, data]`. This will allow the adapter to extract the request id
-//!     and route the response to the approriate stream before deserializing the data.
+//! Once it is created the adapter is initialized with the [`MongoDbAdapter::init`] method.
+//! It will listen to changes on the event collection and emit heartbeats,
+//! messages are composed of a header (in bson) and a binary payload encoded with msgpack.
+//! Headers are used to filter and route messages to server/namespaces/event handlers.
 //!
 //! All messages are encoded with msgpack.
 //!
@@ -110,9 +108,11 @@
 //! * Add matching sockets to rooms.
 //! * Remove matching sockets to rooms.
 //! * Fetch all the remote sockets matching the options.
+//! * Heartbeat
+//! * Initial heartbeat. When receiving a initial heartbeat all other servers reply a heartbeat immediately.
 //!
 //! For ack streams, the adapter will first send a `BroadcastAckCount` response to the server that sent the request,
-//! and then send the acks as they are received (more details in [`RedisAdapter::broadcast_with_ack`] fn).
+//! and then send the acks as they are received (more details in [`MongoDbAdapter::broadcast_with_ack`] fn).
 //!
 //! On the other side, each time an action has to be performed on the local server, the adapter will
 //! first broadcast a request to all the servers and then perform the action locally.
