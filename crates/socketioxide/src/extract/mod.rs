@@ -9,6 +9,7 @@
 //! * [`TryData`]: extracts and deserialize from the any received data but with a `Result` type in case of error:
 //!     - for [`ConnectHandler`] and [`ConnectMiddleware`]: extracts and deserialize from the incoming auth data
 //!     - for [`MessageHandler`]: extracts and deserialize from the incoming message data
+//! * [`Event`]: extracts the message event name.
 //! * [`SocketRef`]: extracts a reference to the [`Socket`](crate::socket::Socket).
 //! * [`SocketIo`](crate::SocketIo): extracts a reference to the whole socket.io server context.
 //! * [`AckSender`]: Can be used to send an ack response to the current message event.

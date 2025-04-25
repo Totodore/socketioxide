@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde_json::json;
 use socketioxide::ParserError;
-use socketioxide::extract::{Data, Extension, MaybeExtension, SocketRef, State, TryData};
+use socketioxide::extract::{Data, Event, Extension, MaybeExtension, SocketRef, State, TryData};
 use socketioxide::handler::ConnectHandler;
 use socketioxide_core::Value;
 use socketioxide_core::parser::Parse;
@@ -220,5 +220,50 @@ pub async fn maybe_extension_extractor() {
     assert_eq!(
         timeout_rcv(&mut rx).await,
         EioPacket::Message("2/test,[\"from_ev_test\",null]".into())
+    );
+}
+
+#[tokio::test]
+pub async fn event_extractor() {
+    let (_, io) = SocketIo::new_svc();
+
+    fn fallback_handler(s: SocketRef, Event(event): Event) {
+        s.emit("fallback", &event).unwrap();
+    }
+
+    io.ns("/", |socket: SocketRef| {
+        // Register a fallback handler.
+        // In our example it will be always called as there is no other handler is found.
+        socket.on_fallback(fallback_handler);
+        socket.on("defined", |s: SocketRef, Event(event): Event| {
+            s.emit("defined", &event).unwrap();
+        });
+    });
+
+    let (tx, mut rx) = io.new_dummy_sock("/", ()).await;
+    assert!(matches!(timeout_rcv(&mut rx).await, EioPacket::Message(s) if s.starts_with('0')));
+
+    tx.try_send(create_msg("/", "my_event", ())).unwrap();
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"fallback\",\"my_event\"]".into())
+    );
+
+    tx.try_send(create_msg("/", "foo", ())).unwrap();
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"fallback\",\"foo\"]".into())
+    );
+
+    tx.try_send(create_msg("/", "bar", ())).unwrap();
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"fallback\",\"bar\"]".into())
+    );
+
+    tx.try_send(create_msg("/", "defined", ())).unwrap();
+    assert_eq!(
+        timeout_rcv(&mut rx).await,
+        EioPacket::Message("2[\"defined\",\"defined\"]".into())
     );
 }
