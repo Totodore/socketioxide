@@ -1729,6 +1729,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mongodb-whiteboard"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "rmpv",
+ "serde",
+ "socketioxide",
+ "socketioxide-mongodb",
+ "tokio",
+ "tower 0.5.2",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "multer"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
