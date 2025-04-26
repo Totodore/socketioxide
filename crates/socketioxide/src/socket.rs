@@ -284,6 +284,7 @@ impl From<BroadcastError> for RemoteActionError {
 pub struct Socket<A: Adapter = LocalAdapter> {
     pub(crate) ns: Arc<Namespace<A>>,
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler<A>>>,
+    fallback_message_handler: RwLock<Option<BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
     ack_counter: AtomicI64,
@@ -313,6 +314,7 @@ impl<A: Adapter> Socket<A> {
         Self {
             ns,
             message_handlers: RwLock::new(HashMap::new()),
+            fallback_message_handler: RwLock::new(None),
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
             ack_counter: AtomicI64::new(0),
@@ -402,6 +404,42 @@ impl<A: Adapter> Socket<A> {
             .write()
             .unwrap()
             .insert(event.into(), MakeErasedHandler::new_message_boxed(handler));
+    }
+
+    /// # Registers a fallback [`MessageHandler`] when no other handler is found. You can see this as a 404 handler.
+    /// You can register only one fallback handler per socket. If you register multiple handlers, only the last one will be used.
+    ///
+    /// * See the [`message`](crate::handler::message) module doc for more details on message handler.
+    /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
+    ///
+    /// _It is recommended for code clarity to define your handler as top level function rather than closures._
+    ///
+    /// # Example:
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::*};
+    /// # use serde::{Serialize, Deserialize};
+    /// # use serde_json::Value;
+    /// fn fallback_handler(socket: SocketRef, Event(event): Event, Data(data): Data::<Value>) {
+    ///     println!("Received an {event} event with message {:?}", data);
+    /// }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", |socket: SocketRef| {
+    ///     // Register a fallback handler.
+    ///     // In our example it will be always called as there is no other handler.
+    ///     socket.on_fallback(fallback_handler);
+    /// });
+    ///
+    /// ```
+    pub fn on_fallback<H, T>(&self, handler: H)
+    where
+        H: MessageHandler<A, T>,
+        T: Send + Sync + 'static,
+    {
+        self.fallback_message_handler
+            .write()
+            .unwrap()
+            .replace(MakeErasedHandler::new_message_boxed(handler));
     }
 
     /// # Register a disconnect handler.
@@ -766,6 +804,8 @@ impl<A: Adapter> Socket<A> {
         tracing::debug!(?event, "reading");
         if let Some(handler) = self.message_handlers.read().unwrap().get(event) {
             handler.call(self.clone(), data, ack);
+        } else if let Some(fallback) = self.fallback_message_handler.read().unwrap().as_ref() {
+            fallback.call(self.clone(), data, ack);
         }
         Ok(())
     }

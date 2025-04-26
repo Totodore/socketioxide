@@ -105,5 +105,22 @@ where
     }
 }
 
+/// An Extractor that returns the event name related to the incoming message.
+pub struct Event(pub String);
+impl<A> FromMessageParts<A> for Event
+where
+    A: Adapter,
+{
+    type Error = ParserError;
+    fn from_message_parts(
+        s: &Arc<Socket<A>>,
+        v: &mut Value,
+        _: &Option<i64>,
+    ) -> Result<Self, ParserError> {
+        Ok(Event(s.parser.read_event(v)?.to_string()))
+    }
+}
+
 super::__impl_deref!(TryData<T>: Result<T, ParserError>);
 super::__impl_deref!(Data);
+super::__impl_deref!(Event: str);
