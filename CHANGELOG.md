@@ -1,60 +1,11 @@
-# engineioxide-core 0.1.0
-* New crate to share engineioxide core types.
-
-# engineioxide 0.16.2
-* fix: pause heartbeat when the socket is being upgraded to avoid the client
-from resending polling requests to respond to ping packets.
-* deps: use engineioxide-core 0.1 as a dependency
-
-# socketioxide-redis 0.2.1
-* doc: add an incompatibility warning with the `@socket.io/redis-adapter` package.
-
-# socketioxide-core 0.16.1
-* deps: use engineioxide-core 0.1 rather than engineioxide
-
-# engineioxide 0.16.1
-* feat: add `Config::ws_read_buffer_size` to set the read buffer size for each websocket.
-It will default to 4KiB (previously 128KiB). You can increase it if you have high message throughput and less sockets.
-
-# socketioxide 0.16.1
-* feat: add `Config::ws_read_buffer_size` to set the read buffer size for each websocket.
-* deps: bump `engineioxide` to 0.16.1.
-
-# socketioxide-parser-common 0.16.1
-* fix: clone partial packets when keeping them to avoid holding a reference to the ws read buffer for too long. Otherwise it cause the
-ws read buffer to grows indefinitely in a many binary packets scenario.
-
-# socketioxide-redis 0.2
-* deps: bump `redis` to 0.28.2
-* feat(*breaking*): the redis cluster adapter constructor now takes a `&redis::cluster::ClusterClient`
-to match all other adapter constructors.
-
-_From now all crate versions are disjoined._
-
-# socketioxide 0.16.0
-* feat(*breaking*): remote adapters, see [this article](https://github.com/Totodore/socketioxide/discussions/440) for more details.
-* deps: bump `thiserror` to 2.0
-* deps: bump `axum` to 0.8
-* deps: bump `engineioxide` to 0.16.0
-* docs: fix grammar/typos
-
-# socketioxide-parser-msgpack 0.16.0
-* feat(*breaking*): remote adapters
-
-# socketioxide-parser-common 0.16.0
-* feat(*breaking*): remote adapters
-
-# socketioxide-core 0.16.0
-* feat(*breaking*): remote adapters
-
-# socketioxide-redis 0.1.0
-* Initial release!
-
-# engineioxide 0.16.0
-* deps: bump `thiserror` to 2.0
-* deps: bump `tokio-tungstenite` to 0.26
-* docs: fix grammar/typos
-* fix(engineio): heartbeat start delay
+# Starting from v0.16.0 all changelogs are in each crate subfolder:
+* [socketioxide-core](./crates/socketioxide-core/CHANGELOG.md)
+* [engineioxide-core](./crates/engineioxide-core/CHANGELOG.md)
+* [parser-common](./crates/parser-common/CHANGELOG.md)
+* [parser-msgpack](./crates/parser-msgpack/CHANGELOG.md)
+* [socketioxide-redis](./crates/socketioxide-redis/CHANGELOG.md)
+* [socketioxide](./crates/socketioxide/CHANGELOG.md)
+* [engineioxide](./crates/engineioxide/CHANGELOG.md)
 
 # 0.15.1
 ## socketioxide
