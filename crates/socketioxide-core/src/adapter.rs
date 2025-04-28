@@ -70,6 +70,17 @@ impl BroadcastOptions {
         self.flags
     }
 
+    /// Create a new empty broadcast options.
+    pub const fn new_empty() -> Self {
+        Self {
+            flags: 0,
+            sid: None,
+            server_id: None,
+            rooms: SmallVec::new_const(),
+            except: SmallVec::new_const(),
+        }
+    }
+
     /// Set the socket id of the sender.
     pub fn new(sid: Sid) -> Self {
         Self {
@@ -84,6 +95,16 @@ impl BroadcastOptions {
             server_id: Some(data.server_id),
             ..Default::default()
         }
+    }
+
+    /// Check if the selected options are local to the current server.
+    #[inline]
+    pub fn is_local(&self, uid: Uid) -> bool {
+        let target_sock_is_local = !self.has_flag(BroadcastFlags::Broadcast)
+            && self.server_id == Some(uid)
+            && self.rooms.is_empty()
+            && self.sid.is_some();
+        self.has_flag(BroadcastFlags::Local) || target_sock_is_local
     }
 }
 
@@ -1058,5 +1079,20 @@ mod test {
             .apply_opts(&opts, &adapter.rooms.read().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(sids.len(), 1);
+    }
+
+    #[test]
+    fn test_is_local_opts() {
+        let server_id = Uid::new();
+        let remote = RemoteSocketData {
+            id: Sid::new(),
+            server_id,
+            ns: "/".into(),
+        };
+        let opts = BroadcastOptions::new_remote(&remote);
+        assert!(opts.is_local(server_id));
+        assert!(!opts.is_local(Uid::new()));
+        let opts = BroadcastOptions::new(Sid::new());
+        assert!(!opts.is_local(Uid::new()));
     }
 }

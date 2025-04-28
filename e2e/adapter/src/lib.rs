@@ -108,9 +108,9 @@ async fn emit_with_ack_from_remote_sock<A: Adapter>(
     let res: String = sock
         .emit_with_ack("emit", &format!("hello from {}", s.id))
         .await
-        .unwrap()
+        .expect("could not send ack")
         .await
-        .unwrap();
+        .expect("ack receive error");
     ack.send(&res).unwrap();
 }
 async fn join_room_from_remote_sock<A: Adapter>(

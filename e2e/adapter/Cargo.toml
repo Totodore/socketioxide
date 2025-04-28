@@ -11,21 +11,17 @@ categories.workspace = true
 license.workspace = true
 publish = false
 
-[features]
-v4 = ["socketioxide/v4"]
-v5 = []
-msgpack = ["socketioxide/msgpack"]
-default = ["v5"]
-
 [dependencies]
 socketioxide = { path = "../../crates/socketioxide", default-features = false, features = [
     "tracing",
+    "msgpack",
 ] }
 socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
     "redis",
     "redis-cluster",
     "fred",
 ] }
+socketioxide-mongodb = { path = "../../crates/socketioxide-mongodb" }
 hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -33,19 +29,54 @@ futures-util.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 
+[[bin]]
+name = "main"
+path = "main.rs"
 
 [[bin]]
 name = "redis-e2e"
 path = "src/bins/redis.rs"
 
 [[bin]]
+name = "redis-e2e-msgpack"
+path = "src/bins/redis_msgpack.rs"
+
+[[bin]]
 name = "redis-cluster-e2e"
 path = "src/bins/redis_cluster.rs"
+
+[[bin]]
+name = "redis-cluster-e2e-msgpack"
+path = "src/bins/redis_cluster_msgpack.rs"
 
 [[bin]]
 name = "fred-e2e"
 path = "src/bins/fred.rs"
 
 [[bin]]
+name = "fred-e2e-msgpack"
+path = "src/bins/fred_msgpack.rs"
+
+[[bin]]
 name = "fred-cluster-e2e"
 path = "src/bins/fred_cluster.rs"
+
+[[bin]]
+name = "fred-cluster-e2e-msgpack"
+path = "src/bins/fred_cluster_msgpack.rs"
+
+[[bin]]
+name = "mongodb-capped-e2e"
+path = "src/bins/mongodb_capped.rs"
+
+[[bin]]
+name = "mongodb-capped-e2e-msgpack"
+path = "src/bins/mongodb_capped_msgpack.rs"
+
+[[bin]]
+name = "mongodb-ttl-e2e"
+path = "src/bins/mongodb_ttl.rs"
+
+[[bin]]
+name = "mongodb-ttl-e2e-msgpack"
+path = "src/bins/mongodb_ttl_msgpack.rs"

@@ -26,6 +26,7 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
   * [🔐Authorization](https://docs.rs/tower-http/latest/tower_http/auth)
 * Effortless horizontal scaling with plugable adapters:
   * [Redis / Valkey](https://docs.rs/socketioxide-redis/latest/socketioxide-redis)
+  * [MongoDB](https://docs.rs/socketioxide-mongodb/latest/socketioxide-mongodb)
   * More to come...
 * Remote cluster communication with [Socketioxide-emitter](https://github.com/Totodore/socketioxide-emitter)
 * Namespaces and Dynamic Namespaces

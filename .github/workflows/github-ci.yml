@@ -33,7 +33,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
       - run: cargo test --all-features --workspace
   udeps:
     runs-on: ubuntu-latest
@@ -54,7 +54,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-nightly
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-nightly
       - name: Check unused dependencies on default features
         run: RUSTFLAGS="--cfg fuzzing" cargo udeps
 
@@ -76,7 +76,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-${{ steps.msrv.outputs.version }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-${{ steps.msrv.outputs.version }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
@@ -104,7 +104,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
       - name: check --feature-powerset
         run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide -p socketioxide-redis
@@ -124,7 +124,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             examples/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-examples
+          key: ${{ runner.os }}-cargo-${{ hashFiles('examples/Cargo.lock') }}-examples
       - run: cd examples && cargo check --all-features
 
   rust-clippy-analyze:
@@ -150,7 +150,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-clippy
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-clippy
 
       - name: Install required cargo                                                                                                                                                                                                      │
         run: cargo install clippy-sarif sarif-fmt || true
@@ -191,13 +191,13 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-release
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-release
       - name: Install deps & run tests
         run: |
           cd e2e/engineioxide/test-suites && npm install && cd ../../..
           cargo build -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r
           cargo run -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r > server.txt && sleep 1 & \
-          node --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
+          node --test --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
@@ -227,7 +227,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-release
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-release
       - name: Install deps & run tests
         run: |
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
@@ -235,20 +235,17 @@ jobs:
           cd e2e/socketioxide/test-suites && npm install && cd ../../..
           cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r
           cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt && sleep 1 & \
-          node --test-reporter=spec --experimental-strip-types e2e/socketioxide/test-suites/${{ matrix.socketio-version }}.ts > client.txt
+          node --test --test-reporter=spec --experimental-strip-types e2e/socketioxide/test-suites/${{ matrix.socketio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
       - name: Client output
         if: always()
         run: cat client.txt
+
   adapter:
     runs-on: ubuntu-latest
     needs: [socket_io, engine_io]
-    strategy:
-      matrix:
-        socketio-version: [v4, v4-msgpack, v5, v5-msgpack]
-        adapter: [fred-e2e, redis-e2e, redis-cluster-e2e, fred-cluster-e2e]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -262,7 +259,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-adapter
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -271,15 +268,18 @@ jobs:
         with:
           compose-file: ./.github/workflows/adapter-ci/docker-compose.yml
       - run: cd e2e/adapter && npm install
-      - name: Install deps & run tests
+
+      - name: Run all adapter tests
         run: |
-          PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
-          VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
-          cargo build -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER
-          cd e2e/adapter && CMD="cargo run -p adapter-e2e --bin ${{ matrix.adapter }} --features $VERSION,$PARSER" node --experimental-strip-types --test-reporter=spec client.ts
-      - name: Server output
+          cargo build -p adapter-e2e
+          cargo run -p adapter-e2e --bin main
+
+      - name: Upload server output
         if: always()
-        run: cat e2e/adapter/*.log
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: e2e/adapter/logs/*.log
   all_passed:
     runs-on: ubuntu-latest
     needs:

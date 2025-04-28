@@ -1,23 +1,14 @@
-import { kill_servers, spawn_servers, spawn_sockets } from "./fixture.ts";
+import { spawn_sockets } from "./fixture.ts";
 import assert from "assert";
-import { describe, it, after, before, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import { Socket } from "socket.io-client";
 
-assert(!!process.env.CMD, "CMD env var must be set");
+assert(process.env.PORTS != null, "PORTS env var must be set");
+assert(process.env.PARSER != null, "PARSER env var must be set");
 
-describe("adapter tests", { timeout: 10000 }, () => {
-  before(async (ctx) => {
-    const servers = await spawn_servers([3000, 3001, 3002]);
-    (ctx as any).servers = servers;
-  });
-  after(async (ctx) => {
-    kill_servers((ctx as any).servers);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    process.exit(0);
-  });
-
+describe("adapter tests", { timeout: 60000 }, () => {
   beforeEach(async (ctx) => {
-    const sockets = await spawn_sockets([3000, 3001, 3002], 10);
+    const sockets = await spawn_sockets(10);
     (ctx as any).sockets = sockets;
   });
 
