@@ -814,6 +814,7 @@ impl<A: Adapter> Socket<A> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
             tx.send(Ok(data)).ok();
         } else {
+            #[cfg(feature = "tracing")]
             tracing::debug!(sid = ?self.id, "ack not found: {ack}");
         }
         Ok(())
