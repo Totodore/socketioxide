@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    ProtocolVersion, SocketIoConfig,
+    ProtocolVersion, SocketError, SocketIoConfig,
     ack::AckInnerStream,
     adapter::Adapter,
     client::SocketData,
@@ -17,7 +17,6 @@ use crate::{
 use socketioxide_core::{
     Sid, Str, Uid, Value,
     adapter::{BroadcastIter, CoreLocalAdapter, RemoteSocketData, SocketEmitter},
-    errors::SocketError,
     packet::{ConnectPacket, Packet, PacketData},
     parser::Parse,
 };

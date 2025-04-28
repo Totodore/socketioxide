@@ -1,15 +1,17 @@
-//! Custom request and response types for the MongoDB adapter.
-//! Custom serialization/deserialization to reduce the size of the messages.
+//! Custom request and response types for remote adapters.
+//! With custom serialization/deserialization to reduce the size of the messages.
 use std::collections::HashSet;
 
-use serde::{Deserialize, Serialize, de::SeqAccess};
-use socketioxide_core::{
+use crate::{
     Sid, Uid, Value,
     adapter::{BroadcastOptions, Room},
     packet::Packet,
 };
+use serde::{Deserialize, Serialize, de::SeqAccess};
 
+/// Custom ref' output request type for remote adapters
 #[derive(Debug, PartialEq)]
+#[non_exhaustive]
 pub enum RequestTypeOut<'a> {
     /// Broadcast a packet to matching sockets.
     Broadcast(&'a Packet),
@@ -46,7 +48,9 @@ impl RequestTypeOut<'_> {
     }
 }
 
+/// Custom owned input request type for remote adapters
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum RequestTypeIn {
     /// Broadcast a packet to matching sockets.
     Broadcast(Packet),
@@ -68,14 +72,21 @@ pub enum RequestTypeIn {
     InitHeartbeat,
 }
 
+/// Custom ref' output request for remote adapters
 #[derive(Debug, PartialEq)]
 pub struct RequestOut<'a> {
+    /// The id of the node sending the request.
     pub node_id: Uid,
+    /// The request id.
     pub id: Sid,
+    /// The request type.
     pub r#type: RequestTypeOut<'a>,
-    pub opts: &'a BroadcastOptions,
+    /// The corresponding broadcast options.
+    pub opts: &'a BroadcastOptions, // TODO: Option<BroadcastOptions>,
 }
+
 impl<'a> RequestOut<'a> {
+    /// Create a new request from a node sending the request a type and options.
     pub fn new(node_id: Uid, r#type: RequestTypeOut<'a>, opts: &'a BroadcastOptions) -> Self {
         Self {
             node_id,
@@ -116,12 +127,17 @@ impl<'a> Serialize for RequestOut<'a> {
     }
 }
 
+/// Custom owned input request type for remote adapters
 #[derive(Debug)]
 pub struct RequestIn {
+    /// The id of the node sending the request.
     pub node_id: Uid,
+    /// The request id.
     pub id: Sid,
+    /// The request type.
     pub r#type: RequestTypeIn,
-    pub opts: BroadcastOptions,
+    /// The corresponding broadcast options.
+    pub opts: BroadcastOptions, //TODO: Option<BroadcastOptions>,
 }
 impl<'de> Deserialize<'de> for RequestIn {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -157,17 +173,25 @@ impl<'de> Deserialize<'de> for RequestIn {
     }
 }
 
+/// Custom response type for remote adapters
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Response<D = ()> {
+    /// The node id we are answering to.
     pub node_id: Uid,
+    /// The response type.
     pub r#type: ResponseType<D>,
 }
 
+/// Custom response type id for remote adapters
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ResponseTypeId {
+    /// Send an acknowledgement received from a socket to the remote adapter.
     BroadcastAck = 0,
+    /// Send the number of acknowledgements expected on this node to the remote adapter.
     BroadcastAckCount = 1,
+    /// Get all the rooms matching the broadcast options on the server.
     AllRooms = 2,
+    /// Fetch the sockets matching the broadcast options on the server.
     FetchSockets = 3,
 }
 impl<D> From<&ResponseType<D>> for ResponseTypeId {
@@ -181,11 +205,16 @@ impl<D> From<&ResponseType<D>> for ResponseTypeId {
     }
 }
 
+/// Custom response type for remote adapters
 #[derive(Debug, PartialEq)]
 pub enum ResponseType<D = ()> {
+    /// Send an acknowledgement received from a socket to the remote adapter.
     BroadcastAck((Sid, Result<Value, D>)),
+    /// Send the number of acknowledgements expected on this node to the remote adapter.
     BroadcastAckCount(u32),
+    /// Get all the rooms matching the broadcast options on the server.
     AllRooms(HashSet<Room>),
+    /// Fetch the sockets matching the broadcast options on the server.
     FetchSockets(Vec<D>),
 }
 impl<D: Serialize> Serialize for ResponseType<D> {
@@ -229,12 +258,14 @@ impl<'de, D: Deserialize<'de>> Deserialize<'de> for ResponseType<D> {
     }
 }
 impl<D> Response<D> {
+    /// Extract the rooms from the response if it is a [`ResponseType::AllRooms`].
     pub fn into_rooms(self) -> Option<HashSet<Room>> {
         match self.r#type {
             ResponseType::AllRooms(rooms) => Some(rooms),
             _ => None,
         }
     }
+    /// Extract the sockets from the response if it is a [`ResponseType::FetchSockets`].
     pub fn into_fetch_sockets(self) -> Option<Vec<D>> {
         match self.r#type {
             ResponseType::FetchSockets(sockets) => Some(sockets),

@@ -10,14 +10,14 @@ use futures_core::{FusedStream, Stream};
 use futures_util::{StreamExt, stream::TakeUntil};
 use pin_project_lite::pin_project;
 use serde::de::DeserializeOwned;
-use socketioxide_core::{Sid, adapter::AckStreamItem};
+use socketioxide_core::{
+    Sid,
+    adapter::AckStreamItem,
+    adapter::remote_packet::{Response, ResponseType},
+};
 use tokio::time;
 
-use crate::{
-    ResponseHandlers,
-    drivers::MessageStream,
-    request::{Response, ResponseType},
-};
+use crate::{ResponseHandlers, drivers::MessageStream};
 
 pin_project! {
     /// A stream of acknowledgement messages received from the local and remote servers.

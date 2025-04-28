@@ -130,28 +130,27 @@ use std::{
 use futures_core::{Stream, future::Future};
 use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
+use socketioxide_core::adapter::remote_packet::{
+    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
+};
 use socketioxide_core::{
     Sid, Uid,
+    adapter::errors::{AdapterError, BroadcastError},
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
     },
-    errors::{AdapterError, BroadcastError},
     packet::Packet,
 };
 use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
 use drivers::{Driver, Item, ItemHeader};
-use request::{
-    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
-};
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
 pub mod drivers;
 
-mod request;
 mod stream;
 
 /// The configuration of the [`MongoDbAdapter`].
@@ -648,6 +647,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
             RequestTypeIn::DelSockets(rooms) => self.recv_del_sockets(req.opts, rooms),
             RequestTypeIn::FetchSockets => self.recv_fetch_sockets(req),
             RequestTypeIn::Heartbeat | RequestTypeIn::InitHeartbeat => self.recv_heartbeat(req),
+            _ => (),
         }
         Ok(())
     }

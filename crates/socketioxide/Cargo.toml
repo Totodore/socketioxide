@@ -14,7 +14,7 @@ readme.workspace = true
 
 [dependencies]
 engineioxide = { path = "../engineioxide", version = "0.16.2" }
-socketioxide-core = { path = "../socketioxide-core", version = "0.16" }
+socketioxide-core = { path = "../socketioxide-core", version = "0.17" }
 
 bytes.workspace = true
 futures-core.workspace = true

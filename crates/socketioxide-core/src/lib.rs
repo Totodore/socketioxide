@@ -34,7 +34,6 @@
 //! It contains basic types and interfaces for the socketioxide crate and the parser sub-crates.
 
 pub mod adapter;
-pub mod errors;
 pub mod packet;
 pub mod parser;
 

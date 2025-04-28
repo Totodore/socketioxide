@@ -4,6 +4,7 @@
 //!
 //! The [`CoreLocalAdapter`] provide a local implementation that will allow any implementors to apply local
 //! operations (`broadcast_with_ack`, `broadcast`, `rooms`, etc...).
+//!
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, hash_map, hash_set},
@@ -20,12 +21,12 @@ use futures_core::{FusedStream, Stream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use smallvec::SmallVec;
 
-use crate::{
-    Uid, Value,
-    errors::{AdapterError, BroadcastError, SocketError},
-    packet::Packet,
-    parser::Parse,
-};
+use crate::{Uid, Value, packet::Packet, parser::Parse};
+use errors::{AdapterError, BroadcastError, SocketError};
+
+pub mod errors;
+#[cfg(feature = "remote-adapter")]
+pub mod remote_packet;
 
 /// A room identifier
 pub type Room = Cow<'static, str>;

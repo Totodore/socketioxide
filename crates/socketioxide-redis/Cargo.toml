@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide-redis"
 description = "Redis adapter for the socket.io protocol"
-version = "0.2.1"
+version = "0.2.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -19,7 +19,9 @@ fred = ["dep:fred"]
 default = ["redis"]
 
 [dependencies]
-socketioxide-core = { version = "0.16", path = "../socketioxide-core" }
+socketioxide-core = { version = "0.17", path = "../socketioxide-core", features = [
+    "remote-adapter",
+] }
 futures-core.workspace = true
 futures-util.workspace = true
 pin-project-lite.workspace = true
