@@ -220,3 +220,33 @@ impl<S: FusedStream> FusedStream for DropStream<S> {
         self.stream.is_terminated()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use futures_core::FusedStream;
+    use futures_util::StreamExt;
+    use socketioxide_core::{Sid, Value};
+
+    use super::AckStream;
+
+    #[tokio::test]
+    async fn local_ack_stream_should_have_a_closed_remote() {
+        let sid = Sid::new();
+        let local = futures_util::stream::once(async move {
+            (sid, Ok::<_, ()>(Value::Str("local".into(), None)))
+        });
+        let stream = AckStream::new_local(local);
+        futures_util::pin_mut!(stream);
+        assert_eq!(stream.ack_cnt, 0);
+        assert_eq!(stream.total_ack_cnt, 0);
+        assert_eq!(stream.serv_cnt, 0);
+        assert!(!stream.local.is_terminated());
+        assert!(!stream.is_terminated());
+        let data = stream.next().await;
+        assert!(
+            matches!(data, Some((id, Ok(Value::Str(msg, None)))) if id == sid && msg == "local")
+        );
+        assert_eq!(stream.next().await, None);
+        assert!(stream.is_terminated());
+    }
+}

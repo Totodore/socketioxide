@@ -813,6 +813,8 @@ impl<A: Adapter> Socket<A> {
     fn recv_ack(self: Arc<Self>, data: Value, ack: i64) -> Result<(), Error> {
         if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
             tx.send(Ok(data)).ok();
+        } else {
+            tracing::debug!(sid = ?self.id, "ack not found: {ack}");
         }
         Ok(())
     }
