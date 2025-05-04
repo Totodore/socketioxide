@@ -17,7 +17,7 @@ bytes.workspace = true
 itoa.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-socketioxide-core = { version = "0.16", path = "../socketioxide-core" }
+socketioxide-core = { version = "0.17", path = "../socketioxide-core" }
 
 [dev-dependencies]
 criterion.workspace = true

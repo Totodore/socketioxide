@@ -130,28 +130,27 @@ use std::{
 use futures_core::{Stream, future::Future};
 use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
+use socketioxide_core::adapter::remote_packet::{
+    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
+};
 use socketioxide_core::{
     Sid, Uid,
+    adapter::errors::{AdapterError, BroadcastError},
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
     },
-    errors::{AdapterError, BroadcastError},
     packet::Packet,
 };
 use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
 use drivers::{Driver, Item, ItemHeader};
-use request::{
-    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
-};
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
 pub mod drivers;
 
-mod request;
 mod stream;
 
 /// The configuration of the [`MongoDbAdapter`].
@@ -639,15 +638,22 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     async fn recv_req(self: &Arc<Self>, req: Vec<u8>) -> Result<(), Error<D>> {
         let req = rmp_serde::from_slice::<RequestIn>(&req)?;
         tracing::trace!(?req, "incoming request");
-        match req.r#type {
-            RequestTypeIn::Broadcast(p) => self.recv_broadcast(req.opts, p),
-            RequestTypeIn::BroadcastWithAck(_) => self.clone().recv_broadcast_with_ack(req),
-            RequestTypeIn::DisconnectSockets => self.recv_disconnect_sockets(req),
-            RequestTypeIn::AllRooms => self.recv_rooms(req),
-            RequestTypeIn::AddSockets(rooms) => self.recv_add_sockets(req.opts, rooms),
-            RequestTypeIn::DelSockets(rooms) => self.recv_del_sockets(req.opts, rooms),
-            RequestTypeIn::FetchSockets => self.recv_fetch_sockets(req),
-            RequestTypeIn::Heartbeat | RequestTypeIn::InitHeartbeat => self.recv_heartbeat(req),
+        match (req.r#type, req.opts) {
+            (RequestTypeIn::Broadcast(p), Some(opts)) => self.recv_broadcast(opts, p),
+            (RequestTypeIn::BroadcastWithAck(p), Some(opts)) => self
+                .clone()
+                .recv_broadcast_with_ack(req.node_id, req.id, p, opts),
+            (RequestTypeIn::DisconnectSockets, Some(opts)) => self.recv_disconnect_sockets(opts),
+            (RequestTypeIn::AllRooms, Some(opts)) => self.recv_rooms(req.node_id, req.id, opts),
+            (RequestTypeIn::AddSockets(rooms), Some(opts)) => self.recv_add_sockets(opts, rooms),
+            (RequestTypeIn::DelSockets(rooms), Some(opts)) => self.recv_del_sockets(opts, rooms),
+            (RequestTypeIn::FetchSockets, Some(opts)) => {
+                self.recv_fetch_sockets(req.node_id, req.id, opts)
+            }
+            req_type @ (RequestTypeIn::Heartbeat | RequestTypeIn::InitHeartbeat, _) => {
+                self.recv_heartbeat(req_type.0, req.node_id)
+            }
+            _ => (),
         }
         Ok(())
     }
@@ -660,8 +666,8 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         }
     }
 
-    fn recv_disconnect_sockets(&self, req: RequestIn) {
-        if let Err(e) = self.local.disconnect_socket(req.opts) {
+    fn recv_disconnect_sockets(&self, opts: BroadcastOptions) {
+        if let Err(e) = self.local.disconnect_socket(opts) {
             let ns = self.local.path();
             tracing::warn!(
                 ?self.uid,
@@ -672,12 +678,14 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         }
     }
 
-    fn recv_broadcast_with_ack(self: Arc<Self>, req: RequestIn) {
-        let packet = match req.r#type {
-            RequestTypeIn::BroadcastWithAck(p) => p,
-            _ => unreachable!(),
-        };
-        let (stream, count) = self.local.broadcast_with_ack(packet, req.opts, None);
+    fn recv_broadcast_with_ack(
+        self: Arc<Self>,
+        origin: Uid,
+        req_id: Sid,
+        packet: Packet,
+        opts: BroadcastOptions,
+    ) {
+        let (stream, count) = self.local.broadcast_with_ack(packet, opts, None);
         tokio::spawn(async move {
             let on_err = |err| {
                 let ns = self.local.path();
@@ -694,7 +702,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                 r#type: ResponseType::<()>::BroadcastAckCount(count),
                 node_id: self.uid,
             };
-            if let Err(err) = self.send_res(req.id, req.node_id, res).await {
+            if let Err(err) = self.send_res(req_id, origin, res).await {
                 on_err(err);
                 return;
             }
@@ -706,7 +714,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                     r#type: ResponseType::BroadcastAck(ack),
                     node_id: self.uid,
                 };
-                if let Err(err) = self.send_res(req.id, req.node_id, res).await {
+                if let Err(err) = self.send_res(req_id, origin, res).await {
                     on_err(err);
                     return;
                 }
@@ -714,13 +722,13 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         });
     }
 
-    fn recv_rooms(&self, req: RequestIn) {
-        let rooms = self.local.rooms(req.opts);
+    fn recv_rooms(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
+        let rooms = self.local.rooms(opts);
         let res = Response {
             r#type: ResponseType::<()>::AllRooms(rooms),
             node_id: self.uid,
         };
-        let fut = self.send_res(req.id, req.node_id, res);
+        let fut = self.send_res(req_id, origin, res);
         let ns = self.local.path().clone();
         let uid = self.uid;
         tokio::spawn(async move {
@@ -737,13 +745,13 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     fn recv_del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
         self.local.del_sockets(opts, rooms);
     }
-    fn recv_fetch_sockets(&self, req: RequestIn) {
-        let sockets = self.local.fetch_sockets(req.opts);
+    fn recv_fetch_sockets(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
+        let sockets = self.local.fetch_sockets(opts);
         let res = Response {
             node_id: self.uid,
             r#type: ResponseType::FetchSockets(sockets),
         };
-        let fut = self.send_res(req.id, req.node_id, res);
+        let fut = self.send_res(req_id, origin, res);
         let ns = self.local.path().clone();
         let uid = self.uid;
         tokio::spawn(async move {
@@ -755,26 +763,29 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
 
     /// Receive a heartbeat from a remote node.
     /// It might be a FirstHeartbeat packet, in which case we are re-emitting a heartbeat to the remote node.
-    fn recv_heartbeat(self: &Arc<Self>, req: RequestIn) {
-        tracing::debug!(?req.node_id, "{:?} received", req.r#type);
+    fn recv_heartbeat(self: &Arc<Self>, req_type: RequestTypeIn, origin: Uid) {
+        tracing::debug!(?req_type, "{:?} received", req_type);
         let mut node_liveness = self.nodes_liveness.lock().unwrap();
         // Even with a FirstHeartbeat packet we first consume the node liveness to
         // ensure that the node is not already in the list.
         for (id, liveness) in node_liveness.iter_mut() {
-            if *id == req.node_id {
+            if *id == origin {
                 *liveness = Instant::now();
                 return;
             }
         }
 
-        node_liveness.push((req.node_id, Instant::now()));
+        node_liveness.push((origin, Instant::now()));
 
-        if matches!(req.r#type, RequestTypeIn::InitHeartbeat) {
-            tracing::debug!(?req.node_id, "initial heartbeat detected, saying hello to the new node");
+        if matches!(req_type, RequestTypeIn::InitHeartbeat) {
+            tracing::debug!(
+                ?origin,
+                "initial heartbeat detected, saying hello to the new node"
+            );
 
             let this = self.clone();
             tokio::spawn(async move {
-                if let Err(err) = this.emit_heartbeat(Some(req.node_id)).await {
+                if let Err(err) = this.emit_heartbeat(Some(origin)).await {
                     tracing::warn!(
                         "could not re-emit heartbeat after new node detection: {:?}",
                         err
@@ -851,9 +862,8 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     /// Emit a heartbeat to the specified target node or broadcast to all nodes.
     async fn emit_heartbeat(&self, target: Option<Uid>) -> Result<(), Error<D>> {
         // Send heartbeat when starting.
-        const HB_OPTS: BroadcastOptions = BroadcastOptions::new_empty();
         self.send_req(
-            RequestOut::new(self.uid, RequestTypeOut::Heartbeat, &HB_OPTS),
+            RequestOut::new_empty(self.uid, RequestTypeOut::Heartbeat),
             target,
         )
         .await
@@ -862,9 +872,8 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
     /// Emit an initial heartbeat to all nodes.
     async fn emit_init_heartbeat(&self) -> Result<(), Error<D>> {
         // Send initial heartbeat when starting.
-        const HB_OPTS: BroadcastOptions = BroadcastOptions::new_empty();
         self.send_req(
-            RequestOut::new(self.uid, RequestTypeOut::InitHeartbeat, &HB_OPTS),
+            RequestOut::new_empty(self.uid, RequestTypeOut::InitHeartbeat),
             None,
         )
         .await

@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide-core"
 description = "Core of the socketioxide library. Contains basic types and interfaces for the socketioxide crate and all other related sub-crates."
-version = "0.16.1"
+version = "0.17.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -12,19 +12,23 @@ categories.workspace = true
 license.workspace = true
 readme.workspace = true
 
+[features]
+remote-adapter = []
+
 [dependencies]
 bytes.workspace = true
 engineioxide-core = { version = "0.1", path = "../engineioxide-core" }
 serde.workspace = true
 thiserror.workspace = true
 futures-core.workspace = true
-smallvec = { workspace = true, features = ["serde", "const_new"] }
+smallvec = { workspace = true, features = ["serde"] }
 
 [target."cfg(fuzzing)".dependencies]
 arbitrary = { version = "1.3.2", features = ["derive"] }
 
 [dev-dependencies]
 serde_json.workspace = true
+rmp-serde.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }

@@ -2222,12 +2222,13 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-core"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "arbitrary",
  "bytes",
  "engineioxide-core",
  "futures-core",
+ "rmp-serde",
  "serde",
  "serde_json",
  "smallvec",
@@ -2297,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-redis"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "fred",

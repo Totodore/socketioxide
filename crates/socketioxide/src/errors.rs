@@ -8,7 +8,7 @@ use engineioxide::socket::DisconnectReason as EIoDisconnectReason;
 use socketioxide_core::Sid;
 
 pub use crate::parser::ParserError;
-pub use socketioxide_core::errors::{AdapterError, BroadcastError, SocketError};
+pub use socketioxide_core::adapter::errors::{AdapterError, BroadcastError, SocketError};
 
 /// Error type for socketio
 #[derive(thiserror::Error, Debug)]

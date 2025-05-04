@@ -4,6 +4,7 @@
 //!
 //! The [`CoreLocalAdapter`] provide a local implementation that will allow any implementors to apply local
 //! operations (`broadcast_with_ack`, `broadcast`, `rooms`, etc...).
+//!
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, hash_map, hash_set},
@@ -20,12 +21,12 @@ use futures_core::{FusedStream, Stream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use smallvec::SmallVec;
 
-use crate::{
-    Uid, Value,
-    errors::{AdapterError, BroadcastError, SocketError},
-    packet::Packet,
-    parser::Parse,
-};
+use crate::{Uid, Value, packet::Packet, parser::Parse};
+use errors::{AdapterError, BroadcastError, SocketError};
+
+pub mod errors;
+#[cfg(feature = "remote-adapter")]
+pub mod remote_packet;
 
 /// A room identifier
 pub type Room = Cow<'static, str>;
@@ -68,17 +69,6 @@ impl BroadcastOptions {
     /// get the flags of the options.
     pub fn flags(&self) -> u8 {
         self.flags
-    }
-
-    /// Create a new empty broadcast options.
-    pub const fn new_empty() -> Self {
-        Self {
-            flags: 0,
-            sid: None,
-            server_id: None,
-            rooms: SmallVec::new_const(),
-            except: SmallVec::new_const(),
-        }
     }
 
     /// Set the socket id of the sender.

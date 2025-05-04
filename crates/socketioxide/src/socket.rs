@@ -38,8 +38,8 @@ use crate::{
 };
 use socketioxide_core::{
     Value,
+    adapter::errors::{AdapterError, BroadcastError},
     adapter::{BroadcastOptions, RemoteSocketData, Room, RoomParam},
-    errors::{AdapterError, BroadcastError},
     packet::{Packet, PacketData},
     parser::Parse,
 };

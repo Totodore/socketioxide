@@ -3,13 +3,13 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::{
-    SendError, SocketIo,
+    SendError, SocketError, SocketIo,
     adapter::{Adapter, LocalAdapter},
     handler::{FromConnectParts, FromDisconnectParts, FromMessageParts},
     socket::{DisconnectReason, Socket},
 };
 use serde::Serialize;
-use socketioxide_core::{Value, errors::SocketError, packet::Packet, parser::Parse};
+use socketioxide_core::{Value, packet::Packet, parser::Parse};
 
 /// An Extractor that returns a reference to a [`Socket`].
 ///

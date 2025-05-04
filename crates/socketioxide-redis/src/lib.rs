@@ -182,17 +182,17 @@ use std::{
 use drivers::{ChanItem, Driver, MessageStream};
 use futures_core::Stream;
 use futures_util::StreamExt;
-use request::{
-    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, read_req_id,
-};
 use serde::{Serialize, de::DeserializeOwned};
+use socketioxide_core::adapter::remote_packet::{
+    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
+};
 use socketioxide_core::{
     Sid, Uid,
+    adapter::errors::{AdapterError, BroadcastError},
     adapter::{
-        BroadcastFlags, BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter,
-        RemoteSocketData, Room, RoomParam, SocketEmitter, Spawnable,
+        BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
+        RoomParam, SocketEmitter, Spawnable,
     },
-    errors::{AdapterError, BroadcastError},
     packet::Packet,
 };
 use stream::{AckStream, DropStream};
@@ -202,7 +202,6 @@ use tokio::{sync::mpsc, time};
 /// You can use the provided implementation or implement your own.
 pub mod drivers;
 
-mod request;
 mod stream;
 
 /// Represent any error that might happen when using this adapter.
@@ -497,7 +496,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         packet: Packet,
         opts: BroadcastOptions,
     ) -> Result<(), BroadcastError> {
-        if !is_local_op(self.uid, &opts) {
+        if !opts.is_local(self.uid) {
             let req = RequestOut::new(self.uid, RequestTypeOut::Broadcast(&packet), &opts);
             self.send_req(req, opts.server_id)
                 .await
@@ -541,7 +540,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         opts: BroadcastOptions,
         timeout: Option<Duration>,
     ) -> Result<Self::AckStream, Self::Error> {
-        if is_local_op(self.uid, &opts) {
+        if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
             let stream = AckStream::new_local(local);
@@ -570,7 +569,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
-        if !is_local_op(self.uid, &opts) {
+        if !opts.is_local(self.uid) {
             let req = RequestOut::new(self.uid, RequestTypeOut::DisconnectSockets, &opts);
             self.send_req(req, opts.server_id)
                 .await
@@ -584,9 +583,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     }
 
     async fn rooms(&self, opts: BroadcastOptions) -> Result<Vec<Room>, Self::Error> {
-        const PACKET_IDX: u8 = 2;
-
-        if is_local_op(self.uid, &opts) {
+        if opts.is_local(self.uid) {
             return Ok(self.local.rooms(opts).into_iter().collect());
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::AllRooms, &opts);
@@ -595,7 +592,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         // First get the remote stream because redis might send
         // the responses before subscription is done.
         let stream = self
-            .get_res::<()>(req_id, PACKET_IDX, opts.server_id)
+            .get_res::<()>(req_id, ResponseTypeId::AllRooms, opts.server_id)
             .await?;
         self.send_req(req, opts.server_id).await?;
         let local = self.local.rooms(opts);
@@ -615,7 +612,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         rooms: impl RoomParam,
     ) -> Result<(), Self::Error> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
-        if !is_local_op(self.uid, &opts) {
+        if !opts.is_local(self.uid) {
             let req = RequestOut::new(self.uid, RequestTypeOut::AddSockets(&rooms), &opts);
             self.send_req(req, opts.server_id).await?;
         }
@@ -629,7 +626,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         rooms: impl RoomParam,
     ) -> Result<(), Self::Error> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
-        if !is_local_op(self.uid, &opts) {
+        if !opts.is_local(self.uid) {
             let req = RequestOut::new(self.uid, RequestTypeOut::DelSockets(&rooms), &opts);
             self.send_req(req, opts.server_id).await?;
         }
@@ -641,16 +638,15 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         &self,
         opts: BroadcastOptions,
     ) -> Result<Vec<RemoteSocketData>, Self::Error> {
-        if is_local_op(self.uid, &opts) {
+        if opts.is_local(self.uid) {
             return Ok(self.local.fetch_sockets(opts));
         }
-        const PACKET_IDX: u8 = 3;
         let req = RequestOut::new(self.uid, RequestTypeOut::FetchSockets, &opts);
         let req_id = req.id;
         // First get the remote stream because redis might send
         // the responses before subscription is done.
         let remote = self
-            .get_res::<RemoteSocketData>(req_id, PACKET_IDX, opts.server_id)
+            .get_res::<RemoteSocketData>(req_id, ResponseTypeId::FetchSockets, opts.server_id)
             .await?;
 
         self.send_req(req, opts.server_id).await?;
@@ -767,15 +763,23 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         }
 
         tracing::trace!(?req, "handling request");
+        let Some(opts) = req.opts else {
+            tracing::warn!(?req, "request is missing options");
+            return Ok(());
+        };
 
         match req.r#type {
-            RequestTypeIn::Broadcast(p) => self.recv_broadcast(req.opts, p),
-            RequestTypeIn::BroadcastWithAck(_) => self.clone().recv_broadcast_with_ack(req),
-            RequestTypeIn::DisconnectSockets => self.recv_disconnect_sockets(req),
-            RequestTypeIn::AllRooms => self.recv_rooms(req),
-            RequestTypeIn::AddSockets(rooms) => self.recv_add_sockets(req.opts, rooms),
-            RequestTypeIn::DelSockets(rooms) => self.recv_del_sockets(req.opts, rooms),
-            RequestTypeIn::FetchSockets => self.recv_fetch_sockets(req),
+            RequestTypeIn::Broadcast(p) => self.recv_broadcast(opts, p),
+            RequestTypeIn::BroadcastWithAck(p) => {
+                self.clone()
+                    .recv_broadcast_with_ack(req.node_id, req.id, p, opts)
+            }
+            RequestTypeIn::DisconnectSockets => self.recv_disconnect_sockets(opts),
+            RequestTypeIn::AllRooms => self.recv_rooms(req.node_id, req.id, opts),
+            RequestTypeIn::AddSockets(rooms) => self.recv_add_sockets(opts, rooms),
+            RequestTypeIn::DelSockets(rooms) => self.recv_del_sockets(opts, rooms),
+            RequestTypeIn::FetchSockets => self.recv_fetch_sockets(req.node_id, req.id, opts),
+            _ => (),
         };
         Ok(())
     }
@@ -787,8 +791,8 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         }
     }
 
-    fn recv_disconnect_sockets(&self, req: RequestIn) {
-        if let Err(e) = self.local.disconnect_socket(req.opts) {
+    fn recv_disconnect_sockets(&self, opts: BroadcastOptions) {
+        if let Err(e) = self.local.disconnect_socket(opts) {
             let ns = self.local.path();
             tracing::warn!(
                 ?self.uid,
@@ -799,17 +803,19 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         }
     }
 
-    fn recv_broadcast_with_ack(self: Arc<Self>, req: RequestIn) {
-        let packet = match req.r#type {
-            RequestTypeIn::BroadcastWithAck(p) => p,
-            _ => unreachable!(),
-        };
-        let (stream, count) = self.local.broadcast_with_ack(packet, req.opts, None);
+    fn recv_broadcast_with_ack(
+        self: Arc<Self>,
+        origin: Uid,
+        req_id: Sid,
+        packet: Packet,
+        opts: BroadcastOptions,
+    ) {
+        let (stream, count) = self.local.broadcast_with_ack(packet, opts, None);
         tokio::spawn(async move {
             let on_err = |err| {
                 let ns = self.local.path();
                 tracing::warn!(
-                    ?self.uid,
+                    ?origin,
                     ?ns,
                     "remote request broadcast with ack handler errors: {:?}",
                     err
@@ -821,7 +827,7 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
                 r#type: ResponseType::<()>::BroadcastAckCount(count),
                 node_id: self.uid,
             };
-            if let Err(err) = self.send_res(req.node_id, req.id, res).await {
+            if let Err(err) = self.send_res(origin, req_id, res).await {
                 on_err(err);
                 return;
             }
@@ -833,7 +839,7 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
                     r#type: ResponseType::BroadcastAck(ack),
                     node_id: self.uid,
                 };
-                if let Err(err) = self.send_res(req.node_id, req.id, res).await {
+                if let Err(err) = self.send_res(origin, req_id, res).await {
                     on_err(err);
                     return;
                 }
@@ -841,13 +847,13 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         });
     }
 
-    fn recv_rooms(&self, req: RequestIn) {
-        let rooms = self.local.rooms(req.opts);
+    fn recv_rooms(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
+        let rooms = self.local.rooms(opts);
         let res = Response {
             r#type: ResponseType::<()>::AllRooms(rooms),
             node_id: self.uid,
         };
-        let fut = self.send_res(req.node_id, req.id, res);
+        let fut = self.send_res(origin, req_id, res);
         let ns = self.local.path().clone();
         let uid = self.uid;
         tokio::spawn(async move {
@@ -864,13 +870,13 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
     fn recv_del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
         self.local.del_sockets(opts, rooms);
     }
-    fn recv_fetch_sockets(&self, req: RequestIn) {
-        let sockets = self.local.fetch_sockets(req.opts);
+    fn recv_fetch_sockets(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
+        let sockets = self.local.fetch_sockets(opts);
         let res = Response {
             node_id: self.uid,
             r#type: ResponseType::FetchSockets(sockets),
         };
-        let fut = self.send_res(req.node_id, req.id, res);
+        let fut = self.send_res(origin, req_id, res);
         let ns = self.local.path().clone();
         let uid = self.uid;
         tokio::spawn(async move {
@@ -918,7 +924,7 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
     async fn get_res<D: DeserializeOwned + fmt::Debug>(
         &self,
         req_id: Sid,
-        response_idx: u8,
+        response_type: ResponseTypeId,
         target_uid: Option<Uid>,
     ) -> Result<impl Stream<Item = Response<D>>, Error<R>> {
         // Check for specific target node
@@ -940,7 +946,7 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
                 };
                 future::ready(data)
             })
-            .filter(move |item| future::ready(item.r#type.to_u8() == response_idx))
+            .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
             .take(remote_serv_cnt)
             .take_until(time::sleep(self.config.request_timeout));
         let stream = DropStream::new(stream, self.responses.clone(), req_id);
@@ -958,23 +964,6 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
     }
 }
 
-/// A local operator is either something that is flagged as local or a request that should be specifically
-/// sent to the current server.
-#[inline]
-fn is_local_op(uid: Uid, opts: &BroadcastOptions) -> bool {
-    if opts.has_flag(BroadcastFlags::Local)
-        || (!opts.has_flag(BroadcastFlags::Broadcast)
-            && opts.server_id == Some(uid)
-            && opts.rooms.is_empty()
-            && opts.sid.is_some())
-    {
-        tracing::debug!(?opts, "operation is local");
-        true
-    } else {
-        false
-    }
-}
-
 /// Checks if the namespace path is valid
 /// Panics if the path is empty or contains a `#`
 fn check_ns<D: Driver>(path: &str) -> Result<(), InitError<D>> {
@@ -983,6 +972,20 @@ fn check_ns<D: Driver>(path: &str) -> Result<(), InitError<D>> {
     } else {
         Ok(())
     }
+}
+
+/// Extract the request id from a data encoded as `[Sid, ...]`
+pub fn read_req_id(data: &[u8]) -> Option<Sid> {
+    use std::str::FromStr;
+    let mut rd = data;
+    let len = rmp::decode::read_array_len(&mut rd).ok()?;
+    if len < 1 {
+        return None;
+    }
+
+    let mut buff = [0u8; Sid::ZERO.as_str().len()];
+    let str = rmp::decode::read_str(&mut rd, &mut buff).ok()?;
+    Sid::from_str(str).ok()
 }
 
 #[cfg(test)]
@@ -1103,21 +1106,6 @@ mod tests {
         );
         drop(stream);
         assert!(handlers.lock().unwrap().is_empty(),);
-    }
-
-    #[test]
-    fn test_is_local_op() {
-        let server_id = Uid::new();
-        let remote = RemoteSocketData {
-            id: Sid::new(),
-            server_id,
-            ns: "/".into(),
-        };
-        let opts = BroadcastOptions::new_remote(&remote);
-        assert!(is_local_op(server_id, &opts));
-        assert!(!is_local_op(Uid::new(), &opts));
-        let opts = BroadcastOptions::new(Sid::new());
-        assert!(!is_local_op(Uid::new(), &opts));
     }
 
     #[test]
