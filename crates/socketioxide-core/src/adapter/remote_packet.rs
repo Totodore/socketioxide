@@ -82,7 +82,7 @@ pub struct RequestOut<'a> {
     /// The request type.
     pub r#type: RequestTypeOut<'a>,
     /// The corresponding broadcast options.
-    pub opts: &'a BroadcastOptions, // TODO: Option<BroadcastOptions>,
+    pub opts: Option<&'a BroadcastOptions>,
 }
 
 impl<'a> RequestOut<'a> {
@@ -92,7 +92,16 @@ impl<'a> RequestOut<'a> {
             node_id,
             id: Sid::new(),
             r#type,
-            opts,
+            opts: Some(opts),
+        }
+    }
+    /// Create a new empty request from a node sending the request a type.
+    pub fn new_empty(node_id: Uid, r#type: RequestTypeOut<'a>) -> Self {
+        Self {
+            node_id,
+            id: Sid::new(),
+            r#type,
+            opts: None,
         }
     }
 }
@@ -107,7 +116,7 @@ impl<'a> Serialize for RequestOut<'a> {
             r#type: u8,
             packet: Option<&'a Packet>,
             rooms: Option<&'a Vec<Room>>,
-            opts: &'a BroadcastOptions,
+            opts: Option<&'a BroadcastOptions>,
         }
         let raw = RawRequest::<'a> {
             node_id: self.node_id,
@@ -137,7 +146,7 @@ pub struct RequestIn {
     /// The request type.
     pub r#type: RequestTypeIn,
     /// The corresponding broadcast options.
-    pub opts: BroadcastOptions, //TODO: Option<BroadcastOptions>,
+    pub opts: Option<BroadcastOptions>,
 }
 impl<'de> Deserialize<'de> for RequestIn {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -148,7 +157,7 @@ impl<'de> Deserialize<'de> for RequestIn {
             r#type: u8,
             packet: Option<Packet>,
             rooms: Option<Vec<Room>>,
-            opts: BroadcastOptions,
+            opts: Option<BroadcastOptions>,
         }
         let raw = RawRequest::deserialize(deserializer)?;
         let err = |field| serde::de::Error::custom(format!("missing field: {}", field));
@@ -285,7 +294,7 @@ mod tests {
             Self {
                 node_id: req.node_id,
                 id: req.id,
-                opts: &req.opts,
+                opts: req.opts.as_ref(),
                 r#type: match &req.r#type {
                     RequestTypeIn::Broadcast(p) => RequestTypeOut::Broadcast(p),
                     RequestTypeIn::BroadcastWithAck(p) => RequestTypeOut::BroadcastWithAck(p),
