@@ -10,14 +10,14 @@ A [***`socket.io`***](https://socket.io) adapter for [***`Socketioxide`***](http
 
 ## Features
 
-- ✅ **MongoDB Change Stream-based adapter**
-- 📦 **Support for any MongoDB client** via the [`Driver`] abstraction
-- 🧩 Built-in driver for the [mongodb](https://docs.rs/mongodb) crate: [`MongoDbDriver`](https://docs.rs/socketioxide-mongodb/latest/socketioxide_mongodb/drivers/mongodb/struct.MongoDbDriver.html)
-- ⌛ **Message expiration** via:
+- **MongoDB Change Stream-based adapter**
+- **Support for any MongoDB client** via the [`Driver`] abstraction
+- Built-in driver for the [mongodb](https://docs.rs/mongodb) crate: [`MongoDbDriver`](https://docs.rs/socketioxide-mongodb/latest/socketioxide_mongodb/drivers/mongodb/struct.MongoDbDriver.html)
+- **Message expiration** via:
   - **Capped collections**
   - **TTL indexes**
-- 🧵 Fully compatible with the asynchronous Rust ecosystem
-- 🛠️ Implement your own custom driver by implementing the `Driver` trait
+- Fully compatible with the asynchronous Rust ecosystem
+- Implement your own custom driver by implementing the `Driver` trait
 
 > [!WARNING]
 > Change streams require your MongoDB deployment to be a **replica set** or a **sharded cluster**.

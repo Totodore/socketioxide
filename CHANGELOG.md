@@ -4,6 +4,7 @@
 * [parser-common](./crates/parser-common/CHANGELOG.md)
 * [parser-msgpack](./crates/parser-msgpack/CHANGELOG.md)
 * [socketioxide-redis](./crates/socketioxide-redis/CHANGELOG.md)
+* [socketioxide-mongodb](./crates/socketioxide-mongodb/CHANGELOG.md)
 * [socketioxide](./crates/socketioxide/CHANGELOG.md)
 * [engineioxide](./crates/engineioxide/CHANGELOG.md)
 
