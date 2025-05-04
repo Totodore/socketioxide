@@ -116,7 +116,6 @@ impl<'a> Serialize for RequestOut<'a> {
             r#type: u8,
             packet: Option<&'a Packet>,
             rooms: Option<&'a Vec<Room>>,
-            #[serde(skip_serializing_if = "Option::is_none")]
             opts: Option<&'a BroadcastOptions>,
         }
         let raw = RawRequest::<'a> {
