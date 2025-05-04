@@ -17,7 +17,7 @@ remote-adapter = []
 
 [dependencies]
 bytes.workspace = true
-engineioxide-core = { version = "0.1", path = "../engineioxide-core" }
+engineioxide-core = { version = "0.2", path = "../engineioxide-core" }
 serde.workspace = true
 thiserror.workspace = true
 futures-core.workspace = true

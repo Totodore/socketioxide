@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide"
 description = "Socket IO server implementation in rust as a Tower Service."
-version = "0.16.2"
+version = "0.17.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -13,7 +13,7 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
-engineioxide = { path = "../engineioxide", version = "0.16.2" }
+engineioxide = { path = "../engineioxide", version = "0.17" }
 socketioxide-core = { path = "../socketioxide-core", version = "0.17" }
 
 bytes.workspace = true
@@ -31,8 +31,8 @@ matchit.workspace = true
 pin-project-lite.workspace = true
 
 # Parsers
-socketioxide-parser-common = { path = "../parser-common", version = "0.16" }
-socketioxide-parser-msgpack = { path = "../parser-msgpack", version = "0.16", optional = true }
+socketioxide-parser-common = { path = "../parser-common", version = "0.17" }
+socketioxide-parser-msgpack = { path = "../parser-msgpack", version = "0.17", optional = true }
 
 # Tracing
 tracing = { workspace = true, optional = true }
