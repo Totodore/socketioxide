@@ -643,7 +643,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "engineioxide"
-version = "0.16.2"
+version = "0.17.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -2188,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.16.2"
+version = "0.17.0"
 dependencies = [
  "axum",
  "bytes",
@@ -2272,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-common"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "bytes",
  "criterion",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-msgpack"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "bytes",
  "criterion",
