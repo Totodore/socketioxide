@@ -71,17 +71,6 @@ impl BroadcastOptions {
         self.flags
     }
 
-    /// Create a new empty broadcast options.
-    pub const fn new_empty() -> Self {
-        Self {
-            flags: 0,
-            sid: None,
-            server_id: None,
-            rooms: SmallVec::new_const(),
-            except: SmallVec::new_const(),
-        }
-    }
-
     /// Set the socket id of the sender.
     pub fn new(sid: Sid) -> Self {
         Self {
