@@ -1,0 +1,58 @@
+[package]
+name = "socketioxide-postgres"
+description = "PostgreSQL adapter for socketioxide"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[features]
+sqlx = ["dep:sqlx"]
+postgres = ["dep:tokio-postgres"]
+default = ["postgres"]
+
+[dependencies]
+socketioxide-core = { version = "0.17", path = "../socketioxide-core", features = [
+    "remote-adapter",
+] }
+futures-core.workspace = true
+futures-util.workspace = true
+pin-project-lite.workspace = true
+serde.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
+tokio = { workspace = true, features = ["time", "rt", "sync"] }
+rmp-serde.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+# PostgreSQL implementations
+tokio-postgres = { version = "0.7", default-features = false, optional = true, features = [
+    "runtime",
+] }
+sqlx = { version = "0.8", default-features = false, optional = true, features = [
+    "postgres",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = [
+    "macros",
+    "parking_lot",
+    "rt-multi-thread",
+] }
+socketioxide = { path = "../socketioxide", features = [
+    "tracing",
+    "__test_harness",
+] }
+tracing-subscriber.workspace = true
+bytes.workspace = true
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
