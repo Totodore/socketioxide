@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use tokio_postgres::{Client, Connection};
 
-use crate::PostgresAdapterConfig;
-
 use super::Driver;
 
 #[derive(Debug, Clone)]
@@ -21,6 +19,7 @@ impl PostgresDriver {
 
 impl Driver for PostgresDriver {
     type Error = tokio_postgres::Error;
+
     async fn init(&self, table: &str, channels: &[&str]) -> Result<(), Self::Error> {
         self.client
             .execute("CREATE TABLE $1 IF NOT EXISTS", &[&table])
