@@ -39,7 +39,7 @@ fred = { version = "10", features = [
     "subscriber-client",
     "i-pubsub",
 ], default-features = false, optional = true }
-redis = { version = "0.30", features = [
+redis = { version = "0.31", features = [
     "aio",
     "tokio-comp",
     "streams",
