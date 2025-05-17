@@ -1,3 +1,8 @@
+# socketioxide 0.17.1
+* feat: add `SocketIo::nsps` to get a list of operators on all the current namespaces.
+* feat: add `BroadcastOperators::ns_path` to get the namespace path of the current namespace.
+* feat: implement `Debug + Clone` for `BroadcastOperators` to reuse it easily.
+
 # socketioxide 0.17.0
 * deps: bump `socketioxide-core` to 0.17
 * feat: add [`SocketIo::on_fallback`](https://docs.rs/socketioxide/latest/socketioxide/struct.SocketIo.html#method.on_fallback)

@@ -414,6 +414,35 @@ impl<A: Adapter> SocketIo<A> {
         self.0.close().await;
     }
 
+    /// # Get all the namespaces to perform operations on.
+    ///
+    /// This will return a vector of [`BroadcastOperators`] for each namespace.
+    ///
+    /// # Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/custom_ns", |socket: SocketRef| {
+    ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.id);
+    /// });
+    ///
+    /// // Later in your code you can get all the namespaces
+    /// for ns in io.nsps() {
+    ///     assert_eq!(ns.ns_path(), "/custom_ns");
+    /// }
+    /// ```
+    #[inline]
+    pub fn nsps(&self) -> Vec<BroadcastOperators<A>> {
+        let parser = self.0.parser();
+        self.0
+            .nsps
+            .read()
+            .unwrap()
+            .values()
+            .map(|ns| BroadcastOperators::new(ns.clone(), parser).broadcast())
+            .collect()
+    }
+
     // Chaining operators fns
 
     /// # Select a specific namespace to perform operations on.
