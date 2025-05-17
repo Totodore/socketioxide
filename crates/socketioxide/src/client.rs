@@ -27,7 +27,7 @@ use crate::{
 
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
-    nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
+    pub(crate) nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
     router: RwLock<Router<NamespaceCtr<A>>>,
     adapter_state: A::State,
 
