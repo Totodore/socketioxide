@@ -428,7 +428,7 @@ impl<A: Adapter> SocketIo<A> {
     ///
     /// // Later in your code you can get all the namespaces
     /// for ns in io.nsps() {
-    ///     assert_eq!(ns.name(), "/custom_ns");
+    ///     assert_eq!(ns.ns_path(), "/custom_ns");
     /// }
     /// ```
     #[inline]
