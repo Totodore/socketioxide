@@ -617,7 +617,7 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
     ///
-    /// # Simple example with a sync closure:
+    /// # Simple example with an async closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde::{Serialize, Deserialize};

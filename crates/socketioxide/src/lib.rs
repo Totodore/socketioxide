@@ -137,13 +137,13 @@
 //! ```
 //!
 //! ## Handlers
-//! Handlers are functions or clonable closures that are given to the `io.ns`, the `socket.on` and the `socket.on_disconnect` fns.
-//! They can be async or sync and can take from 0 to 16 arguments that implements the [`FromConnectParts`]
+//! Handlers are async functions or clonable async closures that are given to the `io.ns`, the `socket.on` and the `socket.on_disconnect` fns.
+//! They can take from 0 to 16 arguments that implements the [`FromConnectParts`]
 //! trait for the [`ConnectHandler`], the [`FromMessageParts`] for
 //! the [`MessageHandler`] and the [`FromDisconnectParts`] for the [`DisconnectHandler`].
 //! They are greatly inspired by the axum handlers.
 //!
-//! If they are async, a new task will be spawned for each incoming connection/message so it doesn't block the event management task.
+//! A new task will be spawned for each incoming connection/message so it doesn't block the event management task.
 //!
 //! * Check the [`handler::connect`] module doc for more details on the connect handler and connect middlewares.
 //! * Check the [`handler::message`] module doc for more details on the message handler.

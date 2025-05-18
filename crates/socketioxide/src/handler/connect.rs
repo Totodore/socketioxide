@@ -15,7 +15,7 @@
 //!     you can't send messages to it from the middleware.
 //! </div>
 //!
-//! Middlewares can be sync or async and can be chained.
+//! Middlewares must be async and can be chained.
 //! They are defined with the [`ConnectMiddleware`] trait which is automatically implemented for any
 //! closure with up to 16 arguments with the following signature:
 //! * `async FnOnce(*args) -> Result<(), E> where E: Display`

@@ -391,7 +391,7 @@ impl<A: Adapter> Socket<A> {
     ///         ack.send(&data).ok(); // The data received is sent back to the client through the ack
     ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
-    ///     // Do the same thing but with a sync function
+    ///     // Do the same thing but with an async function
     ///     socket.on("test_2", handler);
     /// });
     /// ```
