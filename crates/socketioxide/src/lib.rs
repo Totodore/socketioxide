@@ -94,15 +94,15 @@
 //!     let (layer, io) = SocketIo::new_layer();
 //!
 //!     // Register a handler for the default namespace
-//!     io.ns("/", |s: SocketRef| {
+//!     io.ns("/", async |s: SocketRef| {
 //!         // For each "message" event received, send a "message-back" event with the "Hello World!" event
-//!         s.on("message", |s: SocketRef| {
+//!         s.on("message", async |s: SocketRef| {
 //!             s.emit("message-back", "Hello World!").ok();
 //!         });
 //!     });
 //!
 //!     let app = axum::Router::new()
-//!     .route("/", get(|| async { "Hello, World!" }))
+//!     .route("/", get(async || "Hello, World!"))
 //!     .layer(layer);
 //!
 //!     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -317,14 +317,14 @@
 //! #### Write this:
 //! ```
 //! # use socketioxide::{SocketIo, adapter::Adapter, extract::SocketRef};
-//! fn my_handler<A: Adapter>(s: SocketRef<A>, io: SocketIo<A>) { }
+//! async fn my_handler<A: Adapter>(s: SocketRef<A>, io: SocketIo<A>) { }
 //! let (layer, io) = SocketIo::new_layer();
 //! io.ns("/", my_handler);
 //! ```
 //! #### Instead of that:
 //! ```
 //! # use socketioxide::{SocketIo, adapter::Adapter, extract::SocketRef};
-//! fn my_handler(s: SocketRef, io: SocketIo) { }
+//! async fn my_handler(s: SocketRef, io: SocketIo) { }
 //! let (layer, io) = SocketIo::new_layer();
 //! io.ns("/", my_handler);
 //! ```

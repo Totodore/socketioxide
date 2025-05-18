@@ -725,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.16.2"
+version = "0.17.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -751,7 +751,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -2161,11 +2161,10 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.30.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "438a4e5f8e9aa246d6f3666d6978441bf1b37d5f417b50c4dd220be09f5fcc17"
+checksum = "0bc1ea653e0b2e097db3ebb5b7f678be339620b8041f66b30a308c1d45d36a7f"
 dependencies = [
- "arc-swap",
  "bytes",
  "cfg-if",
  "combine",
@@ -2964,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.16.2"
+version = "0.17.1"
 dependencies = [
  "bytes",
  "engineioxide",
@@ -2989,7 +2988,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-core"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "arbitrary",
  "bytes",
@@ -3020,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-common"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "bytes",
  "itoa",
@@ -3031,7 +3030,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-msgpack"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "bytes",
  "rmp",
@@ -3042,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-redis"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "fred",
@@ -3315,9 +3314,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.44.2"
+version = "1.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6b88822cbe49de4185e3a4cbf8321dd487cf5fe0c5c65695fef6346371e9c48"
+checksum = "2513ca694ef9ede0fb23fe71a4ee4107cb102b9dc1930f6d0fd77aae068ae165"
 dependencies = [
  "backtrace",
  "bytes",

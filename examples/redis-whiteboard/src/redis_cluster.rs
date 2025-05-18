@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     async fn on_drawing<A: Adapter>(s: SocketRef<A>, Data(data): Data<Value>) {
         s.broadcast().emit("drawing", &data).await.ok();
     }
-    fn on_connect<A: Adapter>(s: SocketRef<A>) {
+    async fn on_connect<A: Adapter>(s: SocketRef<A>) {
         s.on("drawing", on_drawing);
     }
     io.ns("/", on_connect).await?;

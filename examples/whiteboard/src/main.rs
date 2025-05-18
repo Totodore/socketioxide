@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_parser(ParserConfig::msgpack())
         .build_layer();
 
-    io.ns("/", |s: SocketRef| {
+    io.ns("/", async |s: SocketRef| {
         s.on("drawing", async |s: SocketRef, Data::<Value>(data)| {
             s.broadcast().emit("drawing", &data).await.unwrap();
         });

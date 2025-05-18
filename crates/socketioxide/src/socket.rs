@@ -334,7 +334,7 @@ impl<A: Adapter> Socket<A> {
     ///
     /// _It is recommended for code clarity to define your handler as top level function rather than closures._
     ///
-    /// # Simple example with a sync closure and a sync fn:
+    /// # Simple example with an async closure and an async fn:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde::{Serialize, Deserialize};
@@ -343,21 +343,21 @@ impl<A: Adapter> Socket<A> {
     ///     name: String,
     ///     age: u8,
     /// }
-    /// fn handler(socket: SocketRef, Data(data): Data::<MyData>) {
+    /// async fn handler(socket: SocketRef, Data(data): Data::<MyData>) {
     ///     println!("Received a test message {:?}", data);
     ///     socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
+    /// io.ns("/", async |socket: SocketRef| {
     ///     // Register a handler for the "test" event and extract the data as a `MyData` struct
     ///     // With the Data extractor, the handler is called only if the data can be deserialized as a `MyData` struct
     ///     // If you want to manage errors yourself you can use the TryData extractor
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
+    ///     socket.on("test", async |socket: SocketRef, Data::<MyData>(data)| {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
-    ///     // Do the same thing but with a sync function
+    ///     // Do the same thing but with an async function
     ///     socket.on("test_2", handler);
     /// });
     ///
@@ -381,7 +381,7 @@ impl<A: Adapter> Socket<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
+    /// io.ns("/", async |socket: SocketRef| {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
@@ -419,12 +419,12 @@ impl<A: Adapter> Socket<A> {
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde::{Serialize, Deserialize};
     /// # use serde_json::Value;
-    /// fn fallback_handler(socket: SocketRef, Event(event): Event, Data(data): Data::<Value>) {
+    /// async fn fallback_handler(socket: SocketRef, Event(event): Event, Data(data): Data::<Value>) {
     ///     println!("Received an {event} event with message {:?}", data);
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
+    /// io.ns("/", async |socket: SocketRef| {
     ///     // Register a fallback handler.
     ///     // In our example it will be always called as there is no other handler.
     ///     socket.on_fallback(fallback_handler);
@@ -459,7 +459,7 @@ impl<A: Adapter> Socket<A> {
     /// # use serde_json::Value;
     /// # use std::sync::Arc;
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
+    /// io.ns("/", async |socket: SocketRef| {
     ///     socket.on("test", async |socket: SocketRef| {
     ///         // Close the current socket
     ///         socket.disconnect().ok();
@@ -543,7 +543,7 @@ impl<A: Adapter> Socket<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |s: SocketRef| s.on("test", handler));
+    /// io.ns("/", async |s: SocketRef| s.on("test", handler));
     /// ```
     pub fn join(&self, rooms: impl RoomParam) {
         self.ns.adapter.get_local().add_all(self.id, rooms)
@@ -560,7 +560,7 @@ impl<A: Adapter> Socket<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |s: SocketRef| s.on("test", handler));
+    /// io.ns("/", async |s: SocketRef| s.on("test", handler));
     /// ```
     pub fn leave(&self, rooms: impl RoomParam) {
         self.ns.adapter.get_local().del(self.id, rooms)
@@ -671,7 +671,7 @@ impl<A: Adapter> Socket<A> {
     /// # use socketioxide::{SocketIo, TransportType, extract::*};
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef, transport: TransportType| {
+    /// io.ns("/", async |socket: SocketRef, transport: TransportType| {
     ///     assert_eq!(socket.transport_type(), transport);
     /// });
     pub fn transport_type(&self) -> crate::TransportType {
@@ -686,7 +686,7 @@ impl<A: Adapter> Socket<A> {
     /// # use socketioxide::{SocketIo, ProtocolVersion, extract::*};
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef, v: ProtocolVersion| {
+    /// io.ns("/", async |socket: SocketRef, v: ProtocolVersion| {
     ///     assert_eq!(socket.protocol(), v);
     /// });
     pub fn protocol(&self) -> crate::ProtocolVersion {
