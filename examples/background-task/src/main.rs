@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", |s: SocketRef, Data::<Value>(data)| {
+    io.ns("/", async |s: SocketRef, Data::<Value>(data)| {
         info!("Received: {:?}", data);
         s.emit("welcome", &data).ok();
     });

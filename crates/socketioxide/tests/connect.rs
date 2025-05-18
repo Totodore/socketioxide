@@ -29,7 +29,7 @@ pub async fn connect_middleware() {
 
     let handler = |i: usize| {
         let tx1 = tx.clone();
-        move |s: SocketRef| {
+        async move |s: SocketRef| {
             // Socket should be closed for all emit methods on it
 
             assert!(matches!(
@@ -57,7 +57,10 @@ pub async fn connect_middleware() {
     };
     io.ns(
         "/",
-        { || {} }.with(handler(3)).with(handler(2)).with(handler(1)),
+        { async || () }
+            .with(handler(3))
+            .with(handler(2))
+            .with(handler(1)),
     );
 
     let (_, mut srx) = io.new_dummy_sock("/", ()).await;
@@ -86,7 +89,7 @@ pub async fn connect_middleware_error() {
 
     let handler = |i: usize, e: bool| {
         let tx1 = tx.clone();
-        move || {
+        async move || {
             tx1.try_send(i).unwrap();
             if e { Err(MyError) } else { Ok(()) }
         }
@@ -94,7 +97,7 @@ pub async fn connect_middleware_error() {
 
     io.ns(
         "/",
-        { || {} }
+        { async || {} }
             .with(handler(3, false))
             .with(handler(2, true))
             .with(handler(1, false)),
@@ -114,7 +117,7 @@ async fn ns_dyn_connect() {
     let (_svc, io) = SocketIo::new_svc();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
 
-    io.dyn_ns("/admin/{id}/board", move |s: SocketRef| {
+    io.dyn_ns("/admin/{id}/board", async move |s: SocketRef| {
         tx.try_send(s.ns().to_string()).unwrap();
     })
     .unwrap();
@@ -128,11 +131,11 @@ async fn ns_dyn_connect_precedence() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<bool>(1);
     let tx_clone = tx.clone();
 
-    io.dyn_ns("/admin/{id}/board", move || {
+    io.dyn_ns("/admin/{id}/board", async move || {
         tx.try_send(false).unwrap();
     })
     .unwrap();
-    io.ns("/admin/test/board", move || {
+    io.ns("/admin/test/board", async move || {
         tx_clone.try_send(true).unwrap();
     });
 
@@ -145,7 +148,7 @@ async fn remove_ns_from_connect_handler() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    io.ns("/test1", move |io: SocketIo| {
+    io.ns("/test1", async move |io: SocketIo| {
         tx.try_send(()).unwrap();
         io.delete_ns("/test1");
     });
@@ -165,13 +168,12 @@ async fn remove_ns_from_middleware() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    let middleware = move |io: SocketIo| {
+    let middleware = async move |io: SocketIo| {
         tx.try_send(()).unwrap();
         io.delete_ns("/test1");
         Ok::<(), std::convert::Infallible>(())
     };
-    fn handler() {}
-    io.ns("/test1", handler.with(middleware));
+    io.ns("/test1", { async || () }.with(middleware));
 
     let (stx, mut srx) = io.new_dummy_sock("/test1", ()).await;
     timeout_rcv(&mut srx).await;
@@ -188,8 +190,8 @@ async fn remove_ns_from_event_handler() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    io.ns("/test1", move |s: SocketRef, io: SocketIo| {
-        s.on("delete_ns", move || {
+    io.ns("/test1", async move |s: SocketRef, io: SocketIo| {
+        s.on("delete_ns", async move || {
             io.delete_ns("/test1");
             tx.try_send(()).unwrap();
         });
@@ -210,9 +212,9 @@ async fn remove_ns_from_disconnect_handler() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<&'static str>(2);
     let (_svc, io) = SocketIo::new_svc();
 
-    io.ns("/test2", move |s: SocketRef, io: SocketIo| {
+    io.ns("/test2", async move |s: SocketRef, io: SocketIo| {
         tx.try_send("connect").unwrap();
-        s.on_disconnect(move || {
+        s.on_disconnect(async move || {
             io.delete_ns("/test2");
             tx.try_send("disconnect").unwrap();
         })

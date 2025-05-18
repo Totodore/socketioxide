@@ -11,7 +11,7 @@ async fn handler(socket: SocketRef) {
     socket.within("room1").within("room3").except("room2").disconnect().await.unwrap();
 }
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |s: SocketRef| s.on("test", handler));
+io.ns("/", async |s: SocketRef| s.on("test", handler));
 ```
 
 # Example from the io struct
@@ -22,5 +22,5 @@ async fn handler(socket: SocketRef, io: SocketIo) {
     io.within("room1").within("room3").except("room2").disconnect().await.unwrap();
 }
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |s: SocketRef| s.on("test", handler));
+io.ns("/", async |s: SocketRef| s.on("test", handler));
 ```

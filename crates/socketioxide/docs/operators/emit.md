@@ -33,7 +33,7 @@ If you want to emit generic data that may contain binary, use [`rmpv::Value`] in
 # use socketioxide::{SocketIo, extract::*};
 # use serde_json::Value;
 # use std::sync::Arc;
-fn handler(socket: SocketRef, Data(data): Data::<Value>) {
+async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
     // Emit a test message to the client
     socket.emit("test", &data).ok();
     // Emit a test message with multiple arguments to the client
@@ -44,7 +44,7 @@ fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| socket.on("test", handler));
+io.ns("/", async |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Single-socket binary example with the `bytes` crate
@@ -53,7 +53,7 @@ io.ns("/", |socket: SocketRef| socket.on("test", handler));
 # use serde_json::Value;
 # use std::sync::Arc;
 # use bytes::Bytes;
-fn handler(socket: SocketRef, Data(data): Data::<(String, Bytes, Bytes)>) {
+async fn handler(socket: SocketRef, Data(data): Data::<(String, Bytes, Bytes)>) {
     // Emit a test message to the client
     socket.emit("test", &data).ok();
     // Emit a test message with multiple arguments to the client
@@ -64,7 +64,7 @@ fn handler(socket: SocketRef, Data(data): Data::<(String, Bytes, Bytes)>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| socket.on("test", handler));
+io.ns("/", async |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Broadcast example
@@ -90,5 +90,5 @@ async fn handler(socket: SocketRef, Data(data): Data::<(String, Bytes, Bytes)>) 
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |s: SocketRef| s.on("test", handler));
+io.ns("/", async |s: SocketRef| s.on("test", handler));
 ```

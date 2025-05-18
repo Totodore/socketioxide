@@ -45,7 +45,7 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| socket.on("test", handler));
+io.ns("/", async |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Single-socket example with custom acknowledgment timeout
@@ -63,7 +63,7 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |socket: SocketRef| socket.on("test", handler));
+io.ns("/", async |socket: SocketRef| socket.on("test", handler));
 ```
 
 # Broadcast example
@@ -93,5 +93,5 @@ async fn handler(socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |s: SocketRef| s.on("test", handler));
+io.ns("/", async |s: SocketRef| s.on("test", handler));
 ```

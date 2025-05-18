@@ -31,7 +31,7 @@ use socketioxide_core::Value;
 ///     }
 /// }
 /// let (_, io) = SocketIo::builder().with_state(MyAppData::default()).build_svc();
-/// io.ns("/", |socket: SocketRef, state: State<MyAppData>| {
+/// io.ns("/", async |socket: SocketRef, state: State<MyAppData>| {
 ///     state.add_user();
 ///     println!("User count: {}", state.user_cnt.load(Ordering::SeqCst));
 /// });

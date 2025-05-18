@@ -4,7 +4,7 @@
 //! You can also implement the [`FromConnectParts`] trait for your own types.
 //! See the [`extract`](crate::extract) module doc for more details on available extractors.
 //!
-//! Handlers can be _optionally_ async.
+//! Handlers _must_ be async.
 //!
 //! # Middlewares
 //! [`ConnectHandlers`](ConnectHandler) can have middlewares, they are called before the connection
@@ -15,25 +15,12 @@
 //!     you can't send messages to it from the middleware.
 //! </div>
 //!
-//! Middlewares can be sync or async and can be chained.
+//! Middlewares must be async and can be chained.
 //! They are defined with the [`ConnectMiddleware`] trait which is automatically implemented for any
 //! closure with up to 16 arguments with the following signature:
-//! * `FnOnce(*args) -> Result<(), E> where E: Display`
 //! * `async FnOnce(*args) -> Result<(), E> where E: Display`
 //!
 //! Arguments must implement the [`FromConnectParts`] trait in the exact same way than handlers.
-//!
-//! ## Example with sync closures
-//! ```rust
-//! # use socketioxide::SocketIo;
-//! # use socketioxide::extract::*;
-//! let (svc, io) = SocketIo::new_svc();
-//! // Here the handler is sync,
-//! // if there is a serialization error, the handler is not called
-//! io.ns("/nsp", move |io: SocketIo, s: SocketRef, Data(auth): Data<String>| {
-//!     println!("Socket connected on /nsp namespace with id: {} and data: {}", s.id, auth);
-//! });
-//! ```
 //!
 //! ## Example with async closures
 //! ```rust
@@ -73,7 +60,7 @@
 //! # use socketioxide::handler::ConnectHandler;
 //! # use socketioxide::extract::*;
 //! # use socketioxide::SocketIo;
-//! fn handler(s: SocketRef) {
+//! async fn handler(s: SocketRef) {
 //!     println!("socket connected on / namespace with id: {}", s.id);
 //! }
 //!
@@ -86,7 +73,7 @@
 //! }
 //! impl std::error::Error for AuthError {}
 //!
-//! fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
+//! async fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
 //!     println!("second middleware called");
 //!     if token != "secret" {
 //!         Err(AuthError)
@@ -95,7 +82,6 @@
 //!     }
 //! }
 //!
-//! // Middlewares can be sync or async
 //! async fn other_middleware(s: SocketRef) -> Result<(), AuthError> {
 //!     println!("first middleware called");
 //!     if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
@@ -164,7 +150,7 @@ pub trait FromConnectParts<A: Adapter>: Sized {
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 #[diagnostic::on_unimplemented(
     note = "This function is not a ConnectMiddleware. Check that:
-* It is a clonable sync or async `FnOnce` that returns `Result<(), E> where E: Display`.
+* It is a clonable async `FnOnce` that returns `Result<(), E> where E: Display`.
 * All its arguments are valid connect extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
@@ -191,7 +177,7 @@ pub trait ConnectMiddleware<A: Adapter, T>: Sized + Clone + Send + Sync + 'stati
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 #[diagnostic::on_unimplemented(
     note = "This function is not a ConnectHandler. Check that:
-* It is a clonable sync or async `FnOnce` that returns nothing.
+* It is a clonable async `FnOnce` that returns nothing.
 * All its arguments are valid connect extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
@@ -219,7 +205,7 @@ pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// # use socketioxide::handler::ConnectHandler;
     /// # use socketioxide::extract::*;
     /// # use socketioxide::SocketIo;
-    /// fn handler(s: SocketRef) {
+    /// async fn handler(s: SocketRef) {
     ///     println!("socket connected on / namespace with id: {}", s.id);
     /// }
     ///
@@ -232,7 +218,7 @@ pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     /// }
     /// impl std::error::Error for AuthError {}
     ///
-    /// fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
+    /// async fn middleware(s: SocketRef, Data(token): Data<String>) -> Result<(), AuthError> {
     ///     println!("second middleware called");
     ///     if token != "secret" {
     ///         Err(AuthError)
@@ -241,7 +227,6 @@ pub trait ConnectHandler<A: Adapter, T>: Sized + Clone + Send + Sync + 'static {
     ///     }
     /// }
     ///
-    /// // Middlewares can be sync or async
     /// async fn other_middleware(s: SocketRef) -> Result<(), AuthError> {
     ///     println!("first middleware called");
     ///     if s.req_parts().uri.query().map(|q| q.contains("secret")).unwrap_or_default() {
@@ -408,20 +393,13 @@ where
     }
 }
 
-mod private {
-    #[derive(Debug, Copy, Clone)]
-    pub enum Sync {}
-    #[derive(Debug, Copy, Clone)]
-    pub enum Async {}
-}
-
 macro_rules! impl_handler_async {
     (
         [$($ty:ident),*]
     ) => {
         #[allow(non_snake_case, unused)]
         #[diagnostic::do_not_recommend]
-        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, (private::Async, $($ty,)*)> for F
+        impl<A, F, Fut, $($ty,)*> ConnectHandler<A, ($($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
@@ -442,37 +420,6 @@ macro_rules! impl_handler_async {
 
                 let fut = (self.clone())($($ty,)*);
                 tokio::spawn(fut);
-
-            }
-        }
-    };
-}
-
-macro_rules! impl_handler {
-    (
-        [$($ty:ident),*]
-    ) => {
-        #[allow(non_snake_case, unused)]
-        #[diagnostic::do_not_recommend]
-        impl<A, F, $($ty,)*> ConnectHandler<A, (private::Sync, $($ty,)*)> for F
-        where
-            F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
-            A: Adapter,
-            $( $ty: FromConnectParts<A> + Send, )*
-        {
-            fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>) {
-                $(
-                    let $ty = match $ty::from_connect_parts(&s, &auth) {
-                        Ok(v) => v,
-                        Err(_e) => {
-                            #[cfg(feature = "tracing")]
-                            tracing::error!("Error while extracting data: {}", _e);
-                            return;
-                        },
-                    };
-                )*
-
-                (self.clone())($($ty,)*);
             }
         }
     };
@@ -484,7 +431,7 @@ macro_rules! impl_middleware_async {
     ) => {
         #[allow(non_snake_case, unused)]
         #[diagnostic::do_not_recommend]
-        impl<A, F, Fut, E, $($ty,)*> ConnectMiddleware<A, (private::Async, $($ty,)*)> for F
+        impl<A, F, Fut, E, $($ty,)*> ConnectMiddleware<A, ($($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = Result<(), E>> + Send + 'static,
@@ -521,48 +468,6 @@ macro_rules! impl_middleware_async {
     };
 }
 
-macro_rules! impl_middleware {
-    (
-        [$($ty:ident),*]
-    ) => {
-        #[allow(non_snake_case, unused)]
-        #[diagnostic::do_not_recommend]
-        impl<A, F, E, $($ty,)*> ConnectMiddleware<A, (private::Sync, $($ty,)*)> for F
-        where
-            F: FnOnce($($ty,)*) -> Result<(), E> + Send + Sync + Clone + 'static,
-            A: Adapter,
-            E: std::fmt::Display + Send + 'static,
-            $( $ty: FromConnectParts<A> + Send, )*
-        {
-            async fn call<'a>(
-                &'a self,
-                s: Arc<Socket<A>>,
-                auth: &'a Option<Value>,
-            ) -> MiddlewareRes {
-                $(
-                    let $ty = match $ty::from_connect_parts(&s, auth) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            #[cfg(feature = "tracing")]
-                            tracing::error!("Error while extracting data: {}", e);
-                            return Err(Box::new(e) as _);
-                        },
-                    };
-                )*
-
-                let res = (self.clone())($($ty,)*);
-                if let Err(e) = res {
-                    #[cfg(feature = "tracing")]
-                    tracing::trace!("middleware returned error: {}", e);
-                    Err(Box::new(e) as _)
-                } else {
-                    Ok(())
-                }
-            }
-        }
-    };
-}
-
 #[rustfmt::skip]
 macro_rules! all_the_tuples {
     ($name:ident) => {
@@ -587,7 +492,4 @@ macro_rules! all_the_tuples {
 }
 
 all_the_tuples!(impl_handler_async);
-all_the_tuples!(impl_handler);
-
 all_the_tuples!(impl_middleware_async);
-all_the_tuples!(impl_middleware);

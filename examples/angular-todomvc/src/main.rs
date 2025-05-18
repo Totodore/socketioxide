@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(Todos::default())
         .build_layer();
 
-    io.ns("/", |s: SocketRef, State(Todos(todos))| {
+    io.ns("/", async |s: SocketRef, State(Todos(todos))| {
         info!("New connection: {}", s.id);
 
         let todos = todos.lock().unwrap().clone();
