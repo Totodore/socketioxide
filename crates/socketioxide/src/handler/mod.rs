@@ -5,7 +5,7 @@ pub mod disconnect;
 pub mod message;
 
 pub(crate) use connect::BoxedConnectHandler;
-pub use connect::{ConnectHandler, ConnectMiddleware, FromConnectParts};
+pub use connect::{ConnectHandler, FromConnectParts};
 pub(crate) use disconnect::BoxedDisconnectHandler;
 pub use disconnect::{DisconnectHandler, FromDisconnectParts};
 pub(crate) use message::BoxedMessageHandler;
