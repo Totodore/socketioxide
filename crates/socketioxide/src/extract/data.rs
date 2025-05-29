@@ -1,8 +1,10 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::handler::{FromConnectParts, FromMessageParts};
+use crate::handler::{FromConnectParts, FromMessage, FromMessageParts};
+use crate::parser::Parser;
 use crate::{adapter::Adapter, socket::Socket};
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use socketioxide_core::Value;
 use socketioxide_core::parser::{Parse, ParserError};
@@ -118,6 +120,28 @@ where
         _: &Option<i64>,
     ) -> Result<Self, ParserError> {
         Ok(Event(s.parser.read_event(v)?.to_string()))
+    }
+}
+
+pub struct RawData {
+    data: Value,
+    parser: Parser,
+}
+impl<A> FromMessage<A> for RawData
+where
+    A: Adapter,
+{
+    type Error = Infallible;
+    fn from_message(s: Arc<Socket<A>>, v: Value, _: Option<i64>) -> Result<Self, Self::Error> {
+        Ok(RawData {
+            data: v,
+            parser: s.parser.clone(),
+        })
+    }
+}
+impl RawData {
+    pub fn deserialize<'de, T: Deserialize<'de>>(&'de mut self) -> Result<T, ParserError> {
+        self.parser.decode_value(&mut self.data, true)
     }
 }
 
