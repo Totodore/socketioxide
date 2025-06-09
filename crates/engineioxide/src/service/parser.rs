@@ -4,7 +4,7 @@ use std::{future::Future, str::FromStr, sync::Arc};
 
 use http::{Method, Request, Response};
 
-use engineioxide_core::Sid;
+use engineioxide_core::{Sid, TransportType};
 
 use crate::{
     body::ResponseBody,
@@ -82,7 +82,7 @@ where
 #[derive(thiserror::Error, Debug)]
 pub enum ParseError {
     #[error("transport unknown")]
-    UnknownTransport,
+    UnknownTransport(#[from] engineioxide_core::UnknownTransportError),
     #[error("bad handshake method")]
     BadHandshakeMethod,
     #[error("transport mismatch")]
@@ -105,7 +105,9 @@ impl<B> From<ParseError> for Response<ResponseBody<B>> {
                 .unwrap()
         };
         match err {
-            UnknownTransport => conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}"),
+            UnknownTransport(_) => {
+                conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}")
+            }
             BadHandshakeMethod => {
                 conn_err_resp("{\"code\":\"2\",\"message\":\"Bad handshake method\"}")
             }
@@ -143,53 +145,6 @@ impl FromStr for ProtocolVersion {
         match s {
             "4" => Ok(ProtocolVersion::V4),
             _ => Err(ParseError::UnsupportedProtocolVersion),
-        }
-    }
-}
-
-/// The type of `transport` used by the client.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum TransportType {
-    /// Polling transport
-    Polling = 0x01,
-    /// Websocket transport
-    Websocket = 0x02,
-}
-
-impl From<u8> for TransportType {
-    fn from(t: u8) -> Self {
-        match t {
-            0x01 => TransportType::Polling,
-            0x02 => TransportType::Websocket,
-            _ => panic!("unknown transport type"),
-        }
-    }
-}
-
-impl FromStr for TransportType {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "websocket" => Ok(TransportType::Websocket),
-            "polling" => Ok(TransportType::Polling),
-            _ => Err(ParseError::UnknownTransport),
-        }
-    }
-}
-impl From<TransportType> for &'static str {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling",
-            TransportType::Websocket => "websocket",
-        }
-    }
-}
-impl From<TransportType> for String {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling".into(),
-            TransportType::Websocket => "websocket".into(),
         }
     }
 }

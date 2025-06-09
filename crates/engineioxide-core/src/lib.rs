@@ -30,8 +30,11 @@
 )]
 #![doc = include_str!("../README.md")]
 
+mod packet;
 mod sid;
 mod str;
+mod transport;
 
 pub use sid::Sid;
 pub use str::Str;
+pub use transport::{TransportType, UnknownTransportError};

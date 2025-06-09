@@ -676,6 +676,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "engineioxide-client"
+version = "0.17.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "criterion",
+ "engineioxide-core",
+ "futures-core",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "itoa",
+ "memchr",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "engineioxide-core"
 version = "0.2.0"
 dependencies = [
@@ -683,6 +715,7 @@ dependencies = [
  "bytes",
  "rand 0.9.1",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
