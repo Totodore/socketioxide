@@ -125,7 +125,6 @@ type MiddlewareRes = Result<(), Box<dyn std::fmt::Display + Send>>;
 type MiddlewareResFut<'a> = Pin<Box<dyn Future<Output = MiddlewareRes> + Send + 'a>>;
 
 pub(crate) trait ErasedConnectHandler<A: Adapter>: Send + Sync + 'static {
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id)))]
     fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>);
     fn call_middleware<'a>(
         &'a self,
@@ -305,6 +304,7 @@ where
     H: ConnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id)))]
     fn call(&self, s: Arc<Socket<A>>, auth: Option<Value>) {
         self.handler.call(s, auth);
     }
