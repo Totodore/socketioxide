@@ -2540,6 +2540,7 @@ dependencies = [
  "pin-project-lite",
  "rmp-serde",
  "serde",
+ "serde_json",
  "smallvec",
  "socketioxide",
  "socketioxide-core",

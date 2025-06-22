@@ -32,15 +32,15 @@
 //!
 
 use drivers::Driver;
-
 use futures_core::Stream;
-use serde::{Serialize, de::DeserializeOwned};
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use socketioxide_core::{
     Sid, Uid,
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
-        errors::AdapterError,
+        errors::{AdapterError, BroadcastError},
         remote_packet::{
             RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType,
             ResponseTypeId,
@@ -50,7 +50,6 @@ use socketioxide_core::{
 };
 use std::{
     borrow::Cow,
-    collections::HashMap,
     fmt, future,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -60,6 +59,7 @@ use std::{
 use tokio::sync::mpsc;
 
 mod drivers;
+mod stream;
 
 /// The configuration of the [`MongoDbAdapter`].
 #[derive(Debug, Clone)]
@@ -103,11 +103,6 @@ pub enum Error<D: Driver> {
     Decode(#[from] rmp_serde::decode::Error),
 }
 
-impl<R: Driver> Error<R> {
-    fn from_driver(err: R::Error) -> Self {
-        Self::Driver(err)
-    }
-}
 impl<R: Driver> fmt::Debug for Error<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -124,7 +119,9 @@ impl<R: Driver> From<Error<R>> for AdapterError {
     }
 }
 
-pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Item>>;
+/// An event we should answer to
+#[derive(Debug, Deserialize)]
+struct Event {}
 
 /// The postgres adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the postgres server.
@@ -142,8 +139,6 @@ pub struct CustomPostgresAdapter<E, D> {
     local: CoreLocalAdapter<E>,
     /// A map of nodes liveness, with the last time remote nodes were seen alive.
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
-    /// A map of response handlers used to await for responses from the remote servers.
-    responses: Arc<Mutex<ResponseHandlers>>,
 }
 
 impl<E, D> DefinedAdapter for CustomPostgresAdapter<E, D> {}
@@ -161,13 +156,12 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             driver: state.driver.clone(),
             config: state.config.clone(),
             nodes_liveness: Mutex::new(Vec::new()),
-            responses: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
         let fut = async move {
-            let stream = self.driver.watch(self.uid, self.local.path()).await?;
+            let stream = self.driver.listen("event").await?;
             tokio::spawn(self.clone().handle_ev_stream(stream));
             tokio::spawn(self.clone().heartbeat_job());
 
@@ -254,9 +248,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
 
         let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
         tracing::trace!(?remote_serv_cnt, "expecting acks from remote servers");
+        let res = self.driver.listen("").await?;
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
-        self.responses.lock().unwrap().insert(req_id, tx);
         self.send_req(req, None).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
@@ -375,56 +369,14 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         }
     }
 
-    async fn handle_ev_stream(
-        self: Arc<Self>,
-        mut stream: impl Stream<Item = Result<Item, D::Error>> + Unpin,
-    ) {
-        while let Some(item) = stream.next().await {
-            match item {
-                Ok(Item {
-                    header: ItemHeader::Req { target, .. },
-                    data,
-                    ..
-                }) if target.is_none_or(|id| id == self.uid) => {
-                    tracing::debug!(?target, "request header");
-                    if let Err(e) = self.recv_req(data).await {
-                        tracing::warn!("error receiving request from driver: {e}");
-                    }
-                }
-                Ok(Item {
-                    header: ItemHeader::Req { target, .. },
-                    ..
-                }) => {
-                    tracing::debug!(
-                        ?target,
-                        "receiving request which is not for us, skipping..."
-                    );
-                }
-                Ok(
-                    item @ Item {
-                        header: ItemHeader::Res { request, .. },
-                        ..
-                    },
-                ) => {
-                    tracing::trace!(?request, "received response");
-                    let handlers = self.responses.lock().unwrap();
-                    if let Some(tx) = handlers.get(&request) {
-                        if let Err(e) = tx.try_send(item) {
-                            tracing::warn!("error sending response to handler: {e}");
-                        }
-                    } else {
-                        tracing::warn!(?request, ?handlers, "could not find req handler");
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("error receiving event from driver: {e}");
-                }
-            }
+    async fn handle_ev_stream(self: Arc<Self>, stream: impl Stream<Item = RequestIn>) {
+        futures_util::pin_mut!(stream);
+        while let Some(req) = stream.next().await {
+            self.recv_req(req);
         }
     }
 
-    async fn recv_req(self: &Arc<Self>, req: Vec<u8>) -> Result<(), Error<D>> {
-        let req = rmp_serde::from_slice::<RequestIn>(&req)?;
+    fn recv_req(self: &Arc<Self>, req: RequestIn) {
         tracing::trace!(?req, "incoming request");
         match (req.r#type, req.opts) {
             (RequestTypeIn::Broadcast(p), Some(opts)) => self.recv_broadcast(opts, p),
@@ -443,7 +395,6 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             }
             _ => (),
         }
-        Ok(())
     }
 
     fn recv_broadcast(&self, opts: BroadcastOptions, packet: Packet) {
@@ -586,31 +537,29 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     /// Send a request to a specific target node or broadcast it to all nodes if no target is specified.
     async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
-        let head = ItemHeader::Req { target };
-        let req = self.new_packet(head, &req)?;
-        self.driver.emit(&req).await.map_err(Error::from_driver)?;
+        // let head = ItemHeader::Req { target };
+        // let req = self.new_packet(head, &req)?;
+        self.driver
+            .notify("yolo", &req)
+            .await
+            .map_err(Error::Driver)?;
         Ok(())
     }
 
     /// Send a response to the node that sent the request.
-    fn send_res<T: Serialize + fmt::Debug>(
+    async fn send_res<T: Serialize + fmt::Debug>(
         &self,
         req_id: Sid,
         req_origin: Uid,
         res: Response<T>,
-    ) -> impl Future<Output = Result<(), Error<D>>> + Send + 'static {
+    ) -> Result<(), Error<D>> {
         tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
-        let driver = self.driver.clone();
-        let head = ItemHeader::Res {
-            request: req_id,
-            target: req_origin,
-        };
-        let res = self.new_packet(head, &res);
 
-        async move {
-            driver.emit(&res?).await.map_err(Error::from_driver)?;
-            Ok(())
-        }
+        self.driver
+            .notify("response", &res)
+            .await
+            .map_err(Error::Driver)?;
+        Ok(())
     }
 
     /// Await for all the responses from the remote servers.
@@ -665,10 +614,6 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             None,
         )
         .await
-    }
-    fn new_packet(&self, head: ItemHeader, data: &impl Serialize) -> Result<Item, Error<D>> {
-        let ns = &self.local.path();
-        let uid = self.uid;
     }
 }
 
