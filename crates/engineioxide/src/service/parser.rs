@@ -1,10 +1,10 @@
 //! A Parser module to parse any `EngineIo` query
 
-use std::{future::Future, str::FromStr, sync::Arc};
+use std::{future::Future, sync::Arc};
 
 use http::{Method, Request, Response};
 
-use engineioxide_core::{Sid, TransportType};
+use engineioxide_core::{ProtocolVersion, Sid, TransportType};
 
 use crate::{
     body::ResponseBody,
@@ -122,36 +122,6 @@ impl<B> From<ParseError> for Response<ResponseBody<B>> {
     }
 }
 
-/// The engine.io protocol version
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum ProtocolVersion {
-    /// The protocol version 3
-    V3 = 3,
-    /// The protocol version 4
-    V4 = 4,
-}
-
-impl FromStr for ProtocolVersion {
-    type Err = ParseError;
-
-    #[cfg(feature = "v3")]
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "3" => Ok(ProtocolVersion::V3),
-            "4" => Ok(ProtocolVersion::V4),
-            _ => Err(ParseError::UnsupportedProtocolVersion),
-        }
-    }
-
-    #[cfg(not(feature = "v3"))]
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "4" => Ok(ProtocolVersion::V4),
-            _ => Err(ParseError::UnsupportedProtocolVersion),
-        }
-    }
-}
-
 /// The request information extracted from the request URI.
 #[derive(Debug)]
 pub struct RequestInfo {
@@ -178,8 +148,8 @@ impl RequestInfo {
             .split('&')
             .find(|s| s.starts_with("EIO="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(UnsupportedProtocolVersion)
-            .and_then(|t| t.parse())?;
+            .and_then(|t| t.parse().ok())
+            .ok_or(UnsupportedProtocolVersion)?;
 
         let sid = query
             .split('&')

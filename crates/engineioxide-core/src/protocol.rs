@@ -56,3 +56,42 @@ impl From<TransportType> for String {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct UnknownProtocolVersionError;
+impl std::fmt::Display for UnknownProtocolVersionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown protocol version")
+    }
+}
+impl std::error::Error for UnknownProtocolVersionError {}
+
+/// The engine.io protocol version
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ProtocolVersion {
+    /// The protocol version 3
+    V3 = 3,
+    /// The protocol version 4
+    V4 = 4,
+}
+
+impl FromStr for ProtocolVersion {
+    type Err = UnknownProtocolVersionError;
+
+    #[cfg(feature = "v3")]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "3" => Ok(ProtocolVersion::V3),
+            "4" => Ok(ProtocolVersion::V4),
+            _ => Err(UnknownProtocolVersionError),
+        }
+    }
+
+    #[cfg(not(feature = "v3"))]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "4" => Ok(ProtocolVersion::V4),
+            _ => Err(UnknownProtocolVersionError),
+        }
+    }
+}

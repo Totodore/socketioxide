@@ -24,11 +24,11 @@ use tokio_tungstenite::{
     },
 };
 
-use engineioxide_core::{Packet, Sid, Str, TransportType};
+use engineioxide_core::{Packet, ProtocolVersion, Sid, Str, TransportType};
 
 use crate::{
     DisconnectReason, Socket, body::ResponseBody, config::EngineIoConfig, engine::EngineIo,
-    errors::Error, handler::EngineIoHandler, service::ProtocolVersion, transport::make_open_packet,
+    errors::Error, handler::EngineIoHandler, transport::make_open_packet,
 };
 
 /// Create a response for websocket upgrade
@@ -62,7 +62,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     let ws_key = parts
         .headers
         .get("Sec-WebSocket-Key")
-        .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
+        .ok_or(Error::InvalidWebSocketKey)?
         .clone();
 
     tokio::spawn(async move {

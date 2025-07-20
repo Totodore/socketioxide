@@ -1,18 +1,18 @@
 //! Payload encoder and decoder for polling transport.
 
-use crate::{
-    errors::Error, peekable::PeekableReceiver, service::ProtocolVersion, socket::PacketBuf,
-};
-use engineioxide_core::{Packet, PacketParseError};
+use crate::{Packet, PacketParseError, ProtocolVersion, packet::PacketBuf};
 
 use bytes::Bytes;
-use futures_core::Stream;
+use futures_util::Stream;
 use http::Request;
 use tokio::sync::MutexGuard;
 
 mod buf;
 mod decoder;
 mod encoder;
+mod peekable;
+
+pub use peekable::PeekableReceiver;
 
 const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 #[cfg(feature = "v3")]
@@ -24,6 +24,7 @@ const STRING_PACKET_IDENTIFIER_V3: u8 = 0x00;
 #[cfg(feature = "v3")]
 const BINARY_PACKET_IDENTIFIER_V3: u8 = 0x01;
 
+/// Decode a payload into a stream of packets.
 pub fn decoder(
     body: Request<impl http_body::Body<Error = impl std::fmt::Debug> + Unpin>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
@@ -55,23 +56,26 @@ pub fn decoder(
 }
 
 /// A payload to transmit to the client through http polling
-#[non_exhaustive]
 pub struct Payload {
+    /// The data of the payload.
     pub data: Bytes,
+    /// Whether the payload contains binary data.
     pub has_binary: bool,
 }
 impl Payload {
+    /// Creates a new payload with the given data and binary flag.
     pub fn new(data: Bytes, has_binary: bool) -> Self {
         Self { data, has_binary }
     }
 }
 
+/// Encodes a payload into a byte stream.
 pub async fn encoder(
     rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
     max_payload: u64,
-) -> Result<Payload, Error> {
+) -> Payload {
     #[cfg(feature = "v3")]
     {
         match protocol {

@@ -7,13 +7,14 @@
 //!    * binary encoder (used when there are binary packets and the client supports binary)
 //!
 
+use smallvec::smallvec;
 use tokio::sync::MutexGuard;
 
 use crate::{
-    errors::Error, peekable::PeekableReceiver, socket::PacketBuf,
-    transport::polling::payload::Payload,
+    Packet,
+    packet::PacketBuf,
+    payload::{Payload, peekable::PeekableReceiver},
 };
-use engineioxide_core::Packet;
 
 /// Try to immediately poll a new packet buf from the rx channel and check that the new packet can be added to the payload
 ///
@@ -56,10 +57,9 @@ fn try_recv_packet(
 
 /// Same as [`try_recv_packet`]
 /// but wait for a new packet if there is no packet in the buffer
-async fn recv_packet(
-    rx: &mut MutexGuard<'_, PeekableReceiver<PacketBuf>>,
-) -> Result<PacketBuf, Error> {
-    let packet = rx.recv().await.ok_or(Error::Aborted)?;
+async fn recv_packet(rx: &mut MutexGuard<'_, PeekableReceiver<PacketBuf>>) -> PacketBuf {
+    let packet = rx.recv().await.unwrap_or(smallvec![]);
+
     if Some(&Packet::Close) == packet.first() {
         #[cfg(feature = "tracing")]
         tracing::debug!("Received close packet, closing channel");
@@ -68,7 +68,7 @@ async fn recv_packet(
 
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", packet);
-    Ok(packet)
+    packet
 }
 
 /// Encode multiple packets into a string payload according to the
@@ -76,8 +76,8 @@ async fn recv_packet(
 pub async fn v4_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
-) -> Result<Payload, Error> {
-    use crate::transport::polling::payload::PACKET_SEPARATOR_V4;
+) -> Payload {
+    use crate::payload::PACKET_SEPARATOR_V4;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("encoding payload with v4 encoder");
@@ -100,21 +100,21 @@ pub async fn v4_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(&mut rx).await?;
+        let packets = recv_packet(&mut rx).await;
         for packet in packets {
             let packet: String = packet.into();
             data.push_str(&packet);
         }
     }
 
-    Ok(Payload::new(data.into(), false))
+    Payload::new(data.into(), false)
 }
 
 /// Encode one packet into a *binary* payload according to the
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
-pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Result<(), Error> {
-    use crate::transport::polling::payload::BINARY_PACKET_SEPARATOR_V3;
+pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
+    use crate::payload::BINARY_PACKET_SEPARATOR_V3;
     use bytes::BufMut;
 
     let mut itoa = itoa::Buffer::new();
@@ -148,14 +148,13 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Resu
             data.extend_from_slice(packet.as_bytes()); // packet
         }
     };
-    Ok(())
 }
 
 /// Encode one packet into a *string* payload according to the
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
-pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Result<(), Error> {
-    use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
+pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
+    use crate::payload::STRING_PACKET_SEPARATOR_V3;
     use bytes::BufMut;
     let packet: String = packet.into();
     let packet = format!(
@@ -165,7 +164,6 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> R
         packet
     );
     data.put_slice(packet.as_bytes());
-    Ok(())
 }
 
 /// Encode multiple packet packet into a *string* payload if there is no binary packet or into a *binary* payload if there are binary packets
@@ -174,7 +172,7 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> R
 pub async fn v3_binary_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
-) -> Result<Payload, Error> {
+) -> Payload {
     let mut data = bytes::BytesMut::new();
     let mut packet_buffer: Vec<Packet> = Vec::new();
 
@@ -203,25 +201,25 @@ pub async fn v3_binary_encoder(
 
     if has_binary {
         for packet in packet_buffer {
-            v3_bin_packet_encoder(packet, &mut data)?;
+            v3_bin_packet_encoder(packet, &mut data);
         }
     } else {
         for packet in packet_buffer {
-            v3_string_packet_encoder(packet, &mut data)?;
+            v3_string_packet_encoder(packet, &mut data);
         }
     }
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(&mut rx).await?;
+        let packets = recv_packet(&mut rx).await;
         for packet in packets {
             match packet {
                 Packet::BinaryV3(_) | Packet::Binary(_) => {
-                    v3_bin_packet_encoder(packet, &mut data)?;
+                    v3_bin_packet_encoder(packet, &mut data);
                     has_binary = true;
                 }
                 packet => {
-                    v3_string_packet_encoder(packet, &mut data)?;
+                    v3_string_packet_encoder(packet, &mut data);
                 }
             };
         }
@@ -229,7 +227,7 @@ pub async fn v3_binary_encoder(
 
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", &data);
-    Ok(Payload::new(data.freeze(), has_binary))
+    Payload::new(data.freeze(), has_binary)
 }
 
 /// Encode multiple packet packet into a *string* payload according to the
@@ -238,7 +236,7 @@ pub async fn v3_binary_encoder(
 pub async fn v3_string_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
-) -> Result<Payload, Error> {
+) -> Payload {
     let mut data = bytes::BytesMut::new();
 
     #[cfg(feature = "tracing")]
@@ -251,19 +249,19 @@ pub async fn v3_string_encoder(
     let current_size = data.len() + PUNCTUATION_LEN + max_packet_size_len;
     while let Some(packets) = try_recv_packet(&mut rx, current_size, max_payload, true) {
         for packet in packets {
-            v3_string_packet_encoder(packet, &mut data)?;
+            v3_string_packet_encoder(packet, &mut data);
         }
     }
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(&mut rx).await?;
+        let packets = recv_packet(&mut rx).await;
         for packet in packets {
-            v3_string_packet_encoder(packet, &mut data)?;
+            v3_string_packet_encoder(packet, &mut data);
         }
     }
 
-    Ok(Payload::new(data.freeze(), false))
+    Payload::new(data.freeze(), false)
 }
 
 #[cfg(test)]
@@ -290,7 +288,7 @@ mod tests {
         .unwrap();
         tx.try_send(smallvec::smallvec![Packet::Message("hello€".into())])
             .unwrap();
-        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
     }
 
@@ -311,17 +309,17 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await;
             assert_eq!(data, "4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await;
             assert_eq!(data, "bAQIDBA==\x1e4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await;
             assert_eq!(data, "4hello€".as_bytes());
         }
     }
@@ -342,9 +340,7 @@ mod tests {
         .unwrap();
         tx.try_send(smallvec::smallvec![Packet::Message("hello€".into())])
             .unwrap();
-        let Payload {
-            data, has_binary, ..
-        } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        let Payload { data, has_binary } = v3_string_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
         assert!(!has_binary);
     }
@@ -368,12 +364,12 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await;
             assert_eq!(data, "7:4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await;
             assert_eq!(data, "10:b4AQIDBA==7:4hello€7:4hello€".as_bytes());
         }
     }
@@ -394,9 +390,7 @@ mod tests {
             &[1, 2, 3, 4]
         ))])
         .unwrap();
-        let Payload {
-            data, has_binary, ..
-        } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        let Payload { data, has_binary } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }
@@ -424,12 +418,12 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
             assert_eq!(*data, PAYLOAD);
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
             assert_eq!(data, "7:4hello€7:4hello€".as_bytes());
         }
     }

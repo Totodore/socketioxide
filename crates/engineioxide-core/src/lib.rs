@@ -30,11 +30,12 @@
 #![doc = include_str!("../README.md")]
 
 mod packet;
+mod protocol;
 mod sid;
 mod str;
-mod transport;
 
-pub use packet::{OpenPacket, Packet, PacketParseError};
+pub use packet::{OpenPacket, Packet, PacketBuf, PacketParseError};
+pub use protocol::{ProtocolVersion, TransportType, UnknownTransportError};
 pub use sid::Sid;
 pub use str::Str;
-pub use transport::{TransportType, UnknownTransportError};
+pub mod payload;

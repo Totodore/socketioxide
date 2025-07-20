@@ -5,9 +5,8 @@
 //! - v3_decoder: Decodes the payload stream according to the [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 //!
 
-use engineioxide_core::{Packet, PacketParseError};
-use futures_core::Stream;
-use futures_util::StreamExt;
+use crate::{Packet, PacketParseError};
+use futures_util::{Stream, StreamExt};
 
 use bytes::Buf;
 use http_body::Body;
@@ -137,7 +136,7 @@ where
 {
     use std::io::Read;
 
-    use crate::transport::polling::payload::{
+    use crate::payload::{
         BINARY_PACKET_IDENTIFIER_V3, BINARY_PACKET_SEPARATOR_V3, STRING_PACKET_IDENTIFIER_V3,
     };
 
@@ -234,7 +233,7 @@ pub fn v3_string_decoder(
     use std::io::ErrorKind;
     use unicode_segmentation::UnicodeSegmentation;
 
-    use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
+    use crate::payload::STRING_PACKET_SEPARATOR_V3;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("decoding payload with v3 string decoder");

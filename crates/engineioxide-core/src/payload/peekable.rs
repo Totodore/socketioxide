@@ -11,15 +11,18 @@ pub struct PeekableReceiver<T> {
     next: Option<T>,
 }
 impl<T> PeekableReceiver<T> {
+    /// Create a new peekable receiver
     pub fn new(rx: Receiver<T>) -> Self {
         Self { rx, next: None }
     }
+    /// Peek the next packet without consuming it
     pub fn peek(&mut self) -> Option<&T> {
         if self.next.is_none() {
             self.next = self.rx.try_recv().ok();
         }
         self.next.as_ref()
     }
+    /// Receive the next packet, consuming it
     pub async fn recv(&mut self) -> Option<T> {
         if self.next.is_none() {
             self.rx.recv().await
@@ -27,6 +30,7 @@ impl<T> PeekableReceiver<T> {
             self.next.take()
         }
     }
+    /// Try to receive the next packet without blocking
     pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
         if self.next.is_none() {
             self.rx.try_recv()
@@ -35,6 +39,7 @@ impl<T> PeekableReceiver<T> {
         }
     }
 
+    /// Close the receiver
     pub fn close(&mut self) {
         self.rx.close()
     }
@@ -47,7 +52,7 @@ mod tests {
     #[tokio::test]
     async fn peek() {
         use super::PeekableReceiver;
-        use engineioxide_core::Packet;
+        use crate::Packet;
         use tokio::sync::mpsc::channel;
 
         let (tx, rx) = channel(1);

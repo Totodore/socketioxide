@@ -11,10 +11,6 @@ pub use engineioxide_core::PacketParseError;
 pub enum Error {
     #[error("error decoding packet from request: {0}")]
     PacketParse(#[from] PacketParseError),
-    #[error("error decoding packet: {0}")]
-    StrUtf8(#[from] std::str::Utf8Error),
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
     #[error("bad packet received")]
     BadPacket(Packet),
     #[error("ws transport error: {0}")]
@@ -29,11 +25,11 @@ pub enum Error {
     HeartbeatTimeout,
     #[error("upgrade error")]
     Upgrade,
-    #[error("aborted connection")]
-    Aborted,
 
-    #[error("http error response: {0}")]
-    HttpErrorResponse(StatusCode),
+    #[error("multiple http polling error")]
+    MultipleHttpPolling,
+    #[error("invalid websocket Sec-WebSocket-Key http header")]
+    InvalidWebSocketKey,
 
     #[error("unknown session id")]
     UnknownSessionID(Sid),
@@ -54,15 +50,14 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .unwrap()
         };
         match err {
-            Error::HttpErrorResponse(code) => Response::builder()
-                .status(code)
-                .body(ResponseBody::empty_response())
-                .unwrap(),
             Error::PacketParse(PacketParseError::PayloadTooLarge { .. }) => Response::builder()
                 .status(413)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-            Error::BadPacket(_) | Error::PacketParse(_) => Response::builder()
+            Error::BadPacket(_)
+            | Error::PacketParse(_)
+            | Error::MultipleHttpPolling
+            | Error::InvalidWebSocketKey => Response::builder()
                 .status(400)
                 .body(ResponseBody::empty_response())
                 .unwrap(),

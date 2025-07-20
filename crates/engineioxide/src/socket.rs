@@ -63,11 +63,11 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    config::EngineIoConfig, errors::Error, peekable::PeekableReceiver, service::ProtocolVersion,
-};
+use crate::{config::EngineIoConfig, errors::Error};
 use bytes::Bytes;
-use engineioxide_core::{Packet, Str, TransportType};
+use engineioxide_core::{
+    Packet, PacketBuf, ProtocolVersion, Str, TransportType, payload::PeekableReceiver,
+};
 use http::request::Parts;
 use smallvec::{SmallVec, smallvec};
 use tokio::{
@@ -106,10 +106,8 @@ impl From<&Error> for Option<DisconnectReason> {
     fn from(err: &Error) -> Self {
         use Error::*;
         match err {
-            WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
-            BadPacket(_) | StrUtf8(_) | PacketParse(_) => {
-                Some(DisconnectReason::PacketParsingError)
-            }
+            WsTransport(_) => Some(DisconnectReason::TransportError),
+            BadPacket(_) | PacketParse(_) => Some(DisconnectReason::PacketParsingError),
             HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
             _ => None,
         }
@@ -157,13 +155,6 @@ impl Permit<'_> {
         self.inner.send(packets);
     }
 }
-
-/// Buffered packets to send to the client.
-/// It is used to ensure atomicity when sending multiple packets to the client.
-///
-/// The [`PacketBuf`] stack size will impact the dynamically allocated buffer
-/// of the internal mpsc channel.
-pub(crate) type PacketBuf = SmallVec<[Packet; 2]>;
 
 /// A [`Socket`] represents a client connection to the server.
 /// It is agnostic to the [`TransportType`].

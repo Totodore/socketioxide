@@ -2,7 +2,8 @@ use std::fmt;
 
 use base64::{Engine, engine::general_purpose};
 use bytes::Bytes;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 use crate::{Sid, Str};
 
@@ -53,6 +54,8 @@ pub enum Packet {
 /// An error that occurs when parsing a packet.
 #[derive(Debug)]
 pub enum PacketParseError {
+    /// Invalid connect packet
+    InvalidConnectPacket(serde_json::Error),
     /// The packet type is invalid.
     InvalidPacketType(Option<char>),
     /// The packet payload is invalid.
@@ -72,6 +75,7 @@ pub enum PacketParseError {
 impl fmt::Display for PacketParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            PacketParseError::InvalidConnectPacket(e) => write!(f, "invalid connect packet: {e}"),
             PacketParseError::InvalidPacketType(c) => write!(f, "invalid packet type: {c:?}"),
             PacketParseError::InvalidPacketPayload => write!(f, "invalid packet payload"),
             PacketParseError::InvalidPacketLen => write!(f, "invalid packet length"),
@@ -99,6 +103,11 @@ impl From<std::string::FromUtf8Error> for PacketParseError {
 impl From<std::str::Utf8Error> for PacketParseError {
     fn from(err: std::str::Utf8Error) -> Self {
         PacketParseError::InvalidUtf8Boundary(err)
+    }
+}
+impl From<serde_json::Error> for PacketParseError {
+    fn from(err: serde_json::Error) -> Self {
+        PacketParseError::InvalidConnectPacket(err)
     }
 }
 impl std::error::Error for PacketParseError {}
@@ -204,6 +213,7 @@ impl TryFrom<Str> for Packet {
             .ok_or(PacketParseError::InvalidPacketType(None))?;
         let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
         let res = match packet_type {
+            b'0' => Packet::Open(serde_json::from_str(value.slice(1..).as_str())?),
             b'1' => Packet::Close,
             b'2' if is_upgrade => Packet::PingUpgrade,
             b'2' => Packet::Ping,
@@ -236,7 +246,7 @@ impl TryFrom<String> for Packet {
 }
 
 /// An OpenPacket is used to initiate a connection
-#[derive(Debug, Clone, Serialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
     /// The session ID.
@@ -265,6 +275,13 @@ impl Default for OpenPacket {
     }
 }
 
+/// Buffered packets to send to the client.
+/// It is used to ensure atomicity when sending multiple packets to the client.
+///
+/// The [`PacketBuf`] stack size will impact the dynamically allocated buffer
+/// of the internal mpsc channel.
+pub type PacketBuf = SmallVec<[Packet; 2]>;
+
 #[cfg(test)]
 mod tests {
 
@@ -288,6 +305,23 @@ mod tests {
                 "0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"
             )
         );
+    }
+
+    #[test]
+    fn test_open_packet_deserialize() {
+        let sid = Sid::new();
+        let ref_packet = OpenPacket {
+            sid,
+            upgrades: vec!["websocket".to_string()],
+            ping_interval: Duration::from_millis(25000).as_millis() as u64,
+            ping_timeout: Duration::from_millis(20000).as_millis() as u64,
+            max_payload: 100000,
+        };
+        let packet_str = format!(
+            "0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"
+        );
+        let packet = Packet::try_from(packet_str).unwrap();
+        assert!(matches!(packet, Packet::Open(p) if p == ref_packet));
     }
 
     #[test]

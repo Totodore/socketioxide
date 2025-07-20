@@ -33,6 +33,8 @@ use std::{
 };
 
 use bytes::Bytes;
+#[cfg(feature = "__test_harness")]
+use engineioxide_core::ProtocolVersion;
 use futures_util::future::{self, Ready};
 use http::{Request, Response};
 use http_body::Body;
@@ -47,7 +49,6 @@ use crate::{
 mod futures;
 mod parser;
 
-pub use self::parser::ProtocolVersion;
 use self::{futures::ResponseFuture, parser::dispatch_req};
 
 /// A `Service` that handles engine.io requests as a middleware.

@@ -2,24 +2,18 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use engineioxide_core::payload::{self, Payload};
 use futures_util::StreamExt;
 use http::{Request, Response, StatusCode};
 use http_body::Body;
 use http_body_util::Full;
 
-use engineioxide_core::{Packet, Sid, TransportType};
+use engineioxide_core::{Packet, ProtocolVersion, Sid, TransportType};
 
 use crate::{
-    DisconnectReason,
-    body::ResponseBody,
-    engine::EngineIo,
-    errors::Error,
-    handler::EngineIoHandler,
-    service::ProtocolVersion,
-    transport::{make_open_packet, polling::payload::Payload},
+    DisconnectReason, body::ResponseBody, engine::EngineIo, errors::Error,
+    handler::EngineIoHandler, transport::make_open_packet,
 };
-
-mod payload;
 
 /// Create a response for http request
 fn http_response<B, D>(
@@ -107,7 +101,7 @@ where
         Ok(s) => s,
         Err(_) => {
             socket.close(DisconnectReason::MultipleHttpPollingError);
-            return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
+            return Err(Error::MultipleHttpPolling);
         }
     };
 
@@ -118,9 +112,9 @@ where
 
     #[cfg(feature = "v3")]
     let Payload { data, has_binary } =
-        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await?;
+        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await;
     #[cfg(not(feature = "v3"))]
-    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await?;
+    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={sid}] sending data: {:?}", data);
