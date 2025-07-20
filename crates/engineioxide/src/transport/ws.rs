@@ -18,24 +18,17 @@ use tokio::{
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
-        Message,
+        self, Message,
         handshake::derive_accept_key,
         protocol::{Role, WebSocketConfig},
     },
 };
 
-use engineioxide_core::Sid;
+use engineioxide_core::{Packet, Sid, Str, TransportType};
 
 use crate::{
-    DisconnectReason, Socket,
-    body::ResponseBody,
-    config::EngineIoConfig,
-    engine::EngineIo,
-    errors::Error,
-    handler::EngineIoHandler,
-    packet::{OpenPacket, Packet},
-    service::ProtocolVersion,
-    service::TransportType,
+    DisconnectReason, Socket, body::ResponseBody, config::EngineIoConfig, engine::EngineIo,
+    errors::Error, handler::EngineIoHandler, service::ProtocolVersion, transport::make_open_packet,
 };
 
 /// Create a response for websocket upgrade
@@ -171,7 +164,7 @@ where
 {
     while let Some(msg) = rx.try_next().await? {
         match msg {
-            Message::Text(msg) => match Packet::try_from(msg)? {
+            Message::Text(msg) => match Packet::try_from(ws_bytes_to_str(msg))? {
                 Packet::Close => {
                     #[cfg(feature = "tracing")]
                     tracing::debug!("[sid={}] closing session", socket.id);
@@ -283,7 +276,8 @@ async fn init_handshake<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, config));
+    let packet = Packet::Open(make_open_packet(TransportType::Websocket, sid, config));
+    let packet: String = packet.into();
     ws.send(Message::Text(packet.into())).await?;
     Ok(())
 }
@@ -327,11 +321,12 @@ where
         Some(Ok(Message::Text(d))) => d,
         _ => Err(Error::Upgrade)?,
     };
-    match Packet::try_from(msg)? {
+    match Packet::try_from(ws_bytes_to_str(msg))? {
         Packet::PingUpgrade => {
             socket.start_upgrade();
+            let pong: String = Packet::PongUpgrade.into();
             // Respond with a PongUpgrade packet
-            ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
+            ws.send(Message::Text(pong.into())).await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
@@ -353,7 +348,7 @@ where
             Err(Error::Upgrade)?
         }
     };
-    match Packet::try_from(msg)? {
+    match Packet::try_from(ws_bytes_to_str(msg))? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("ws upgraded successful")
@@ -365,4 +360,10 @@ where
     let _ = socket.internal_rx.lock().await;
     socket.upgrade_to_websocket();
     Ok(())
+}
+
+fn ws_bytes_to_str(bytes: tungstenite::Utf8Bytes) -> Str {
+    // SAFETY: We are converting a valid UTF-8 byte slice
+    // to a string without checking its validity.
+    unsafe { Str::from_bytes_unchecked(bytes.into()) }
 }

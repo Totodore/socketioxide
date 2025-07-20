@@ -3,13 +3,13 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use engineioxide_core::Sid;
+use engineioxide_core::{Sid, TransportType};
 use http::request::Parts;
 
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
-    service::{ProtocolVersion, TransportType},
+    service::ProtocolVersion,
     socket::{DisconnectReason, Socket},
 };
 

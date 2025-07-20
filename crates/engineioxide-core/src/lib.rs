@@ -34,6 +34,7 @@ mod sid;
 mod str;
 mod transport;
 
+pub use packet::{OpenPacket, Packet, PacketParseError};
 pub use sid::Sid;
 pub use str::Str;
 pub use transport::{TransportType, UnknownTransportError};

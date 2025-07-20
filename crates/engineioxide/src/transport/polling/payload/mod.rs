@@ -1,9 +1,10 @@
 //! Payload encoder and decoder for polling transport.
 
 use crate::{
-    errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion,
-    socket::PacketBuf,
+    errors::Error, peekable::PeekableReceiver, service::ProtocolVersion, socket::PacketBuf,
 };
+use engineioxide_core::{Packet, PacketParseError};
+
 use bytes::Bytes;
 use futures_core::Stream;
 use http::Request;
@@ -27,7 +28,7 @@ pub fn decoder(
     body: Request<impl http_body::Body<Error = impl std::fmt::Debug> + Unpin>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, Error>> {
+) -> impl Stream<Item = Result<Packet, PacketParseError>> {
     #[cfg(feature = "v3")]
     {
         use futures_util::future::Either;

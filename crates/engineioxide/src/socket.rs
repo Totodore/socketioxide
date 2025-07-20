@@ -64,14 +64,10 @@ use std::{
 };
 
 use crate::{
-    config::EngineIoConfig,
-    errors::Error,
-    packet::Packet,
-    peekable::PeekableReceiver,
-    service::{ProtocolVersion, TransportType},
+    config::EngineIoConfig, errors::Error, peekable::PeekableReceiver, service::ProtocolVersion,
 };
 use bytes::Bytes;
-use engineioxide_core::Str;
+use engineioxide_core::{Packet, Str, TransportType};
 use http::request::Parts;
 use smallvec::{SmallVec, smallvec};
 use tokio::{
@@ -111,8 +107,9 @@ impl From<&Error> for Option<DisconnectReason> {
         use Error::*;
         match err {
             WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
-            BadPacket(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge | InvalidPacketLength
-            | InvalidPacketType(_) => Some(DisconnectReason::PacketParsingError),
+            BadPacket(_) | StrUtf8(_) | PacketParse(_) => {
+                Some(DisconnectReason::PacketParsingError)
+            }
             HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
             _ => None,
         }

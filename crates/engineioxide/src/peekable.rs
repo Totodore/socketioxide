@@ -47,7 +47,7 @@ mod tests {
     #[tokio::test]
     async fn peek() {
         use super::PeekableReceiver;
-        use crate::packet::Packet;
+        use engineioxide_core::Packet;
         use tokio::sync::mpsc::channel;
 
         let (tx, rx) = channel(1);

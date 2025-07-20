@@ -10,9 +10,10 @@
 use tokio::sync::MutexGuard;
 
 use crate::{
-    errors::Error, packet::Packet, peekable::PeekableReceiver, socket::PacketBuf,
+    errors::Error, peekable::PeekableReceiver, socket::PacketBuf,
     transport::polling::payload::Payload,
 };
+use engineioxide_core::Packet;
 
 /// Try to immediately poll a new packet buf from the rx channel and check that the new packet can be added to the payload
 ///

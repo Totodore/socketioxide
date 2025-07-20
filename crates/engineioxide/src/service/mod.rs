@@ -47,7 +47,7 @@ use crate::{
 mod futures;
 mod parser;
 
-pub use self::parser::{ProtocolVersion, TransportType};
+pub use self::parser::ProtocolVersion;
 use self::{futures::ResponseFuture, parser::dispatch_req};
 
 /// A `Service` that handles engine.io requests as a middleware.

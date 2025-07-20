@@ -82,13 +82,18 @@ where
 #[derive(thiserror::Error, Debug)]
 pub enum ParseError {
     #[error("transport unknown")]
-    UnknownTransport(#[from] engineioxide_core::UnknownTransportError),
+    UnknownTransport,
     #[error("bad handshake method")]
     BadHandshakeMethod,
     #[error("transport mismatch")]
     TransportMismatch,
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
+}
+impl From<engineioxide_core::UnknownTransportError> for ParseError {
+    fn from(_: engineioxide_core::UnknownTransportError) -> Self {
+        ParseError::UnknownTransport
+    }
 }
 
 /// Convert an error into an http response
@@ -105,9 +110,7 @@ impl<B> From<ParseError> for Response<ResponseBody<B>> {
                 .unwrap()
         };
         match err {
-            UnknownTransport(_) => {
-                conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}")
-            }
+            UnknownTransport => conn_err_resp("{\"code\":\"0\",\"message\":\"Transport unknown\"}"),
             BadHandshakeMethod => {
                 conn_err_resp("{\"code\":\"2\",\"message\":\"Bad handshake method\"}")
             }
@@ -188,8 +191,8 @@ impl RequestInfo {
             .split('&')
             .find(|s| s.starts_with("transport="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(UnknownTransport)
-            .and_then(|t| t.parse())?;
+            .and_then(|t| t.parse().ok())
+            .ok_or(UnknownTransport)?;
 
         if !config.allowed_transport(transport) {
             return Err(TransportMismatch);

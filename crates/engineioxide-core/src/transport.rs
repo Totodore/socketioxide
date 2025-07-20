@@ -19,6 +19,7 @@ impl From<u8> for TransportType {
     }
 }
 
+/// Cannot determine the transport type to connect to the client/server.
 #[derive(Debug, Copy, Clone)]
 pub struct UnknownTransportError;
 impl std::fmt::Display for UnknownTransportError {

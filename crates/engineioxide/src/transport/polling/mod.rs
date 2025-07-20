@@ -7,7 +7,7 @@ use http::{Request, Response, StatusCode};
 use http_body::Body;
 use http_body_util::Full;
 
-use engineioxide_core::Sid;
+use engineioxide_core::{Packet, Sid, TransportType};
 
 use crate::{
     DisconnectReason,
@@ -15,9 +15,8 @@ use crate::{
     engine::EngineIo,
     errors::Error,
     handler::EngineIoHandler,
-    packet::{OpenPacket, Packet},
-    service::{ProtocolVersion, TransportType},
-    transport::polling::payload::Payload,
+    service::ProtocolVersion,
+    transport::{make_open_packet, polling::payload::Payload},
 };
 
 mod payload;
@@ -62,7 +61,7 @@ where
         supports_binary,
     );
 
-    let packet = OpenPacket::new(TransportType::Polling, socket.id, &engine.config);
+    let packet = make_open_packet(TransportType::Polling, socket.id, &engine.config);
 
     socket.spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
 
@@ -182,7 +181,7 @@ where
                 #[cfg(feature = "tracing")]
                 tracing::debug!("[sid={sid}] error parsing packet: {:?}", e);
                 engine.close_session(sid, DisconnectReason::PacketParsingError);
-                return Err(e);
+                return Err(e.into());
             }
         }?;
     }
