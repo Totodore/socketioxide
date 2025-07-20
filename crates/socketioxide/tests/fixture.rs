@@ -52,7 +52,7 @@ pub async fn send_req(
     };
     let req = Request::builder()
         .method(method)
-        .uri(format!("http://127.0.0.1/socket.io/?EIO=4&{}", params))
+        .uri(format!("http://127.0.0.1/socket.io/?EIO=4&{params}"))
         .body(body)
         .unwrap();
     let mut res = svc.clone().call(req).await.unwrap();

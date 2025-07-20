@@ -82,7 +82,6 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tokio_tungstenite::tungstenite;
 
 pub use engineioxide_core::Sid;
 
@@ -111,7 +110,6 @@ impl From<&Error> for Option<DisconnectReason> {
     fn from(err: &Error) -> Self {
         use Error::*;
         match err {
-            WsTransport(tungstenite::Error::ConnectionClosed) => None,
             WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
             BadPacket(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge | InvalidPacketLength
             | InvalidPacketType(_) => Some(DisconnectReason::PacketParsingError),

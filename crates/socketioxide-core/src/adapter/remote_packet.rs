@@ -160,7 +160,7 @@ impl<'de> Deserialize<'de> for RequestIn {
             opts: Option<BroadcastOptions>,
         }
         let raw = RawRequest::deserialize(deserializer)?;
-        let err = |field| serde::de::Error::custom(format!("missing field: {}", field));
+        let err = |field| serde::de::Error::custom(format!("missing field: {field}"));
         let r#type = match raw.r#type {
             0 => RequestTypeIn::Broadcast(raw.packet.ok_or(err("packet"))?),
             1 => RequestTypeIn::BroadcastWithAck(raw.packet.ok_or(err("packet"))?),
