@@ -21,8 +21,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         )
     });
     group.bench_function("Decode packet message", |b| {
-        let packet: String = Packet::Message(black_box("Hello").into())
-            .into();
+        let packet: String = Packet::Message(black_box("Hello").into()).into();
         b.iter_batched(
             || packet.clone(),
             |p| Packet::try_from(p).unwrap(),
