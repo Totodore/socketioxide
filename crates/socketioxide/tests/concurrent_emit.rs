@@ -51,7 +51,7 @@ pub async fn emit() {
                 count = (count + 1) % 3;
             }
             Ping | Pong | Message(_) | Close => (),
-            msg => panic!("unexpected message: {:?}, count: {}", msg, count),
+            msg => panic!("unexpected message: {msg:?}, count: {count}"),
         };
         if total == BUFFER_SIZE {
             break;

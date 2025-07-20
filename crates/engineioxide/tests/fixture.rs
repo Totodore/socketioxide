@@ -53,7 +53,7 @@ pub fn send_req<H: EngineIoHandler>(
 
     let req = Request::builder()
         .method(method)
-        .uri(format!("http://127.0.0.1/engine.io/?EIO=4&{}", params))
+        .uri(format!("http://127.0.0.1/engine.io/?EIO=4&{params}"))
         .body(body)
         .unwrap();
     let res = svc.call(req);

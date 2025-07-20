@@ -30,8 +30,7 @@ pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError> {
     // Therefore, we limit the number of keys to 20
     if maplen == 0 || maplen > 20 {
         Err(ParserError::new(DecodeError::Uncategorized(format!(
-            "packet length too big or empty: {}",
-            maplen
+            "packet length too big or empty: {maplen}"
         ))))?;
     }
 
@@ -268,7 +267,7 @@ mod tests {
                 rmp_serde::decode::from_slice::<&str>(&data).unwrap(),
                 "connect_data"
             ),
-            _ => panic!("invalid packet: {:?}", packet),
+            _ => panic!("invalid packet: {packet:?}"),
         }
     }
 
@@ -282,7 +281,7 @@ mod tests {
                 inner: PacketData::Disconnect,
                 ns,
             } if ns == "/" => (),
-            _ => panic!("invalid packet: {:?}", packet),
+            _ => panic!("invalid packet: {packet:?}"),
         }
     }
 
@@ -299,7 +298,7 @@ mod tests {
                 rmp_serde::decode::from_slice::<(&str, &str)>(&data).unwrap(),
                 ("event_name", "event_data")
             ),
-            _ => panic!("invalid packet: {:?}", packet),
+            _ => panic!("invalid packet: {packet:?}"),
         }
     }
 
@@ -317,7 +316,7 @@ mod tests {
                     ("ack_data",)
                 )
             }
-            _ => panic!("invalid packet: {:?}", packet),
+            _ => panic!("invalid packet: {packet:?}"),
         }
     }
 
@@ -334,7 +333,7 @@ mod tests {
                     assert_eq!(error_message, "error_message");
                 }
             }
-            _ => panic!("invalid packet: {:?}", packet),
+            _ => panic!("invalid packet: {packet:?}"),
         }
     }
 
@@ -361,7 +360,7 @@ mod tests {
                     ("binary_event", bin_data)
                 );
             }
-            _ => panic!("invalid packet: {:?}", packet),
+            _ => panic!("invalid packet: {packet:?}"),
         }
     }
 
@@ -383,7 +382,7 @@ mod tests {
                     (bin_data.clone(),)
                 )
             }
-            _ => panic!("invalid packet: {:?}", packet),
+            _ => panic!("invalid packet: {packet:?}"),
         }
     }
 

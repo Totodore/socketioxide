@@ -10,7 +10,6 @@
     clippy::match_wildcard_for_single_variants,
     clippy::if_let_mutex,
     clippy::await_holding_lock,
-    clippy::match_on_vec_items,
     clippy::imprecise_flops,
     clippy::suboptimal_flops,
     clippy::lossy_float_literal,
@@ -372,7 +371,7 @@ mod test {
     fn packet_encode_binary_event() {
         let json = json!(["event", { "data": "value™" }, { "_placeholder": true, "num": 0}]);
 
-        let payload = format!("51-{}", json);
+        let payload = format!("51-{json}");
         let packet = encode(Packet::event(
             "/",
             to_event_value(
@@ -384,7 +383,7 @@ mod test {
         assert_eq!(packet, payload);
 
         // Encode with ack ID
-        let payload = format!("51-254{}", json);
+        let payload = format!("51-254{json}");
         let mut packet = Packet::event(
             "/",
             to_event_value(
@@ -398,7 +397,7 @@ mod test {
         assert_eq!(packet, payload);
 
         // Encode with NS
-        let payload = format!("51-/admin™,{}", json);
+        let payload = format!("51-/admin™,{json}");
         let packet = encode(Packet::event(
             "/admin™",
             to_event_value(
@@ -410,7 +409,7 @@ mod test {
         assert_eq!(packet, payload);
 
         // Encode with NS and ack ID
-        let payload = format!("51-/admin™,254{}", json);
+        let payload = format!("51-/admin™,254{json}");
         let mut packet = Packet::event(
             "/admin™",
             to_event_value(
@@ -441,7 +440,7 @@ mod test {
             }
         };
         let state = ParserState::default();
-        let payload = format!("52-{}", json);
+        let payload = format!("52-{json}");
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
@@ -458,7 +457,7 @@ mod test {
 
         // Check with ack ID
         let state = ParserState::default();
-        let payload = format!("52-254{}", json);
+        let payload = format!("52-254{json}");
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
@@ -475,7 +474,7 @@ mod test {
 
         // Check with NS
         let state = ParserState::default();
-        let payload = format!("52-/admin™,{}", json);
+        let payload = format!("52-/admin™,{json}");
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
@@ -492,7 +491,7 @@ mod test {
 
         // Check with ack ID and NS
         let state = ParserState::default();
-        let payload = format!("52-/admin™,254{}", json);
+        let payload = format!("52-/admin™,254{json}");
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
@@ -513,7 +512,7 @@ mod test {
     fn packet_encode_binary_ack() {
         let json = json!([{ "data": "value™" }, { "_placeholder": true, "num": 0}]);
 
-        let payload = format!("61-54{}", json);
+        let payload = format!("61-54{json}");
         let packet = encode(Packet::ack(
             "/",
             to_value(&(json!({ "data": "value™" }), Bytes::from_static(&[1]))),
@@ -523,7 +522,7 @@ mod test {
         assert_eq!(packet, payload);
 
         // Encode with NS
-        let payload = format!("61-/admin™,54{}", json);
+        let payload = format!("61-/admin™,54{json}");
         let packet = encode(Packet::ack(
             "/admin™",
             to_value(&(json!({ "data": "value™" }), Bytes::from_static(&[1]))),
@@ -544,7 +543,7 @@ mod test {
             ns: ns.into(),
         };
 
-        let payload = format!("61-54{}", json);
+        let payload = format!("61-54{json}");
         let state = ParserState::default();
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
@@ -558,7 +557,7 @@ mod test {
 
         // Check with NS
         let state = ParserState::default();
-        let payload = format!("61-/admin™,54{}", json);
+        let payload = format!("61-/admin™,54{json}");
         assert!(matches!(
             CommonParser.decode_str(&state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)

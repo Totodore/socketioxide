@@ -106,7 +106,7 @@ fn benchmark_binary(c: &mut Criterion) {
     group.bench_function("Decode binary input data with rmp_serde", |b| {
         b.iter_batched_ref(
             || to_vec_named(&(NestedDataWithBinaries::new(),)).unwrap(),
-            |d| serde_decode::<(NestedDataWithBinaries,)>(&d),
+            |d| serde_decode::<(NestedDataWithBinaries,)>(d),
             BatchSize::SmallInput,
         )
     });
@@ -125,7 +125,7 @@ fn benchmark_binary(c: &mut Criterion) {
     group.bench_function("Decode binary input data with rmp_serde and event", |b| {
         b.iter_batched_ref(
             || to_vec_named(&("event", NestedDataWithBinaries::new())).unwrap(),
-            |d| serde_decode::<(String, NestedDataWithBinaries)>(&d),
+            |d| serde_decode::<(String, NestedDataWithBinaries)>(d),
             BatchSize::SmallInput,
         )
     });
