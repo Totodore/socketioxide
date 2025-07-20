@@ -116,12 +116,12 @@ mod tests {
         }
 
         fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>) {
-            println!("Ping pong message {:?}", msg);
+            println!("Ping pong message {msg:?}");
             socket.emit(msg).ok();
         }
 
         fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<Socket<Self::Data>>) {
-            println!("Ping pong binary message {:?}", data);
+            println!("Ping pong binary message {data:?}");
             socket.emit_binary(data).ok();
         }
     }

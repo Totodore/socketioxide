@@ -495,7 +495,7 @@ impl<'de, V: de::Visitor<'de>> Visitor<'de> for BinaryVisitor<'_, V> {
                 let payload = self
                     .binary_payloads
                     .pop_front()
-                    .ok_or_else(|| A::Error::custom(format!("binary payload {} not found", idx)))?;
+                    .ok_or_else(|| A::Error::custom(format!("binary payload {idx} not found")))?;
                 self.inner.visit_byte_buf(Vec::from(payload))
             }
             _ => Err(A::Error::custom("expected a binary placeholder")),
@@ -634,7 +634,7 @@ impl<'de, V: de::Visitor<'de>> Visitor<'de> for BinaryAnyVisitor<'_, V> {
                         // Serde is going through the data in a DFS manner, in the same way that socket.io JS parser encode placeholders.
                         // So we can safely pop the first element of the queue.
                         let payload = self.binary_payloads.pop_front().ok_or_else(|| {
-                            A::Error::custom(format!("binary payload {} not found", idx))
+                            A::Error::custom(format!("binary payload {idx} not found"))
                         })?;
                         self.inner.visit_byte_buf(Vec::from(payload))
                     }
