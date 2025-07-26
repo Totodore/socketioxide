@@ -5,5 +5,4 @@
 mod client;
 mod io;
 mod transport;
-
-pub use crate::transport::polling::PollingClient;
+pub use crate::transport::polling::HttpClient;
