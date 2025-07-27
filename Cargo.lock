@@ -708,6 +708,7 @@ dependencies = [
  "http-body-util",
  "itoa",
  "memchr",
+ "pin-project-lite",
  "rand 0.9.1",
  "serde",
  "serde_json",

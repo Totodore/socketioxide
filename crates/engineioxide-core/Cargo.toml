@@ -24,6 +24,7 @@ http.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 smallvec.workspace = true
+pin-project-lite.workspace = true
 
 # Engine.io V3 payload
 itoa = { workspace = true, optional = true }
