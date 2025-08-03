@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use engineioxide_core::payload::{self, Payload};
 use futures_util::StreamExt;
-use http::{Request, Response, StatusCode};
+use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
 use http_body::Body;
 use http_body_util::Full;
 
@@ -128,7 +128,7 @@ pub async fn post_req<R, B, H>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Sid,
-    body: Request<R>,
+    req: Request<R>,
 ) -> Result<Response<ResponseBody<B>>, Error>
 where
     H: EngineIoHandler,
@@ -142,7 +142,9 @@ where
         return Err(Error::TransportMismatch);
     }
 
-    let packets = payload::decoder(body, protocol, engine.config.max_payload);
+    let (parts, body) = req.into_parts();
+    let content_type = parts.headers.get(CONTENT_TYPE);
+    let packets = payload::decoder(body, content_type, protocol, engine.config.max_payload);
     futures_util::pin_mut!(packets);
 
     while let Some(packet) = packets.next().await {
