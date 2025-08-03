@@ -35,10 +35,10 @@ tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
-tracing-subscriber.workspace = true
-engineioxide = { path = "../engineioxide" }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+engineioxide = { path = "../engineioxide", features = ["tracing", "v3"] }
 
 [features]
 v3 = ["engineioxide-core/v3"]
-tracing = ["dep:tracing"]
+tracing = ["dep:tracing", "engineioxide-core/tracing"]
 __test_harness = []

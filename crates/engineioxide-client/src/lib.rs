@@ -5,6 +5,7 @@
 mod client;
 mod io;
 mod transport;
+pub use crate::client::Client;
 pub use crate::transport::polling::HttpClient;
 
 #[macro_export]

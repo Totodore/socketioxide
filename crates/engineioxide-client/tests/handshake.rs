@@ -1,13 +1,15 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{DisconnectReason, service::EngineIoService};
 use engineioxide::{Socket, Str};
-use engineioxide_client::HttpClient;
+use engineioxide_client::{Client, HttpClient};
 use engineioxide_core::{Packet, Sid};
-use futures_util::TryFutureExt;
+use futures_util::{StreamExt, TryFutureExt};
 use tokio::sync::mpsc;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Event {
@@ -52,8 +54,32 @@ impl EngineIoHandler for Handler {
 
 #[tokio::test]
 async fn handshake() {
+    tracing_subscriber::fmt::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
     let (handler, mut rx) = Handler::new();
     let svc = EngineIoService::new(Arc::new(handler));
     let packet = HttpClient::new(svc).handshake().await.unwrap();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(packet.sid));
+}
+
+#[tokio::test]
+async fn connect() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init()
+        .ok();
+    let (handler, mut rx) = Handler::new();
+    let svc = EngineIoService::new(Arc::new(handler));
+    let client = Client::connect(svc).await.unwrap();
+    assert_eq!(rx.recv().await.unwrap(), Event::Connect(client.sid));
+    let (ctx, mut crx) = client.split();
+    while let Some(event) = crx.next().await {
+        match event {
+            Ok(event) => {
+                dbg!(event);
+            }
+            Err(e) => panic!("Error: {e}"),
+        }
+    }
 }

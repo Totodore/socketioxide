@@ -1,3 +1,4 @@
+use std::fmt;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
@@ -14,6 +15,8 @@ use futures_core::Stream;
 use futures_util::Sink;
 use futures_util::StreamExt;
 use http::Request;
+use http::Response;
+use http::StatusCode;
 use http_body_util::BodyExt;
 use http_body_util::Full;
 use hyper::service::Service as HyperSvc;
@@ -21,8 +24,20 @@ use pin_project_lite::pin_project;
 
 use crate::poll;
 
-pub trait PollingSvc: HyperSvc<Request<Full<Bytes>>> {}
-impl<S: HyperSvc<Request<Full<Bytes>>>> PollingSvc for S {}
+pub trait PollingSvc: HyperSvc<Request<Full<Bytes>>, Response = Response<Self::Body>> {
+    type Body: hyper::body::Body + 'static;
+}
+
+impl<B, S> PollingSvc for S
+where
+    S: HyperSvc<Request<Full<Bytes>>, Response = Response<B>>,
+    <S as HyperSvc<Request<Full<Bytes>>>>::Error: fmt::Debug,
+    B: hyper::body::Body + 'static,
+    <B as hyper::body::Body>::Error: std::fmt::Debug + 'static,
+    <B as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
+{
+    type Body = B;
+}
 
 pin_project! {
     #[project = PollStateProj]
@@ -73,10 +88,8 @@ pin_project! {
 
 impl<S: PollingSvc> HttpClient<S>
 where
-    S::Response: hyper::body::Body,
-    <S::Response as hyper::body::Body>::Error: std::fmt::Debug,
-    <S::Response as hyper::body::Body>::Data: std::fmt::Debug,
-    S::Error: std::fmt::Debug,
+    S::Error: fmt::Debug,
+    <S::Body as http_body::Body>::Error: fmt::Debug,
 {
     pub fn new(svc: S) -> Self {
         Self {
@@ -87,7 +100,10 @@ where
         }
     }
 
-    pub async fn handshake(&self) -> Result<OpenPacket, PacketParseError> {
+    pub async fn handshake(&mut self) -> Result<OpenPacket, PacketParseError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(?self, "handshake request");
+
         let req = Request::builder()
             .method("GET")
             .uri("http://localhost:3000/engine.io?EIO=4&transport=polling")
@@ -96,51 +112,55 @@ where
         let res = self.svc.call(req).await;
         let body = res.unwrap().collect().await.unwrap();
         let packet = Packet::try_from(String::from_utf8(body.to_bytes().to_vec()).unwrap())?;
+
         match packet {
-            Packet::Open(open) => Ok(open),
+            Packet::Open(open) => {
+                self.sid = Some(open.sid);
+                Ok(open)
+            }
             _ => Err(PacketParseError::InvalidPacketType(Some('1'))),
         }
-    }
-
-    pub async fn post(&self, id: Sid, packet: impl Into<Bytes>) -> Result<(), S::Error> {
-        let uri = format!("http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}");
-        let req = Request::post(uri).body(Full::from(packet.into())).unwrap();
-        self.svc.call(req).await?;
-        Ok(())
     }
 }
 
 impl<S: PollingSvc> Stream for HttpClient<S>
 where
-    S::Response: hyper::body::Body + 'static,
-    <S::Response as hyper::body::Body>::Error: std::fmt::Debug + 'static,
-    <S::Response as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
-    S::Error: std::fmt::Debug,
+    S::Error: fmt::Debug,
+    <S::Body as http_body::Body>::Error: fmt::Debug,
 {
     type Item = Result<Packet, PacketParseError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(poll_state = ?self.poll_state, "polling");
+
         match self.as_mut().poll_state {
             PollState::No => {
-                let id = Sid::new();
+                let id = self.sid.unwrap();
                 let uri =
                     format!("http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}");
                 let req = Request::get(uri).body(Full::new(Bytes::new())).unwrap();
                 let fut = self.svc.call(req);
                 self.poll_state = PollState::Pending { fut };
+                cx.waker().wake_by_ref();
                 Poll::Pending
             }
             PollState::Pending { ref mut fut } => {
                 match poll!(unsafe { Pin::new_unchecked(fut) }.poll(cx)) {
-                    Ok(body) => {
+                    Ok(res) => {
+                        let (parts, body) = res.into_parts();
+                        dbg!(&parts);
+                        assert!(parts.status == StatusCode::OK);
                         let body = Box::pin(body);
-                        //TODO: implement limited body
+                        //TODO: implement limited body + Content-Type
                         let stream =
                             payload::decoder(body, None, ProtocolVersion::V4, 200).boxed_local();
                         self.poll_state = PollState::Decoding { stream };
+                        cx.waker().wake_by_ref();
                         Poll::Pending
                     }
                     Err(err) => {
+                        #[cfg(feature = "tracing")]
                         tracing::debug!(?err, "got body error");
                         Poll::Ready(Some(Err(PacketParseError::InvalidPacketPayload)))
                     }
@@ -160,13 +180,7 @@ where
     }
 }
 
-impl<S: PollingSvc> Sink<Packet> for HttpClient<S>
-where
-    S::Response: hyper::body::Body + 'static,
-    <S::Response as hyper::body::Body>::Error: std::fmt::Debug + 'static,
-    <S::Response as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
-    S::Error: std::fmt::Debug,
-{
+impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
     type Error = ();
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -177,6 +191,9 @@ where
     }
 
     fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(post_state = ?self.post_state, "sending packet");
+
         let body = match &self.post_state {
             PostState::Encoding { body } => body,
             _ => panic!(
@@ -189,6 +206,9 @@ where
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(post_state = ?self.post_state, "flushing");
+
         match self.post_state {
             PostState::Encoding { ref body } => {
                 let req = Request::post(
@@ -227,5 +247,35 @@ impl<F> PollState<F> {
             PollState::Decoding { stream } => stream,
             _ => unreachable!(),
         }
+    }
+}
+
+impl<F> fmt::Debug for PollState<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::No => write!(f, "No"),
+            Self::Pending { .. } => write!(f, "Pending"),
+            Self::Decoding { .. } => write!(f, "Decoding"),
+        }
+    }
+}
+impl<F> fmt::Debug for PostState<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Encoding { body } => f
+                .debug_struct("Encoding")
+                .field("body_len", &body.len())
+                .finish(),
+            Self::Pending { .. } => write!(f, "Pending"),
+        }
+    }
+}
+impl<S: PollingSvc> fmt::Debug for HttpClient<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HttpClient")
+            .field("poll_state", &self.poll_state)
+            .field("post_state", &self.post_state)
+            .field("sid", &self.sid)
+            .finish()
     }
 }

@@ -1,10 +1,12 @@
 use std::{
+    fmt,
     pin::Pin,
     task::{Context, Poll},
 };
 
 use engineioxide_core::{Packet, PacketParseError, TransportType};
 use futures_core::Stream;
+use futures_util::Sink;
 
 use crate::{HttpClient, transport::polling::PollingSvc};
 
@@ -35,16 +37,45 @@ impl<S: PollingSvc> Transport<S> {
 
 impl<S: PollingSvc> Stream for Transport<S>
 where
-    S::Response: hyper::body::Body + 'static,
-    <S::Response as hyper::body::Body>::Error: std::fmt::Debug + 'static,
-    <S::Response as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
-    S::Error: std::fmt::Debug,
+    S::Error: fmt::Debug,
+    <S::Body as http_body::Body>::Error: fmt::Debug,
 {
     type Item = Result<Packet, PacketParseError>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project() {
             TransportProj::Polling { inner } => inner.poll_next(cx),
             TransportProj::Websocket { inner } => inner.poll_next(cx),
+        }
+    }
+}
+impl<S: PollingSvc> Sink<Packet> for Transport<S> {
+    type Error = ();
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.project() {
+            TransportProj::Polling { inner } => inner.poll_ready(cx),
+            TransportProj::Websocket { inner } => inner.poll_ready(cx),
+        }
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
+        match self.project() {
+            TransportProj::Polling { inner } => inner.start_send(item),
+            TransportProj::Websocket { inner } => inner.start_send(item),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.project() {
+            TransportProj::Polling { inner } => inner.poll_flush(cx),
+            TransportProj::Websocket { inner } => inner.poll_flush(cx),
+        }
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.project() {
+            TransportProj::Polling { inner } => inner.poll_close(cx),
+            TransportProj::Websocket { inner } => inner.poll_close(cx),
         }
     }
 }
