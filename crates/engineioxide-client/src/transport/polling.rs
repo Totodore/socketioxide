@@ -3,28 +3,32 @@ use std::task::Context;
 use std::task::Poll;
 
 use bytes::Bytes;
+use bytes::BytesMut;
 use engineioxide_core::OpenPacket;
 use engineioxide_core::Packet;
-use engineioxide_core::PacketBuf;
 use engineioxide_core::PacketParseError;
 use engineioxide_core::ProtocolVersion;
 use engineioxide_core::Sid;
 use engineioxide_core::payload;
 use futures_core::Stream;
-use futures_util::FutureExt;
 use futures_util::Sink;
 use futures_util::StreamExt;
-use futures_util::TryStreamExt;
 use http::Request;
 use http_body_util::BodyExt;
 use http_body_util::Full;
 use hyper::service::Service as HyperSvc;
+use pin_project_lite::pin_project;
 
 use crate::poll;
 
-pin_project_lite::pin_project! {
+pub trait PollingSvc: HyperSvc<Request<Full<Bytes>>> {}
+impl<S: HyperSvc<Request<Full<Bytes>>>> PollingSvc for S {}
+
+pin_project! {
     #[project = PollStateProj]
+    #[derive(Default)]
     enum PollState<F> {
+        #[default]
         No,
         Pending {
             #[pin]
@@ -35,19 +39,40 @@ pin_project_lite::pin_project! {
         }
     }
 }
-pin_project_lite::pin_project! {
-    pub struct HttpClient<S>
-    where
-        S: HyperSvc<Request<Full<Bytes>>>,
-    {
-        svc: S,
-        poll_state: PollState<S::Future>,
+
+pin_project! {
+    #[project = PostStateProj]
+    enum PostState<F> {
+        Encoding {
+            body: BytesMut
+        },
+        Pending {
+            #[pin]
+            fut: F
+        }
     }
 }
 
-impl<S> HttpClient<S>
+impl<F> Default for PostState<F> {
+    fn default() -> Self {
+        PostState::Encoding {
+            body: BytesMut::default(),
+        }
+    }
+}
+
+pin_project! {
+    pub struct HttpClient<S: PollingSvc>
+    {
+        svc: S,
+        poll_state: PollState<S::Future>,
+        post_state: PostState<S::Future>,
+        sid: Option<Sid>,
+    }
+}
+
+impl<S: PollingSvc> HttpClient<S>
 where
-    S: HyperSvc<Request<Full<Bytes>>>,
     S::Response: hyper::body::Body,
     <S::Response as hyper::body::Body>::Error: std::fmt::Debug,
     <S::Response as hyper::body::Body>::Data: std::fmt::Debug,
@@ -56,9 +81,12 @@ where
     pub fn new(svc: S) -> Self {
         Self {
             svc,
-            poll_state: PollState::No,
+            poll_state: PollState::default(),
+            post_state: PostState::default(),
+            sid: None,
         }
     }
+
     pub async fn handshake(&self) -> Result<OpenPacket, PacketParseError> {
         let req = Request::builder()
             .method("GET")
@@ -82,21 +110,8 @@ where
     }
 }
 
-impl<S> Sink<PacketBuf> for HttpClient<S> {
-    type Error = ();
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {}
-
-    fn start_send(self: Pin<&mut Self>, item: PacketBuf) -> Result<(), Self::Error> {}
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {}
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {}
-}
-
-impl<S> Stream for HttpClient<S>
+impl<S: PollingSvc> Stream for HttpClient<S>
 where
-    S: HyperSvc<Request<Full<Bytes>>>,
     S::Response: hyper::body::Body + 'static,
     <S::Response as hyper::body::Body>::Error: std::fmt::Debug + 'static,
     <S::Response as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
@@ -119,23 +134,90 @@ where
                 match poll!(unsafe { Pin::new_unchecked(fut) }.poll(cx)) {
                     Ok(body) => {
                         let body = Box::pin(body);
+                        //TODO: implement limited body
                         let stream =
                             payload::decoder(body, None, ProtocolVersion::V4, 200).boxed_local();
                         self.poll_state = PollState::Decoding { stream };
                         Poll::Pending
                     }
-                    Err(err) => todo!(),
+                    Err(err) => {
+                        tracing::debug!(?err, "got body error");
+                        Poll::Ready(Some(Err(PacketParseError::InvalidPacketPayload)))
+                    }
                 }
             }
-            PollState::Decoding { ref mut stream } => match poll!(stream.poll_next_unpin(cx)) {
-                Some(packet) => Poll::Ready(Some(packet)),
-                None => {
+            PollState::Decoding { ref mut stream } => {
+                if let Some(packet) = poll!(stream.poll_next_unpin(cx)) {
+                    Poll::Ready(Some(packet))
+                } else {
                     self.poll_state = PollState::No;
+                    // Should not be needed.
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
-            },
+            }
         }
+    }
+}
+
+impl<S: PollingSvc> Sink<Packet> for HttpClient<S>
+where
+    S::Response: hyper::body::Body + 'static,
+    <S::Response as hyper::body::Body>::Error: std::fmt::Debug + 'static,
+    <S::Response as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
+    S::Error: std::fmt::Debug,
+{
+    type Error = ();
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.post_state {
+            PostState::Encoding { .. } => Poll::Ready(Ok(())),
+            _ => Poll::Pending,
+        }
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
+        let body = match &self.post_state {
+            PostState::Encoding { body } => body,
+            _ => panic!(
+                "unexpected state, Sink::poll_ready should always be called before Sink::start_send"
+            ),
+        };
+        //TODO: write packet
+
+        Ok(())
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.post_state {
+            PostState::Encoding { ref body } => {
+                let req = Request::post(
+                    "http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}",
+                )
+                .body(Full::new(body.clone().freeze())) //TODO: fix cloning
+                .unwrap();
+                let fut = self.svc.call(req);
+                self.post_state = PostState::Pending { fut };
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            PostState::Pending { ref mut fut } => {
+                match poll!(unsafe { Pin::new_unchecked(fut) }.poll(cx)) {
+                    Ok(res) => {
+                        self.post_state = PostState::default();
+                        Poll::Ready(Ok(())) // TODO: check response == ok
+                    }
+                    Err(err) => {
+                        self.post_state = PostState::default();
+                        todo!("handle error")
+                    }
+                }
+            }
+        }
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }
 

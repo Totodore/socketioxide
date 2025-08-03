@@ -4,32 +4,28 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::Bytes;
-use engineioxide_core::{PacketBuf, Sid, TransportType};
+use engineioxide_core::{Packet, PacketBuf, PacketParseError, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
-use http::Request;
-use http_body_util::Full;
-use hyper::service::Service as HyperSvc;
 use tokio::sync::mpsc::{self, error::TrySendError};
 
-use crate::{HttpClient, transport::Transport};
+use crate::{
+    HttpClient,
+    transport::{Transport, polling::PollingSvc},
+};
 
 pin_project_lite::pin_project! {
-    pub struct Client<S> {
+    pub struct Client<S: PollingSvc> {
+        #[pin]
         pub transport: Transport<S>,
         pub sid: Sid,
         pub tx: mpsc::Sender<PacketBuf>,
         pub(crate) rx: Mutex<mpsc::Receiver<PacketBuf>>,
-
-        #[pin]
-        rrx: mpsc::Receiver<PacketBuf>,
     }
 }
 
-impl<S> Client<S>
+impl<S: PollingSvc> Client<S>
 where
-    S: HyperSvc<Request<Full<Bytes>>>,
     S::Response: hyper::body::Body,
     <S::Response as hyper::body::Body>::Error: std::fmt::Debug,
     <S::Response as hyper::body::Body>::Data: std::fmt::Debug,
@@ -40,13 +36,11 @@ where
         let inner = HttpClient::new(svc);
         let packet = inner.handshake().await.unwrap();
 
-        let (rtx, rrx) = mpsc::channel(100);
         let client = Client {
-            transport: Transport::Polling(inner),
+            transport: Transport::Polling { inner },
             sid: packet.sid,
             tx,
             rx: Mutex::new(rx),
-            rrx,
         };
 
         Ok(client)
@@ -61,7 +55,7 @@ where
     }
 }
 
-impl<S> Sink<PacketBuf> for Client<S> {
+impl<S: PollingSvc> Sink<PacketBuf> for Client<S> {
     type Error = TrySendError<PacketBuf>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -81,9 +75,15 @@ impl<S> Sink<PacketBuf> for Client<S> {
     }
 }
 
-impl<S> Stream for Client<S> {
-    type Item = PacketBuf;
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.rrx.poll_recv(cx)
+impl<S: PollingSvc> Stream for Client<S>
+where
+    S::Response: hyper::body::Body + 'static,
+    <S::Response as hyper::body::Body>::Error: std::fmt::Debug + 'static,
+    <S::Response as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
+    S::Error: std::fmt::Debug,
+{
+    type Item = Result<Packet, PacketParseError>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().transport.poll_next(cx)
     }
 }

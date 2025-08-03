@@ -1,4 +1,4 @@
-#![warn(clippy::pedantic)]
+// #![warn(clippy::pedantic)]
 #![allow(clippy::similar_names)]
 //! Engine.IO client library for Rust.
 
