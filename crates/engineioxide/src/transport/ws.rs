@@ -243,10 +243,16 @@ where
                         internal_rx.close();
                         break;
                     },
-                    // A Noop Packet maybe sent by the server to upgrade from a polling connection
-                    // In the case that the packet was not poll in time it will remain in the buffer and therefore
-                    // it should be discarded here
-                    Packet::Noop => Ok(()),
+                    // Noop Packet should not be passed through the channel.
+                    Packet::Noop => {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(
+                            sid = ?socket.id,
+                            "got a noop packet in the websocket internal channel, this is an unexpected behavior"
+                        );
+
+                        Ok(())
+                    },
                     _ => {
                         let packet: String = $item.try_into().unwrap();
                         tx.feed(Message::Text(packet.into())).await
@@ -320,7 +326,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     #[cfg(feature = "tracing")]
-    tracing::debug!("websocket connection upgrade");
+    tracing::debug!("starting websocket connection upgrade");
 
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
@@ -329,15 +335,17 @@ where
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
+            // The socket is upgrading, from now on all polling
+            // request will return a `Packet::Noop`
             socket.start_upgrade();
+            #[cfg(feature = "tracing")]
+            tracing::debug!("received first ping upgrade, enabling upgrade state");
+
             // Respond with a PongUpgrade packet
             ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
-
-    // send a NOOP packet to any pending polling request so it closes gracefully
-    socket.send(Packet::Noop)?;
 
     // Fetch the next packet from the ws stream, it should be an Upgrade packet
     let msg = match ws.next().await {
@@ -356,7 +364,7 @@ where
     match Packet::try_from(msg)? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
-            tracing::debug!("ws upgraded successful")
+            tracing::debug!("ws upgraded successfully")
         }
         p => Err(Error::BadPacket(p))?,
     };
