@@ -328,6 +328,10 @@ where
     #[cfg(feature = "tracing")]
     tracing::debug!("starting websocket connection upgrade");
 
+    // The socket is upgrading, from now on all polling
+    // request will return a `Packet::Noop`
+    socket.start_upgrade();
+
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
         Some(Ok(Message::Text(d))) => d,
@@ -335,11 +339,8 @@ where
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
-            // The socket is upgrading, from now on all polling
-            // request will return a `Packet::Noop`
-            socket.start_upgrade();
             #[cfg(feature = "tracing")]
-            tracing::debug!("received first ping upgrade, enabling upgrade state");
+            tracing::debug!("received first ping upgrade");
 
             // Respond with a PongUpgrade packet
             ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
