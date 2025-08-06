@@ -103,10 +103,14 @@ where
     }
 
     if socket.is_upgrading() {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(?sid, "socket is upgrading, sending NOOP packet");
+
         #[cfg(feature = "v3")]
         let data = payload::packet_encoder(Packet::Noop, socket.protocol, socket.supports_binary);
         #[cfg(not(feature = "v3"))]
         let data = payload::packet_encoder(Packet::Noop, socket.protocol);
+
         let is_binary = false; // The noop packet is guaranteed to be serialized as text
         return Ok(http_response(StatusCode::OK, data, is_binary)?);
     }

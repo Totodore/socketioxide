@@ -332,6 +332,13 @@ where
     // request will return a `Packet::Noop`
     socket.start_upgrade();
 
+    // We send a last Noop request to close a potential waiting polling request.
+    socket.send(Packet::Noop)?;
+
+    // wait for any current polling connection to finish by waiting for the socket to be unlocked
+    // All other polling connection will be immediately closed with a NOOP param
+    let _lock = socket.internal_rx.lock().await;
+
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
         Some(Ok(Message::Text(d))) => d,
@@ -370,8 +377,6 @@ where
         p => Err(Error::BadPacket(p))?,
     };
 
-    // wait for any polling connection to finish by waiting for the socket to be unlocked
-    let _ = socket.internal_rx.lock().await;
     socket.upgrade_to_websocket();
     Ok(())
 }
