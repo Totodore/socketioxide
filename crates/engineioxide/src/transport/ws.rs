@@ -320,7 +320,18 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     #[cfg(feature = "tracing")]
-    tracing::debug!("websocket connection upgrade");
+    tracing::debug!("starting websocket connection upgrade");
+
+    // The socket is upgrading, from now on all polling
+    // request will return a `Packet::Noop`
+    socket.start_upgrade();
+
+    // We send a last Noop request to close a potential waiting polling request.
+    socket.send(Packet::Noop)?;
+
+    // wait for any current polling connection to finish by waiting for the socket to be unlocked
+    // All other polling connection will be immediately closed with a NOOP packet.
+    let _lock = socket.internal_rx.lock().await;
 
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
@@ -329,15 +340,14 @@ where
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
-            socket.start_upgrade();
+            #[cfg(feature = "tracing")]
+            tracing::debug!("received first ping upgrade");
+
             // Respond with a PongUpgrade packet
             ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
-
-    // send a NOOP packet to any pending polling request so it closes gracefully
-    socket.send(Packet::Noop)?;
 
     // Fetch the next packet from the ws stream, it should be an Upgrade packet
     let msg = match ws.next().await {
@@ -356,13 +366,11 @@ where
     match Packet::try_from(msg)? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
-            tracing::debug!("ws upgraded successful")
+            tracing::debug!("ws upgraded successfully")
         }
         p => Err(Error::BadPacket(p))?,
     };
 
-    // wait for any polling connection to finish by waiting for the socket to be unlocked
-    let _ = socket.internal_rx.lock().await;
     socket.upgrade_to_websocket();
     Ok(())
 }

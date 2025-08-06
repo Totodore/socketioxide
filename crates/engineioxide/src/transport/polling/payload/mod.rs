@@ -87,3 +87,36 @@ pub async fn encoder(
         encoder::v4_encoder(rx, max_payload).await
     }
 }
+
+/// Encodes a single packet into a byte array.
+pub fn packet_encoder(
+    packet: Packet,
+    #[allow(unused_variables)] protocol: ProtocolVersion,
+    #[cfg(feature = "v3")] supports_binary: bool,
+) -> Bytes {
+    #[cfg(feature = "v3")]
+    {
+        match protocol {
+            ProtocolVersion::V4 => packet.into(),
+            ProtocolVersion::V3 if supports_binary => {
+                use bytes::BytesMut;
+
+                let size_hint = packet.get_size_hint(!supports_binary) + 2;
+                let mut bytes = BytesMut::with_capacity(size_hint);
+                encoder::v3_bin_packet_encoder(packet, &mut bytes);
+                bytes.freeze()
+            }
+            ProtocolVersion::V3 => {
+                use bytes::BytesMut;
+
+                let size_hint = packet.get_size_hint(!supports_binary) + 2;
+                let mut bytes = BytesMut::with_capacity(size_hint);
+                encoder::v3_string_packet_encoder(packet, &mut bytes);
+                bytes.freeze()
+            }
+        }
+    }
+
+    #[cfg(not(feature = "v3"))]
+    packet.into()
+}
