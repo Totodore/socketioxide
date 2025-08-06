@@ -330,7 +330,7 @@ where
     socket.send(Packet::Noop)?;
 
     // wait for any current polling connection to finish by waiting for the socket to be unlocked
-    // All other polling connection will be immediately closed with a NOOP param
+    // All other polling connection will be immediately closed with a NOOP packet.
     let _lock = socket.internal_rx.lock().await;
 
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
