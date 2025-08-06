@@ -243,16 +243,10 @@ where
                         internal_rx.close();
                         break;
                     },
-                    // Noop Packet should not be passed through the channel.
-                    Packet::Noop => {
-                        #[cfg(feature = "tracing")]
-                        tracing::debug!(
-                            sid = ?socket.id,
-                            "got a noop packet in the websocket internal channel, this is an unexpected behavior"
-                        );
-
-                        Ok(())
-                    },
+                    // A Noop Packet maybe sent by the server to upgrade from a polling connection
+                    // In the case that the packet was not poll in time it will remain in the buffer and therefore
+                    // it should be discarded here
+                    Packet::Noop => Ok(()),
                     _ => {
                         let packet: String = $item.try_into().unwrap();
                         tx.feed(Message::Text(packet.into())).await
