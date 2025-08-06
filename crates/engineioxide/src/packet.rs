@@ -146,6 +146,11 @@ impl From<Packet> for tokio_tungstenite::tungstenite::Utf8Bytes {
         String::from(value).into()
     }
 }
+impl From<Packet> for Bytes {
+    fn from(value: Packet) -> Self {
+        String::from(value).into()
+    }
+}
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
 impl TryFrom<Str> for Packet {
     type Error = Error;
