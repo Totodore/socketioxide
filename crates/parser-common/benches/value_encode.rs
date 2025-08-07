@@ -79,21 +79,21 @@ fn benchmark_binary(c: &mut Criterion) {
 
     group.bench_function("Encode binary input data with serde_json", |b| {
         b.iter_batched_ref(
-            || NestedDataWithBinaries::new(),
+            NestedDataWithBinaries::new,
             serde_encode,
             BatchSize::SmallInput,
         );
     });
     group.bench_function("Encode binary input data with common_parser", |b| {
         b.iter_batched_ref(
-            || NestedDataWithBinaries::new(),
+            NestedDataWithBinaries::new,
             |data| socketio_encode(data, None),
             BatchSize::SmallInput,
         );
     });
     group.bench_function("Encode binary data with common_parser and event", |b| {
         b.iter_batched_ref(
-            || NestedDataWithBinaries::new(),
+            NestedDataWithBinaries::new,
             |data| socketio_encode(data, Some("event")),
             BatchSize::SmallInput,
         );

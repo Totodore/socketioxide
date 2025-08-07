@@ -8,6 +8,10 @@
 * [socketioxide](./crates/socketioxide/CHANGELOG.md)
 * [engineioxide](./crates/engineioxide/CHANGELOG.md)
 
+# 0.15.2
+## socketioxide
+* fix: issue [#527](https://github.com/Totodore/socketioxide/issues/527). Socketioxide failed to build with the `tracing` flag enable and with `tracing-attributes` set to `v0.1.28`.
+
 # 0.15.1
 ## socketioxide
 * deps: remove smallvec deps

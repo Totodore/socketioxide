@@ -4,8 +4,8 @@ use socketioxide::{extract::SocketRef, SocketIo};
 use std::{net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 
-fn on_connect(socket: SocketRef) {
-    socket.on("ping", |s: SocketRef| {
+async fn on_connect(socket: SocketRef) {
+    socket.on("ping", async |s: SocketRef| {
         s.emit("pong", &()).ok();
     });
 }

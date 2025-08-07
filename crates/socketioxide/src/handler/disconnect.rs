@@ -4,27 +4,14 @@
 //! You can also implement the [`FromDisconnectParts`] trait for your own types.
 //! See the [`extract`](crate::extract) module doc for more details on available extractors.
 //!
-//! Handlers can be _optionally_ async.
-//!
-//! ## Example with sync closures
-//! ```rust
-//! # use socketioxide::SocketIo;
-//! # use socketioxide::extract::*;
-//! # use socketioxide::socket::DisconnectReason;
-//! let (svc, io) = SocketIo::new_svc();
-//! io.ns("/", |s: SocketRef| {
-//!     s.on_disconnect(|s: SocketRef, reason: DisconnectReason| {
-//!         println!("Socket {} was disconnected because {} ", s.id, reason);
-//!     });
-//! });
-//! ```
+//! Handlers _must_ be async.
 //!
 //! ## Example with async closures
 //! ```rust
 //! # use socketioxide::SocketIo;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
-//! io.ns("/", |s: SocketRef| {
+//! io.ns("/", async |s: SocketRef| {
 //!     s.on_disconnect(async |s: SocketRef| {
 //!         println!("Socket {} was disconnected", s.id);
 //!     });
@@ -44,10 +31,10 @@
 //! let (svc, io) = SocketIo::new_svc();
 //!
 //! // You can reuse the same handler for multiple sockets
-//! io.ns("/", |s: SocketRef| {
+//! io.ns("/", async |s: SocketRef| {
 //!     s.on_disconnect(handler);
 //! });
-//! io.ns("/admin", |s: SocketRef| {
+//! io.ns("/admin", async |s: SocketRef| {
 //!     s.on_disconnect(handler);
 //! });
 //! ```
@@ -119,7 +106,7 @@ pub trait FromDisconnectParts<A: Adapter>: Sized {
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 #[diagnostic::on_unimplemented(
     note = "This function is not a DisconnectHandler. Check that:
-* It is a clonable sync or async `FnOnce` that returns nothing.
+* It is a clonable async `FnOnce` that returns nothing.
 * All its arguments are valid disconnect extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
@@ -135,20 +122,13 @@ pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
     }
 }
 
-mod private {
-    #[derive(Debug, Copy, Clone)]
-    pub enum Sync {}
-    #[derive(Debug, Copy, Clone)]
-    pub enum Async {}
-}
-
 macro_rules! impl_handler_async {
     (
         [$($ty:ident),*]
     ) => {
         #[diagnostic::do_not_recommend]
         #[allow(non_snake_case, unused)]
-        impl<A, F, Fut, $($ty,)*> DisconnectHandler<A, (private::Async, $($ty,)*)> for F
+        impl<A, F, Fut, $($ty,)*> DisconnectHandler<A, ($($ty,)*)> for F
         where
             F: FnOnce($($ty,)*) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
@@ -169,41 +149,11 @@ macro_rules! impl_handler_async {
 
                 let fut = (self.clone())($($ty,)*);
                 tokio::spawn(fut);
-
             }
         }
     };
 }
 
-macro_rules! impl_handler {
-    (
-        [$($ty:ident),*]
-    ) => {
-        #[diagnostic::do_not_recommend]
-        #[allow(non_snake_case, unused)]
-        impl<A, F, $($ty,)*> DisconnectHandler<A, (private::Sync, $($ty,)*)> for F
-        where
-            F: FnOnce($($ty,)*) + Send + Sync + Clone + 'static,
-            A: Adapter,
-            $( $ty: FromDisconnectParts<A> + Send, )*
-        {
-            fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
-                $(
-                    let $ty = match $ty::from_disconnect_parts(&s, reason) {
-                        Ok(v) => v,
-                        Err(_e) => {
-                            #[cfg(feature = "tracing")]
-                            tracing::error!("Error while extracting data: {}", _e);
-                            return;
-                        },
-                    };
-                )*
-
-                (self.clone())($($ty,)*);
-            }
-        }
-    };
-}
 #[rustfmt::skip]
 macro_rules! all_the_tuples {
     ($name:ident) => {
@@ -228,4 +178,3 @@ macro_rules! all_the_tuples {
 }
 
 all_the_tuples!(impl_handler_async);
-all_the_tuples!(impl_handler);

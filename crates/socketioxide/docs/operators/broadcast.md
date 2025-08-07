@@ -15,5 +15,5 @@ async fn handler(io: SocketIo, socket: SocketRef, Data(data): Data::<Value>) {
 }
 
 let (_, io) = SocketIo::new_svc();
-io.ns("/", |s: SocketRef| s.on("test", handler));
+io.ns("/", async |s: SocketRef| s.on("test", handler));
 ```

@@ -6,7 +6,7 @@
 //! There are two types of operators:
 //! * [`ConfOperators`]: Chainable operators to configure the message to be sent.
 //! * [`BroadcastOperators`]: Chainable operators to select sockets to send a message to and to configure the message to be sent.
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{fmt, future::Future, sync::Arc, time::Duration};
 
 use serde::Serialize;
 use socketioxide_core::Sid;
@@ -188,6 +188,11 @@ impl<A: Adapter> BroadcastOperators<A> {
         }
     }
 
+    /// Returns the namespace path of the broadcast operators.
+    pub fn ns_path(&self) -> &str {
+        &self.ns.path
+    }
+
     #[doc = include_str!("../docs/operators/to.md")]
     pub fn to(mut self, rooms: impl RoomParam) -> Self {
         self.opts.rooms.extend(rooms.into_room_iter());
@@ -325,5 +330,41 @@ impl<A: Adapter> BroadcastOperators<A> {
         let ns = self.ns.path.clone();
         let data = self.parser.encode_value(data, Some(event.as_ref()))?;
         Ok(Packet::event(ns, data))
+    }
+}
+
+impl<'a, A: Adapter> Clone for ConfOperators<'a, A> {
+    fn clone(&self) -> Self {
+        Self {
+            timeout: self.timeout,
+            socket: self.socket,
+        }
+    }
+}
+impl<A: Adapter> Clone for BroadcastOperators<A> {
+    fn clone(&self) -> Self {
+        Self {
+            ns: self.ns.clone(),
+            opts: self.opts.clone(),
+            timeout: self.timeout,
+            parser: self.parser,
+        }
+    }
+}
+impl<A: Adapter> fmt::Debug for BroadcastOperators<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BroadcastOperators")
+            .field("ns", &self.ns)
+            .field("opts", &self.opts)
+            .field("timeout", &self.timeout)
+            .finish()
+    }
+}
+
+impl<A: Adapter> fmt::Debug for ConfOperators<'_, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConfOperators")
+            .field("timeout", &self.timeout)
+            .finish()
     }
 }

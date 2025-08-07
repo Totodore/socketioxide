@@ -13,14 +13,17 @@ use tokio::net::TcpListener;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
-fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
+async fn on_connect(socket: SocketRef, Data(data): Data<Value>) {
     info!(?data, ns = socket.ns(), ?socket.id, "Socket.IO connected:");
     socket.emit("auth", &data).ok();
 
-    socket.on("message", |socket: SocketRef, Data::<[Value; 3]>(data)| {
-        info!(?data, "Received event:");
-        socket.emit("message-back", &data).unwrap();
-    });
+    socket.on(
+        "message",
+        async |socket: SocketRef, Data::<[Value; 3]>(data)| {
+            info!(?data, "Received event:");
+            socket.emit("message-back", &data).unwrap();
+        },
+    );
 
     // keep this handler async to test async message handlers
     socket.on(

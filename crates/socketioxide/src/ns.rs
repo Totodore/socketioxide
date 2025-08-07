@@ -381,7 +381,7 @@ impl SocketEmitter for Emitter {
 #[cfg(feature = "__test_harness")]
 impl Namespace<crate::adapter::LocalAdapter> {
     pub fn new_dummy<const S: usize>(sockets: [Sid; S]) -> Arc<Self> {
-        let ns = Namespace::new("/".into(), || {}, &(), &SocketIoConfig::default());
+        let ns = Namespace::new("/".into(), async || (), &(), &SocketIoConfig::default());
         for sid in sockets {
             ns.sockets
                 .write()

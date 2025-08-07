@@ -42,11 +42,14 @@ pub async fn state_extractor() {
     let state = 1112i32;
     let (_, io) = SocketIo::builder().with_state(state).build_svc();
 
-    io.ns("/", |socket: SocketRef, State(state): State<i32>| {
+    io.ns("/", async |socket: SocketRef, State(state): State<i32>| {
         assert_ok!(socket.emit("state", &state));
-        socket.on("test", |socket: SocketRef, State(state): State<i32>| {
-            assert_ok!(socket.emit("state", &state));
-        });
+        socket.on(
+            "test",
+            async |socket: SocketRef, State(state): State<i32>| {
+                assert_ok!(socket.emit("state", &state));
+            },
+        );
     });
     let res_packet = create_msg("/", "state", state);
 
@@ -69,12 +72,15 @@ pub async fn data_extractor() {
     let (tx, mut rx) = mpsc::channel::<String>(4);
     let tx1 = tx.clone();
 
-    io.ns("/", move |socket: SocketRef, Data(data): Data<String>| {
-        assert_ok!(tx.try_send(data));
-        socket.on("test", move |Data(data): Data<String>| {
+    io.ns(
+        "/",
+        async move |socket: SocketRef, Data(data): Data<String>| {
             assert_ok!(tx.try_send(data));
-        });
-    });
+            socket.on("test", async move |Data(data): Data<String>| {
+                assert_ok!(tx.try_send(data));
+            });
+        },
+    );
 
     io.new_dummy_sock("/", ()).await;
     assert!(matches!(
@@ -105,12 +111,15 @@ pub async fn data_extractor() {
 pub async fn try_data_extractor() {
     let (_, io) = SocketIo::new_svc();
     let (tx, mut rx) = mpsc::channel::<Result<String, ParserError>>(4);
-    io.ns("/", move |s: SocketRef, TryData(data): TryData<String>| {
-        assert_ok!(tx.try_send(data));
-        s.on("test", move |TryData(data): TryData<String>| {
+    io.ns(
+        "/",
+        async move |s: SocketRef, TryData(data): TryData<String>| {
             assert_ok!(tx.try_send(data));
-        });
-    });
+            s.on("test", async move |TryData(data): TryData<String>| {
+                assert_ok!(tx.try_send(data));
+            });
+        },
+    );
 
     // Non deserializable data
     io.new_dummy_sock("/", ()).await;
@@ -137,14 +146,14 @@ pub async fn try_data_extractor() {
 pub async fn extension_extractor() {
     let (_, io) = SocketIo::new_svc();
 
-    fn on_test(s: SocketRef, Extension(i): Extension<usize>) {
+    async fn on_test(s: SocketRef, Extension(i): Extension<usize>) {
         s.emit("from_ev_test", &i).unwrap();
     }
-    fn ns_root(s: SocketRef, Extension(i): Extension<usize>) {
+    async fn ns_root(s: SocketRef, Extension(i): Extension<usize>) {
         s.emit("from_ns", &i).unwrap();
         s.on("test", on_test);
     }
-    fn set_ext(s: SocketRef) -> Result<(), Infallible> {
+    async fn set_ext(s: SocketRef) -> Result<(), Infallible> {
         s.extensions.insert(123usize);
         Ok(())
     }
@@ -179,14 +188,14 @@ pub async fn extension_extractor() {
 pub async fn maybe_extension_extractor() {
     let (_, io) = SocketIo::new_svc();
 
-    fn on_test(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
+    async fn on_test(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
         s.emit("from_ev_test", &i).unwrap();
     }
-    fn ns_root(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
+    async fn ns_root(s: SocketRef, MaybeExtension(i): MaybeExtension<usize>) {
         s.emit("from_ns", &i).unwrap();
         s.on("test", on_test);
     }
-    fn set_ext(s: SocketRef) -> Result<(), Infallible> {
+    async fn set_ext(s: SocketRef) -> Result<(), Infallible> {
         s.extensions.insert(123usize);
         Ok(())
     }
@@ -227,15 +236,15 @@ pub async fn maybe_extension_extractor() {
 pub async fn event_extractor() {
     let (_, io) = SocketIo::new_svc();
 
-    fn fallback_handler(s: SocketRef, Event(event): Event) {
+    async fn fallback_handler(s: SocketRef, Event(event): Event) {
         s.emit("fallback", &event).unwrap();
     }
 
-    io.ns("/", |socket: SocketRef| {
+    io.ns("/", async |socket: SocketRef| {
         // Register a fallback handler.
         // In our example it will be always called as there is no other handler is found.
         socket.on_fallback(fallback_handler);
-        socket.on("defined", |s: SocketRef, Event(event): Event| {
+        socket.on("defined", async |s: SocketRef, Event(event): Event| {
             s.emit("defined", &event).unwrap();
         });
     });

@@ -7,40 +7,14 @@
 //! You can also implement the [`FromMessageParts`] and [`FromMessage`] traits for your own types.
 //! See the [`extract`](crate::extract) module doc for more details on available extractors.
 //!
-//! Handlers can be _optionally_ async.
-//!
-//! ## Example with sync closures
-//! ```rust
-//! # use socketioxide::SocketIo;
-//! # use socketioxide::extract::*;
-//! let (svc, io) = SocketIo::new_svc();
-//! io.ns("/", |s: SocketRef| {
-//!     // We listen for the "event" event and we deserialize the data to a `String`.
-//!     // In case of deserialization failure the handler is not called.
-//!     // A TryData extractor can be used instead to get serde errors.
-//!     s.on("event", |s: SocketRef, Data::<String>(data)| {
-//!        println!("Socket received event with data: {}", data);
-//!     });
-//!
-//!     // We listen for the event_with_ack event.
-//!     // Here the data is not deserialized and dropped as it is not in the arguments list
-//!     s.on("event_with_ack", |s: SocketRef, ack: AckSender| {
-//!       ack.send("ack data").ok();
-//!     });
-//!
-//!     // `Bin` extractor must be the last argument because it consumes the rest of the packet
-//!     s.on("binary_event", |s: SocketRef, TryData::<String>(data)| {
-//!       println!("Socket received event with data: {:?}", data);
-//!     })
-//! });
-//! ```
+//! Handlers _must_ be async.
 //!
 //! ## Example with async closures
 //! ```rust
 //! # use socketioxide::SocketIo;
 //! # use socketioxide::extract::*;
 //! let (svc, io) = SocketIo::new_svc();
-//! io.ns("/", |s: SocketRef| {
+//! io.ns("/", async |s: SocketRef| {
 //!     s.on("event", async |s: SocketRef, Data::<String>(data)| {
 //!        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 //!        println!("Socket received event with data: {}", data);
@@ -62,7 +36,7 @@
 //!     ack.send("Here is my acknowledgment!").ok();
 //! }
 //! let (svc, io) = SocketIo::new_svc();
-//! io.ns("/", |s: SocketRef| {
+//! io.ns("/", async |s: SocketRef| {
 //!     s.on("event", on_event);
 //!     // It is also possible to reuse handlers, like this:
 //!     s.on("event_2", on_event);
@@ -92,7 +66,7 @@ pub(crate) trait ErasedMessageHandler<A: Adapter>: Send + Sync + 'static {
 /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
 #[diagnostic::on_unimplemented(
     note = "This function is not a MessageHandler. Check that:
-* It is a clonable sync or async `FnOnce` that returns nothing.
+* It is a clonable async `FnOnce` that returns nothing.
 * All its arguments are valid message extractors.
 * If you use a custom adapter, it must be generic over the adapter type.
 See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for details.\n",
@@ -137,11 +111,6 @@ mod private {
 
     #[derive(Debug, Clone, Copy)]
     pub enum ViaRequest {}
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Sync {}
-    #[derive(Debug, Clone, Copy)]
-    pub enum Async {}
 }
 
 /// A trait used to extract arguments from the message event.
@@ -202,8 +171,8 @@ where
     }
 }
 
-/// Empty Async handler
-impl<A, F, Fut> MessageHandler<A, (private::Async,)> for F
+/// Empty handler
+impl<A, F, Fut> MessageHandler<A, ()> for F
 where
     F: FnOnce() -> Fut + Send + Sync + Clone + 'static,
     Fut: Future<Output = ()> + Send + 'static,
@@ -215,24 +184,13 @@ where
     }
 }
 
-/// Empty Sync handler
-impl<A, F> MessageHandler<A, (private::Sync,)> for F
-where
-    F: FnOnce() + Send + Sync + Clone + 'static,
-    A: Adapter,
-{
-    fn call(&self, _: Arc<Socket<A>>, _: Value, _: Option<i64>) {
-        (self.clone())();
-    }
-}
-
 macro_rules! impl_async_handler {
     (
         [$($ty:ident),*], $last:ident
     ) => {
         #[allow(non_snake_case, unused)]
         #[diagnostic::do_not_recommend]
-        impl<A, F, M, $($ty,)* $last, Fut> MessageHandler<A, (private::Async, M, $($ty,)* $last,)> for F
+        impl<A, F, M, $($ty,)* $last, Fut> MessageHandler<A, (M, $($ty,)* $last,)> for F
         where
             F: FnOnce($($ty,)* $last,) -> Fut + Send + Sync + Clone + 'static,
             Fut: Future<Output = ()> + Send + 'static,
@@ -266,44 +224,6 @@ macro_rules! impl_async_handler {
         }
     };
 }
-macro_rules! impl_handler {
-    (
-        [$($ty:ident),*], $last:ident
-    ) => {
-        #[allow(non_snake_case, unused)]
-        #[diagnostic::do_not_recommend]
-        impl<A, F, M, $($ty,)* $last> MessageHandler<A, (private::Sync, M, $($ty,)* $last,)> for F
-        where
-            F: FnOnce($($ty,)* $last,) + Send + Sync + Clone + 'static,
-            A: Adapter,
-            $( $ty: FromMessageParts<A> + Send, )*
-            $last: FromMessage<A, M> + Send,
-        {
-            fn call(&self, s: Arc<Socket<A>>, mut v: Value, ack_id: Option<i64>) {
-                $(
-                    let $ty = match $ty::from_message_parts(&s, &mut v, &ack_id) {
-                        Ok(v) => v,
-                        Err(_e) => {
-                            #[cfg(feature = "tracing")]
-                            tracing::error!("Error while extracting data: {}", _e);
-                            return;
-                        },
-                    };
-                )*
-                let last = match $last::from_message(s, v, ack_id) {
-                    Ok(v) => v,
-                    Err(_e) => {
-                        #[cfg(feature = "tracing")]
-                        tracing::error!("Error while extracting data: {}", _e);
-                        return;
-                    },
-                };
-
-                (self.clone())($($ty,)* last);
-            }
-        }
-    };
-}
 
 #[rustfmt::skip]
 macro_rules! all_the_tuples {
@@ -327,5 +247,4 @@ macro_rules! all_the_tuples {
     };
 }
 
-all_the_tuples!(impl_handler);
 all_the_tuples!(impl_async_handler);

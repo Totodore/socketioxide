@@ -49,6 +49,55 @@ impl UserCnt {
     }
 }
 
+async fn on_new_msg(
+    s: SocketRef,
+    Data(msg): Data<String>,
+    Extension(username): Extension<Username>,
+) {
+    let msg = &Res::Message {
+        username,
+        message: msg,
+    };
+    s.broadcast().emit("new message", msg).await.ok();
+}
+async fn on_add_user(s: SocketRef, Data(username): Data<String>, user_cnt: State<UserCnt>) {
+    if s.extensions.get::<Username>().is_some() {
+        return;
+    }
+    let num_users = user_cnt.add_user();
+    s.extensions.insert(Username(username.clone()));
+    s.emit("login", &Res::Login { num_users }).ok();
+
+    let res = &Res::UserEvent {
+        num_users,
+        username: Username(username),
+    };
+    s.broadcast().emit("user joined", res).await.ok();
+}
+async fn on_typing(s: SocketRef, Extension(username): Extension<Username>) {
+    s.broadcast()
+        .emit("typing", &Res::Username { username })
+        .await
+        .ok();
+}
+async fn stop_typing(s: SocketRef, Extension(username): Extension<Username>) {
+    s.broadcast()
+        .emit("stop typing", &Res::Username { username })
+        .await
+        .ok();
+}
+async fn on_disconnect(
+    s: SocketRef,
+    user_cnt: State<UserCnt>,
+    Extension(username): Extension<Username>,
+) {
+    let num_users = user_cnt.remove_user();
+    let res = &Res::UserEvent {
+        num_users,
+        username,
+    };
+    s.broadcast().emit("user left", res).await.ok();
+}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::new();
@@ -59,66 +108,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::builder().with_state(UserCnt::new()).build_layer();
 
-    io.ns("/", |s: SocketRef| {
-        s.on(
-            "new message",
-            async |s: SocketRef, Data::<String>(msg), Extension::<Username>(username)| {
-                let msg = &Res::Message {
-                    username,
-                    message: msg,
-                };
-                s.broadcast().emit("new message", msg).await.ok();
-            },
-        );
-
-        s.on(
-            "add user",
-            async |s: SocketRef, Data::<String>(username), user_cnt: State<UserCnt>| {
-                if s.extensions.get::<Username>().is_some() {
-                    return;
-                }
-                let num_users = user_cnt.add_user();
-                s.extensions.insert(Username(username.clone()));
-                s.emit("login", &Res::Login { num_users }).ok();
-
-                let res = &Res::UserEvent {
-                    num_users,
-                    username: Username(username),
-                };
-                s.broadcast().emit("user joined", res).await.ok();
-            },
-        );
-
-        s.on(
-            "typing",
-            async |s: SocketRef, Extension::<Username>(username)| {
-                s.broadcast()
-                    .emit("typing", &Res::Username { username })
-                    .await
-                    .ok();
-            },
-        );
-
-        s.on(
-            "stop typing",
-            async |s: SocketRef, Extension::<Username>(username)| {
-                s.broadcast()
-                    .emit("stop typing", &Res::Username { username })
-                    .await
-                    .ok();
-            },
-        );
-
-        s.on_disconnect(
-            async |s: SocketRef, user_cnt: State<UserCnt>, Extension::<Username>(username)| {
-                let num_users = user_cnt.remove_user();
-                let res = &Res::UserEvent {
-                    num_users,
-                    username,
-                };
-                s.broadcast().emit("user left", res).await.ok();
-            },
-        );
+    io.ns("/", async |s: SocketRef| {
+        s.on("new message", on_new_msg);
+        s.on("add user", on_add_user);
+        s.on("typing", on_typing);
+        s.on("stop typing", stop_typing);
+        s.on_disconnect(on_disconnect);
     });
 
     let app = axum::Router::new()

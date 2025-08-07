@@ -23,8 +23,8 @@ use crate::fixture::{create_polling_connection, create_ws_connection};
 
 fn attach_handler(io: &SocketIo, chan_size: usize) -> mpsc::Receiver<DisconnectReason> {
     let (tx, rx) = mpsc::channel::<DisconnectReason>(chan_size);
-    io.ns("/", move |s: SocketRef| {
-        s.on_disconnect(move |r: DisconnectReason| tx.try_send(r).unwrap())
+    io.ns("/", async move |s: SocketRef| {
+        s.on_disconnect(async move |r: DisconnectReason| tx.try_send(r).unwrap())
     });
     rx
 }
@@ -200,14 +200,14 @@ pub async fn client_ns_disconnect() {
 pub async fn server_ns_disconnect() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
     let (svc, io) = create_server().await;
-    io.ns("/", move |socket: SocketRef, io: SocketIo| {
+    io.ns("/", async move |socket: SocketRef, io: SocketIo| {
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let s = io.sockets().into_iter().next().unwrap();
             s.disconnect().unwrap();
         });
 
-        socket.on_disconnect(move |reason: DisconnectReason| tx.try_send(reason).unwrap());
+        socket.on_disconnect(async move |reason: DisconnectReason| tx.try_send(reason).unwrap());
     });
 
     let _stream = create_ws_connection(&svc).await;
@@ -223,8 +223,8 @@ pub async fn server_ns_disconnect() {
 pub async fn server_ns_close() {
     let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
     let (svc, io) = create_server().await;
-    io.ns("/test", move |socket: SocketRef, io: SocketIo| {
-        socket.on_disconnect(move |reason: DisconnectReason| tx.try_send(reason).unwrap());
+    io.ns("/test", async move |socket: SocketRef, io: SocketIo| {
+        socket.on_disconnect(async move |reason: DisconnectReason| tx.try_send(reason).unwrap());
         io.delete_ns("/test");
     });
 
