@@ -1,3 +1,7 @@
+# engineioxide 0.17.1
+* fix: upgrade process was timing out when the client made accidentally more
+than one polling requests while upgrading (#497).
+
 # engineioxide 0.17
 * MSRV: rust-version is now 1.86 with edition 2024
 
