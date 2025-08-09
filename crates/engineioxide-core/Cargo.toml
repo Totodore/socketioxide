@@ -17,3 +17,27 @@ rand = "0.9"
 base64 = "0.22"
 serde.workspace = true
 bytes.workspace = true
+serde_json.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+http.workspace = true
+futures-util.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+smallvec.workspace = true
+pin-project-lite.workspace = true
+
+# Engine.io V3 payload
+itoa = { workspace = true, optional = true }
+memchr = { version = "2.7", optional = true }
+unicode-segmentation = { version = "1.12", optional = true }
+
+# Tracing
+tracing = { workspace = true, optional = true }
+
+
+[features]
+v3 = ["dep:memchr", "dep:unicode-segmentation", "dep:itoa"]
+tracing = ["dep:tracing"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["sync", "macros", "rt"] }

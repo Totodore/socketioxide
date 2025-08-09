@@ -32,7 +32,7 @@
 
 use std::{borrow::Cow, time::Duration};
 
-use crate::service::TransportType;
+use engineioxide_core::TransportType;
 
 /// Configuration for the engine.io engine & transports
 #[derive(Debug, Clone)]

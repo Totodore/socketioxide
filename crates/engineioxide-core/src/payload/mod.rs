@@ -1,17 +1,18 @@
 //! Payload encoder and decoder for polling transport.
 
-use crate::{
-    errors::Error, packet::Packet, peekable::PeekableReceiver, service::ProtocolVersion,
-    socket::PacketBuf,
-};
+use crate::{Packet, PacketParseError, ProtocolVersion, packet::PacketBuf};
+
 use bytes::Bytes;
-use futures_core::Stream;
-use http::Request;
+use futures_util::Stream;
+use http::HeaderValue;
 use tokio::sync::MutexGuard;
 
 mod buf;
 mod decoder;
 mod encoder;
+mod peekable;
+
+pub use peekable::PeekableReceiver;
 
 const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 #[cfg(feature = "v3")]
@@ -23,19 +24,19 @@ const STRING_PACKET_IDENTIFIER_V3: u8 = 0x00;
 #[cfg(feature = "v3")]
 const BINARY_PACKET_IDENTIFIER_V3: u8 = 0x01;
 
+/// Decode a payload into a stream of packets.
 pub fn decoder(
-    body: Request<impl http_body::Body<Error = impl std::fmt::Debug> + Unpin>,
+    body: impl http_body::Body<Error = impl std::fmt::Debug> + Unpin,
+    content_type: Option<&HeaderValue>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, Error>> {
+) -> impl Stream<Item = Result<Packet, PacketParseError>> {
     #[cfg(feature = "v3")]
     {
         use futures_util::future::Either;
-        use http::header::CONTENT_TYPE;
         #[cfg(feature = "tracing")]
-        tracing::debug!("decoding payload {:?}", body.headers().get(CONTENT_TYPE));
-        let is_binary =
-            body.headers().get(CONTENT_TYPE) == Some(&"application/octet-stream".parse().unwrap());
+        tracing::debug!("decoding payload {:?}", content_type);
+        let is_binary = content_type == Some(&"application/octet-stream".parse().unwrap());
         match protocol {
             ProtocolVersion::V4 => Either::Left(decoder::v4_decoder(body, max_payload)),
             ProtocolVersion::V3 if is_binary => {
@@ -54,23 +55,26 @@ pub fn decoder(
 }
 
 /// A payload to transmit to the client through http polling
-#[non_exhaustive]
 pub struct Payload {
+    /// The data of the payload.
     pub data: Bytes,
+    /// Whether the payload contains binary data.
     pub has_binary: bool,
 }
 impl Payload {
+    /// Creates a new payload with the given data and binary flag.
     pub fn new(data: Bytes, has_binary: bool) -> Self {
         Self { data, has_binary }
     }
 }
 
+/// Encodes a payload into a byte stream.
 pub async fn encoder(
     rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
     max_payload: u64,
-) -> Result<Payload, Error> {
+) -> Payload {
     #[cfg(feature = "v3")]
     {
         match protocol {

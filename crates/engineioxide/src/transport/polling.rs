@@ -2,25 +2,18 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use engineioxide_core::payload::{self, Payload};
 use futures_util::StreamExt;
-use http::{Request, Response, StatusCode};
+use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
 use http_body::Body;
 use http_body_util::Full;
 
-use engineioxide_core::Sid;
+use engineioxide_core::{Packet, ProtocolVersion, Sid, TransportType};
 
 use crate::{
-    DisconnectReason,
-    body::ResponseBody,
-    engine::EngineIo,
-    errors::Error,
-    handler::EngineIoHandler,
-    packet::{OpenPacket, Packet},
-    service::{ProtocolVersion, TransportType},
-    transport::polling::payload::Payload,
+    DisconnectReason, body::ResponseBody, engine::EngineIo, errors::Error,
+    handler::EngineIoHandler, transport::make_open_packet,
 };
-
-mod payload;
 
 /// Create a response for http request
 fn http_response<B, D>(
@@ -62,7 +55,7 @@ where
         supports_binary,
     );
 
-    let packet = OpenPacket::new(TransportType::Polling, socket.id, &engine.config);
+    let packet = make_open_packet(TransportType::Polling, socket.id, &engine.config);
 
     socket.spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
 
@@ -121,7 +114,7 @@ where
         Ok(s) => s,
         Err(_) => {
             socket.close(DisconnectReason::MultipleHttpPollingError);
-            return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
+            return Err(Error::MultipleHttpPolling);
         }
     };
 
@@ -132,9 +125,9 @@ where
 
     #[cfg(feature = "v3")]
     let Payload { data, has_binary } =
-        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await?;
+        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await;
     #[cfg(not(feature = "v3"))]
-    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await?;
+    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={sid}] sending data: {:?}", data);
@@ -148,7 +141,7 @@ pub async fn post_req<R, B, H>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Sid,
-    body: Request<R>,
+    req: Request<R>,
 ) -> Result<Response<ResponseBody<B>>, Error>
 where
     H: EngineIoHandler,
@@ -162,7 +155,9 @@ where
         return Err(Error::TransportMismatch);
     }
 
-    let packets = payload::decoder(body, protocol, engine.config.max_payload);
+    let (parts, body) = req.into_parts();
+    let content_type = parts.headers.get(CONTENT_TYPE);
+    let packets = payload::decoder(body, content_type, protocol, engine.config.max_payload);
     futures_util::pin_mut!(packets);
 
     while let Some(packet) = packets.next().await {
@@ -195,7 +190,7 @@ where
                 #[cfg(feature = "tracing")]
                 tracing::debug!("[sid={sid}] error parsing packet: {:?}", e);
                 engine.close_session(sid, DisconnectReason::PacketParsingError);
-                return Err(e);
+                return Err(e.into());
             }
         }?;
     }
