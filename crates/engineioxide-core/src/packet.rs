@@ -208,7 +208,20 @@ impl From<Packet> for String {
         buffer
     }
 }
+<<<<<<< HEAD:crates/engineioxide-core/src/packet.rs
 
+=======
+impl From<Packet> for tokio_tungstenite::tungstenite::Utf8Bytes {
+    fn from(value: Packet) -> Self {
+        String::from(value).into()
+    }
+}
+impl From<Packet> for Bytes {
+    fn from(value: Packet) -> Self {
+        String::from(value).into()
+    }
+}
+>>>>>>> origin/main:crates/engineioxide/src/packet.rs
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
 impl TryFrom<Str> for Packet {
     type Error = PacketParseError;
