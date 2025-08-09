@@ -334,14 +334,8 @@ where
     };
     match Packet::try_from(ws_bytes_to_str(msg))? {
         Packet::PingUpgrade => {
-<<<<<<< HEAD
-            socket.start_upgrade();
-            let pong: String = Packet::PongUpgrade.into();
-=======
             #[cfg(feature = "tracing")]
             tracing::debug!("received first ping upgrade");
-
->>>>>>> origin/main
             // Respond with a PongUpgrade packet
             ws.send(Message::Text(pong.into())).await?;
         }

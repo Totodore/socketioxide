@@ -114,11 +114,7 @@ pub async fn v4_encoder(
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
-<<<<<<< HEAD:crates/engineioxide-core/src/payload/encoder.rs
     use crate::payload::BINARY_PACKET_SEPARATOR_V3;
-=======
-    use crate::transport::polling::payload::BINARY_PACKET_SEPARATOR_V3;
->>>>>>> origin/main:crates/engineioxide/src/transport/polling/payload/encoder.rs
     use bytes::BufMut;
 
     let mut itoa = itoa::Buffer::new();
@@ -158,11 +154,7 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
-<<<<<<< HEAD:crates/engineioxide-core/src/payload/encoder.rs
     use crate::payload::STRING_PACKET_SEPARATOR_V3;
-=======
-    use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
->>>>>>> origin/main:crates/engineioxide/src/transport/polling/payload/encoder.rs
     use bytes::BufMut;
     let packet: String = packet.into();
     let packet = format!(
