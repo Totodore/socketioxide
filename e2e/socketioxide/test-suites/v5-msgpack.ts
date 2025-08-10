@@ -157,7 +157,7 @@ describe("Engine.IO protocol", () => {
           `${WS_URL}/socket.io/?transport=websocket`,
         );
 
-        socket.on("error", () => {});
+        socket.on("error", () => { });
 
         waitForEvent(socket, "close");
 
@@ -165,7 +165,7 @@ describe("Engine.IO protocol", () => {
           `${WS_URL}/socket.io/?EIO=abc&transport=websocket`,
         );
 
-        socket2.on("error", () => {});
+        socket2.on("error", () => { });
 
         waitForEvent(socket2, "close");
       });
@@ -173,7 +173,7 @@ describe("Engine.IO protocol", () => {
       it("should fail with an invalid 'transport' query parameter", async () => {
         const socket = new WebSocketStream(`${WS_URL}/socket.io/?EIO=4`);
 
-        socket.on("error", () => {});
+        socket.on("error", () => { });
 
         waitForEvent(socket, "close");
 
@@ -181,7 +181,7 @@ describe("Engine.IO protocol", () => {
           `${WS_URL}/socket.io/?EIO=4&transport=abc`,
         );
 
-        socket2.on("error", () => {});
+        socket2.on("error", () => { });
 
         waitForEvent(socket2, "close");
       });
@@ -231,7 +231,7 @@ describe("Engine.IO protocol", () => {
 
         assert(
           pollResponse.status == 400 ||
-            (pollResponse.status == 200 && (await pollResponse.text()) == "1"),
+          (pollResponse.status == 200 && (await pollResponse.text()) == "1"),
         );
       });
     });
@@ -341,7 +341,6 @@ describe("Engine.IO protocol", () => {
       await waitForEvent(socket, "open");
       socket.send("2probe");
       socket.send("5");
-      // await sleep(250);
 
       const pollResponse = await fetch(
         `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
@@ -349,6 +348,28 @@ describe("Engine.IO protocol", () => {
 
       assert.equal(pollResponse.status, 400);
     });
+
+
+    it("should NOOP all polling requests while upgrading", async () => {
+      const sid = await initLongPollingSession();
+
+      const socket = new WebSocketStream(
+        `${WS_URL}/socket.io/?EIO=4&transport=websocket&sid=${sid}`,
+      );
+      await waitForEvent(socket, "open");
+      for (let i = 0; i < 5; i++) {
+        const res = await fetch(`${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`);
+        assert.deepStrictEqual(res.status, 200);
+        const body = await res.text();
+        assert.deepStrictEqual(body, "6");
+      }
+
+      socket.send("2probe");
+      socket.send("5");
+
+      await waitForMessage(socket); // 3probe
+    });
+
 
     it("should ignore WebSocket connection with same sid after upgrade", async () => {
       const sid = await initLongPollingSession();
