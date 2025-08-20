@@ -3,48 +3,38 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 
 use crate::body::ResponseBody;
-use crate::packet::Packet;
-use engineioxide_core::Sid;
+use engineioxide_core::{Packet, Sid};
+
+pub use engineioxide_core::PacketParseError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("error decoding binary packet from polling request: {0:?}")]
-    Base64(#[from] base64::DecodeError),
-    #[error("error decoding packet: {0:?}")]
-    StrUtf8(#[from] std::str::Utf8Error),
-    #[error("io error: {0:?}")]
-    Io(#[from] std::io::Error),
+    #[error("error decoding packet from request: {0}")]
+    PacketParse(#[from] PacketParseError),
     #[error("bad packet received")]
     BadPacket(Packet),
-    #[error("ws transport error: {0:?}")]
+    #[error("ws transport error: {0}")]
     WsTransport(#[from] Box<tungstenite::Error>),
-    #[error("http error: {0:?}")]
+    #[error("http error: {0}")]
     Http(#[from] http::Error),
-    #[error("internal channel error: {0:?}")]
+    #[error("internal channel error: {0}")]
     SendChannel(#[from] mpsc::error::TrySendError<Packet>),
-    #[error("internal channel error: {0:?}")]
+    #[error("internal channel error: {0}")]
     RecvChannel(#[from] mpsc::error::TryRecvError),
     #[error("heartbeat timeout")]
     HeartbeatTimeout,
     #[error("upgrade error")]
     Upgrade,
-    #[error("aborted connection")]
-    Aborted,
 
-    #[error("http error response: {0:?}")]
-    HttpErrorResponse(StatusCode),
+    #[error("multiple http polling error")]
+    MultipleHttpPolling,
+    #[error("invalid websocket Sec-WebSocket-Key http header")]
+    InvalidWebSocketKey,
 
     #[error("unknown session id")]
     UnknownSessionID(Sid),
     #[error("transport mismatch")]
     TransportMismatch,
-    #[error("payload too large")]
-    PayloadTooLarge,
-
-    #[error("Invalid packet length")]
-    InvalidPacketLength,
-    #[error("Invalid packet type")]
-    InvalidPacketType(Option<char>),
 }
 
 /// Convert an error into an http response
@@ -60,18 +50,15 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                 .unwrap()
         };
         match err {
-            Error::HttpErrorResponse(code) => Response::builder()
-                .status(code)
+            Error::PacketParse(PacketParseError::PayloadTooLarge { .. }) => Response::builder()
+                .status(413)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
-            Error::BadPacket(_) | Error::InvalidPacketLength | Error::InvalidPacketType(_) => {
-                Response::builder()
-                    .status(400)
-                    .body(ResponseBody::empty_response())
-                    .unwrap()
-            }
-            Error::PayloadTooLarge => Response::builder()
-                .status(413)
+            Error::BadPacket(_)
+            | Error::PacketParse(_)
+            | Error::MultipleHttpPolling
+            | Error::InvalidWebSocketKey => Response::builder()
+                .status(400)
                 .body(ResponseBody::empty_response())
                 .unwrap(),
 
