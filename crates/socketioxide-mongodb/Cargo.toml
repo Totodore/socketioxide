@@ -32,7 +32,7 @@ tracing.workspace = true
 thiserror.workspace = true
 
 # BSON implementation for TtlIndex data expiration strategy only
-bson = { version = "2", default-features = false, optional = true }
+bson = { version = "3", default-features = false, optional = true }
 
 # Mongodb implementation
 mongodb = { version = "3", default-features = false, optional = true, features = [
