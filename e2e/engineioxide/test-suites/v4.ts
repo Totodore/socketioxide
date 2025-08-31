@@ -550,39 +550,6 @@ describe("Engine.IO protocol", () => {
       assert.deepStrictEqual(data, "4hello");
     });
 
-    it("pauses heartbeat process while upgrading", async () => {
-      const sid = await initLongPollingSession();
-
-      const socket = new WebSocketStream(
-        `${WS_URL}/engine.io/?EIO=4&transport=websocket&sid=${sid}`,
-      );
-
-      await waitForEvent(socket, "open");
-
-      // should be able to wait any time while upgrading without socket timeout.
-      await sleep(PING_INTERVAL + PING_TIMEOUT);
-
-      // send probe
-      socket.send("2probe");
-
-      const probeResponse = await waitForMessage(socket);
-
-      assert.deepStrictEqual(probeResponse, "3probe");
-
-
-      // should be able to wait any time while upgrading without socket timeout.
-      await sleep(PING_INTERVAL + PING_TIMEOUT);
-
-      // complete upgrade
-      socket.send("5");
-
-      socket.send("4hello");
-
-      const data = await waitForMessage(socket);
-
-      assert.deepStrictEqual(data, "4hello");
-    });
-
     it("ignores HTTP requests with same sid after upgrade", async () => {
       const sid = await initLongPollingSession();
 

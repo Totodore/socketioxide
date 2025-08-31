@@ -356,9 +356,6 @@ where
         loop {
             // If we are currently upgrading we should pause the heartbeat process
             if self.is_upgrading() {
-                #[cfg(feature = "tracing")]
-                tracing::debug!(sid = ?self.id, "heartbeat paused due to upgrade, skipping");
-                
                 interval_tick.tick().await;
                 continue;
             }
@@ -396,17 +393,10 @@ where
         tracing::debug!(sid = ?self.id, "heartbeat receiver routine started");
 
         loop {
-            match tokio::time::timeout(interval + timeout, heartbeat_rx.recv()).await {
-                Ok(Some(_)) => (),
-                Err(_) if self.is_upgrading() => {
-                    // If we are currently upgrading we
-                    // should pause the heartbeat process
-                    // hence skipping timing out
-                    tracing::debug!(sid = ?self.id, "heartbeat paused due to upgrade, skipping timeout");
-                    continue;
-                }
-                _ => return Err(Error::HeartbeatTimeout),
-            }
+            tokio::time::timeout(interval + timeout, heartbeat_rx.recv())
+                .await
+                .map_err(|_| Error::HeartbeatTimeout)?
+                .ok_or(Error::HeartbeatTimeout)?;
 
             #[cfg(feature = "tracing")]
             tracing::trace!(sid = ?self.id, "ping received, sending pong");
