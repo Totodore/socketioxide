@@ -358,7 +358,7 @@ where
             if self.is_upgrading() {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(sid = ?self.id, "heartbeat paused due to upgrade, skipping");
-                
+
                 interval_tick.tick().await;
                 continue;
             }
