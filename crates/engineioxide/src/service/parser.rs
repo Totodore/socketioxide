@@ -1,5 +1,6 @@
 //! A Parser module to parse any `EngineIo` query
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{future::Future, str::FromStr, sync::Arc};
 
 use http::{Method, Request, Response};
@@ -148,12 +149,31 @@ impl FromStr for ProtocolVersion {
 }
 
 /// The type of `transport` used by the client.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum TransportType {
     /// Polling transport
     Polling = 0x01,
     /// Websocket transport
     Websocket = 0x02,
+}
+
+impl Serialize for TransportType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str((*self).into())
+    }
+}
+
+impl<'de> Deserialize<'de> for TransportType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_str(&s).map_err(serde::de::Error::custom)
+    }
 }
 
 impl From<u8> for TransportType {
