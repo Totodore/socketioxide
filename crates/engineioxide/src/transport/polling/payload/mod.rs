@@ -98,7 +98,7 @@ pub fn packet_encoder(
     {
         match protocol {
             ProtocolVersion::V4 => packet.into(),
-            ProtocolVersion::V3 if supports_binary => {
+            ProtocolVersion::V3 if supports_binary && packet.is_binary() => {
                 use bytes::BytesMut;
 
                 let size_hint = packet.get_size_hint(!supports_binary) + 2;
