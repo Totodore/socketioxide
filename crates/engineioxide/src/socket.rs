@@ -402,6 +402,7 @@ where
                     // If we are currently upgrading we
                     // should pause the heartbeat process
                     // hence skipping timing out
+                    #[cfg(feature = "tracing")]
                     tracing::debug!(sid = ?self.id, "heartbeat paused due to upgrade, skipping timeout");
                     continue;
                 }
