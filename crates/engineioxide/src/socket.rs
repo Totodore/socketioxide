@@ -274,9 +274,18 @@ where
     }
 
     /// Abort the heartbeat job if it is running
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self), fields(sid = ?self.id))
+    )]
     pub(crate) fn abort_heartbeat(&self) {
         if let Ok(Some(handle)) = self.heartbeat_handle.try_lock().map(|mut h| h.take()) {
             handle.abort();
+            #[cfg(feature = "tracing")]
+            tracing::trace!("heartbeat job aborted");
+        } else {
+            #[cfg(feature = "tracing")]
+            tracing::trace!("heartbeat job not running");
         }
     }
 
