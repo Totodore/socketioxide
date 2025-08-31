@@ -34,6 +34,7 @@ thiserror.workspace = true
 # BSON implementation for TtlIndex data expiration strategy only
 bson = { version = "3", default-features = false, optional = true, features = [
     "compat-3-0-0",
+    "serde",
 ] }
 
 # Mongodb implementation
