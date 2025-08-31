@@ -76,11 +76,13 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         let conn = hyper::upgrade::on(req)
             .await
             .map(hyper_util::rt::TokioIo::new);
+
         let res = match conn {
-            Ok(conn) => on_init(engine, conn, protocol, sid, parts).await,
+            Ok(conn) => on_init(engine.clone(), conn, protocol, sid, parts).await,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
+                engine.close_session(sid, DisconnectReason::TransportClose);
                 return;
             }
         };
@@ -92,7 +94,8 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
             }
             Err(_e) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("ws closed with error: {:?}", _e)
+                tracing::debug!("ws closed with error: {:?}", _e);
+                engine.close_session(sid, DisconnectReason::TransportClose);
             }
         }
     });
@@ -105,6 +108,10 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
 /// Sends an open packet if it is not an upgrade from a polling request
 ///
 /// Read packets from the websocket and handle them, it will block until the connection is closed
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(level = "trace", name = "init_websocket", skip(engine, conn, req_data))
+)]
 pub async fn on_init<H: EngineIoHandler, S>(
     engine: Arc<EngineIo<H>>,
     conn: S,
@@ -135,8 +142,10 @@ where
             #[cfg(feature = "v3")]
             false,
         );
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] new websocket connection", socket.id);
+        tracing::debug!("new websocket connection");
+
         let mut ws = ws_init().await;
         init_handshake(socket.id, &mut ws, &engine.config).await?;
         socket
@@ -149,7 +158,7 @@ where
 
     if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
         #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] error when handling packet: {:?}", socket.id, e);
+        tracing::debug!("error when handling packet: {:?}", e);
         if let Some(reason) = e.into() {
             engine.close_session(socket.id, reason);
         }
@@ -196,7 +205,12 @@ where
                 engine.handler.on_binary(data, socket.clone());
                 Ok(())
             }
-            Message::Close(_) => break,
+            Message::Close(_) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("websocket closed, closing session");
+                engine.close_session(socket.id, DisconnectReason::TransportClose);
+                break;
+            }
             _ => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("[sid={}] unexpected ws message", socket.id);
@@ -311,7 +325,10 @@ where
 ///│                                                      │
 ///│            -----  WebSocket frames -----             │
 /// ```
-#[cfg_attr(feature = "tracing", tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string())))]
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(level = "trace", skip(socket, ws))
+)]
 async fn upgrade_handshake<H: EngineIoHandler, S>(
     socket: &Arc<Socket<H::Data>>,
     ws: &mut WebSocketStream<S>,
