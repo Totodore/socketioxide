@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fmt::Debug,
     sync::{Arc, RwLock},
 };
 
@@ -49,9 +48,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         #[cfg(feature = "v3")] supports_binary: bool,
     ) -> Arc<Socket<H::Data>> {
         let engine = self.clone();
-        let close_fn = Box::new(move |sid, reason| {
-            engine.close_session(sid, reason);
-        });
+        let close_fn = Box::new(move |sid, reason| engine.close_session(sid, reason));
 
         let socket = Socket::new(
             protocol,
@@ -81,26 +78,28 @@ impl<H: EngineIoHandler> EngineIo<H> {
     ///
     /// It should be the only way to close a session and to remove a socket from the socket map.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    pub fn close_session(
-        &self,
-        sid: impl Into<Option<Sid>> + Debug,
-        reason: DisconnectReason,
-    ) -> Option<Sid> {
-        let sid = sid.into()?;
-        let socket = self.sockets.write().unwrap().remove(&sid)?;
+    pub fn close_session(&self, sid: Sid, reason: DisconnectReason) {
+        let Some(socket) = self.sockets.write().unwrap().remove(&sid) else {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(
+                ?sid,
+                socket_len = self.sockets.read().unwrap().len(),
+                "socket not found"
+            );
+            return;
+        };
 
         // Try to close the internal channel if it is available
         // E.g. with polling transport the channel is not always locked so it is necessary to close it here
         socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
         socket.abort_heartbeat();
         self.handler.on_disconnect(socket, reason);
+
         #[cfg(feature = "tracing")]
         tracing::debug!(
-            "remaining sockets: {:?}",
-            self.sockets.read().unwrap().len()
+            rem_sockets = self.sockets.read().unwrap().len(),
+            "remaining sockets",
         );
-
-        Some(sid)
     }
 }
 

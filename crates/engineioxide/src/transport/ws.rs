@@ -82,7 +82,9 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
-                engine.close_session(sid, DisconnectReason::TransportClose);
+                if let Some(sid) = sid {
+                    engine.close_session(sid, DisconnectReason::TransportError);
+                }
                 return;
             }
         };
@@ -95,7 +97,9 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws closed with error: {:?}", _e);
-                engine.close_session(sid, DisconnectReason::TransportClose);
+                if let Some(sid) = sid {
+                    engine.close_session(sid, DisconnectReason::TransportError);
+                }
             }
         }
     });
@@ -213,7 +217,7 @@ where
             }
             _ => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("[sid={}] unexpected ws message", socket.id);
+                tracing::debug!(sid = ?socket.id, "unexpected ws message");
                 Ok(())
             }
         }?
