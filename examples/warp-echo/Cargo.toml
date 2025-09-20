@@ -1,0 +1,18 @@
+[package]
+name = "warp-echo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+socketioxide.workspace = true
+warp = "0.4.2"
+hyper-util = { workspace = true, features = ["tokio", "service"] }
+hyper = { workspace = true, features = ["server", "http1"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber.workspace = true
+tracing.workspace = true
+rmpv.workspace = true
+
+[[bin]]
+name = "warp-echo"
+path = "warp_echo.rs"
