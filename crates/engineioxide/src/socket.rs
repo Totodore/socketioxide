@@ -500,7 +500,7 @@ impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
             .field("internal_tx", &self.internal_tx)
             .field("heartbeat_rx", &self.heartbeat_rx)
             .field("heartbeat_tx", &self.heartbeat_tx)
-            .field("heartbeat_handle", &self.cancellation_token)
+            .field("cancellation_token", &self.cancellation_token)
             .field("req_data", &self.req_parts)
             .finish()
     }
