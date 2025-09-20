@@ -11,10 +11,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
 };
 use http::{HeaderValue, Request, Response, StatusCode, request::Parts};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    task::JoinHandle,
-};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
@@ -82,9 +79,6 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
-                if let Some(sid) = sid {
-                    engine.close_session(sid, DisconnectReason::TransportError);
-                }
                 return;
             }
         };
@@ -92,11 +86,12 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         match res {
             Ok(_) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("ws closed")
+                tracing::debug!(?sid, "ws closed")
             }
+            Err(Error::MultipleWebsocketRequests) => {}
             Err(_e) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("ws closed with error: {:?}", _e);
+                tracing::debug!(?sid, "ws closed with error: {_e}");
                 if let Some(sid) = sid {
                     engine.close_session(sid, DisconnectReason::TransportError);
                 }
@@ -131,7 +126,7 @@ where
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {
             None => return Err(Error::UnknownSessionID(sid)),
-            Some(socket) if socket.is_ws() => return Err(Error::Upgrade),
+            Some(socket) if socket.is_ws() => return Err(Error::MultipleWebsocketRequests),
             Some(socket) => {
                 let mut ws = ws_init().await;
                 upgrade_handshake::<H, S>(&socket, &mut ws).await?;
@@ -158,18 +153,29 @@ where
         (socket, ws)
     };
     let (tx, rx) = ws.split();
-    let rx_handle = forward_to_socket::<H, S>(socket.clone(), tx);
 
-    if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("error when handling packet: {:?}", e);
-        if let Some(reason) = e.into() {
-            engine.close_session(socket.id, reason);
-        }
-    } else {
-        engine.close_session(socket.id, DisconnectReason::TransportClose);
-    }
-    rx_handle.abort();
+    // Pipe between websocket and internal socket channel
+    let cancel_token = socket.cancellation_token.clone();
+    tokio::spawn(
+        cancel_token
+            .clone()
+            .run_until_cancelled_owned(forward_to_socket::<H, S>(socket.clone(), tx)),
+    );
+
+    // pipe between internal socket channel and websocket
+    cancel_token
+        .run_until_cancelled_owned(async move {
+            if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("error when handling packet: {:?}", e);
+                if let Some(reason) = e.into() {
+                    engine.close_session(socket.id, reason);
+                }
+            } else {
+                engine.close_session(socket.id, DisconnectReason::TransportClose);
+            }
+        })
+        .await;
     Ok(())
 }
 
@@ -185,12 +191,7 @@ where
     while let Some(msg) = rx.try_next().await? {
         match msg {
             Message::Text(msg) => match Packet::try_from(msg)? {
-                Packet::Close => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("[sid={}] closing session", socket.id);
-                    engine.close_session(socket.id, DisconnectReason::TransportClose);
-                    break;
-                }
+                Packet::Close => break,
                 Packet::Pong | Packet::Ping => socket
                     .heartbeat_tx
                     .try_send(())
@@ -228,20 +229,17 @@ where
 /// Forwards all packets waiting to be sent to the websocket
 ///
 /// The websocket stream is flushed only when the internal channel is drained
-fn forward_to_socket<H: EngineIoHandler, S>(
+async fn forward_to_socket<H: EngineIoHandler, S>(
     socket: Arc<Socket<H::Data>>,
     mut tx: SplitSink<WebSocketStream<S>, Message>,
-) -> JoinHandle<()>
-where
+) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    // Pipe between websocket and internal socket channel
-    tokio::spawn(async move {
-        let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+    let mut internal_rx = socket.internal_rx.try_lock().unwrap();
 
-        // map a packet to a websocket message
-        // It is declared as a macro rather than a closure to avoid ownership issues
-        macro_rules! map_fn {
+    // map a packet to a websocket message
+    // It is declared as a macro rather than a closure to avoid ownership issues
+    macro_rules! map_fn {
             ($item:ident) => {
                 let res = match $item {
                     Packet::Binary(bin) | Packet::BinaryV3(bin) => {
@@ -277,20 +275,19 @@ where
             };
         }
 
-        while let Some(items) = internal_rx.recv().await {
+    while let Some(items) = internal_rx.recv().await {
+        for item in items {
+            map_fn!(item);
+        }
+        // For every available packet we continue to send until the channel is drained
+        while let Ok(items) = internal_rx.try_recv() {
             for item in items {
                 map_fn!(item);
             }
-            // For every available packet we continue to send until the channel is drained
-            while let Ok(items) = internal_rx.try_recv() {
-                for item in items {
-                    map_fn!(item);
-                }
-            }
-
-            tx.flush().await.ok();
         }
-    })
+
+        tx.flush().await.ok();
+    }
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
 async fn init_handshake<S>(

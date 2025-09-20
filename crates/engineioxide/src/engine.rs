@@ -79,7 +79,8 @@ impl<H: EngineIoHandler> EngineIo<H> {
     /// It should be the only way to close a session and to remove a socket from the socket map.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub fn close_session(&self, sid: Sid, reason: DisconnectReason) {
-        let Some(socket) = self.sockets.write().unwrap().remove(&sid) else {
+        let socket = { self.sockets.write().unwrap().remove(&sid) };
+        let Some(socket) = socket else {
             #[cfg(feature = "tracing")]
             tracing::debug!(
                 ?sid,
@@ -92,7 +93,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         // Try to close the internal channel if it is available
         // E.g. with polling transport the channel is not always locked so it is necessary to close it here
         socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
-        socket.abort_heartbeat();
+        socket.cancellation_token.cancel();
         self.handler.on_disconnect(socket, reason);
 
         #[cfg(feature = "tracing")]
