@@ -17,14 +17,14 @@ remote-adapter = []
 
 [dependencies]
 bytes.workspace = true
-engineioxide-core = { version = "0.1", path = "../engineioxide-core" }
+engineioxide-core = { version = "0.2", path = "../engineioxide-core" }
 serde.workspace = true
 thiserror.workspace = true
 futures-core.workspace = true
 smallvec = { workspace = true, features = ["serde"] }
 
 [target."cfg(fuzzing)".dependencies]
-arbitrary = { version = "1.3.2", features = ["derive"] }
+arbitrary = { version = "1.4.2", features = ["derive"] }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -17,7 +17,6 @@
     clippy::match_wildcard_for_single_variants,
     clippy::if_let_mutex,
     clippy::await_holding_lock,
-    clippy::match_on_vec_items,
     clippy::imprecise_flops,
     clippy::suboptimal_flops,
     clippy::lossy_float_literal,
@@ -94,15 +93,15 @@
 //!     let (layer, io) = SocketIo::new_layer();
 //!
 //!     // Register a handler for the default namespace
-//!     io.ns("/", |s: SocketRef| {
+//!     io.ns("/", async |s: SocketRef| {
 //!         // For each "message" event received, send a "message-back" event with the "Hello World!" event
-//!         s.on("message", |s: SocketRef| {
+//!         s.on("message", async |s: SocketRef| {
 //!             s.emit("message-back", "Hello World!").ok();
 //!         });
 //!     });
 //!
 //!     let app = axum::Router::new()
-//!     .route("/", get(|| async { "Hello, World!" }))
+//!     .route("/", get(async || "Hello, World!"))
 //!     .layer(layer);
 //!
 //!     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -137,13 +136,13 @@
 //! ```
 //!
 //! ## Handlers
-//! Handlers are functions or clonable closures that are given to the `io.ns`, the `socket.on` and the `socket.on_disconnect` fns.
-//! They can be async or sync and can take from 0 to 16 arguments that implements the [`FromConnectParts`]
+//! Handlers are async functions or clonable async closures that are given to the `io.ns`, the `socket.on` and the `socket.on_disconnect` fns.
+//! They can take from 0 to 16 arguments that implements the [`FromConnectParts`]
 //! trait for the [`ConnectHandler`], the [`FromMessageParts`] for
 //! the [`MessageHandler`] and the [`FromDisconnectParts`] for the [`DisconnectHandler`].
 //! They are greatly inspired by the axum handlers.
 //!
-//! If they are async, a new task will be spawned for each incoming connection/message so it doesn't block the event management task.
+//! A new task will be spawned for each incoming connection/message so it doesn't block the event management task.
 //!
 //! * Check the [`handler::connect`] module doc for more details on the connect handler and connect middlewares.
 //! * Check the [`handler::message`] module doc for more details on the message handler.
@@ -317,14 +316,14 @@
 //! #### Write this:
 //! ```
 //! # use socketioxide::{SocketIo, adapter::Adapter, extract::SocketRef};
-//! fn my_handler<A: Adapter>(s: SocketRef<A>, io: SocketIo<A>) { }
+//! async fn my_handler<A: Adapter>(s: SocketRef<A>, io: SocketIo<A>) { }
 //! let (layer, io) = SocketIo::new_layer();
 //! io.ns("/", my_handler);
 //! ```
 //! #### Instead of that:
 //! ```
 //! # use socketioxide::{SocketIo, adapter::Adapter, extract::SocketRef};
-//! fn my_handler(s: SocketRef, io: SocketIo) { }
+//! async fn my_handler(s: SocketRef, io: SocketIo) { }
 //! let (layer, io) = SocketIo::new_layer();
 //! io.ns("/", my_handler);
 //! ```

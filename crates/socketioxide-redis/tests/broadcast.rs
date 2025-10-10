@@ -88,7 +88,7 @@ pub async fn broadcast_with_ack() {
     let [io1, io2] = fixture::spawn_servers();
 
     io1.ns("/", handler).await.unwrap();
-    io2.ns("/", || ()).await.unwrap();
+    io2.ns("/", async || ()).await.unwrap();
 
     let ((_tx1, mut rx1), (tx2, mut rx2)) =
         tokio::join!(io1.new_dummy_sock("/", ()), io2.new_dummy_sock("/", ()));
@@ -126,7 +126,7 @@ pub async fn broadcast_with_ack_timeout() {
     let [io1, io2] = fixture::spawn_buggy_servers(TIMEOUT);
 
     io1.ns("/", handler).await.unwrap();
-    io2.ns("/", || ()).await.unwrap();
+    io2.ns("/", async || ()).await.unwrap();
 
     let now = std::time::Instant::now();
     let ((_tx1, mut rx1), (_tx2, mut rx2)) =

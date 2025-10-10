@@ -1,3 +1,10 @@
+# engineioxide 0.17.1
+* fix: upgrade process was timing out when the client made accidentally more
+than one polling requests while upgrading (#497).
+
+# engineioxide 0.17
+* MSRV: rust-version is now 1.86 with edition 2024
+
 # engineioxide 0.16.2
 * fix: pause heartbeat when the socket is being upgraded to avoid the client
 from resending polling requests to respond to ping packets.

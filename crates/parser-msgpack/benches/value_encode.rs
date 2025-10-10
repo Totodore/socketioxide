@@ -80,21 +80,21 @@ fn benchmark_binary(c: &mut Criterion) {
 
     group.bench_function("Encode binary input data with rmp_serde", |b| {
         b.iter_batched_ref(
-            || NestedDataWithBinaries::new(),
+            NestedDataWithBinaries::new,
             serde_encode,
             BatchSize::SmallInput,
         );
     });
     group.bench_function("Encode binary input data with msgpack parser", |b| {
         b.iter_batched_ref(
-            || NestedDataWithBinaries::new(),
+            NestedDataWithBinaries::new,
             |data| socketio_encode(data, None),
             BatchSize::SmallInput,
         );
     });
     group.bench_function("Encode binary data with msgpack parser and event", |b| {
         b.iter_batched_ref(
-            || NestedDataWithBinaries::new(),
+            NestedDataWithBinaries::new,
             |data| socketio_encode(data, Some("event")),
             BatchSize::SmallInput,
         );

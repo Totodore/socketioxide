@@ -72,19 +72,16 @@ use crate::{
 };
 use bytes::Bytes;
 use engineioxide_core::Str;
+use futures_util::FutureExt;
 use http::request::Parts;
 use smallvec::{SmallVec, smallvec};
-use tokio::{
-    sync::{
-        Mutex,
-        mpsc::{self},
-        mpsc::{Receiver, error::TrySendError},
-    },
-    task::JoinHandle,
+use tokio::sync::{
+    Mutex,
+    mpsc::{self, Receiver, error::TrySendError},
 };
-use tokio_tungstenite::tungstenite;
 
 pub use engineioxide_core::Sid;
+use tokio_util::sync::CancellationToken;
 
 /// A [`DisconnectReason`] represents the reason why a [`Socket`] was closed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,7 +108,6 @@ impl From<&Error> for Option<DisconnectReason> {
     fn from(err: &Error) -> Self {
         use Error::*;
         match err {
-            WsTransport(tungstenite::Error::ConnectionClosed) => None,
             WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
             BadPacket(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge | InvalidPacketLength
             | InvalidPacketType(_) => Some(DisconnectReason::PacketParsingError),
@@ -222,8 +218,9 @@ where
     /// Channel to send Ping [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) from the connexion to the heartbeat job
     /// which is running in a separate task
     pub(crate) heartbeat_tx: mpsc::Sender<()>,
-    /// Handle to the heartbeat job so that it can be aborted when the socket is closed
-    heartbeat_handle: Mutex<Option<JoinHandle<()>>>,
+
+    /// A cancellation token that will be triggered when the socket is being closed.
+    pub(crate) cancellation_token: CancellationToken,
 
     /// Function to call when the socket is closed
     close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
@@ -264,7 +261,8 @@ where
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,
-            heartbeat_handle: Mutex::new(None),
+            cancellation_token: CancellationToken::new(),
+
             close_fn,
 
             data: D::default(),
@@ -275,17 +273,11 @@ where
         }
     }
 
-    /// Abort the heartbeat job if it is running
-    pub(crate) fn abort_heartbeat(&self) {
-        if let Ok(Some(handle)) = self.heartbeat_handle.try_lock().map(|mut h| h.take()) {
-            handle.abort();
-        }
-    }
-
     /// Sends a packet to the connection.
     pub(crate) fn send(&self, packet: Packet) -> Result<(), TrySendError<Packet>> {
         #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] sending packet: {:?}", self.id, packet);
+        tracing::debug!(?packet, "sending packet");
+
         self.internal_tx
             .try_send(smallvec![packet])
             .map_err(|p| match p {
@@ -305,19 +297,22 @@ where
     ///
     /// Keep a handle to the job so that it can be aborted when the socket is closed
     pub(crate) fn spawn_heartbeat(self: Arc<Self>, interval: Duration, timeout: Duration) {
-        let socket = self.clone();
+        let cancellation_token = self.cancellation_token.clone();
 
-        let handle = tokio::spawn(async move {
-            if let Err(_e) = socket.heartbeat_job(interval, timeout).await {
-                socket.close(DisconnectReason::HeartbeatTimeout);
-                #[cfg(feature = "tracing")]
-                tracing::debug!("[sid={}] heartbeat error: {:?}", socket.id, _e);
-            }
-        });
-        self.heartbeat_handle
-            .try_lock()
-            .expect("heartbeat handle mutex should not be locked twice")
-            .replace(handle);
+        tokio::spawn(
+            cancellation_token
+                .run_until_cancelled_owned(async move {
+                    if let Err(_e) = self.heartbeat_job(interval, timeout).await {
+                        self.close(DisconnectReason::HeartbeatTimeout);
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(id = ?self.id, "heartbeat error: {_e}");
+                    }
+                })
+                .inspect(|v| {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(aborted = v.is_none(), "heartbeat job completed");
+                }),
+        );
     }
 
     /// Heartbeat is sent every `interval` milliseconds by the client and the server `is` expected to respond within `timeout` milliseconds.
@@ -458,8 +453,10 @@ where
     /// Immediately closes the socket and the underlying connection.
     /// The socket will be removed from the `Engine` and the [`Handler`](crate::handler::EngineIoHandler) will be notified.
     pub fn close(&self, reason: DisconnectReason) {
-        (self.close_fn)(self.id, reason);
+        // Try to send a close packet is the connection is still operational.
         self.send(Packet::Close).ok();
+
+        (self.close_fn)(self.id, reason);
     }
 
     /// Returns true if the socket is closed
@@ -503,7 +500,7 @@ impl<D: Default + Send + Sync + 'static> std::fmt::Debug for Socket<D> {
             .field("internal_tx", &self.internal_tx)
             .field("heartbeat_rx", &self.heartbeat_rx)
             .field("heartbeat_tx", &self.heartbeat_tx)
-            .field("heartbeat_handle", &self.heartbeat_handle)
+            .field("cancellation_token", &self.cancellation_token)
             .field("req_data", &self.req_parts)
             .finish()
     }
@@ -563,7 +560,7 @@ where
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,
-            heartbeat_handle: Mutex::new(None),
+            cancellation_token: CancellationToken::new(),
             close_fn,
 
             data: D::default(),

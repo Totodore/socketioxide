@@ -11,10 +11,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
 };
 use http::{HeaderValue, Request, Response, StatusCode, request::Parts};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    task::JoinHandle,
-};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
@@ -76,8 +73,9 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         let conn = hyper::upgrade::on(req)
             .await
             .map(hyper_util::rt::TokioIo::new);
+
         let res = match conn {
-            Ok(conn) => on_init(engine, conn, protocol, sid, parts).await,
+            Ok(conn) => on_init(engine.clone(), conn, protocol, sid, parts).await,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
@@ -88,11 +86,15 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         match res {
             Ok(_) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("ws closed")
+                tracing::debug!(?sid, "ws closed")
             }
+            Err(Error::MultipleWebsocketRequests) => {}
             Err(_e) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("ws closed with error: {:?}", _e)
+                tracing::debug!(?sid, "ws closed with error: {_e}");
+                if let Some(sid) = sid {
+                    engine.close_session(sid, DisconnectReason::TransportError);
+                }
             }
         }
     });
@@ -105,6 +107,10 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
 /// Sends an open packet if it is not an upgrade from a polling request
 ///
 /// Read packets from the websocket and handle them, it will block until the connection is closed
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(level = "trace", name = "init_websocket", skip(engine, conn, req_data))
+)]
 pub async fn on_init<H: EngineIoHandler, S>(
     engine: Arc<EngineIo<H>>,
     conn: S,
@@ -120,7 +126,7 @@ where
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {
             None => return Err(Error::UnknownSessionID(sid)),
-            Some(socket) if socket.is_ws() => return Err(Error::Upgrade),
+            Some(socket) if socket.is_ws() => return Err(Error::MultipleWebsocketRequests),
             Some(socket) => {
                 let mut ws = ws_init().await;
                 upgrade_handshake::<H, S>(&socket, &mut ws).await?;
@@ -135,8 +141,10 @@ where
             #[cfg(feature = "v3")]
             false,
         );
+
         #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] new websocket connection", socket.id);
+        tracing::debug!("new websocket connection");
+
         let mut ws = ws_init().await;
         init_handshake(socket.id, &mut ws, &engine.config).await?;
         socket
@@ -145,18 +153,29 @@ where
         (socket, ws)
     };
     let (tx, rx) = ws.split();
-    let rx_handle = forward_to_socket::<H, S>(socket.clone(), tx);
 
-    if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("[sid={}] error when handling packet: {:?}", socket.id, e);
-        if let Some(reason) = e.into() {
-            engine.close_session(socket.id, reason);
-        }
-    } else {
-        engine.close_session(socket.id, DisconnectReason::TransportClose);
-    }
-    rx_handle.abort();
+    // Pipe between websocket and internal socket channel
+    let cancel_token = socket.cancellation_token.clone();
+    tokio::spawn(
+        cancel_token
+            .clone()
+            .run_until_cancelled_owned(forward_to_socket::<H, S>(socket.clone(), tx)),
+    );
+
+    // pipe between internal socket channel and websocket
+    cancel_token
+        .run_until_cancelled_owned(async move {
+            if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("error when handling packet: {:?}", e);
+                if let Some(reason) = e.into() {
+                    engine.close_session(socket.id, reason);
+                }
+            } else {
+                engine.close_session(socket.id, DisconnectReason::TransportClose);
+            }
+        })
+        .await;
     Ok(())
 }
 
@@ -172,12 +191,7 @@ where
     while let Some(msg) = rx.try_next().await? {
         match msg {
             Message::Text(msg) => match Packet::try_from(msg)? {
-                Packet::Close => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("[sid={}] closing session", socket.id);
-                    engine.close_session(socket.id, DisconnectReason::TransportClose);
-                    break;
-                }
+                Packet::Close => break,
                 Packet::Pong | Packet::Ping => socket
                     .heartbeat_tx
                     .try_send(())
@@ -196,10 +210,15 @@ where
                 engine.handler.on_binary(data, socket.clone());
                 Ok(())
             }
-            Message::Close(_) => break,
+            Message::Close(_) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("websocket closed, closing session");
+                engine.close_session(socket.id, DisconnectReason::TransportClose);
+                break;
+            }
             _ => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("[sid={}] unexpected ws message", socket.id);
+                tracing::debug!(sid = ?socket.id, "unexpected ws message");
                 Ok(())
             }
         }?
@@ -210,20 +229,17 @@ where
 /// Forwards all packets waiting to be sent to the websocket
 ///
 /// The websocket stream is flushed only when the internal channel is drained
-fn forward_to_socket<H: EngineIoHandler, S>(
+async fn forward_to_socket<H: EngineIoHandler, S>(
     socket: Arc<Socket<H::Data>>,
     mut tx: SplitSink<WebSocketStream<S>, Message>,
-) -> JoinHandle<()>
-where
+) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    // Pipe between websocket and internal socket channel
-    tokio::spawn(async move {
-        let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+    let mut internal_rx = socket.internal_rx.try_lock().unwrap();
 
-        // map a packet to a websocket message
-        // It is declared as a macro rather than a closure to avoid ownership issues
-        macro_rules! map_fn {
+    // map a packet to a websocket message
+    // It is declared as a macro rather than a closure to avoid ownership issues
+    macro_rules! map_fn {
             ($item:ident) => {
                 let res = match $item {
                     Packet::Binary(bin) | Packet::BinaryV3(bin) => {
@@ -259,20 +275,19 @@ where
             };
         }
 
-        while let Some(items) = internal_rx.recv().await {
+    while let Some(items) = internal_rx.recv().await {
+        for item in items {
+            map_fn!(item);
+        }
+        // For every available packet we continue to send until the channel is drained
+        while let Ok(items) = internal_rx.try_recv() {
             for item in items {
                 map_fn!(item);
             }
-            // For every available packet we continue to send until the channel is drained
-            while let Ok(items) = internal_rx.try_recv() {
-                for item in items {
-                    map_fn!(item);
-                }
-            }
-
-            tx.flush().await.ok();
         }
-    })
+
+        tx.flush().await.ok();
+    }
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
 async fn init_handshake<S>(
@@ -311,7 +326,10 @@ where
 ///│                                                      │
 ///│            -----  WebSocket frames -----             │
 /// ```
-#[cfg_attr(feature = "tracing", tracing::instrument(skip(socket, ws), fields(sid = socket.id.to_string())))]
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(level = "trace", skip(socket, ws))
+)]
 async fn upgrade_handshake<H: EngineIoHandler, S>(
     socket: &Arc<Socket<H::Data>>,
     ws: &mut WebSocketStream<S>,
@@ -320,7 +338,18 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     #[cfg(feature = "tracing")]
-    tracing::debug!("websocket connection upgrade");
+    tracing::debug!("starting websocket connection upgrade");
+
+    // The socket is upgrading, from now on all polling
+    // request will return a `Packet::Noop`
+    socket.start_upgrade();
+
+    // We send a last Noop request to close a potential waiting polling request.
+    socket.send(Packet::Noop)?;
+
+    // wait for any current polling connection to finish by waiting for the socket to be unlocked
+    // All other polling connection will be immediately closed with a NOOP packet.
+    let _lock = socket.internal_rx.lock().await;
 
     // Fetch the next packet from the ws stream, it should be a PingUpgrade packet
     let msg = match ws.next().await {
@@ -329,15 +358,14 @@ where
     };
     match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
-            socket.start_upgrade();
+            #[cfg(feature = "tracing")]
+            tracing::debug!("received first ping upgrade");
+
             // Respond with a PongUpgrade packet
             ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
-
-    // send a NOOP packet to any pending polling request so it closes gracefully
-    socket.send(Packet::Noop)?;
 
     // Fetch the next packet from the ws stream, it should be an Upgrade packet
     let msg = match ws.next().await {
@@ -356,13 +384,11 @@ where
     match Packet::try_from(msg)? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
-            tracing::debug!("ws upgraded successful")
+            tracing::debug!("ws upgraded successfully")
         }
         p => Err(Error::BadPacket(p))?,
     };
 
-    // wait for any polling connection to finish by waiting for the socket to be unlocked
-    let _ = socket.internal_rx.lock().await;
     socket.upgrade_to_websocket();
     Ok(())
 }

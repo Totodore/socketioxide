@@ -99,13 +99,13 @@ pub async fn broadcast_with_ack() {
             while let Some(msg) = srx.recv().await {
                 let msg = match msg {
                     Message(msg) => msg,
-                    msg => panic!("Unexpected message: {:?}", msg),
+                    msg => panic!("Unexpected message: {msg:?}"),
                 };
                 let ack = match assert_ok!(parser.decode_str(&Default::default(), msg)).inner {
                     PacketData::Event(_, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };
-                assert_ok!(stx.send(Message(format!("3{}[\"oof\"]", ack).into())).await);
+                assert_ok!(stx.send(Message(format!("3{ack}[\"oof\"]").into())).await);
             }
         });
     }

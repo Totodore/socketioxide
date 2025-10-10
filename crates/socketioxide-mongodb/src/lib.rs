@@ -11,7 +11,6 @@
     clippy::match_wildcard_for_single_variants,
     clippy::if_let_mutex,
     clippy::await_holding_lock,
-    clippy::match_on_vec_items,
     clippy::imprecise_flops,
     clippy::suboptimal_flops,
     clippy::lossy_float_literal,
@@ -319,9 +318,9 @@ impl<R: Driver> Error<R> {
 impl<R: Driver> fmt::Debug for Error<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Driver(err) => write!(f, "Driver error: {:?}", err),
-            Self::Decode(err) => write!(f, "Decode error: {:?}", err),
-            Self::Encode(err) => write!(f, "Encode error: {:?}", err),
+            Self::Driver(err) => write!(f, "Driver error: {err:?}"),
+            Self::Decode(err) => write!(f, "Decode error: {err:?}"),
+            Self::Encode(err) => write!(f, "Encode error: {err:?}"),
         }
     }
 }

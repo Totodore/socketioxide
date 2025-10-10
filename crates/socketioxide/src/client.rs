@@ -27,7 +27,7 @@ use crate::{
 
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
-    nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
+    pub(crate) nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
     router: RwLock<Router<NamespaceCtr<A>>>,
     adapter_state: A::State,
 
@@ -440,14 +440,15 @@ mod test {
             Default::default(),
         );
         let client = Arc::new(client);
-        client.clone().add_ns("/".into(), || {});
+        client.clone().add_ns("/".into(), async || ());
         client
     }
 
     #[tokio::test]
     async fn get_ns() {
         let client = create_client();
-        let ns = Namespace::new(Str::from("/"), || {}, &client.adapter_state, &client.config);
+        let ns = Str::from("/");
+        let ns = Namespace::new(ns, async || (), &client.adapter_state, &client.config);
         client.nsps.write().unwrap().insert(Str::from("/"), ns);
         assert!(client.get_ns("/").is_some());
     }

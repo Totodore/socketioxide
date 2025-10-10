@@ -365,7 +365,7 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.dyn_ns("/client/{client_id}", |socket: SocketRef| {
+    /// io.dyn_ns("/client/{client_id}", async |socket: SocketRef| {
     ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
     /// }).unwrap();
     ///
@@ -373,7 +373,7 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.dyn_ns("/client/{*remaining_path}", |socket: SocketRef| {
+    /// io.dyn_ns("/client/{*remaining_path}", async |socket: SocketRef| {
     ///     println!("Socket connected on dynamic namespace with namespace path: {}", socket.ns());
     /// }).unwrap();
     ///
@@ -414,6 +414,35 @@ impl<A: Adapter> SocketIo<A> {
         self.0.close().await;
     }
 
+    /// # Get all the namespaces to perform operations on.
+    ///
+    /// This will return a vector of [`BroadcastOperators`] for each namespace.
+    ///
+    /// # Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/custom_ns", async |socket: SocketRef| {
+    ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.id);
+    /// });
+    ///
+    /// // Later in your code you can get all the namespaces
+    /// for ns in io.nsps() {
+    ///     assert_eq!(ns.ns_path(), "/custom_ns");
+    /// }
+    /// ```
+    #[inline]
+    pub fn nsps(&self) -> Vec<BroadcastOperators<A>> {
+        let parser = self.0.parser();
+        self.0
+            .nsps
+            .read()
+            .unwrap()
+            .values()
+            .map(|ns| BroadcastOperators::new(ns.clone(), parser).broadcast())
+            .collect()
+    }
+
     // Chaining operators fns
 
     /// # Select a specific namespace to perform operations on.
@@ -424,7 +453,7 @@ impl<A: Adapter> SocketIo<A> {
     /// ```
     /// # use socketioxide::{SocketIo, extract::SocketRef};
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("custom_ns", |socket: SocketRef| {
+    /// io.ns("custom_ns", async |socket: SocketRef| {
     ///     println!("Socket connected on /custom_ns namespace with id: {}", socket.id);
     /// });
     ///
@@ -588,7 +617,7 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     /// * See the [`connect`](crate::handler::connect) module doc for more details on connect handler.
     /// * See the [`extract`](crate::extract) module doc for more details on available extractors.
     ///
-    /// # Simple example with a sync closure:
+    /// # Simple example with an async closure:
     /// ```
     /// # use socketioxide::{SocketIo, extract::*};
     /// # use serde::{Serialize, Deserialize};
@@ -599,11 +628,11 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
+    /// io.ns("/", async |socket: SocketRef| {
     ///     // Register a handler for the "test" event and extract the data as a `MyData` struct
     ///     // With the Data extractor, the handler is called only if the data can be deserialized as a `MyData` struct
     ///     // If you want to manage errors yourself you can use the TryData extractor
-    ///     socket.on("test", |socket: SocketRef, Data::<MyData>(data)| {
+    ///     socket.on("test", async |socket: SocketRef, Data::<MyData>(data)| {
     ///         println!("Received a test message {:?}", data);
     ///         socket.emit("test-test", &MyData { name: "Test".to_string(), age: 8 }).ok(); // Emit a message to the client
     ///     });
@@ -623,7 +652,7 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef| {
+    /// io.ns("/", async |socket: SocketRef| {
     ///     // Register an async handler for the "test" event and extract the data as a `MyData` struct
     ///     // Extract the binary payload as a `Vec<Bytes>` with the Bin extractor.
     ///     // It should be the last extractor because it consumes the request
@@ -650,7 +679,7 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     /// }
     ///
     /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", |socket: SocketRef, Data(auth): Data<MyAuthData>| {
+    /// io.ns("/", async |socket: SocketRef, Data(auth): Data<MyAuthData>| {
     ///     if auth.token.is_empty() {
     ///         println!("Invalid token, disconnecting");
     ///         socket.disconnect().ok();
@@ -668,18 +697,18 @@ impl<A: DefinedAdapter + Adapter> SocketIo<A> {
     /// ```compile_fail
     /// # use socketioxide::{SocketIo};
     /// // The SocketIo instance is generic over the adapter type.
-    /// fn test<A: Adapter>(io: SocketIo<A>) {
-    ///     io.ns("/", || ());
+    /// async fn test<A: Adapter>(io: SocketIo<A>) {
+    ///     io.ns("/", async || ());
     /// }
     /// ```
     /// ```
     /// # use socketioxide::{SocketIo, adapter::LocalAdapter};
     /// // The SocketIo instance is not generic over the adapter type.
-    /// fn test(io: SocketIo<LocalAdapter>) {
-    ///     io.ns("/", || ());
+    /// async fn test(io: SocketIo<LocalAdapter>) {
+    ///     io.ns("/", async || ());
     /// }
-    /// fn test_default_adapter(io: SocketIo) {
-    ///     io.ns("/", || ());
+    /// async fn test_default_adapter(io: SocketIo) {
+    ///     io.ns("/", async || ());
     /// }
     /// ```
     pub fn ns<C, T>(&self, path: impl Into<Cow<'static, str>>, callback: C) -> A::InitRes
@@ -734,7 +763,7 @@ mod tests {
     #[test]
     fn get_default_op() {
         let (_, io) = SocketIo::new_svc();
-        io.ns("/", || {});
+        io.ns("/", async || {});
         let _ = io.get_default_op();
     }
 
@@ -748,7 +777,7 @@ mod tests {
     #[test]
     fn get_op() {
         let (_, io) = SocketIo::new_svc();
-        io.ns("test", || {});
+        io.ns("test", async || {});
         assert!(io.get_op("test").is_some());
         assert!(io.get_op("test2").is_none());
     }
@@ -758,7 +787,7 @@ mod tests {
         use engineioxide::Socket;
         let sid = Sid::new();
         let (_, io) = SocketIo::new_svc();
-        io.ns("/", || {});
+        io.ns("/", async || {});
         let socket = Socket::<SocketData<LocalAdapter>>::new_dummy(sid, Box::new(|_, _| {}));
         socket.data.io.set(io.clone()).unwrap();
         io.0.get_ns("/")

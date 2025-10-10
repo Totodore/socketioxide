@@ -1,7 +1,9 @@
 use base64::{Engine, engine::general_purpose};
 use bytes::Bytes;
 use engineioxide_core::{Sid, Str};
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use smallvec::{SmallVec, smallvec};
+use std::time::Duration;
 
 use crate::TransportType;
 use crate::config::EngineIoConfig;
@@ -146,6 +148,11 @@ impl From<Packet> for tokio_tungstenite::tungstenite::Utf8Bytes {
         String::from(value).into()
     }
 }
+impl From<Packet> for Bytes {
+    fn from(value: Packet) -> Self {
+        String::from(value).into()
+    }
+}
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
 impl TryFrom<Str> for Packet {
     type Error = Error;
@@ -195,14 +202,40 @@ impl TryFrom<String> for Packet {
 }
 
 /// An OpenPacket is used to initiate a connection
-#[derive(Debug, Clone, Serialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
     sid: Sid,
-    upgrades: Vec<String>,
-    ping_interval: u64,
-    ping_timeout: u64,
+    upgrades: SmallVec<[TransportType; 1]>,
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_from_millis"
+    )]
+    ping_interval: Duration,
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_from_millis"
+    )]
+    ping_timeout: Duration,
     max_payload: u64,
+}
+
+/// Helper to serialize a duration as milliseconds
+pub fn serialize_duration_millis<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // serialize_u128 is not supported so we need to cast it to u64, see https://github.com/serde-rs/json/issues/846
+    serializer.serialize_u64(duration.as_millis() as u64)
+}
+
+/// Helper to deserialize a duration from milliseconds
+pub fn deserialize_duration_from_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let millis = u64::deserialize(deserializer)?;
+    Ok(Duration::from_millis(millis))
 }
 
 impl OpenPacket {
@@ -210,15 +243,15 @@ impl OpenPacket {
     /// If the current transport is polling, the server will always allow the client to upgrade to websocket
     pub fn new(transport: TransportType, sid: Sid, config: &EngineIoConfig) -> Self {
         let upgrades = if transport == TransportType::Polling {
-            vec!["websocket".to_string()]
+            smallvec![TransportType::Websocket]
         } else {
-            vec![]
+            smallvec![]
         };
         OpenPacket {
             sid,
             upgrades,
-            ping_interval: config.ping_interval.as_millis() as u64,
-            ping_timeout: config.ping_timeout.as_millis() as u64,
+            ping_interval: config.ping_interval,
+            ping_timeout: config.ping_timeout,
             max_payload: config.max_payload,
         }
     }

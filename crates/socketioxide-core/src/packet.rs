@@ -179,7 +179,7 @@ impl<'de> Deserialize<'de> for Packet {
             error: Option<String>,
         }
         let raw = RawPacket::deserialize(deserializer)?;
-        let err = |field| serde::de::Error::custom(format!("missing field: {}", field));
+        let err = |field| serde::de::Error::custom(format!("missing field: {field}"));
         let inner = match raw.r#type {
             0 => PacketData::Connect(raw.data),
             1 => PacketData::Disconnect,

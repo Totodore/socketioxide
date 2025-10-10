@@ -95,7 +95,7 @@
 //!     }
 //! }
 //!
-//! fn handler(user_id: UserId) {
+//! async fn handler(user_id: UserId) {
 //!     println!("User id: {}", user_id.0);
 //! }
 //! let (svc, io) = SocketIo::new_svc();

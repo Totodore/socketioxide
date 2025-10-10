@@ -17,7 +17,7 @@ pub enum Error {
     #[error("bad packet received")]
     BadPacket(Packet),
     #[error("ws transport error: {0:?}")]
-    WsTransport(#[from] tungstenite::Error),
+    WsTransport(#[from] Box<tungstenite::Error>),
     #[error("http error: {0:?}")]
     Http(#[from] http::Error),
     #[error("internal channel error: {0:?}")]
@@ -28,6 +28,8 @@ pub enum Error {
     HeartbeatTimeout,
     #[error("upgrade error")]
     Upgrade,
+    #[error("multiple ws upgrade requests")]
+    MultipleWebsocketRequests,
     #[error("aborted connection")]
     Aborted,
 
@@ -92,5 +94,10 @@ impl<B> From<Error> for Response<ResponseBody<B>> {
                     .unwrap()
             }
         }
+    }
+}
+impl From<tungstenite::Error> for Error {
+    fn from(err: tungstenite::Error) -> Self {
+        Error::WsTransport(Box::new(err))
     }
 }

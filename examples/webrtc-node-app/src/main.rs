@@ -34,27 +34,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_parser(ParserConfig::msgpack())
         .build_layer();
 
-    io.ns("/", |s: SocketRef| {
-        s.on(
-            "join",
-            async |s: SocketRef, Data(room_id): Data<String>| {
-                let socket_cnt = s.within(room_id.clone()).sockets().len();
-                if socket_cnt == 0 {
-                    tracing::info!(
-                        "creating room {room_id} and emitting room_created socket event"
-                    );
-                    s.join(room_id.clone());
-                    s.emit("room_created", &room_id).unwrap();
-                } else if socket_cnt == 1 {
-                    tracing::info!("joining room {room_id} and emitting room_joined socket event");
-                    s.join(room_id.clone());
-                    s.emit("room_joined", &room_id).unwrap();
-                } else {
-                    tracing::info!("Can't join room {room_id}, emitting full_room socket event");
-                    s.emit("full_room", &room_id).ok();
-                }
-            },
-        );
+    io.ns("/", async |s: SocketRef| {
+        s.on("join", async |s: SocketRef, Data(room_id): Data<String>| {
+            let socket_cnt = s.within(room_id.clone()).sockets().len();
+            if socket_cnt == 0 {
+                tracing::info!("creating room {room_id} and emitting room_created socket event");
+                s.join(room_id.clone());
+                s.emit("room_created", &room_id).unwrap();
+            } else if socket_cnt == 1 {
+                tracing::info!("joining room {room_id} and emitting room_joined socket event");
+                s.join(room_id.clone());
+                s.emit("room_joined", &room_id).unwrap();
+            } else {
+                tracing::info!("Can't join room {room_id}, emitting full_room socket event");
+                s.emit("full_room", &room_id).ok();
+            }
+        });
 
         s.on(
             "start_call",

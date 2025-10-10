@@ -74,22 +74,33 @@ impl<H: EngineIoHandler> EngineIo<H> {
         self.sockets.read().unwrap().get(&sid).cloned()
     }
 
-    /// Close an engine.io session by removing the socket from the socket map and closing the socket
-    /// It should be the only way to close a session and to remove a socket from the socket map
+    /// Close an engine.io session by removing the socket from the socket map and closing the socket.
+    ///
+    /// It should be the only way to close a session and to remove a socket from the socket map.
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub fn close_session(&self, sid: Sid, reason: DisconnectReason) {
-        let socket = self.sockets.write().unwrap().remove(&sid);
-        if let Some(socket) = socket {
-            // Try to close the internal channel if it is available
-            // E.g. with polling transport the channel is not always locked so it is necessary to close it here
-            socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
-            socket.abort_heartbeat();
-            self.handler.on_disconnect(socket, reason);
+        let socket = { self.sockets.write().unwrap().remove(&sid) };
+        let Some(socket) = socket else {
             #[cfg(feature = "tracing")]
             tracing::debug!(
-                "remaining sockets: {:?}",
-                self.sockets.read().unwrap().len()
+                ?sid,
+                socket_len = self.sockets.read().unwrap().len(),
+                "socket not found"
             );
-        }
+            return;
+        };
+
+        // Try to close the internal channel if it is available
+        // E.g. with polling transport the channel is not always locked so it is necessary to close it here
+        socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
+        socket.cancellation_token.cancel();
+        self.handler.on_disconnect(socket, reason);
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            rem_sockets = self.sockets.read().unwrap().len(),
+            "remaining sockets",
+        );
     }
 }
 
@@ -116,12 +127,12 @@ mod tests {
         }
 
         fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>) {
-            println!("Ping pong message {:?}", msg);
+            println!("Ping pong message {msg:?}");
             socket.emit(msg).ok();
         }
 
         fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<Socket<Self::Data>>) {
-            println!("Ping pong binary message {:?}", data);
+            println!("Ping pong binary message {data:?}");
             socket.emit_binary(data).ok();
         }
     }

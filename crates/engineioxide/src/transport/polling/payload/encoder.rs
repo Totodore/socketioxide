@@ -112,7 +112,7 @@ pub async fn v4_encoder(
 /// Encode one packet into a *binary* payload according to the
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
-pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Result<(), Error> {
+pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
     use crate::transport::polling::payload::BINARY_PACKET_SEPARATOR_V3;
     use bytes::BufMut;
 
@@ -147,13 +147,12 @@ pub fn v3_bin_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Resu
             data.extend_from_slice(packet.as_bytes()); // packet
         }
     };
-    Ok(())
 }
 
 /// Encode one packet into a *string* payload according to the
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
-pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> Result<(), Error> {
+pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
     use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
     use bytes::BufMut;
     let packet: String = packet.into();
@@ -164,7 +163,6 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) -> R
         packet
     );
     data.put_slice(packet.as_bytes());
-    Ok(())
 }
 
 /// Encode multiple packet packet into a *string* payload if there is no binary packet or into a *binary* payload if there are binary packets
@@ -202,11 +200,11 @@ pub async fn v3_binary_encoder(
 
     if has_binary {
         for packet in packet_buffer {
-            v3_bin_packet_encoder(packet, &mut data)?;
+            v3_bin_packet_encoder(packet, &mut data);
         }
     } else {
         for packet in packet_buffer {
-            v3_string_packet_encoder(packet, &mut data)?;
+            v3_string_packet_encoder(packet, &mut data);
         }
     }
 
@@ -216,11 +214,11 @@ pub async fn v3_binary_encoder(
         for packet in packets {
             match packet {
                 Packet::BinaryV3(_) | Packet::Binary(_) => {
-                    v3_bin_packet_encoder(packet, &mut data)?;
+                    v3_bin_packet_encoder(packet, &mut data);
                     has_binary = true;
                 }
                 packet => {
-                    v3_string_packet_encoder(packet, &mut data)?;
+                    v3_string_packet_encoder(packet, &mut data);
                 }
             };
         }
@@ -250,7 +248,7 @@ pub async fn v3_string_encoder(
     let current_size = data.len() + PUNCTUATION_LEN + max_packet_size_len;
     while let Some(packets) = try_recv_packet(&mut rx, current_size, max_payload, true) {
         for packet in packets {
-            v3_string_packet_encoder(packet, &mut data)?;
+            v3_string_packet_encoder(packet, &mut data);
         }
     }
 
@@ -258,7 +256,7 @@ pub async fn v3_string_encoder(
     if data.is_empty() {
         let packets = recv_packet(&mut rx).await?;
         for packet in packets {
-            v3_string_packet_encoder(packet, &mut data)?;
+            v3_string_packet_encoder(packet, &mut data);
         }
     }
 

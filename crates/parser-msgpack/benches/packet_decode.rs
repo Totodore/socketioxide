@@ -10,12 +10,12 @@ use socketioxide_parser_msgpack::MsgPackParser;
 fn encode(packet: Packet) -> Bytes {
     match MsgPackParser.encode(black_box(packet)) {
         Value::Str(_, _) => panic!("testing only returns bytes"),
-        Value::Bytes(d) => d.into(),
+        Value::Bytes(d) => d,
     }
 }
 fn decode(value: Bytes) -> Option<Packet> {
     MsgPackParser
-        .decode_bin(&Default::default(), black_box(value.into()))
+        .decode_bin(&Default::default(), black_box(value))
         .ok()
 }
 
