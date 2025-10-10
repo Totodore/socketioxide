@@ -8,7 +8,7 @@ use std::{
 use engineioxide_core::{Packet, PacketBuf, PacketParseError, Sid};
 use futures_core::Stream;
 use futures_util::{
-    Sink, StreamExt,
+    Sink, SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
 };
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -17,6 +17,13 @@ use crate::{
     HttpClient, poll,
     transport::{Transport, polling::PollingSvc},
 };
+
+type SendPongFut<S> = Pin<
+    Box<
+        dyn Future<Output = Result<(), <SplitSink<Transport<S>, Packet> as Sink<Packet>>::Error>>
+            + 'static,
+    >,
+>;
 
 pin_project_lite::pin_project! {
     pub struct Client<S: PollingSvc> {
@@ -27,9 +34,10 @@ pin_project_lite::pin_project! {
         // But what if we need to send a PONG packet from the inner lib?
         #[pin]
         pub transport_tx: SplitSink<Transport<S>, Packet>,
+
         pub sid: Sid,
-        pub tx: mpsc::Sender<PacketBuf>,
-        pub(crate) rx: Mutex<mpsc::Receiver<PacketBuf>>,
+        // pub tx: mpsc::Sender<PacketBuf>,
+        // pub(crate) rx: Mutex<mpsc::Receiver<PacketBuf>>,
     }
 }
 
@@ -39,7 +47,6 @@ where
     <S::Body as http_body::Body>::Error: fmt::Debug,
 {
     pub async fn connect(svc: S) -> Result<Self, ()> {
-        let (tx, rx) = mpsc::channel(255);
         let mut inner = HttpClient::new(svc);
         let packet = inner.handshake().await.unwrap();
 
@@ -49,35 +56,9 @@ where
             transport_tx,
             transport_rx,
             sid: packet.sid,
-            tx,
-            rx: Mutex::new(rx),
         };
 
         Ok(client)
-    }
-
-    pub fn connected(&self) -> bool {
-        self.rx.try_lock().is_ok()
-    }
-}
-
-impl<S: PollingSvc> Sink<PacketBuf> for Client<S> {
-    type Error = TrySendError<PacketBuf>;
-
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn start_send(self: Pin<&mut Self>, packets: PacketBuf) -> Result<(), Self::Error> {
-        self.tx.try_send(packets)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
     }
 }
 
@@ -88,10 +69,17 @@ where
 {
     type Item = Result<Packet, PacketParseError>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let project = self.project();
-        match poll!(project.transport_rx.poll_next(cx)) {
+        let mut this = self.project();
+        match poll!(this.transport_rx.poll_next(cx)) {
             Some(Ok(Packet::Ping)) => {
                 cx.waker().wake_by_ref();
+                // let mut tx = self.transport_tx.clone();
+                // let fut = async move {
+                //     tx.send(Packet::Pong).await?;
+                //     tx.flush().await
+                // };
+                // this.pending_pong.set(Some(Box::pin(fut)));
+
                 Poll::Pending
             }
             packet => Poll::Ready(packet),

@@ -337,7 +337,8 @@ where
             #[cfg(feature = "tracing")]
             tracing::debug!("received first ping upgrade");
             // Respond with a PongUpgrade packet
-            ws.send(Message::Text(pong.into())).await?;
+            ws.send(Message::Text(String::from(Packet::PongUpgrade).into()))
+                .await?;
         }
         p => Err(Error::BadPacket(p))?,
     };

@@ -1,5 +1,6 @@
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
@@ -7,7 +8,7 @@ use engineioxide::{DisconnectReason, service::EngineIoService};
 use engineioxide::{Socket, Str};
 use engineioxide_client::{Client, HttpClient};
 use engineioxide_core::{Packet, Sid};
-use futures_util::{StreamExt, TryFutureExt};
+use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
@@ -56,7 +57,8 @@ impl EngineIoHandler for Handler {
 async fn handshake() {
     tracing_subscriber::fmt::fmt()
         .with_env_filter(EnvFilter::from_default_env())
-        .try_init();
+        .try_init()
+        .ok();
     let (handler, mut rx) = Handler::new();
     let svc = EngineIoService::new(Arc::new(handler));
     let packet = HttpClient::new(svc).handshake().await.unwrap();
@@ -73,7 +75,8 @@ async fn connect() {
     let svc = EngineIoService::new(Arc::new(handler));
     let client = Client::connect(svc).await.unwrap();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(client.sid));
-    let (ctx, mut crx) = client.split();
+    let (ctx, mut crx) = client.split::<Packet>();
+
     while let Some(event) = crx.next().await {
         match event {
             Ok(event) => {
@@ -82,4 +85,37 @@ async fn connect() {
             Err(e) => panic!("Error: {e}"),
         }
     }
+}
+
+#[tokio::test]
+async fn spaaam() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init()
+        .ok();
+    let (handler, mut rx) = Handler::new();
+    let svc = EngineIoService::new(Arc::new(handler));
+    let client = Client::connect(svc).await.unwrap();
+    assert_eq!(rx.recv().await.unwrap(), Event::Connect(client.sid));
+    let (mut ctx, mut crx) = client.split::<Packet>();
+
+    tokio::task::LocalSet::new()
+        .run_until(async move {
+            tokio::task::spawn_local(async move {
+                loop {
+                    ctx.send(Packet::Message("Hello".into())).await.unwrap();
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            });
+
+            while let Some(event) = crx.next().await {
+                match event {
+                    Ok(event) => {
+                        dbg!(event);
+                    }
+                    Err(e) => panic!("Error: {e}"),
+                }
+            }
+        })
+        .await;
 }

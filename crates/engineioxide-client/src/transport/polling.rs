@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
 use std::task::Context;
@@ -58,6 +59,10 @@ pin_project! {
 pin_project! {
     #[project = PostStateProj]
     enum PostState<F> {
+        /// Ideally the queue should gradually encode packets in an async fashion
+        Queuing {
+            queue: VecDeque<Packet>
+        },
         Encoding {
             body: BytesMut
         },
@@ -80,7 +85,9 @@ pin_project! {
     pub struct HttpClient<S: PollingSvc>
     {
         svc: S,
+        #[pin]
         poll_state: PollState<S::Future>,
+        #[pin]
         post_state: PostState<S::Future>,
         sid: Option<Sid>,
     }
@@ -109,6 +116,7 @@ where
             .uri("http://localhost:3000/engine.io?EIO=4&transport=polling")
             .body(Full::default())
             .unwrap();
+
         let res = self.svc.call(req).await;
         let body = res.unwrap().collect().await.unwrap();
         let packet = Packet::try_from(String::from_utf8(body.to_bytes().to_vec()).unwrap())?;
@@ -134,19 +142,20 @@ where
         #[cfg(feature = "tracing")]
         tracing::trace!(poll_state = ?self.poll_state, "polling");
 
-        match self.as_mut().poll_state {
-            PollState::No => {
+        let mut poll_state_proj = self.as_mut().project().poll_state.project();
+        match poll_state_proj {
+            PollStateProj::No => {
                 let id = self.sid.unwrap();
                 let uri =
                     format!("http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}");
                 let req = Request::get(uri).body(Full::new(Bytes::new())).unwrap();
                 let fut = self.svc.call(req);
-                self.poll_state = PollState::Pending { fut };
+                self.project().poll_state.set(PollState::Pending { fut });
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            PollState::Pending { ref mut fut } => {
-                match poll!(unsafe { Pin::new_unchecked(fut) }.poll(cx)) {
+            PollStateProj::Pending { ref mut fut } => {
+                match poll!(fut.as_mut().poll(cx)) {
                     Ok(res) => {
                         let (parts, body) = res.into_parts();
                         dbg!(&parts);
@@ -155,7 +164,11 @@ where
                         //TODO: implement limited body + Content-Type
                         let stream =
                             payload::decoder(body, None, ProtocolVersion::V4, 200).boxed_local();
-                        self.poll_state = PollState::Decoding { stream };
+
+                        self.project()
+                            .poll_state
+                            .set(PollState::Decoding { stream });
+
                         cx.waker().wake_by_ref();
                         Poll::Pending
                     }
@@ -166,11 +179,12 @@ where
                     }
                 }
             }
-            PollState::Decoding { ref mut stream } => {
+            PollStateProj::Decoding { ref mut stream } => {
                 if let Some(packet) = poll!(stream.poll_next_unpin(cx)) {
+                    dbg!(&packet);
                     Poll::Ready(Some(packet))
                 } else {
-                    self.poll_state = PollState::No;
+                    self.project().poll_state.set(PollState::No);
                     // Should not be needed.
                     cx.waker().wake_by_ref();
                     Poll::Pending
@@ -194,12 +208,8 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
         #[cfg(feature = "tracing")]
         tracing::trace!(post_state = ?self.post_state, "sending packet");
 
-        let body = match &self.post_state {
-            PostState::Encoding { body } => body,
-            _ => panic!(
-                "unexpected state, Sink::poll_ready should always be called before Sink::start_send"
-            ),
-        };
+        self.project().post_state.set(PostState::Encoding { body });
+
         //TODO: write packet
 
         Ok(())
@@ -209,26 +219,34 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
         #[cfg(feature = "tracing")]
         tracing::trace!(post_state = ?self.post_state, "flushing");
 
-        match self.post_state {
-            PostState::Encoding { ref body } => {
+        match self.as_mut().project().post_state.project() {
+            PostStateProj::Queuing { queue } => {
+                // payload::encoder(rx, protocol, supports_binary, max_payload)
+                if let Some(packet) = packet {
+                    self.project().post_state.set(PostState::Encoding { body });
+                }
+                Poll::Ready(Ok(()))
+            }
+            PostStateProj::Encoding { body } => {
                 let req = Request::post(
                     "http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}",
                 )
-                .body(Full::new(body.clone().freeze())) //TODO: fix cloning
+                .body(Full::new(body.clone())) //TODO: fix cloning
                 .unwrap();
                 let fut = self.svc.call(req);
-                self.post_state = PostState::Pending { fut };
+                self.project().post_state.set(PostState::Pending { fut });
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            PostState::Pending { ref mut fut } => {
-                match poll!(unsafe { Pin::new_unchecked(fut) }.poll(cx)) {
+            PostStateProj::Pending { fut } => {
+                match poll!(fut.poll(cx)) {
                     Ok(res) => {
-                        self.post_state = PostState::default();
+                        assert!(res.status().is_success());
+                        self.project().post_state.set(PostState::default());
                         Poll::Ready(Ok(())) // TODO: check response == ok
                     }
                     Err(err) => {
-                        self.post_state = PostState::default();
+                        self.project().post_state.set(PostState::default());
                         todo!("handle error")
                     }
                 }
