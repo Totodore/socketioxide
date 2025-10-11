@@ -5,16 +5,18 @@ use std::task::Context;
 use std::task::Poll;
 
 use bytes::Bytes;
-use bytes::BytesMut;
 use engineioxide_core::OpenPacket;
 use engineioxide_core::Packet;
+use engineioxide_core::PacketBuf;
 use engineioxide_core::PacketParseError;
 use engineioxide_core::ProtocolVersion;
 use engineioxide_core::Sid;
 use engineioxide_core::payload;
+use engineioxide_core::payload::Payload;
 use futures_core::Stream;
 use futures_util::Sink;
 use futures_util::StreamExt;
+use futures_util::stream;
 use http::Request;
 use http::Response;
 use http::StatusCode;
@@ -22,6 +24,7 @@ use http_body_util::BodyExt;
 use http_body_util::Full;
 use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
+use smallvec::smallvec;
 
 use crate::poll;
 
@@ -59,12 +62,13 @@ pin_project! {
 pin_project! {
     #[project = PostStateProj]
     enum PostState<F> {
-        /// Ideally the queue should gradually encode packets in an async fashion
+        /// TODO: Ideally the queue should gradually encode packets in an async fashion
         Queuing {
-            queue: VecDeque<Packet>
+            queue: VecDeque<PacketBuf>
         },
         Encoding {
-            body: BytesMut
+            #[pin]
+            fut: Pin<Box<dyn Future<Output = Payload>>>,
         },
         Pending {
             #[pin]
@@ -75,8 +79,8 @@ pin_project! {
 
 impl<F> Default for PostState<F> {
     fn default() -> Self {
-        PostState::Encoding {
-            body: BytesMut::default(),
+        PostState::Queuing {
+            queue: VecDeque::new(),
         }
     }
 }
@@ -85,10 +89,13 @@ pin_project! {
     pub struct HttpClient<S: PollingSvc>
     {
         svc: S,
+
         #[pin]
         poll_state: PollState<S::Future>,
+
         #[pin]
         post_state: PostState<S::Future>,
+
         sid: Option<Sid>,
     }
 }
@@ -199,7 +206,7 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.post_state {
-            PostState::Encoding { .. } => Poll::Ready(Ok(())),
+            PostState::Queuing { .. } => Poll::Ready(Ok(())),
             _ => Poll::Pending,
         }
     }
@@ -208,9 +215,10 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
         #[cfg(feature = "tracing")]
         tracing::trace!(post_state = ?self.post_state, "sending packet");
 
-        self.project().post_state.set(PostState::Encoding { body });
-
-        //TODO: write packet
+        match self.project().post_state.project() {
+            PostStateProj::Queuing { queue } => queue.push_back(smallvec![item]),
+            _ => panic!("unexpected post state"),
+        }
 
         Ok(())
     }
@@ -220,18 +228,26 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
         tracing::trace!(post_state = ?self.post_state, "flushing");
 
         match self.as_mut().project().post_state.project() {
+            PostStateProj::Queuing { queue } if queue.is_empty() => Poll::Ready(Ok(())),
             PostStateProj::Queuing { queue } => {
-                // payload::encoder(rx, protocol, supports_binary, max_payload)
-                if let Some(packet) = packet {
-                    self.project().post_state.set(PostState::Encoding { body });
-                }
-                Poll::Ready(Ok(()))
+                let fut = payload::encoder(
+                    stream::iter(queue.clone()),
+                    ProtocolVersion::V4,
+                    true,
+                    102400000,
+                );
+                self.project()
+                    .post_state
+                    .set(PostState::Encoding { fut: Box::pin(fut) });
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
-            PostStateProj::Encoding { body } => {
+            PostStateProj::Encoding { fut } => {
+                let body = poll!(fut.poll(cx));
                 let req = Request::post(
                     "http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}",
                 )
-                .body(Full::new(body.clone())) //TODO: fix cloning
+                .body(Full::new(body.data)) //TODO: fix cloning
                 .unwrap();
                 let fut = self.svc.call(req);
                 self.project().post_state.set(PostState::Pending { fut });
@@ -259,15 +275,6 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
     }
 }
 
-impl<F> PollState<F> {
-    fn get_decoding(self) -> Pin<Box<dyn Stream<Item = Result<Packet, PacketParseError>>>> {
-        match self {
-            PollState::Decoding { stream } => stream,
-            _ => unreachable!(),
-        }
-    }
-}
-
 impl<F> fmt::Debug for PollState<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -280,11 +287,9 @@ impl<F> fmt::Debug for PollState<F> {
 impl<F> fmt::Debug for PostState<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Encoding { body } => f
-                .debug_struct("Encoding")
-                .field("body_len", &body.len())
-                .finish(),
+            Self::Encoding { .. } => f.debug_struct("Encoding").finish(),
             Self::Pending { .. } => write!(f, "Pending"),
+            Self::Queuing { .. } => write!(f, "Queuing"),
         }
     }
 }

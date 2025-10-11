@@ -3,16 +3,12 @@
 use crate::{Packet, PacketParseError, ProtocolVersion, packet::PacketBuf};
 
 use bytes::Bytes;
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use http::HeaderValue;
-use tokio::sync::MutexGuard;
 
 mod buf;
 mod decoder;
 mod encoder;
-mod peekable;
-
-pub use peekable::PeekableReceiver;
 
 const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 #[cfg(feature = "v3")]
@@ -70,11 +66,13 @@ impl Payload {
 
 /// Encodes a payload into a byte stream.
 pub async fn encoder(
-    rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
+    rx: impl Stream<Item = PacketBuf>,
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
     max_payload: u64,
 ) -> Payload {
+    let rx = std::pin::pin!(rx.peekable());
+
     #[cfg(feature = "v3")]
     {
         match protocol {

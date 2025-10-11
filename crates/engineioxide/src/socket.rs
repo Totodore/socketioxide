@@ -65,9 +65,7 @@ use std::{
 
 use crate::{config::EngineIoConfig, errors::Error};
 use bytes::Bytes;
-use engineioxide_core::{
-    Packet, PacketBuf, ProtocolVersion, Str, TransportType, payload::PeekableReceiver,
-};
+use engineioxide_core::{Packet, PacketBuf, ProtocolVersion, Str, TransportType};
 use http::request::Parts;
 use smallvec::{SmallVec, smallvec};
 use tokio::{
@@ -197,7 +195,7 @@ where
     ///   Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
     ///
     /// The channel is made of a [`SmallVec`] of [`Packet`]s so that adjacent packets can be sent atomically.
-    pub(crate) internal_rx: Mutex<PeekableReceiver<PacketBuf>>,
+    pub(crate) internal_rx: Mutex<Receiver<PacketBuf>>,
 
     /// Channel to send [PacketBuf] to the internal connection
     internal_tx: mpsc::Sender<PacketBuf>,
@@ -245,7 +243,7 @@ where
             transport: AtomicU8::new(transport as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
+            internal_rx: Mutex::new(internal_rx),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
@@ -544,7 +542,7 @@ where
             transport: AtomicU8::new(TransportType::Websocket as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
+            internal_rx: Mutex::new(internal_rx),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),

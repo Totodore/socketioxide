@@ -103,7 +103,7 @@ async fn spaaam() {
         .run_until(async move {
             tokio::task::spawn_local(async move {
                 loop {
-                    ctx.send(Packet::Message("Hello".into())).await.unwrap();
+                    ctx.send(Packet::Pong).await.unwrap();
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             });

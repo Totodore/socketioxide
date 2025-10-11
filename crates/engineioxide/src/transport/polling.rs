@@ -110,7 +110,7 @@ where
 
     // If the socket is already locked, it means that the socket is being used by another request
     // In case of multiple http polling, session should be closed
-    let rx = match socket.internal_rx.try_lock() {
+    let mut rx = match socket.internal_rx.try_lock() {
         Ok(s) => s,
         Err(_) => {
             socket.close(DisconnectReason::MultipleHttpPollingError);
@@ -118,14 +118,19 @@ where
         }
     };
 
+    //TODO: handle closing channel packet better than in the encoding process.
+
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={sid}] polling request");
 
     let max_payload = engine.config.max_payload;
 
+    let rx = rx_stream::ReceiverStream::new(&mut rx);
+
     #[cfg(feature = "v3")]
     let Payload { data, has_binary } =
         payload::encoder(rx, protocol, socket.supports_binary, max_payload).await;
+
     #[cfg(not(feature = "v3"))]
     let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await;
 
@@ -195,4 +200,34 @@ where
         }?;
     }
     Ok(http_response(StatusCode::OK, "ok", false)?)
+}
+
+mod rx_stream {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use futures_core::Stream;
+    use tokio::sync::mpsc::Receiver;
+
+    /// [`ReceiverStream`] is a stream that wraps a tokio::sync::mpsc::Receiver by reference.
+    /// Allowing to use it as a stream even if it is behind a mutex.
+    pub struct ReceiverStream<'a, T> {
+        inner: &'a mut Receiver<T>,
+    }
+
+    impl<'a, T> ReceiverStream<'a, T> {
+        pub fn new(inner: &'a mut Receiver<T>) -> Self {
+            Self { inner }
+        }
+    }
+
+    impl<'a, T> Stream for ReceiverStream<'a, T> {
+        type Item = T;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.inner.poll_recv(cx)
+        }
+    }
 }

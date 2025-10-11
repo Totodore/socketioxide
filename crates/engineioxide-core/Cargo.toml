@@ -22,7 +22,6 @@ http-body.workspace = true
 http-body-util.workspace = true
 http.workspace = true
 futures-util.workspace = true
-tokio = { workspace = true, features = ["sync"] }
 smallvec.workspace = true
 pin-project-lite.workspace = true
 
@@ -40,4 +39,4 @@ v3 = ["dep:memchr", "dep:unicode-segmentation", "dep:itoa"]
 tracing = ["dep:tracing"]
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["sync", "macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
