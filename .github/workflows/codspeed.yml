@@ -28,7 +28,7 @@ jobs:
           cache-target: release
           bins: cargo-codspeed
       - name: Build the benchmark target(s)
-        run: cargo codspeed build -p ${{ matrix.package }}
+        run: cargo codspeed build -p ${{ matrix.package }} --all-features
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v4
         with:
