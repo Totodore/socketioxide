@@ -51,8 +51,8 @@ fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, Vec<u8>)>> {
                 return Ok(None);
             }
             let mut iter = msg.data.into_iter();
-            let channel: String = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
-            let message = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
+            let channel: String = FromRedisValue::from_redis_value(iter.next().unwrap())?;
+            let message = FromRedisValue::from_redis_value(iter.next().unwrap())?;
             Ok(Some((channel, message)))
         }
         _ => Ok(None),
@@ -117,7 +117,7 @@ impl Driver for RedisDriver {
     async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
         self.conn
             .clone()
-            .publish::<_, _, redis::Value>(chan, val)
+            .publish::<_, _, redis::Value>(chan, val.as_slice())
             .await?;
         Ok(())
     }
@@ -158,7 +158,7 @@ impl Driver for ClusterDriver {
     async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
         self.conn
             .clone()
-            .spublish::<_, _, redis::Value>(chan, val)
+            .spublish::<_, _, redis::Value>(chan, val.as_slice())
             .await?;
         Ok(())
     }
