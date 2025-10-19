@@ -132,10 +132,9 @@ impl AsyncWrite for StreamImpl {
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
         let len = buf.len();
-        self.project()
-            .tx
-            .send(Ok(Bytes::copy_from_slice(buf)))
-            .unwrap();
+        if let Err(e) = self.project().tx.send(Ok(Bytes::copy_from_slice(buf))) {
+            tracing::error!(?e, buf, "impossible to write to websocket");
+        }
         Poll::Ready(Ok(len))
     }
 
