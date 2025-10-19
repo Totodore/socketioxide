@@ -290,6 +290,6 @@ jobs:
     needs:
       [adapter, feature_set, format, udeps, msrv, examples, rust-clippy-analyze]
     steps:
-      - uses: re-actors/alls-green@v1
+      - uses: re-actors/alls-green@release/v1
         with:
           jobs: ${{ toJSON(needs) }}
