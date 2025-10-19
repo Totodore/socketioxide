@@ -286,6 +286,7 @@ jobs:
 
   all_passed:
     runs-on: ubuntu-latest
+    if: always()
     needs:
       [adapter, feature_set, format, udeps, msrv, examples, rust-clippy-analyze]
     steps:
