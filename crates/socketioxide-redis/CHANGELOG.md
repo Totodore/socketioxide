@@ -1,4 +1,7 @@
 # socketioxide-redis 0.3.0
+* deps: bump `redis` to 0.31
+
+# socketioxide-redis 0.2.2
 * deps: bump `redis` to 0.30.
 * deps: bump `socketioxide-core` to 0.17
 * MSRV: rust-version is now 1.86 with edition 2024
