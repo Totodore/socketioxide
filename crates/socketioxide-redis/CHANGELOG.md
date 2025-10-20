@@ -1,5 +1,5 @@
 # socketioxide-redis 0.3.0
-* deps: bump `redis` to 0.31
+* deps: bump `redis` to 0.32
 
 # socketioxide-redis 0.2.2
 * deps: bump `redis` to 0.30.
