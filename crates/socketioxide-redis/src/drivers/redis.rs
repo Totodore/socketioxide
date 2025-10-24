@@ -117,7 +117,7 @@ impl Driver for RedisDriver {
     async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
         self.conn
             .clone()
-            .publish::<_, _, redis::Value>(chan, val.as_slice())
+            .publish::<_, _, redis::Value>(chan, val)
             .await?;
         Ok(())
     }
@@ -158,7 +158,7 @@ impl Driver for ClusterDriver {
     async fn publish(&self, chan: String, val: Vec<u8>) -> Result<(), Self::Error> {
         self.conn
             .clone()
-            .spublish::<_, _, redis::Value>(chan, val.as_slice())
+            .spublish::<_, _, redis::Value>(chan, val)
             .await?;
         Ok(())
     }
