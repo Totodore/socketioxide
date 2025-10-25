@@ -220,13 +220,17 @@ pub async fn server_ns_disconnect() {
 
     let _stream = create_ws_connection(&svc).await;
 
-    let data = tokio::time::timeout(Duration::from_millis(100), rx.recv())
-        .await
-        .expect("timeout waiting for DisconnectReason::ServerNSDisconnect")
-        .unwrap();
+    let (disconnect_reason, mut rooms) =
+        tokio::time::timeout(Duration::from_millis(100), rx.recv())
+            .await
+            .expect("timeout waiting for DisconnectReason::ServerNSDisconnect")
+            .unwrap();
 
-    assert_eq!(data.0, DisconnectReason::ServerNSDisconnect);
-    assert_eq!(data.1, vec!["testRoom1", "testRoom2", "testRoom3"]);
+    assert_eq!(disconnect_reason, DisconnectReason::ServerNSDisconnect);
+
+    // Sort the rooms to guarantee order for the assertion
+    rooms.sort();
+    assert_eq!(rooms, vec!["testRoom1", "testRoom2", "testRoom3"]);
 }
 
 #[tokio::test]
