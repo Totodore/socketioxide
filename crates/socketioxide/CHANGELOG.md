@@ -1,3 +1,5 @@
+# socketioxide 0.18.0
+
 # socketioxide 0.17.2
 * fix: issue [#527](https://github.com/Totodore/socketioxide/issues/527). Socketioxide failed to build with the `tracing` flag enable and with `tracing-attributes` set to `v0.1.28`.
 
