@@ -782,11 +782,9 @@ impl<A: Adapter> Socket<A> {
             tracing::trace!(?reason, ?self.id, "spawning disconnect handler");
 
             handler.call_with_defer(self.clone(), reason, |s| s.ns.remove_socket(s.id));
-
-            return;
+        } else {
+            self.ns.remove_socket(self.id);
         }
-
-        self.ns.remove_socket(self.id);
     }
 
     /// Receive data from client
