@@ -445,6 +445,11 @@ impl<A: Adapter> Socket<A> {
     /// # Register a disconnect handler.
     /// You can register only one disconnect handler per socket. If you register multiple handlers, only the last one will be used.
     ///
+    /// This implementation is slightly different to the socket.io spec.
+    /// The difference being that [`rooms`](Self::rooms) are still available in this handler
+    /// and only cleaned up AFTER the execution of this handler.
+    /// Therefore you must not indefinitely stall/hang this handler, for example by entering an endless loop.
+    ///
     /// _It is recommended for code clarity to define your handler as top level function rather than closures._
     ///
     /// * See the [`disconnect`](crate::handler::disconnect) module doc for more details on disconnect handler.
@@ -770,12 +775,15 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) {
         self.set_connected(false);
 
-        let handler = { self.disconnect_handler.lock().unwrap().take() };
-        if let Some(handler) = handler {
+        let disconnect_handler = { self.disconnect_handler.lock().unwrap().take() };
+
+        if let Some(handler) = disconnect_handler {
             #[cfg(feature = "tracing")]
             tracing::trace!(?reason, ?self.id, "spawning disconnect handler");
 
-            handler.call(self.clone(), reason);
+            handler.call_with_defer(self.clone(), reason, |s| s.ns.remove_socket(s.id));
+
+            return;
         }
 
         self.ns.remove_socket(self.id);

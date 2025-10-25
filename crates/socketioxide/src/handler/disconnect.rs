@@ -52,6 +52,13 @@ use super::MakeErasedHandler;
 pub(crate) type BoxedDisconnectHandler<A> = Box<dyn ErasedDisconnectHandler<A>>;
 pub(crate) trait ErasedDisconnectHandler<A: Adapter>: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason);
+
+    fn call_with_defer(
+        &self,
+        s: Arc<Socket<A>>,
+        reason: DisconnectReason,
+        defer: fn(Arc<Socket<A>>),
+    );
 }
 
 impl<A: Adapter, T, H> MakeErasedHandler<H, A, T>
@@ -73,6 +80,17 @@ where
     #[inline(always)]
     fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
         self.handler.call(s, reason);
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s, defer), fields(id = ?s.id)))]
+    #[inline(always)]
+    fn call_with_defer(
+        &self,
+        s: Arc<Socket<A>>,
+        reason: DisconnectReason,
+        defer: fn(Arc<Socket<A>>),
+    ) {
+        self.handler.call_with_defer(s, reason, defer);
     }
 }
 
@@ -114,7 +132,17 @@ See `https://docs.rs/socketioxide/latest/socketioxide/extract/index.html` for de
 )]
 pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
     /// Call the handler with the given arguments.
-    fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason);
+    fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
+        self.call_with_defer(s, reason, |_| ());
+    }
+
+    /// Call the handler and issue a deferred function that will be executed AFTER the disconnect handler
+    fn call_with_defer(
+        &self,
+        s: Arc<Socket<A>>,
+        reason: DisconnectReason,
+        defer: fn(Arc<Socket<A>>),
+    );
 
     #[doc(hidden)]
     fn phantom(&self) -> std::marker::PhantomData<T> {
@@ -135,7 +163,7 @@ macro_rules! impl_handler_async {
             A: Adapter,
             $( $ty: FromDisconnectParts<A> + Send, )*
         {
-            fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
+            fn call_with_defer(&self, s: Arc<Socket<A>>, reason: DisconnectReason, defer: fn(Arc<Socket<A>>)) {
                 $(
                     let $ty = match $ty::from_disconnect_parts(&s, reason) {
                         Ok(v) => v,
@@ -148,7 +176,11 @@ macro_rules! impl_handler_async {
                 )*
 
                 let fut = (self.clone())($($ty,)*);
-                tokio::spawn(fut);
+
+                tokio::spawn(async move {
+                    fut.await;
+                    defer(s);
+                });
             }
         }
     };

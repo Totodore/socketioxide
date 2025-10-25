@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use socketioxide::{SocketIo, extract::SocketRef, socket::DisconnectReason};
+use socketioxide_core::adapter::Room;
 use tokio::sync::mpsc;
 
 mod fixture;
@@ -198,16 +199,23 @@ pub async fn client_ns_disconnect() {
 
 #[tokio::test]
 pub async fn server_ns_disconnect() {
-    let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
+    let (tx, mut rx) = mpsc::channel::<(DisconnectReason, Vec<Room>)>(1);
     let (svc, io) = create_server().await;
+
     io.ns("/", async move |socket: SocketRef, io: SocketIo| {
+        socket.join("testRoom1");
+        socket.join("testRoom2");
+        socket.join("testRoom3");
+
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let s = io.sockets().into_iter().next().unwrap();
             s.disconnect().unwrap();
         });
 
-        socket.on_disconnect(async move |reason: DisconnectReason| tx.try_send(reason).unwrap());
+        socket.on_disconnect(async move |s: SocketRef, reason: DisconnectReason| {
+            tx.try_send((reason, s.rooms())).unwrap();
+        });
     });
 
     let _stream = create_ws_connection(&svc).await;
@@ -216,7 +224,9 @@ pub async fn server_ns_disconnect() {
         .await
         .expect("timeout waiting for DisconnectReason::ServerNSDisconnect")
         .unwrap();
-    assert_eq!(data, DisconnectReason::ServerNSDisconnect);
+
+    assert_eq!(data.0, DisconnectReason::ServerNSDisconnect);
+    assert_eq!(data.1, vec!["testRoom1", "testRoom2", "testRoom3"]);
 }
 
 #[tokio::test]
