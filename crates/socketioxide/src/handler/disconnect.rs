@@ -136,7 +136,7 @@ pub trait DisconnectHandler<A: Adapter, T>: Send + Sync + 'static {
         self.call_with_defer(s, reason, |_| ());
     }
 
-    /// Call the handler and issue a deferred function that will be executed AFTER the disconnect handler
+    /// Call the handler and issue a deferred function that will be executed **after** the disconnect handler
     fn call_with_defer(
         &self,
         s: Arc<Socket<A>>,
