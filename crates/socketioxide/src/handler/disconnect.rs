@@ -51,8 +51,6 @@ use super::MakeErasedHandler;
 /// A Type Erased [`DisconnectHandler`] so it can be stored in a HashMap
 pub(crate) type BoxedDisconnectHandler<A> = Box<dyn ErasedDisconnectHandler<A>>;
 pub(crate) trait ErasedDisconnectHandler<A: Adapter>: Send + Sync + 'static {
-    fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason);
-
     fn call_with_defer(
         &self,
         s: Arc<Socket<A>>,
@@ -76,12 +74,6 @@ where
     H: DisconnectHandler<A, T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id)))]
-    #[inline(always)]
-    fn call(&self, s: Arc<Socket<A>>, reason: DisconnectReason) {
-        self.handler.call(s, reason);
-    }
-
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s, defer), fields(id = ?s.id)))]
     #[inline(always)]
     fn call_with_defer(
