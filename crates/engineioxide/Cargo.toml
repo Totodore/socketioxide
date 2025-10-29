@@ -10,7 +10,7 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true
-readme = "Readme.md"
+readme = "README.md"
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
