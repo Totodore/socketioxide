@@ -539,6 +539,10 @@ where
         s
     }
 
+    pub async fn close_internal_rx(self: Arc<Self>) {
+        self.internal_rx.lock().await.close();
+    }
+
     /// Create a dummy socket for testing purpose with a
     /// receiver to get the packets sent to the client
     pub fn new_dummy_piped(
