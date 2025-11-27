@@ -115,6 +115,7 @@ impl<A: Adapter> Client<A> {
 
     //just add latency to connect for test purpose
     #[cfg(feature = "__test_harness")]
+    #[allow(unused)]
     fn sock_connect_for_test(
         self: &Arc<Self>,
         auth: Option<Value>,
