@@ -134,6 +134,15 @@ impl<A: Adapter> Namespace<A> {
             #[cfg(feature = "tracing")]
             tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
             esocket.close(engineioxide::DisconnectReason::PacketParsingError);
+            // also remove sid inserted before
+            self.sockets
+                .write()
+                .map_err(|_| {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("get lock err for {sid}");
+                    ConnectFail
+                })?
+                .remove(&sid);
             return Err(ConnectFail);
         }
 
