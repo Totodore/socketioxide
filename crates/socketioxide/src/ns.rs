@@ -132,8 +132,10 @@ impl<A: Adapter> Namespace<A> {
         };
         if let Err(_e) = socket.send(Packet::connect(self.path.clone(), payload)) {
             #[cfg(feature = "tracing")]
-            tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
-            esocket.close(engineioxide::DisconnectReason::PacketParsingError);
+            tracing::debug!(%sid, "error sending connect packet: {_e}, closing conn");
+
+            self.remove_socket(sid);
+            esocket.close(engineioxide::DisconnectReason::TransportError);
             return Err(ConnectFail);
         }
 
