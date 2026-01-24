@@ -10,7 +10,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 rmpv.workspace = true
-axum-server = { version = "0.6", features = ["tls-rustls"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 
 [[bin]]
 name = "axum-echo-tls"
