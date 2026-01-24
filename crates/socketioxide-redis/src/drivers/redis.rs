@@ -51,8 +51,8 @@ fn read_msg(msg: redis::PushInfo) -> RedisResult<Option<(String, Vec<u8>)>> {
                 return Ok(None);
             }
             let mut iter = msg.data.into_iter();
-            let channel: String = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
-            let message = FromRedisValue::from_owned_redis_value(iter.next().unwrap())?;
+            let channel: String = FromRedisValue::from_redis_value(iter.next().unwrap())?;
+            let message = FromRedisValue::from_redis_value(iter.next().unwrap())?;
             Ok(Some((channel, message)))
         }
         _ => Ok(None),
