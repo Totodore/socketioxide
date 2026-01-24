@@ -1,3 +1,7 @@
+# socketioxide 0.18.1
+* fix: issue [#627](https://github.com/Totodore/socketioxide/issues/627). In case of namespace connect failure, 
+the socket was not properly removed from the adapter and the namespace.
+
 # socketioxide 0.18.0
 * feat(**breaking**): remove sync handlers to gain 50% of compilation speed.
 * feat: Socket rooms will be removed only **after** the disconnect handler execution,
