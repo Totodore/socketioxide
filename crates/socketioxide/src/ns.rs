@@ -114,7 +114,7 @@ impl<A: Adapter> Namespace<A> {
             let data = e.to_string();
             if let Err(_e) = socket.send(Packet::connect_error(self.path.clone(), data)) {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("error sending connect_error packet: {:?}, closing conn", _e);
+                tracing::debug!(%sid, "error sending connect_error packet: {_e}, closing conn");
                 esocket.close(engineioxide::DisconnectReason::PacketParsingError);
             }
             return Err(ConnectFail);
