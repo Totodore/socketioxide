@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide"
 description = "Socket IO server implementation in rust as a Tower Service."
-version = "0.18.1"
+version = "0.18.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -63,7 +63,7 @@ criterion.workspace = true
 http-body-util.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
-rand = { version = "0.9", default-features = false }
+rand = { version = "0.10", default-features = false }
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
