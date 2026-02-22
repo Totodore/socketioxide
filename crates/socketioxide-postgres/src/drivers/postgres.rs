@@ -19,15 +19,28 @@ impl PostgresDriver {
 
 impl Driver for PostgresDriver {
     type Error = tokio_postgres::Error;
+    type NotifStream<T: serde::de::DeserializeOwned + 'static>;
 
     async fn init(&self, table: &str, channels: &[&str]) -> Result<(), Self::Error> {
         self.client
             .execute("CREATE TABLE $1 IF NOT EXISTS", &[&table])
             .await?;
+
         Ok(())
     }
 
-    async fn notify(&self, channel: &str, msg: &str) -> Result<(), Self::Error> {
+    fn listen<T: serde::de::DeserializeOwned + 'static>(
+        &self,
+        channel: &str,
+    ) -> impl Future<Output = Result<Self::NotifStream<T>, Self::Error>> + Send {
+        todo!()
+    }
+
+    fn notify<T: serde::Serialize + ?Sized>(
+        &self,
+        channel: &str,
+        message: &T,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         todo!()
     }
 }

@@ -1,10 +1,8 @@
 use std::{
     collections::HashMap,
-    marker::PhantomData,
     sync::{Arc, RwLock},
 };
 
-use futures_core::Stream;
 use serde::{Serialize, de::DeserializeOwned};
 use sqlx::{
     PgPool,
@@ -12,9 +10,10 @@ use sqlx::{
 };
 use tokio::sync::mpsc;
 
-use crate::PostgresAdapterConfig;
+use crate::{PostgresAdapterConfig, drivers::NotifStream};
 
 use super::Driver;
+
 type HandlerMap = HashMap<String, mpsc::UnboundedSender<PgNotification>>;
 
 #[derive(Debug, Clone)]
@@ -23,6 +22,7 @@ pub struct SqlxDriver {
     handlers: Arc<RwLock<HandlerMap>>,
     config: PostgresAdapterConfig,
 }
+
 impl SqlxDriver {
     pub fn new(client: PgPool, config: PostgresAdapterConfig) -> Self {
         Self {
@@ -33,43 +33,17 @@ impl SqlxDriver {
     }
 }
 
-pin_project_lite::pin_project! {
-    pub struct NotifStream<T> {
-        #[pin]
-        rx: mpsc::UnboundedReceiver<PgNotification>,
-        _phantom: std::marker::PhantomData<fn() -> T>
-    }
-}
-impl<T: DeserializeOwned> Stream for NotifStream<T> {
-    type Item = T;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        match self.rx.poll_recv(cx) {
-            std::task::Poll::Ready(_) => todo!(),
-            std::task::Poll::Pending => todo!(),
-        }
-    }
-}
-impl<T> NotifStream<T> {
-    pub fn new(rx: mpsc::UnboundedReceiver<PgNotification>) -> Self {
-        NotifStream {
-            rx,
-            _phantom: PhantomData::default(),
-        }
-    }
-}
-
 impl Driver for SqlxDriver {
     type Error = sqlx::Error;
-    type NotifStream<T: DeserializeOwned + 'static> = NotifStream<T>;
+    type NotifStream = NotifStream<Self::Notification>;
+    type Notification = PgNotification;
+
     async fn init(&self, table: &str, channels: &[&str]) -> Result<(), Self::Error> {
         sqlx::query("CREATE TABLE $1 IF NOT EXISTS")
             .bind(&table)
             .execute(&self.client)
             .await?;
+
         let mut listener = PgListener::connect_with(&self.client).await?;
         listener.listen_all(channels.iter().copied()).await?;
         tokio::spawn(spawn_listener(self.handlers.clone(), listener));
@@ -79,9 +53,12 @@ impl Driver for SqlxDriver {
     async fn listen<T: DeserializeOwned + 'static>(
         &self,
         channel: &str,
-    ) -> Result<Self::NotifStream<T>, Self::Error> {
+    ) -> Result<Self::NotifStream, Self::Error> {
         let (tx, rx) = mpsc::unbounded_channel();
-        self.handlers.write().unwrap().insert(channel.into(), tx);
+        self.handlers
+            .write()
+            .unwrap()
+            .insert(channel.to_string(), tx);
         Ok(NotifStream::new(rx))
     }
 
@@ -115,5 +92,15 @@ async fn spawn_listener(handlers: Arc<RwLock<HandlerMap>>, mut listener: PgListe
         } else {
             tracing::warn!("handler not found for channel {}", notif.channel());
         }
+    }
+}
+
+impl super::Notification for PgNotification {
+    fn channel(&self) -> &str {
+        PgNotification::channel(self)
+    }
+
+    fn payload(&self) -> &str {
+        PgNotification::payload(self)
     }
 }
