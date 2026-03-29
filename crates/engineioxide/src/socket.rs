@@ -308,9 +308,9 @@ where
                         tracing::debug!(id = ?self.id, "heartbeat error: {_e}");
                     }
                 })
-                .inspect(|v| {
+                .inspect(|_v| {
                     #[cfg(feature = "tracing")]
-                    tracing::debug!(aborted = v.is_none(), "heartbeat job completed");
+                    tracing::debug!(aborted = _v.is_none(), "heartbeat job completed");
                 }),
         );
     }

@@ -1,3 +1,15 @@
+# socketioxide 0.18.2
+* deps: bump rand from 0.9.1 to 0.10.0
+
+# socketioxide 0.18.1
+* fix: issue [#627](https://github.com/Totodore/socketioxide/issues/627). In case of namespace connect failure, 
+the socket was not properly removed from the adapter and the namespace.
+
+# socketioxide 0.18.0
+* feat(**breaking**): remove sync handlers to gain 50% of compilation speed.
+* feat: Socket rooms will be removed only **after** the disconnect handler execution,
+making them available in the disconnect handler (thanks @Mettwasser).
+
 # socketioxide 0.17.2
 * fix: issue [#527](https://github.com/Totodore/socketioxide/issues/527). Socketioxide failed to build with the `tracing` flag enable and with `tracing-attributes` set to `v0.1.28`.
 

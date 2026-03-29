@@ -29,7 +29,7 @@
     nonstandard_style,
     missing_docs
 )]
-#![doc = include_str!("../Readme.md")]
+#![doc = include_str!("../README.md")]
 
 pub use engineioxide_core::Str;
 pub use service::{ProtocolVersion, TransportType};

@@ -114,7 +114,11 @@ impl<A: Adapter> Namespace<A> {
             let data = e.to_string();
             if let Err(_e) = socket.send(Packet::connect_error(self.path.clone(), data)) {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("error sending connect_error packet: {:?}, closing conn", _e);
+                tracing::debug!(%sid, "error sending connect_error packet: {_e}, closing conn");
+
+                // user middleware code might have made the socket join some
+                // room in the local/remote adapter.
+                self.remove_socket(sid);
                 esocket.close(engineioxide::DisconnectReason::PacketParsingError);
             }
             return Err(ConnectFail);
@@ -132,8 +136,10 @@ impl<A: Adapter> Namespace<A> {
         };
         if let Err(_e) = socket.send(Packet::connect(self.path.clone(), payload)) {
             #[cfg(feature = "tracing")]
-            tracing::debug!("error sending connect packet: {:?}, closing conn", _e);
-            esocket.close(engineioxide::DisconnectReason::PacketParsingError);
+            tracing::debug!(%sid, "error sending connect packet: {_e}, closing conn");
+
+            self.remove_socket(sid);
+            esocket.close(engineioxide::DisconnectReason::TransportError);
             return Err(ConnectFail);
         }
 

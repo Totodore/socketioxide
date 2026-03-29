@@ -1,17 +1,18 @@
 [package]
-name = "axum-echo-tls"
+name = "warp-echo"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 socketioxide.workspace = true
-axum.workspace = true
+warp = "0.4.2"
+hyper-util = { workspace = true, features = ["tokio", "service"] }
+hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
 tracing.workspace = true
 rmpv.workspace = true
-axum-server = { version = "0.7", features = ["tls-rustls"] }
 
 [[bin]]
-name = "axum-echo-tls"
-path = "axum_echo-tls.rs"
+name = "warp-echo"
+path = "warp_echo.rs"

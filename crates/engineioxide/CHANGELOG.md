@@ -1,3 +1,8 @@
+# engineioxide 0.17.2
+* fix: `Noop` packet was emitted only one time during the upgrade mechanism, leading to an infinite upgrade loop when the client sent multiple http polling requests.
+* fix: the socket closing process was incorrect in some edge cases, leading to leaky sockets. This fix ensures that sockets are properly closed and resources are released.
+* feat: improve traces in the upgrade and closing mechanisms.
+
 # engineioxide 0.17.1
 * fix: upgrade process was timing out when the client made accidentally more
 than one polling requests while upgrading (#497).
