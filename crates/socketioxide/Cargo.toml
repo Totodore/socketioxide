@@ -75,3 +75,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 name = "extensions"
 path = "benches/extensions.rs"
 harness = false
+
+[lints]
+workspace = true

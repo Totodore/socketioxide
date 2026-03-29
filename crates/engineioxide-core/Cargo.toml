@@ -17,3 +17,6 @@ rand = "0.10"
 base64 = "0.22"
 serde.workspace = true
 bytes.workspace = true
+
+[lints]
+workspace = true

@@ -588,8 +588,8 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         let mut except = get_except_sids(&opts.except, rooms);
         // In case of broadcast flag + if the sender is set,
         // we should not broadcast to it.
-        if is_broadcast && opts.sid.is_some() {
-            except.insert(opts.sid.unwrap());
+        if is_broadcast && let Some(sid) = opts.sid {
+            except.insert(sid);
         }
 
         if !opts.rooms.is_empty() {

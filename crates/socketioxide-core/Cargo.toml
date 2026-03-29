@@ -30,5 +30,5 @@ arbitrary = { version = "1.4.2", features = ["derive"] }
 serde_json.workspace = true
 rmp-serde.workspace = true
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+[lints]
+workspace = true

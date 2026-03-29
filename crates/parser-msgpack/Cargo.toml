@@ -42,3 +42,6 @@ harness = false
 name = "value_encode"
 path = "benches/value_encode.rs"
 harness = false
+
+[lints]
+workspace = true
