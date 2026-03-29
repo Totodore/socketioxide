@@ -57,15 +57,9 @@ fn run(target: &'static str, test_filter: Option<&str>) {
 
     std::thread::sleep(Duration::from_millis(200));
 
-    let mut cmd = Command::new("node");
-
-    cmd.arg("--test-reporter=spec").arg("--test");
-
-    if let Some(filter) = test_filter {
-        cmd.arg(format!("--test-name-pattern=\"{filter}\""));
-    }
-
-    let child = cmd
+    let child = Command::new("node")
+        .arg("--test-reporter=spec")
+        .arg("--test")
         .arg("e2e/adapter/client.ts")
         .env("PORTS", "3000,3001,3002")
         .env("PARSER", parser)
