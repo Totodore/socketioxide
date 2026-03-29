@@ -28,7 +28,6 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 smallvec = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["time", "rt", "sync"] }
-rmp-serde.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 

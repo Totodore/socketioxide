@@ -1,46 +1,63 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
-use tokio_postgres::{Client, Connection};
+use futures_core::{Stream, stream::BoxStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_postgres::{AsyncMessage, Client, Config, Connection, Socket};
 
 use super::Driver;
 
 #[derive(Debug, Clone)]
 pub struct PostgresDriver {
     client: Arc<Client>,
+    config: Config,
 }
 
 impl PostgresDriver {
-    pub fn new<S, T>(client: Client, connection: Connection<S, T>) -> Self {
-        PostgresDriver {
-            client: Arc::new(client),
-        }
+    pub fn new<T>(config: Config) -> Self
+    where
+        T: AsyncRead + AsyncWrite + Unpin,
+    {
+        PostgresDriver { config }
     }
 }
 
 impl Driver for PostgresDriver {
     type Error = tokio_postgres::Error;
-    type NotifStream<T: serde::de::DeserializeOwned + 'static>;
+    type Notification = tokio_postgres::Notification;
+    type NotificationStream = BoxStream<'static, Self::Notification>;
 
-    async fn init(&self, table: &str, channels: &[&str]) -> Result<(), Self::Error> {
-        self.client
-            .execute("CREATE TABLE $1 IF NOT EXISTS", &[&table])
-            .await?;
+    async fn init(
+        &self,
+        table: &str,
+        channels: &[&str],
+    ) -> Result<Self::NotificationStream, Self::Error> {
+        let st = &format!(
+            r#"CREATE TABLE IF NOT EXISTS "{table}" (
+                id BIGSERIAL UNIQUE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                payload BYTEA
+            )"#
+        );
+
+        self.client.execute(st, &[]).await?;
 
         Ok(())
     }
 
-    fn listen<T: serde::de::DeserializeOwned + 'static>(
-        &self,
-        channel: &str,
-    ) -> impl Future<Output = Result<Self::NotifStream<T>, Self::Error>> + Send {
-        todo!()
+    async fn notify(&self, channel: &str, message: &str) -> Result<(), Self::Error> {
+        self.client
+            .execute("SELECT pg_notify($1, $2)", &[&channel, &message])
+            .await?;
+        Ok(())
+    }
+}
+
+impl super::Notification for tokio_postgres::Notification {
+    fn channel(&self) -> &str {
+        tokio_postgres::Notification::channel(self)
     }
 
-    fn notify<T: serde::Serialize + ?Sized>(
-        &self,
-        channel: &str,
-        message: &T,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        todo!()
+    fn payload(&self) -> &str {
+        tokio_postgres::Notification::payload(self)
     }
 }

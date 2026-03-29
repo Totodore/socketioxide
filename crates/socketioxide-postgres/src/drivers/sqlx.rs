@@ -1,6 +1,5 @@
 use futures_core::stream::BoxStream;
 use futures_util::StreamExt;
-use serde::Serialize;
 use sqlx::{
     PgPool,
     postgres::{PgListener, PgNotification},
@@ -56,22 +55,13 @@ impl Driver for SqlxDriver {
         Ok(Box::pin(stream))
     }
 
-    fn notify<T: Serialize + ?Sized>(
-        &self,
-        channel: &str,
-        req: &T,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        let client = self.client.clone();
-        //TODO: handle error
-        let msg = serde_json::to_string(req).map_err(|err| sqlx::Error::Decode(Box::new(err)));
-        async move {
-            sqlx::query("SELECT pg_notify($1, $2)")
-                .bind(channel)
-                .bind(msg?)
-                .execute(&client)
-                .await?;
-            Ok(())
-        }
+    async fn notify(&self, channel: &str, message: &str) -> Result<(), Self::Error> {
+        sqlx::query("SELECT pg_notify($1, $2)")
+            .bind(channel)
+            .bind(message)
+            .execute(&self.client)
+            .await?;
+        Ok(())
     }
 }
 

@@ -1,8 +1,10 @@
 use futures_core::Stream;
-use serde::Serialize;
 
 #[cfg(feature = "sqlx")]
 pub mod sqlx;
+
+// #[cfg(feature = "postgres")]
+// pub mod postgres;
 
 /// The driver trait can be used to support different LISTEN/NOTIFY backends.
 /// It must share handlers/connection between its clones.
@@ -18,10 +20,10 @@ pub trait Driver: Clone + Send + Sync + 'static {
         channels: &[&str],
     ) -> impl Future<Output = Result<Self::NotificationStream, Self::Error>> + Send;
 
-    fn notify<T: Serialize + ?Sized>(
+    fn notify(
         &self,
         channel: &str,
-        message: &T,
+        message: &str,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 

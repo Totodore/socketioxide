@@ -640,8 +640,9 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             Some(target) => self.get_node_chan(target),
             None => self.get_global_chan(),
         };
+        let payload = serde_json::to_string(&req)?;
         self.driver
-            .notify(&chan, &req)
+            .notify(&chan, &payload)
             .await
             .map_err(Error::Driver)?;
         Ok(())
@@ -666,9 +667,13 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             node_id: self.local.server_id(),
             payload,
         };
+        let message = serde_json::to_string(&res);
         //TODO: is this the right way?
         async move {
-            driver.notify(&chan, &res).await.map_err(Error::Driver)?;
+            driver
+                .notify(&chan, &message?)
+                .await
+                .map_err(Error::Driver)?;
             Ok(())
         }
     }
