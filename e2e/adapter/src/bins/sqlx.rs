@@ -3,8 +3,7 @@ use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
 
 use socketioxide_postgres::{
-    CustomPostgresAdapter, PostgresAdapterConfig, PostgresAdapterCtr,
-    drivers::sqlx::{SqlxDriver, sqlx_client::PgPool},
+    PostgresAdapterConfig, PostgresAdapterCtr, SqlxAdapter, drivers::sqlx::sqlx_client::PgPool,
 };
 use tokio::net::TcpListener;
 use tracing::{Level, info};
@@ -20,15 +19,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let variant = std::env::args().next().unwrap();
     let variant = variant.split("/").last().unwrap();
 
-    let config = PostgresAdapterConfig {
-        prefix: format!("socket.io-{variant}").into(),
-        ..Default::default()
-    };
+    let config = PostgresAdapterConfig::new().with_prefix(format!("socket.io-{variant}"));
 
     let pg_pool = PgPool::connect("postgres://socketio:socketio@localhost:5432/socketio").await?;
-    let adapter = PostgresAdapterCtr::new_with_driver(SqlxDriver::new(pg_pool), config);
+    let adapter = PostgresAdapterCtr::new_with_sqlx_config(pg_pool, config);
     let (svc, io) = SocketIo::builder()
-        .with_adapter::<CustomPostgresAdapter<_, SqlxDriver>>(adapter)
+        .with_adapter::<SqlxAdapter<_>>(adapter)
         .build_svc();
 
     io.ns("/", adapter_e2e::handler).await?;

@@ -29,7 +29,55 @@
     nonstandard_style,
     missing_docs
 )]
-//! test
+//! # A PostgreSQL adapter implementation for the socketioxide crate.
+//! The adapter is used to communicate with other nodes of the same application.
+//! This allows to broadcast messages to sockets connected on other servers,
+//! to get the list of rooms, to add or remove sockets from rooms, etc.
+//!
+//! To achieve this, the adapter uses [LISTEN/NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html)
+//! through PostgreSQL to communicate with other servers.
+//!
+//! The [`Driver`] abstraction allows the use of any PostgreSQL client.
+//! One implementation is provided:
+//! * [`SqlxDriver`](crate::drivers::sqlx::SqlxDriver) for the [`sqlx`] crate.
+//!
+//! You can also implement your own driver by implementing the [`Driver`] trait.
+//!
+//! <div class="warning">
+//!     Socketioxide-postgres is not compatible with <code>@socketio/postgres-adapter</code>.
+//!     They use completely different protocols and cannot be used together.
+//!     Do not mix socket.io JS servers with socketioxide rust servers.
+//! </div>
+//!
+//! ## How does it work?
+//!
+//! The [`PostgresAdapterCtr`] is a constructor for the [`SqlxAdapter`] which is an implementation of
+//! the [`Adapter`](https://docs.rs/socketioxide/latest/socketioxide/adapter/trait.Adapter.html) trait.
+//!
+//! Then, for each namespace, an adapter is created and it takes a corresponding [`CoreLocalAdapter`].
+//! The [`CoreLocalAdapter`] allows to manage the local rooms and local sockets. The default `LocalAdapter`
+//! is simply a wrapper around this [`CoreLocalAdapter`].
+//!
+//! Once it is created the adapter is initialized with the [`CustomPostgresAdapter::init`] method.
+//! It will subscribe to three PostgreSQL NOTIFY channels and emit heartbeats.
+//! All messages are encoded with JSON.
+//!
+//! There are 7 types of requests:
+//! * Broadcast a packet to all the matching sockets.
+//! * Broadcast a packet to all the matching sockets and wait for a stream of acks.
+//! * Disconnect matching sockets.
+//! * Get all the rooms.
+//! * Add matching sockets to rooms.
+//! * Remove matching sockets from rooms.
+//! * Fetch all the remote sockets matching the options.
+//! * Heartbeat
+//! * Initial heartbeat. When receiving an initial heartbeat all other servers reply a heartbeat immediately.
+//!
+//! For ack streams, the adapter will first send a `BroadcastAckCount` response to the server that sent the request,
+//! and then send the acks as they are received (more details in [`CustomPostgresAdapter::broadcast_with_ack`] fn).
+//!
+//! On the other side, each time an action has to be performed on the local server, the adapter will
+//! first broadcast a request to all the servers and then perform the action locally.
 
 use drivers::Driver;
 use futures_core::Stream;
@@ -68,7 +116,7 @@ use crate::{
 pub mod drivers;
 mod stream;
 
-/// The configuration of the [`MongoDbAdapter`].
+/// The configuration of the [`CustomPostgresAdapter`].
 #[derive(Debug, Clone)]
 pub struct PostgresAdapterConfig {
     /// The heartbeat timeout duration. If a remote node does not respond within this duration,
@@ -91,11 +139,75 @@ pub struct PostgresAdapterConfig {
     pub table_name: Cow<'static, str>,
     /// The prefix used for the channels. Default is "socket.io".
     pub prefix: Cow<'static, str>,
-    /// The treshold to the payload size in bytes. It should match the configured value on your PostgreSQL instance:
+    /// The threshold to the payload size in bytes. It should match the configured value on your PostgreSQL instance:
     /// <https://www.postgresql.org/docs/current/sql-notify.html>. By default it is 8KB (8000 bytes).
-    pub payload_treshold: usize,
+    pub payload_threshold: usize,
     /// The duration between cleanup queries on the attachment table.
-    pub cleanup_intervals: Duration,
+    pub cleanup_interval: Duration,
+}
+
+impl PostgresAdapterConfig {
+    /// Create a new [`PostgresAdapterConfig`] with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The heartbeat timeout duration. If a remote node does not respond within this duration,
+    /// it will be considered disconnected. Default is 60 seconds.
+    pub fn with_hb_timeout(mut self, hb_timeout: Duration) -> Self {
+        self.hb_timeout = hb_timeout;
+        self
+    }
+
+    /// The heartbeat interval duration. The current node will broadcast a heartbeat to the
+    /// remote nodes at this interval. Default is 10 seconds.
+    pub fn with_hb_interval(mut self, hb_interval: Duration) -> Self {
+        self.hb_interval = hb_interval;
+        self
+    }
+
+    /// The request timeout. When expecting a response from remote nodes, if they do not respond within
+    /// this duration, the request will be considered failed. Default is 5 seconds.
+    pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
+        self.request_timeout = request_timeout;
+        self
+    }
+
+    /// The channel size used to receive ack responses. Default is 255.
+    ///
+    /// If you have a lot of servers/sockets and that you may miss acknowledgement because they arrive faster
+    /// than you poll them with the returned stream, you might want to increase this value.
+    pub fn with_ack_response_buffer(mut self, ack_response_buffer: usize) -> Self {
+        self.ack_response_buffer = ack_response_buffer;
+        self
+    }
+
+    /// The table name used to store socket.io attachments. Default is "socket_io_attachments".
+    ///
+    /// > The table name must be a sanitized string. Do not use special characters or spaces.
+    pub fn with_table_name(mut self, table_name: impl Into<Cow<'static, str>>) -> Self {
+        self.table_name = table_name.into();
+        self
+    }
+
+    /// The prefix used for the channels. Default is "socket.io".
+    pub fn with_prefix(mut self, prefix: impl Into<Cow<'static, str>>) -> Self {
+        self.prefix = prefix.into();
+        self
+    }
+
+    /// The threshold to the payload size in bytes. It should match the configured value on your PostgreSQL instance:
+    /// <https://www.postgresql.org/docs/current/sql-notify.html>. By default it is 8KB (8000 bytes).
+    pub fn with_payload_threshold(mut self, payload_threshold: usize) -> Self {
+        self.payload_threshold = payload_threshold;
+        self
+    }
+
+    /// The duration between cleanup queries on the attachment table. Default is 60 seconds.
+    pub fn with_cleanup_interval(mut self, cleanup_interval: Duration) -> Self {
+        self.cleanup_interval = cleanup_interval;
+        self
+    }
 }
 
 impl Default for PostgresAdapterConfig {
@@ -107,8 +219,8 @@ impl Default for PostgresAdapterConfig {
             ack_response_buffer: 255,
             table_name: "socket_io_attachments".into(),
             prefix: "socket.io".into(),
-            payload_treshold: 8_000,
-            cleanup_intervals: Duration::from_secs(60),
+            payload_threshold: 8_000,
+            cleanup_interval: Duration::from_secs(60),
         }
     }
 }
@@ -116,7 +228,7 @@ impl Default for PostgresAdapterConfig {
 /// Represent any error that might happen when using this adapter.
 #[derive(thiserror::Error)]
 pub enum Error<D: Driver> {
-    /// Mongo driver error
+    /// Postgres driver error
     #[error("driver error: {0}")]
     Driver(D::Error),
     /// Packet encoding/decoding error
@@ -139,10 +251,31 @@ impl<R: Driver> From<Error<R>> for AdapterError {
     }
 }
 
-/// Constructor for the PostgresAdapterCtr struct.
+/// The adapter constructor. For each namespace you define, a new adapter instance is created
+/// from this constructor.
+#[derive(Debug, Clone)]
 pub struct PostgresAdapterCtr<D: Driver> {
     driver: D,
     config: PostgresAdapterConfig,
+}
+
+#[cfg(feature = "sqlx")]
+impl PostgresAdapterCtr<drivers::sqlx::SqlxDriver> {
+    /// Create a new adapter constructor with the [`sqlx`](drivers::sqlx) driver
+    /// and a default config.
+    pub fn new_with_sqlx(pool: drivers::sqlx::sqlx_client::PgPool) -> Self {
+        Self::new_with_sqlx_config(pool, PostgresAdapterConfig::default())
+    }
+
+    /// Create a new adapter constructor with the [`sqlx`](drivers::sqlx) driver
+    /// and a custom config.
+    pub fn new_with_sqlx_config(
+        pool: drivers::sqlx::sqlx_client::PgPool,
+        config: PostgresAdapterConfig,
+    ) -> Self {
+        let driver = drivers::sqlx::SqlxDriver::new(pool);
+        Self { driver, config }
+    }
 }
 
 impl<D: Driver> PostgresAdapterCtr<D> {
@@ -154,6 +287,10 @@ impl<D: Driver> PostgresAdapterCtr<D> {
         Self { driver, config }
     }
 }
+
+/// The postgres adapter with the [`sqlx`](drivers::sqlx) driver.
+#[cfg(feature = "sqlx")]
+pub type SqlxAdapter<E> = CustomPostgresAdapter<E, drivers::sqlx::SqlxDriver>;
 
 type ResponseHandlers = HashMap<Sid, mpsc::Sender<Box<RawValue>>>;
 
@@ -661,14 +798,15 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         );
         let driver = self.driver.clone();
         let chan = self.get_response_chan(req_origin);
-        let payload = RawValue::from_string(serde_json::to_string(&payload).unwrap()).unwrap();
-        let res = ResponsePacket {
-            req_id,
-            node_id: self.local.server_id(),
-            payload,
-        };
-        let message = serde_json::to_string(&res);
-        //TODO: is this the right way?
+        let message = serde_json::to_string(&payload)
+            .and_then(RawValue::from_string)
+            .map(|payload| ResponsePacket {
+                req_id,
+                node_id: self.local.server_id(),
+                payload,
+            })
+            .and_then(|res| serde_json::to_string(&res));
+
         async move {
             driver
                 .notify(&chan, &message?)

@@ -9,6 +9,9 @@ use super::Driver;
 
 pub use sqlx as sqlx_client;
 
+/// A [`Driver`] implementation using the [`sqlx`] PostgreSQL client.
+///
+/// It uses [`PgListener`] for LISTEN/NOTIFY and [`PgPool`] for queries.
 #[derive(Debug, Clone)]
 pub struct SqlxDriver {
     client: PgPool,

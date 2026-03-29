@@ -1,5 +1,9 @@
+//! Drivers are an abstraction over the PostgreSQL LISTEN/NOTIFY backend used by the adapter.
+//! You can use the provided implementation or implement your own.
+
 use futures_core::Stream;
 
+/// A driver implementation for the [`sqlx`](https://docs.rs/sqlx) PostgreSQL backend.
 #[cfg(feature = "sqlx")]
 pub mod sqlx;
 
@@ -9,17 +13,24 @@ pub mod sqlx;
 /// The driver trait can be used to support different LISTEN/NOTIFY backends.
 /// It must share handlers/connection between its clones.
 pub trait Driver: Clone + Send + Sync + 'static {
+    /// The error type returned by the driver.
     type Error: std::error::Error + Send + 'static;
+    /// The notification type yielded by the notification stream.
     type Notification: Notification;
+    /// The stream of notifications returned by [`Driver::listen`].
     type NotificationStream: Stream<Item = Self::Notification> + Send;
 
+    /// Initialize the driver. This is called once when the adapter is created.
+    /// It should create the necessary tables or schema if needed.
     fn init(&self, table: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// Subscribe to the given NOTIFY channels and return a stream of notifications.
     fn listen(
         &self,
         channels: &[&str],
     ) -> impl Future<Output = Result<Self::NotificationStream, Self::Error>> + Send;
 
+    /// Send a NOTIFY message on the given channel with the given payload.
     fn notify(
         &self,
         channel: &str,
@@ -27,7 +38,10 @@ pub trait Driver: Clone + Send + Sync + 'static {
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
+/// A trait representing a PostgreSQL NOTIFY notification.
 pub trait Notification: Send + 'static {
+    /// The channel name on which the notification was received.
     fn channel(&self) -> &str;
+    /// The payload of the notification.
     fn payload(&self) -> &str;
 }
