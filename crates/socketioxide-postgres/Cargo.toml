@@ -52,6 +52,7 @@ socketioxide = { path = "../socketioxide", features = [
 ] }
 tracing-subscriber.workspace = true
 bytes.workspace = true
+futures-util.workspace = true
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
