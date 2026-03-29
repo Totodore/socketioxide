@@ -140,3 +140,17 @@ services:
         ';
         wait
       "
+
+  postgres:
+    image: postgres:18-alpine
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_DB: socketio
+      POSTGRES_PASSWORD: socketio
+      POSTGRES_USER: socketio
+    healthcheck:
+      test: "pg_isready -U socketio"
+      interval: 2s
+      timeout: 5s
+      retries: 5

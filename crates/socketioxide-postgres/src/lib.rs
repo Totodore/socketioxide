@@ -29,12 +29,13 @@
     nonstandard_style,
     missing_docs
 )]
-//!
+//! test
 
 use drivers::Driver;
 use futures_core::Stream;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, pin_mut};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::value::RawValue;
 use socketioxide_core::{
     Sid, Uid,
     adapter::{
@@ -57,10 +58,14 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
+use tokio::sync::mpsc;
 
-use crate::{drivers::Notification, stream::AckStream};
+use crate::{
+    drivers::Notification,
+    stream::{AckStream, ChanStream},
+};
 
-mod drivers;
+pub mod drivers;
 mod stream;
 
 /// The configuration of the [`MongoDbAdapter`].
@@ -81,14 +86,31 @@ pub struct PostgresAdapterConfig {
     /// than you poll them with the returned stream, you might want to increase this value.
     pub ack_response_buffer: usize,
     /// The table name used to store socket.io attachments. Default is "socket_io_attachments".
+    ///
+    /// > The table name must be a sanitized string. Do not use special characters or spaces.
     pub table_name: Cow<'static, str>,
     /// The prefix used for the channels. Default is "socket.io".
     pub prefix: Cow<'static, str>,
     /// The treshold to the payload size in bytes. It should match the configured value on your PostgreSQL instance:
-    /// <https://www.postgresql.org/docs/current/sql-notify.html>
+    /// <https://www.postgresql.org/docs/current/sql-notify.html>. By default it is 8KB (8000 bytes).
     pub payload_treshold: usize,
-    /// The duration between cleanup queries on the
+    /// The duration between cleanup queries on the attachment table.
     pub cleanup_intervals: Duration,
+}
+
+impl Default for PostgresAdapterConfig {
+    fn default() -> Self {
+        Self {
+            hb_timeout: Duration::from_secs(60),
+            hb_interval: Duration::from_secs(10),
+            request_timeout: Duration::from_secs(5),
+            ack_response_buffer: 255,
+            table_name: "socket_io_attachments".into(),
+            prefix: "socket.io".into(),
+            payload_treshold: 8_000,
+            cleanup_intervals: Duration::from_secs(60),
+        }
+    }
 }
 
 /// Represent any error that might happen when using this adapter.
@@ -97,20 +119,16 @@ pub enum Error<D: Driver> {
     /// Mongo driver error
     #[error("driver error: {0}")]
     Driver(D::Error),
-    /// Packet encoding error
-    #[error("packet encoding error: {0}")]
-    Encode(#[from] rmp_serde::encode::Error),
-    /// Packet decoding error
+    /// Packet encoding/decoding error
     #[error("packet decoding error: {0}")]
-    Decode(#[from] rmp_serde::decode::Error),
+    Serde(#[from] serde_json::Error),
 }
 
 impl<R: Driver> fmt::Debug for Error<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Driver(err) => write!(f, "Driver error: {:?}", err),
-            Self::Decode(err) => write!(f, "Decode error: {:?}", err),
-            Self::Encode(err) => write!(f, "Encode error: {:?}", err),
+            Self::Serde(err) => write!(f, "Encode/Decode error: {:?}", err),
         }
     }
 }
@@ -121,14 +139,23 @@ impl<R: Driver> From<Error<R>> for AdapterError {
     }
 }
 
-/// An event we should answer to
-#[derive(Debug, Deserialize)]
-struct Event {}
-
+/// Constructor for the PostgresAdapterCtr struct.
 pub struct PostgresAdapterCtr<D: Driver> {
     driver: D,
     config: PostgresAdapterConfig,
 }
+
+impl<D: Driver> PostgresAdapterCtr<D> {
+    /// Create a new adapter constructor with a custom postgres driver and a config.
+    ///
+    /// You can implement your own driver by implementing the [`Driver`] trait with any postgres client.
+    /// Check the [`drivers`] module for more information.
+    pub fn new_with_driver(driver: D, config: PostgresAdapterConfig) -> Self {
+        Self { driver, config }
+    }
+}
+
+type ResponseHandlers = HashMap<Sid, mpsc::Sender<Box<RawValue>>>;
 
 /// The postgres adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the postgres server.
@@ -140,28 +167,24 @@ pub struct CustomPostgresAdapter<E, D: Driver> {
     driver: D,
     /// The configuration of the adapter.
     config: PostgresAdapterConfig,
-    /// A unique identifier for the adapter to identify itself in the postgres server.
-    uid: Uid,
     /// The local adapter, used to manage local rooms and socket stores.
     local: CoreLocalAdapter<E>,
     /// A map of nodes liveness, with the last time remote nodes were seen alive.
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
     /// A map of response handlers used to await for responses from the remote servers.
-    responses: Arc<Mutex<HashMap<Sid, D::NotifStream>>>,
+    responses: Arc<Mutex<ResponseHandlers>>,
 }
 
 impl<E, D: Driver> DefinedAdapter for CustomPostgresAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D> {
     type Error = Error<D>;
     type State = PostgresAdapterCtr<D>;
-    type AckStream = AckStream<E::AckStream, D::Notification>;
+    type AckStream = AckStream<E::AckStream>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
-        let uid = local.server_id();
         Self {
             local,
-            uid,
             driver: state.driver.clone(),
             config: state.config.clone(),
             nodes_liveness: Mutex::new(Vec::new()),
@@ -171,14 +194,26 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
 
     fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
         let fut = async move {
-            let stream = self.driver.listen("event").await?;
+            self.driver.init(&self.config.table_name).await?;
+
+            let global_chan = self.get_global_chan();
+            let node_chan = self.get_node_chan(self.local.server_id());
+            let response_chan = self.get_response_chan(self.local.server_id());
+
+            let channels = [
+                global_chan.as_str(),
+                node_chan.as_str(),
+                response_chan.as_str(),
+            ];
+
+            let stream = self.driver.listen(&channels).await?;
             tokio::spawn(self.clone().handle_ev_stream(stream));
             tokio::spawn(self.clone().heartbeat_job());
 
             // Send initial heartbeat when starting.
             self.emit_init_heartbeat().await.map_err(|e| match e {
                 Error::Driver(e) => e,
-                Error::Encode(_) | Error::Decode(_) => unreachable!(),
+                Error::Serde(_) => unreachable!(),
             })?;
 
             on_success();
@@ -205,8 +240,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         packet: Packet,
         opts: BroadcastOptions,
     ) -> Result<(), BroadcastError> {
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::Broadcast(&packet), &opts);
+        let node_id = self.local.server_id();
+        if !opts.is_local(node_id) {
+            let req = RequestOut::new(node_id, RequestTypeOut::Broadcast(&packet), &opts);
             self.send_req(req, None).await.map_err(AdapterError::from)?;
         }
 
@@ -247,33 +283,45 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         opts: BroadcastOptions,
         timeout: Option<Duration>,
     ) -> Result<Self::AckStream, Self::Error> {
-        if opts.is_local(self.uid) {
+        if opts.is_local(self.local.server_id()) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
             let stream = AckStream::new_local(local);
             return Ok(stream);
         }
-        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
+        let req = RequestOut::new(
+            self.local.server_id(),
+            RequestTypeOut::BroadcastWithAck(&packet),
+            &opts,
+        );
         let req_id = req.id;
 
         let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
         tracing::trace!(?remote_serv_cnt, "expecting acks from remote servers");
-        let remote = self.driver.listen("").await?;
+
+        let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
+        self.responses.lock().unwrap().insert(req_id, tx);
 
         self.send_req(req, None).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
         Ok(AckStream::new(
             local,
-            remote,
+            rx,
             self.config.request_timeout,
             remote_serv_cnt,
+            req_id,
+            self.responses.clone(),
         ))
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::DisconnectSockets, &opts);
+        if !opts.is_local(self.local.server_id()) {
+            let req = RequestOut::new(
+                self.local.server_id(),
+                RequestTypeOut::DisconnectSockets,
+                &opts,
+            );
             self.send_req(req, None).await.map_err(AdapterError::from)?;
         }
         self.local
@@ -284,10 +332,10 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
     }
 
     async fn rooms(&self, opts: BroadcastOptions) -> Result<Vec<Room>, Self::Error> {
-        if opts.is_local(self.uid) {
+        if opts.is_local(self.local.server_id()) {
             return Ok(self.local.rooms(opts).into_iter().collect());
         }
-        let req = RequestOut::new(self.uid, RequestTypeOut::AllRooms, &opts);
+        let req = RequestOut::new(self.local.server_id(), RequestTypeOut::AllRooms, &opts);
         let req_id = req.id;
 
         // First get the remote stream because postgres might send
@@ -313,8 +361,12 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         rooms: impl RoomParam,
     ) -> Result<(), Self::Error> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::AddSockets(&rooms), &opts);
+        if !opts.is_local(self.local.server_id()) {
+            let req = RequestOut::new(
+                self.local.server_id(),
+                RequestTypeOut::AddSockets(&rooms),
+                &opts,
+            );
             self.send_req(req, opts.server_id).await?;
         }
         self.local.add_sockets(opts, rooms);
@@ -327,8 +379,12 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         rooms: impl RoomParam,
     ) -> Result<(), Self::Error> {
         let rooms: Vec<Room> = rooms.into_room_iter().collect();
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::DelSockets(&rooms), &opts);
+        if !opts.is_local(self.local.server_id()) {
+            let req = RequestOut::new(
+                self.local.server_id(),
+                RequestTypeOut::DelSockets(&rooms),
+                &opts,
+            );
             self.send_req(req, opts.server_id).await?;
         }
         self.local.del_sockets(opts, rooms);
@@ -339,11 +395,11 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         &self,
         opts: BroadcastOptions,
     ) -> Result<Vec<RemoteSocketData>, Self::Error> {
-        if opts.is_local(self.uid) {
+        if opts.is_local(self.local.server_id()) {
             return Ok(self.local.fetch_sockets(opts));
         }
-        let req = RequestOut::new(self.uid, RequestTypeOut::FetchSockets, &opts);
-        // First get the remote stream because mongodb might send
+        let req = RequestOut::new(self.local.server_id(), RequestTypeOut::FetchSockets, &opts);
+        // First get the remote stream because postgres might send
         // the responses before subscription is done.
         let remote = self
             .get_res::<RemoteSocketData>(req.id, ResponseTypeId::FetchSockets, opts.server_id)
@@ -376,10 +432,46 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         }
     }
 
-    async fn handle_ev_stream(self: Arc<Self>, stream: impl Stream<Item = RequestIn>) {
-        futures_util::pin_mut!(stream);
-        while let Some(req) = stream.next().await {
-            self.recv_req(req);
+    async fn handle_ev_stream(self: Arc<Self>, stream: impl Stream<Item = D::Notification>) {
+        pin_mut!(stream);
+        while let Some(notif) = stream.next().await {
+            let chan = notif.channel();
+            let resp_chan = self.get_response_chan(self.local.server_id());
+            tracing::info!(chan, resp_chan, notif = notif.payload(), "");
+            if chan == resp_chan {
+                match serde_json::from_str(notif.payload()) {
+                    Ok(ResponsePacket {
+                        req_id,
+                        node_id,
+                        payload,
+                    }) if node_id != self.local.server_id() => {
+                        let handlers = self.responses.lock().unwrap();
+                        if let Some(handler) = handlers.get(&req_id) {
+                            if let Err(e) = handler.try_send(payload) {
+                                tracing::warn!(channel = resp_chan, req_id = %req_id, "error sending response: {e}");
+                            }
+                        } else {
+                            tracing::warn!(channel = resp_chan, req_id = %req_id, "response handler not found");
+                        }
+                    }
+                    Ok(_) => {
+                        tracing::trace!("skipping loopback packets");
+                    }
+                    Err(e) => {
+                        tracing::warn!(channel = %notif.channel(), "error handling response: {e}")
+                    }
+                };
+            } else {
+                match serde_json::from_str::<RequestIn>(notif.payload()) {
+                    Ok(req) if req.node_id != self.local.server_id() => self.recv_req(req),
+                    Ok(_) => {
+                        tracing::trace!("skipping loopback packets")
+                    }
+                    Err(e) => {
+                        tracing::warn!(channel = %notif.channel(), "error decoding request: {e}")
+                    }
+                };
+            }
         }
     }
 
@@ -408,7 +500,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         tracing::trace!(?opts, "incoming broadcast");
         if let Err(e) = self.local.broadcast(packet, opts) {
             let ns = self.local.path();
-            tracing::warn!(?self.uid, ?ns, "remote request broadcast handler: {:?}", e);
+            tracing::warn!(node_id = %self.local.server_id(), ?ns, "remote request broadcast handler: {:?}", e);
         }
     }
 
@@ -416,8 +508,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         if let Err(e) = self.local.disconnect_socket(opts) {
             let ns = self.local.path();
             tracing::warn!(
-                ?self.uid,
-                ?ns,
+                node_id = %self.local.server_id(),
+                %ns,
                 "remote request disconnect sockets handler: {:?}",
                 e
             );
@@ -436,8 +528,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             let on_err = |err| {
                 let ns = self.local.path();
                 tracing::warn!(
-                    ?self.uid,
-                    ?ns,
+                    node_id = %self.local.server_id(),
+                    %ns,
                     "remote request broadcast with ack handler errors: {:?}",
                     err
                 );
@@ -446,7 +538,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             // This is used to keep track of the number of expected acks.
             let res = Response {
                 r#type: ResponseType::<()>::BroadcastAckCount(count),
-                node_id: self.uid,
+                node_id: self.local.server_id(),
             };
             if let Err(err) = self.send_res(req_id, origin, res).await {
                 on_err(err);
@@ -458,7 +550,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             while let Some(ack) = stream.next().await {
                 let res = Response {
                     r#type: ResponseType::BroadcastAck(ack),
-                    node_id: self.uid,
+                    node_id: self.local.server_id(),
                 };
                 if let Err(err) = self.send_res(req_id, origin, res).await {
                     on_err(err);
@@ -472,11 +564,11 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         let rooms = self.local.rooms(opts);
         let res = Response {
             r#type: ResponseType::<()>::AllRooms(rooms),
-            node_id: self.uid,
+            node_id: self.local.server_id(),
         };
         let fut = self.send_res(req_id, origin, res);
         let ns = self.local.path().clone();
-        let uid = self.uid;
+        let uid = self.local.server_id();
         tokio::spawn(async move {
             if let Err(err) = fut.await {
                 tracing::warn!(?uid, ?ns, "remote request rooms handler: {:?}", err);
@@ -494,12 +586,12 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     fn recv_fetch_sockets(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
         let sockets = self.local.fetch_sockets(opts);
         let res = Response {
-            node_id: self.uid,
+            node_id: self.local.server_id(),
             r#type: ResponseType::FetchSockets(sockets),
         };
         let fut = self.send_res(req_id, origin, res);
         let ns = self.local.path().clone();
-        let uid = self.uid;
+        let uid = self.local.server_id();
         tokio::spawn(async move {
             if let Err(err) = fut.await {
                 tracing::warn!(?uid, ?ns, "remote request fetch sockets handler: {:?}", err);
@@ -544,10 +636,12 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     /// Send a request to a specific target node or broadcast it to all nodes if no target is specified.
     async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
-        // let head = ItemHeader::Req { target };
-        // let req = self.new_packet(head, &req)?;
+        let chan = match target {
+            Some(target) => self.get_node_chan(target),
+            None => self.get_global_chan(),
+        };
         self.driver
-            .notify("yolo", &req)
+            .notify(&chan, &req)
             .await
             .map_err(Error::Driver)?;
         Ok(())
@@ -558,16 +652,23 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         &self,
         req_id: Sid,
         req_origin: Uid,
-        res: Response<T>,
+        payload: Response<T>,
     ) -> impl Future<Output = Result<(), Error<D>>> + 'static {
-        tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
+        tracing::trace!(
+            ?payload,
+            "sending response for {req_id} req to {req_origin}"
+        );
         let driver = self.driver.clone();
+        let chan = self.get_response_chan(req_origin);
+        let payload = RawValue::from_string(serde_json::to_string(&payload).unwrap()).unwrap();
+        let res = ResponsePacket {
+            req_id,
+            node_id: self.local.server_id(),
+            payload,
+        };
         //TODO: is this the right way?
         async move {
-            driver
-                .notify("response", &res)
-                .await
-                .map_err(Error::Driver)?;
+            driver.notify(&chan, &res).await.map_err(Error::Driver)?;
             Ok(())
         }
     }
@@ -587,15 +688,16 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             1
         };
 
-        let stream = self.driver.listen("test").await.unwrap();
-        self.responses.lock().unwrap().insert(req_id, stream);
+        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
+        self.responses.lock().unwrap().insert(req_id, tx);
+        let stream = ChanStream::new(rx);
 
         let stream = stream
-            .filter_map(|notif| {
-                let data = match serde_json::from_str::<Response<T>>(notif.payload()) {
+            .filter_map(|payload| {
+                let data = match serde_json::from_str::<Response<T>>(payload.get()) {
                     Ok(data) => Some(data),
                     Err(e) => {
-                        tracing::warn!(channel = %notif.channel(), "error decoding response: {e}");
+                        tracing::warn!("error decoding response: {e}");
                         None
                     }
                 };
@@ -605,14 +707,13 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             .take(remote_serv_cnt)
             .take_until(tokio::time::sleep(self.config.request_timeout));
 
-        let stream = DropStream::new(stream, self.responses.clone(), req_id);
         Ok(stream)
     }
 
     /// Emit a heartbeat to the specified target node or broadcast to all nodes.
     async fn emit_heartbeat(&self, target: Option<Uid>) -> Result<(), Error<D>> {
         self.send_req(
-            RequestOut::new_empty(self.uid, RequestTypeOut::Heartbeat),
+            RequestOut::new_empty(self.local.server_id(), RequestTypeOut::Heartbeat),
             target,
         )
         .await
@@ -622,10 +723,25 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     async fn emit_init_heartbeat(&self) -> Result<(), Error<D>> {
         // Send initial heartbeat when starting.
         self.send_req(
-            RequestOut::new_empty(self.uid, RequestTypeOut::InitHeartbeat),
+            RequestOut::new_empty(self.local.server_id(), RequestTypeOut::InitHeartbeat),
             None,
         )
         .await
+    }
+
+    fn get_global_chan(&self) -> String {
+        format!("{}#{}", self.config.prefix, self.local.path())
+    }
+    fn get_node_chan(&self, uid: Uid) -> String {
+        format!("{}#{}", self.get_global_chan(), uid)
+    }
+    fn get_response_chan(&self, uid: Uid) -> String {
+        format!(
+            "{}-response#{}#{}",
+            &self.config.prefix,
+            self.local.path(),
+            uid
+        )
     }
 }
 
@@ -648,4 +764,11 @@ impl<D: Driver> Spawnable for InitRes<D> {
             }
         });
     }
+}
+
+#[derive(Deserialize, Serialize)]
+struct ResponsePacket {
+    req_id: Sid,
+    node_id: Uid,
+    payload: Box<RawValue>,
 }

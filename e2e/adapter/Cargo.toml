@@ -22,6 +22,11 @@ socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
     "fred",
 ] }
 socketioxide-mongodb = { path = "../../crates/socketioxide-mongodb" }
+socketioxide-postgres = { path = "../../crates/socketioxide-postgres", features = [
+    "sqlx",
+    "postgres",
+] }
+
 hyper-util = { workspace = true, features = ["tokio"] }
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
@@ -80,3 +85,11 @@ path = "src/bins/mongodb_ttl.rs"
 [[bin]]
 name = "mongodb-ttl-e2e-msgpack"
 path = "src/bins/mongodb_ttl_msgpack.rs"
+
+[[bin]]
+name = "sqlx-e2e"
+path = "src/bins/sqlx.rs"
+
+[[bin]]
+name = "sqlx-e2e-msgpack"
+path = "src/bins/sqlx_msgpack.rs"

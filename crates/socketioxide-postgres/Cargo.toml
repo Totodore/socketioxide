@@ -25,7 +25,7 @@ futures-core.workspace = true
 futures-util.workspace = true
 pin-project-lite.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 smallvec = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["time", "rt", "sync"] }
 rmp-serde.workspace = true
@@ -38,6 +38,7 @@ tokio-postgres = { version = "0.7", default-features = false, optional = true, f
 ] }
 sqlx = { version = "0.8", default-features = false, optional = true, features = [
     "postgres",
+    "runtime-tokio",
 ] }
 
 [dev-dependencies]

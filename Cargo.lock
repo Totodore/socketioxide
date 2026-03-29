@@ -11,6 +11,7 @@ dependencies = [
  "hyper-util",
  "socketioxide",
  "socketioxide-mongodb",
+ "socketioxide-postgres",
  "socketioxide-redis",
  "tokio",
  "tracing",
@@ -2665,6 +2666,8 @@ dependencies = [
  "sha2",
  "smallvec",
  "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
  "tracing",
  "url",
 ]
@@ -2701,6 +2704,7 @@ dependencies = [
  "sqlx-core",
  "sqlx-postgres",
  "syn",
+ "tokio",
  "url",
 ]
 
