@@ -1,6 +1,7 @@
 use futures_core::Stream;
 use serde::Serialize;
 
+#[cfg(feature = "sqlx")]
 pub mod sqlx;
 
 /// The driver trait can be used to support different LISTEN/NOTIFY backends.

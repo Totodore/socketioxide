@@ -63,11 +63,11 @@ impl Driver for SqlxDriver {
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         let client = self.client.clone();
         //TODO: handle error
-        let msg = serde_json::to_string(req).unwrap();
+        let msg = serde_json::to_string(req).map_err(|err| sqlx::Error::Decode(Box::new(err)));
         async move {
             sqlx::query("SELECT pg_notify($1, $2)")
                 .bind(channel)
-                .bind(msg)
+                .bind(msg?)
                 .execute(&client)
                 .await?;
             Ok(())
