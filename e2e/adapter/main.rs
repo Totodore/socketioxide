@@ -26,9 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bin_filter = args().nth(1).unwrap_or("".to_string());
     println!("binary target filter: {}", bin_filter);
 
-    let test_filter = args().nth(2);
-    println!("test filter: {}", test_filter.as_deref().unwrap_or("*"));
-
     if fs::exists(LOG_DIR)? {
         fs::remove_dir_all(LOG_DIR)?;
     }
@@ -36,14 +33,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // run everything
     for target in BINS.iter().filter(|name| name.contains(&bin_filter)) {
-        run(target, test_filter.as_deref());
+        run(target);
     }
     println!("All tests passed!");
 
     Ok(())
 }
 
-fn run(target: &'static str, test_filter: Option<&str>) {
+fn run(target: &'static str) {
     let parser = if target.ends_with("msgpack") {
         "msgpack"
     } else {
