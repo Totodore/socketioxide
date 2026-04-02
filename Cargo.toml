@@ -49,3 +49,18 @@ tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"], default-features = false }
 criterion = { package = "codspeed-criterion-compat", version = "4" }
 axum = "0.8"
+
+[workspace.lints.clippy]
+correctness = "deny"
+all = "warn"
+complexity = "warn"
+suspicious = "warn"
+perf = "warn"
+
+[workspace.lints.rust]
+rust_2018_idioms = "warn"
+rust_2024_compatibility = "warn"
+future_incompatible = "warn"
+nonstandard_style = "warn"
+missing_docs = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
