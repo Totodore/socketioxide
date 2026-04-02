@@ -110,7 +110,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
       - name: check --feature-powerset
-        run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide -p socketioxide-redis
+        run: |
+          cargo hack check --feature-powerset --no-dev-deps \
+          -p socketioxide \
+          -p engineioxide \
+          -p socketioxide-redis \
+          -p socketioxide-mongodb
 
   examples:
     runs-on: ubuntu-latest
