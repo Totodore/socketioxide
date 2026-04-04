@@ -43,12 +43,12 @@ jobs:
           sleep 60
           kill $!
       - name: Publish logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-${{ github.head_ref }}.${{ github.sha }}
           path: "*.txt"
       - name: Publish memory benchmark
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: heaptrack-${{ github.head_ref }}.${{ github.sha }}
           path: heaptrack.heaptrack.*
