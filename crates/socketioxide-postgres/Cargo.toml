@@ -14,8 +14,8 @@ readme = "README.md"
 
 [features]
 sqlx = ["dep:sqlx"]
-postgres = ["dep:tokio-postgres"]
-default = ["postgres"]
+tokio-postgres = ["dep:tokio-postgres"]
+default = ["sqlx"]
 
 [dependencies]
 socketioxide-core = { version = "0.18", path = "../socketioxide-core", features = [

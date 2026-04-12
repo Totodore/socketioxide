@@ -24,7 +24,7 @@ socketioxide-redis = { path = "../../crates/socketioxide-redis", features = [
 socketioxide-mongodb = { path = "../../crates/socketioxide-mongodb" }
 socketioxide-postgres = { path = "../../crates/socketioxide-postgres", features = [
     "sqlx",
-    "postgres",
+    "tokio-postgres",
 ] }
 
 hyper-util = { workspace = true, features = ["tokio"] }
@@ -93,3 +93,11 @@ path = "src/bins/sqlx.rs"
 [[bin]]
 name = "sqlx-e2e-msgpack"
 path = "src/bins/sqlx_msgpack.rs"
+
+[[bin]]
+name = "tokio-postgres-e2e"
+path = "src/bins/tokio_postgres.rs"
+
+[[bin]]
+name = "tokio-postgres-e2e-msgpack"
+path = "src/bins/tokio_postgres_msgpack.rs"

@@ -250,6 +250,37 @@ impl PostgresAdapterCtr<drivers::sqlx::SqlxDriver> {
     }
 }
 
+#[cfg(feature = "tokio-postgres")]
+impl PostgresAdapterCtr<drivers::tokio_postgres::TokioPostgresDriver> {
+    /// Create a new adapter constructor with the [`tokio-postgres`](drivers::tokio_postgres) driver
+    /// and a default config.
+    pub async fn new_with_tokio_postgres<T>(
+        pg_config: tokio_postgres::Config,
+        tls: T,
+    ) -> Result<Self, tokio_postgres::Error>
+    where
+        T: tokio_postgres::tls::MakeTlsConnect<tokio_postgres::Socket> + Send + Sync + 'static,
+        <T as tokio_postgres::tls::MakeTlsConnect<tokio_postgres::Socket>>::Stream: Send,
+    {
+        Self::new_with_tokio_postgres_config(pg_config, tls, PostgresAdapterConfig::default()).await
+    }
+
+    /// Create a new adapter constructor with the [`sqlx`](drivers::sqlx) driver
+    /// and a custom config.
+    pub async fn new_with_tokio_postgres_config<T>(
+        pg_config: tokio_postgres::Config,
+        tls: T,
+        config: PostgresAdapterConfig,
+    ) -> Result<Self, tokio_postgres::Error>
+    where
+        T: tokio_postgres::tls::MakeTlsConnect<tokio_postgres::Socket> + Send + Sync + 'static,
+        <T as tokio_postgres::tls::MakeTlsConnect<tokio_postgres::Socket>>::Stream: Send,
+    {
+        let driver = drivers::tokio_postgres::TokioPostgresDriver::new(pg_config, tls).await?;
+        Ok(Self { driver, config })
+    }
+}
+
 impl<D: Driver> PostgresAdapterCtr<D> {
     /// Create a new adapter constructor with a custom postgres driver and a config.
     ///
@@ -263,6 +294,11 @@ impl<D: Driver> PostgresAdapterCtr<D> {
 /// The postgres adapter with the [`sqlx`](drivers::sqlx) driver.
 #[cfg(feature = "sqlx")]
 pub type SqlxAdapter<E> = CustomPostgresAdapter<E, drivers::sqlx::SqlxDriver>;
+
+/// The postgres adapter with the [`tokio_postgres`](drivers::tokio_postgres) driver.
+#[cfg(feature = "tokio-postgres")]
+pub type TokioPostgresAdapter<E> =
+    CustomPostgresAdapter<E, drivers::tokio_postgres::TokioPostgresDriver>;
 
 type ResponseHandlers = HashMap<Sid, mpsc::Sender<Box<RawValue>>>;
 

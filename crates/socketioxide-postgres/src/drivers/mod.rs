@@ -7,8 +7,10 @@ use futures_core::Stream;
 #[cfg(feature = "sqlx")]
 pub mod sqlx;
 
-// #[cfg(feature = "postgres")]
-// pub mod postgres;
+/// A driver implementation for the [`tokio-postgres`](https://docs.rs/tokio-postgres)
+/// PostgreSQL backend.
+#[cfg(feature = "tokio-postgres")]
+pub mod tokio_postgres;
 
 /// The driver trait can be used to support different LISTEN/NOTIFY backends.
 /// It must share handlers/connection between its clones.

@@ -109,13 +109,15 @@ impl Notification for StubNotification {
     }
 }
 
+type Handlers = Vec<(String, mpsc::Sender<StubNotification>)>;
+
 #[derive(Debug, Clone)]
 pub struct StubDriver {
     server_id: Uid,
     /// Sender to emit outgoing NOTIFY messages (to be broadcast to other servers).
     tx: mpsc::Sender<StubNotification>,
     /// Handlers for incoming notifications per listened channel.
-    handlers: Arc<RwLock<Vec<(String, mpsc::Sender<StubNotification>)>>>,
+    handlers: Arc<RwLock<Handlers>>,
 }
 
 impl StubDriver {
@@ -128,8 +130,7 @@ impl StubDriver {
     ) {
         let (tx, rx) = mpsc::channel(255); // outgoing notifies
         let (tx1, rx1) = mpsc::channel(255); // incoming notifies
-        let handlers: Arc<RwLock<Vec<(String, mpsc::Sender<StubNotification>)>>> =
-            Arc::new(RwLock::new(Vec::new()));
+        let handlers: Arc<RwLock<Handlers>> = Arc::new(RwLock::new(Vec::new()));
 
         tokio::spawn(pipe_handlers(rx1, handlers.clone()));
 
@@ -143,10 +144,7 @@ impl StubDriver {
 }
 
 /// Pipe incoming notifications to the matching channel handlers.
-async fn pipe_handlers(
-    mut rx: mpsc::Receiver<StubNotification>,
-    handlers: Arc<RwLock<Vec<(String, mpsc::Sender<StubNotification>)>>>,
-) {
+async fn pipe_handlers(mut rx: mpsc::Receiver<StubNotification>, handlers: Arc<RwLock<Handlers>>) {
     while let Some(notif) = rx.recv().await {
         let handlers = handlers.read().unwrap();
         for (chan, handler) in &*handlers {

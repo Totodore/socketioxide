@@ -23,9 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("127.0.0.1", 7004),
         ("127.0.0.1", 7005),
     ]);
-    let mut config = fred::prelude::Config::default();
-    config.server = server_config;
-    config.version = RespVersion::RESP3;
+
+    let config = fred::prelude::Config {
+        server: server_config,
+        version: RespVersion::RESP3,
+        ..Default::default()
+    };
+
     let client = fred::prelude::Builder::from_config(config).build_subscriber_client()?;
     let variant = std::env::args().next().unwrap();
     let variant = variant.split("/").last().unwrap();
