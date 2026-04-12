@@ -1,5 +1,5 @@
 #![warn(missing_docs)]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! # A mongodb adapter implementation for the socketioxide crate.
 //! The adapter is used to communicate with other nodes of the same application.
 //! This allows to broadcast messages to sockets connected on other servers,
