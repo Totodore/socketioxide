@@ -748,8 +748,9 @@ impl<A: Adapter> Socket<A> {
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        permit.send(packet, self.parser);
+        // insert hack channel before to avoid race condition
         self.ack_message.lock().unwrap().insert(ack, tx);
+        permit.send(packet, self.parser);
         rx
     }
 
@@ -758,11 +759,10 @@ impl<A: Adapter> Socket<A> {
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        match self.send(packet) {
-            Ok(()) => {
-                self.ack_message.lock().unwrap().insert(ack, tx);
-            }
-            Err(e) => {
+        // insert hack channel before to avoid race condition
+        self.ack_message.lock().unwrap().insert(ack, tx);
+        if let Err(e) = self.send(packet) {
+            if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
                 tx.send(Err(AckError::Socket(e))).ok();
             }
         }
