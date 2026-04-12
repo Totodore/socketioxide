@@ -37,7 +37,6 @@ pub struct RedisDriver {
 
 /// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
 #[cfg(feature = "redis-cluster")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
 #[derive(Clone)]
 pub struct ClusterDriver {
     handlers: Arc<RwLock<HandlerMap>>,
@@ -97,7 +96,6 @@ impl RedisDriver {
 #[cfg(feature = "redis-cluster")]
 impl ClusterDriver {
     /// Create a new redis driver from a redis cluster client.
-    #[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
     pub async fn new(client: &redis::cluster::ClusterClient) -> Result<Self, redis::RedisError> {
         let handlers = Arc::new(RwLock::new(HashMap::new()));
         let handlers_clone = handlers.clone();
@@ -150,7 +148,6 @@ impl Driver for RedisDriver {
     }
 }
 
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
 #[cfg(feature = "redis-cluster")]
 impl Driver for ClusterDriver {
     type Error = RedisError;

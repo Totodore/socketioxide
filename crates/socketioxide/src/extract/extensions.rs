@@ -7,7 +7,6 @@ use crate::socket::{DisconnectReason, Socket};
 use socketioxide_core::Value;
 
 #[cfg(feature = "extensions")]
-#[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 pub use extensions_extract::*;
 
 /// It was impossible to find the given extension.

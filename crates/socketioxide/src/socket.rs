@@ -298,7 +298,6 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ///
     /// **Note**: This is not the same data as the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
     /// If you want to extract extensions from the http request, you should use the [`HttpExtension`](crate::extract::HttpExtension) extractor.
-    #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
     #[cfg(feature = "extensions")]
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData<A>>>,

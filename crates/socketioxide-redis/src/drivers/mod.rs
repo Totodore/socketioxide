@@ -6,12 +6,10 @@ use tokio::sync::mpsc;
 
 /// A driver implementation for the [redis](docs.rs/redis) pub/sub backend.
 #[cfg(feature = "redis")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
 pub mod redis;
 
 /// A driver implementation for the [fred](docs.rs/fred) pub/sub backend.
 #[cfg(feature = "fred")]
-#[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
 pub mod fred;
 
 pin_project! {
