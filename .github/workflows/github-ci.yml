@@ -115,7 +115,8 @@ jobs:
           -p socketioxide \
           -p engineioxide \
           -p socketioxide-redis \
-          -p socketioxide-mongodb
+          -p socketioxide-mongodb \
+          -p socketioxide-postgres
 
   examples:
     runs-on: ubuntu-latest
