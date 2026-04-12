@@ -20,7 +20,7 @@ jobs:
           - socketioxide-parser-common
           - socketioxide-parser-msgpack
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup rust toolchain, cache and cargo-codspeed binary
         uses: moonrepo/setup-rust@v1
         with:
@@ -32,5 +32,5 @@ jobs:
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v4
         with:
-          mode: instrumentation
+          mode: simulation
           run: cargo codspeed run # only runs the built benchmarks

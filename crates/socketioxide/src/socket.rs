@@ -748,25 +748,21 @@ impl<A: Adapter> Socket<A> {
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        permit.send(packet, self.parser);
+        // insert ack channel before to avoid race condition
         self.ack_message.lock().unwrap().insert(ack, tx);
+        permit.send(packet, self.parser);
         rx
     }
 
-    pub(crate) fn send_with_ack(&self, mut packet: Packet) -> Receiver<AckResult<Value>> {
-        let (tx, rx) = oneshot::channel();
-
-        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        packet.inner.set_ack_id(ack);
-        match self.send(packet) {
-            Ok(()) => {
-                self.ack_message.lock().unwrap().insert(ack, tx);
-            }
-            Err(e) => {
-                tx.send(Err(AckError::Socket(e))).ok();
+    pub(crate) fn send_with_ack(&self, packet: Packet) -> Receiver<AckResult<Value>> {
+        match self.reserve() {
+            Ok(permit) => self.send_with_ack_permit(packet, permit),
+            Err(err) => {
+                let (tx, rx) = oneshot::channel();
+                tx.send(Err(AckError::Socket(err))).ok();
+                rx
             }
         }
-        rx
     }
 
     /// Called when the socket is gracefully disconnected from the server or the client

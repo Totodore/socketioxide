@@ -18,7 +18,7 @@ postgres = ["dep:tokio-postgres"]
 default = ["postgres"]
 
 [dependencies]
-socketioxide-core = { version = "0.17", path = "../socketioxide-core", features = [
+socketioxide-core = { version = "0.18", path = "../socketioxide-core", features = [
     "remote-adapter",
 ] }
 futures-core.workspace = true

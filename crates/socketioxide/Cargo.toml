@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide"
 description = "Socket IO server implementation in rust as a Tower Service."
-version = "0.18.2"
+version = "0.18.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -14,7 +14,7 @@ readme.workspace = true
 
 [dependencies]
 engineioxide = { path = "../engineioxide", version = "0.17" }
-socketioxide-core = { path = "../socketioxide-core", version = "0.17" }
+socketioxide-core = { path = "../socketioxide-core", version = "0.18" }
 
 bytes.workspace = true
 futures-core.workspace = true
@@ -75,3 +75,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 name = "extensions"
 path = "benches/extensions.rs"
 harness = false
+
+[lints]
+workspace = true

@@ -381,6 +381,9 @@ impl SocketEmitter for Emitter {
     fn path(&self) -> &Str {
         &self.path
     }
+    fn ack_timeout(&self) -> Duration {
+        self.ack_timeout
+    }
 }
 
 #[doc(hidden)]

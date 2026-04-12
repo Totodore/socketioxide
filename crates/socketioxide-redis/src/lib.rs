@@ -1,34 +1,5 @@
+#![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![warn(
-    clippy::all,
-    clippy::todo,
-    clippy::empty_enum,
-    clippy::mem_forget,
-    clippy::unused_self,
-    clippy::filter_map_next,
-    clippy::needless_continue,
-    clippy::needless_borrow,
-    clippy::match_wildcard_for_single_variants,
-    clippy::if_let_mutex,
-    clippy::await_holding_lock,
-    clippy::imprecise_flops,
-    clippy::suboptimal_flops,
-    clippy::lossy_float_literal,
-    clippy::rest_pat_in_fully_bound_structs,
-    clippy::fn_params_excessive_bools,
-    clippy::exit,
-    clippy::inefficient_to_string,
-    clippy::linkedlist,
-    clippy::macro_use_imports,
-    clippy::option_option,
-    clippy::verbose_file_reads,
-    clippy::unnested_or_patterns,
-    rust_2018_idioms,
-    rust_2024_compatibility,
-    future_incompatible,
-    nonstandard_style,
-    missing_docs
-)]
 
 //! # A redis/valkey adapter implementation for the socketioxide crate.
 //! The adapter is used to communicate with other nodes of the same application.
@@ -557,10 +528,16 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         self.send_req(req, opts.server_id).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
+        // we wait for the configured ack timeout + the adapter request timeout
+        let timeout = self
+            .config
+            .request_timeout
+            .saturating_add(timeout.unwrap_or(self.local.ack_timeout()));
+
         Ok(AckStream::new(
             local,
             remote,
-            self.config.request_timeout,
+            timeout,
             remote_serv_cnt,
             req_id,
             self.responses.clone(),

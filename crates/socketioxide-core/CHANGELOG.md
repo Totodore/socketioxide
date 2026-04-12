@@ -1,3 +1,6 @@
+# socketioxide-core 0.18.0
+* feat(*breaking*): expose global configured ack timeout to adapter implementations
+
 # socketioxide-core 0.17.0
 * feat(*breaking*): remote-adapter packets are now refactored in the core crate. Any adapter implementation can use
 it through the `remote-adapter` flag.

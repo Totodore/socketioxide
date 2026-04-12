@@ -14,14 +14,14 @@ jobs:
     if: ${{ github.event.inputs.heaptrack == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -43,12 +43,12 @@ jobs:
           sleep 60
           kill $!
       - name: Publish logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-${{ github.head_ref }}.${{ github.sha }}
           path: "*.txt"
       - name: Publish memory benchmark
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: heaptrack-${{ github.head_ref }}.${{ github.sha }}
           path: heaptrack.heaptrack.*
