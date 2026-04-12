@@ -2356,7 +2356,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-core"
-version = "0.17.1"
+version = "0.18.0"
 dependencies = [
  "arbitrary",
  "bytes",
@@ -2406,7 +2406,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-common"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "bytes",
  "codspeed-criterion-compat",
@@ -2419,7 +2419,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-msgpack"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "bytes",
  "codspeed-criterion-compat",
