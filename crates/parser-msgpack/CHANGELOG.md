@@ -1,4 +1,4 @@
-# socketioxide-parser-common 0.17.1
+# socketioxide-parser-msgpack 0.17.1
 * deps: bump `socketioxide-core` to 0.18
 
 # socketioxide-parser-msgpack 0.17
