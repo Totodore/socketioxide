@@ -1,3 +1,6 @@
+# socketioxide 0.18.3
+* fix: race condition when emitting with acknowledgement.
+
 # socketioxide 0.18.2
 * deps: bump rand from 0.9.1 to 0.10.0
 
