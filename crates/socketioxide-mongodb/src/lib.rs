@@ -445,7 +445,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         Ok(AckStream::new(
             local,
             rx,
-            self.config.request_timeout,
+            self.config.request_timeout + timeout.unwrap_or(self.local.ack_timeout()),
             remote_serv_cnt,
             req_id,
             self.responses.clone(),

@@ -530,7 +530,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         Ok(AckStream::new(
             local,
             remote,
-            self.config.request_timeout,
+            self.config.request_timeout + timeout.unwrap_or(self.local.ack_timeout()),
             remote_serv_cnt,
             req_id,
             self.responses.clone(),
