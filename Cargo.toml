@@ -62,5 +62,4 @@ rust_2018_idioms = "warn"
 rust_2024_compatibility = "warn"
 future_incompatible = "warn"
 nonstandard_style = "warn"
-missing_docs = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }

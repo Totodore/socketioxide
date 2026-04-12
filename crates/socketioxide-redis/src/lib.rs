@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! # A redis/valkey adapter implementation for the socketioxide crate.
