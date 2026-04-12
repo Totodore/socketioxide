@@ -528,10 +528,16 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         self.send_req(req, opts.server_id).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
+        // we wait for the configured ack timeout + the adapter request timeout
+        let timeout = self
+            .config
+            .request_timeout
+            .saturating_add(timeout.unwrap_or(self.local.ack_timeout()));
+
         Ok(AckStream::new(
             local,
             remote,
-            self.config.request_timeout + timeout.unwrap_or(self.local.ack_timeout()),
+            timeout,
             remote_serv_cnt,
             req_id,
             self.responses.clone(),
