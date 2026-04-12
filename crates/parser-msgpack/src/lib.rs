@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! The msgpack parser sub-crate for the socketioxide crate.
 //!
 //! This is a custom parser implementation that can be enable with the `msgpack` feature flag in socketioxide.
