@@ -121,7 +121,11 @@ pub struct StubDriver {
 impl StubDriver {
     pub fn new(
         server_id: Uid,
-    ) -> (Self, mpsc::Receiver<StubNotification>, mpsc::Sender<StubNotification>) {
+    ) -> (
+        Self,
+        mpsc::Receiver<StubNotification>,
+        mpsc::Sender<StubNotification>,
+    ) {
         let (tx, rx) = mpsc::channel(255); // outgoing notifies
         let (tx1, rx1) = mpsc::channel(255); // incoming notifies
         let handlers: Arc<RwLock<Vec<(String, mpsc::Sender<StubNotification>)>>> =
