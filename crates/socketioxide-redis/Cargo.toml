@@ -19,7 +19,7 @@ fred = ["dep:fred"]
 default = ["redis"]
 
 [dependencies]
-socketioxide-core = { version = "0.17.1", path = "../socketioxide-core", features = [
+socketioxide-core = { version = "0.18", path = "../socketioxide-core", features = [
     "remote-adapter",
 ] }
 futures-core.workspace = true
