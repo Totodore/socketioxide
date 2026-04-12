@@ -136,20 +136,17 @@ impl AckInnerStream {
     /// Creates a new [`AckInnerStream`] from a [`Packet`] and a list of sockets.
     /// The [`Packet`] is sent to all the sockets and the [`AckInnerStream`] will wait
     /// for an acknowledgement from each socket.
-    ///
-    /// The [`AckInnerStream`] will wait for the default timeout specified in the config
-    /// (5s by default) if no custom timeout is specified.
     pub fn broadcast<'a, A: Adapter>(
         packet: Packet,
         sockets: impl Iterator<Item = &'a Arc<Socket<A>>>,
-        duration: Duration,
+        timeout: Duration,
     ) -> (Self, u32) {
         let rxs = FuturesUnordered::new();
         let mut count = 0;
         for socket in sockets {
             let rx = socket.send_with_ack(packet.clone());
             rxs.push(AckResultWithId {
-                result: tokio::time::timeout(duration, rx),
+                result: tokio::time::timeout(timeout, rx),
                 id: socket.id,
             });
             count += 1;
