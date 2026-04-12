@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! The common parser sub-crate for the socketioxide crate.
 //!
 //! This is the default parser implementation.

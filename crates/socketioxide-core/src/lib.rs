@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! This crate is the core of the socketioxide crate.
 //! It contains basic types and interfaces for the socketioxide crate and the parser sub-crates.
 
