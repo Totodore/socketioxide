@@ -335,7 +335,6 @@
 //! [`AckSender::send`]: extract::AckSender#method.send
 //! [`io`]: SocketIo
 
-#[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
 #[cfg(feature = "extensions")]
 pub mod extensions;
 

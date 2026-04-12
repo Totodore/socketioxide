@@ -107,14 +107,12 @@ mod extensions;
 mod socket;
 
 #[cfg(feature = "state")]
-#[cfg_attr(docsrs, doc(cfg(feature = "state")))]
 mod state;
 
 pub use data::*;
 pub use extensions::*;
 pub use socket::*;
 #[cfg(feature = "state")]
-#[cfg_attr(docsrs, doc(cfg(feature = "state")))]
 pub use state::*;
 
 /// Private API.

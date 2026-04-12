@@ -41,7 +41,6 @@ impl ParserConfig {
     }
 
     /// Use a [`MsgPackParser`] to parse incoming and outgoing socket.io packets
-    #[cfg_attr(docsrs, doc(cfg(feature = "msgpack")))]
     #[cfg(feature = "msgpack")]
     pub fn msgpack() -> Self {
         ParserConfig(Parser::MsgPack(MsgPackParser))
@@ -236,7 +235,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// You can set any number of states as long as they have different types.
     /// The state must be cloneable, therefore it is recommended to wrap it in an `Arc` if you want shared state.
     #[inline]
-    #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
     #[cfg(feature = "state")]
     pub fn with_state<S: Clone + Send + Sync + 'static>(self, state: S) -> Self {
         self.state.set(state);
