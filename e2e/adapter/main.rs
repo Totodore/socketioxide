@@ -18,6 +18,8 @@ const BINS: &[&str] = &[
     "mongodb-capped-e2e-msgpack",
     "sqlx-e2e",
     "sqlx-e2e-msgpack",
+    "tokio-postgres-e2e",
+    "tokio-postgres-e2e-msgpack",
 ];
 const EXEC_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
 const LOG_DIR: &str = "e2e/adapter/logs";
