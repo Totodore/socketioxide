@@ -289,12 +289,10 @@ pub struct RedisAdapterCtr<R> {
 #[cfg(feature = "redis")]
 impl RedisAdapterCtr<drivers::redis::RedisDriver> {
     /// Create a new adapter constructor with the [`redis`] driver and a default config.
-    #[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
     pub async fn new_with_redis(client: &redis::Client) -> redis::RedisResult<Self> {
         Self::new_with_redis_config(client, RedisAdapterConfig::default()).await
     }
     /// Create a new adapter constructor with the [`redis`] driver and a custom config.
-    #[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
     pub async fn new_with_redis_config(
         client: &redis::Client,
         config: RedisAdapterConfig,
@@ -306,7 +304,6 @@ impl RedisAdapterCtr<drivers::redis::RedisDriver> {
 #[cfg(feature = "redis-cluster")]
 impl RedisAdapterCtr<drivers::redis::ClusterDriver> {
     /// Create a new adapter constructor with the [`redis`] driver and a default config.
-    #[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
     pub async fn new_with_cluster(
         client: &redis::cluster::ClusterClient,
     ) -> redis::RedisResult<Self> {
@@ -314,7 +311,6 @@ impl RedisAdapterCtr<drivers::redis::ClusterDriver> {
     }
 
     /// Create a new adapter constructor with the [`redis`] driver and a default config.
-    #[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
     pub async fn new_with_cluster_config(
         client: &redis::cluster::ClusterClient,
         config: RedisAdapterConfig,
@@ -326,14 +322,12 @@ impl RedisAdapterCtr<drivers::redis::ClusterDriver> {
 #[cfg(feature = "fred")]
 impl RedisAdapterCtr<drivers::fred::FredDriver> {
     /// Create a new adapter constructor with the default [`fred`] driver and a default config.
-    #[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
     pub async fn new_with_fred(
         client: fred::clients::SubscriberClient,
     ) -> fred::prelude::FredResult<Self> {
         Self::new_with_fred_config(client, RedisAdapterConfig::default()).await
     }
     /// Create a new adapter constructor with the default [`fred`] driver and a custom config.
-    #[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
     pub async fn new_with_fred_config(
         client: fred::clients::SubscriberClient,
         config: RedisAdapterConfig,
@@ -355,17 +349,14 @@ impl<R: Driver> RedisAdapterCtr<R> {
 pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Vec<u8>>>;
 
 /// The redis adapter with the fred driver.
-#[cfg_attr(docsrs, doc(cfg(feature = "fred")))]
 #[cfg(feature = "fred")]
 pub type FredAdapter<E> = CustomRedisAdapter<E, drivers::fred::FredDriver>;
 
 /// The redis adapter with the redis driver.
-#[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
 #[cfg(feature = "redis")]
 pub type RedisAdapter<E> = CustomRedisAdapter<E, drivers::redis::RedisDriver>;
 
 /// The redis adapter with the redis cluster driver.
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-cluster")))]
 #[cfg(feature = "redis-cluster")]
 pub type ClusterAdapter<E> = CustomRedisAdapter<E, drivers::redis::ClusterDriver>;
 
