@@ -40,6 +40,8 @@ sqlx = { version = "0.8", default-features = false, optional = true, features = 
     "runtime-tokio",
 ] }
 
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = [
     "macros",

@@ -31,6 +31,11 @@ async fn dispatch_notifs(
         return Ok(listeners);
     };
 
+    tracing::trace!(
+        chan = notif.channel(),
+        "dispatching postgre notif to listeners"
+    );
+
     if let Some((_, tx)) = listeners
         .read()
         .unwrap()
@@ -61,7 +66,7 @@ impl TokioPostgresDriver {
         let (client, mut conn) = config.connect(tls).await?;
 
         let listeners = Arc::new(RwLock::new(Vec::new()));
-        let stream = stream::poll_fn(move |cx| conn.poll_message(cx));
+        let stream = stream::poll_fn(move |cx| dbg!(conn.poll_message(cx)));
         tokio::spawn(stream.forward(sink::unfold(listeners.clone(), dispatch_notifs)));
 
         let driver = TokioPostgresDriver {
@@ -94,10 +99,20 @@ impl Driver for TokioPostgresDriver {
 
     async fn listen(&self, channels: &[&str]) -> Result<Self::NotificationStream, Self::Error> {
         let (tx, rx) = mpsc::channel(LISTENER_QUEUE_SIZE);
-        let mut listeners = self.listeners.write().unwrap();
-        for channel in channels {
-            listeners.push((channel.to_string(), tx.clone()));
+
+        {
+            let mut listeners = self.listeners.write().unwrap();
+            for channel in channels {
+                listeners.push((channel.to_string(), tx.clone()));
+            }
         }
+
+        let query: String = channels
+            .iter()
+            .map(|c| format!(r#"LISTEN "{c}"; "#))
+            .collect();
+
+        self.client.batch_execute(&query).await?;
 
         Ok(ChanStream::new(rx))
     }
@@ -106,6 +121,12 @@ impl Driver for TokioPostgresDriver {
         self.client
             .execute("SELECT pg_notify($1, $2)", &[&channel, &message])
             .await?;
+
+        Ok(())
+    }
+
+    async fn close(&self) -> Result<(), Self::Error> {
+        self.client.execute("UNLISTEN *", &[]).await?;
         Ok(())
     }
 }

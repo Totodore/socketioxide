@@ -215,6 +215,10 @@ impl Driver for StubDriver {
             .unwrap();
         Ok(())
     }
+
+    async fn close(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[macro_export]

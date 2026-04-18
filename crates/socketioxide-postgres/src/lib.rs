@@ -368,7 +368,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
-        Ok(())
+        self.driver.close().await.map_err(Error::Driver)
     }
 
     /// Get the number of servers by iterating over the node liveness heartbeats.
@@ -886,20 +886,31 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         .await
     }
 
+    // == All channels are hashed to avoid thresspassing the 63 bytes limit on postgres channel ==
+    // We cannot constraint the length of the channel name because it is generated dynamically.
+
     fn get_global_chan(&self) -> String {
-        format!("{}#{}", self.config.prefix, self.local.path())
+        let chan = format!("{}#{}", self.config.prefix, self.local.path());
+        hash_chan(&chan)
     }
     fn get_node_chan(&self, uid: Uid) -> String {
-        format!("{}#{}", self.get_global_chan(), uid)
+        let chan = format!("{}{}{}", self.config.prefix, self.local.path(), uid);
+        hash_chan(&chan)
     }
     fn get_response_chan(&self, uid: Uid) -> String {
-        format!(
-            "{}-response#{}#{}",
+        let chan = format!(
+            "response-{}{}{}",
             &self.config.prefix,
             self.local.path(),
             uid
-        )
+        );
+        hash_chan(&chan)
     }
+}
+
+fn hash_chan(chan: &str) -> String {
+    let hash = xxhash_rust::xxh3::xxh3_64(chan.as_bytes());
+    format!("ch_{:x}", hash)
 }
 
 /// The result of the init future.

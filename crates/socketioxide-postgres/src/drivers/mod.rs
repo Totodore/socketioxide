@@ -38,6 +38,9 @@ pub trait Driver: Clone + Send + Sync + 'static {
         channel: &str,
         message: &str,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// UNLISTEN from every channel.
+    fn close(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 /// A trait representing a PostgreSQL NOTIFY notification.

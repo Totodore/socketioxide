@@ -66,6 +66,11 @@ impl Driver for SqlxDriver {
             .await?;
         Ok(())
     }
+
+    async fn close(&self) -> Result<(), Self::Error> {
+        // PgListener will automatically unlisten channel when being dropped
+        Ok(())
+    }
 }
 
 impl super::Notification for PgNotification {
