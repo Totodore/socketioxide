@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use futures_util::{StreamExt, sink, stream};
 use tokio::sync::mpsc;
@@ -13,7 +10,7 @@ use super::Driver;
 
 pub use tokio_postgres as tokio_postgres_client;
 
-type Demux = HashMap<String, mpsc::Sender<tokio_postgres::Notification>>;
+type Listeners = Vec<(String, mpsc::Sender<tokio_postgres::Notification>)>;
 
 const LISTENER_QUEUE_SIZE: usize = 255;
 
@@ -23,18 +20,23 @@ const LISTENER_QUEUE_SIZE: usize = 255;
 #[derive(Debug, Clone)]
 pub struct TokioPostgresDriver {
     client: Arc<Client>,
-    demux: Arc<RwLock<Demux>>,
+    listeners: Arc<RwLock<Listeners>>,
 }
 
-async fn demux_notif(
-    demux: Arc<RwLock<Demux>>,
+async fn dispatch_notifs(
+    listeners: Arc<RwLock<Listeners>>,
     msg: AsyncMessage,
-) -> Result<Arc<RwLock<Demux>>, tokio_postgres::Error> {
+) -> Result<Arc<RwLock<Listeners>>, tokio_postgres::Error> {
     let AsyncMessage::Notification(notif) = msg else {
-        return Ok(demux);
+        return Ok(listeners);
     };
 
-    if let Some(tx) = demux.read().unwrap().get(notif.channel()) {
+    if let Some((_, tx)) = listeners
+        .read()
+        .unwrap()
+        .iter()
+        .find(|(chan, _)| chan == notif.channel())
+    {
         if let Err(e) = tx.try_send(notif) {
             tracing::warn!("failed to send notification: {}", e);
         }
@@ -42,7 +44,7 @@ async fn demux_notif(
         tracing::debug!("no listener for channel {}", notif.channel());
     }
 
-    Ok(demux)
+    Ok(listeners)
 }
 
 impl TokioPostgresDriver {
@@ -58,13 +60,13 @@ impl TokioPostgresDriver {
     {
         let (client, mut conn) = config.connect(tls).await?;
 
-        let demux = Arc::new(RwLock::new(HashMap::new()));
+        let listeners = Arc::new(RwLock::new(Vec::new()));
         let stream = stream::poll_fn(move |cx| conn.poll_message(cx));
-        tokio::spawn(stream.forward(sink::unfold(demux.clone(), demux_notif)));
+        tokio::spawn(stream.forward(sink::unfold(listeners.clone(), dispatch_notifs)));
 
         let driver = TokioPostgresDriver {
             client: Arc::new(client),
-            demux,
+            listeners,
         };
 
         Ok(driver)
@@ -92,9 +94,9 @@ impl Driver for TokioPostgresDriver {
 
     async fn listen(&self, channels: &[&str]) -> Result<Self::NotificationStream, Self::Error> {
         let (tx, rx) = mpsc::channel(LISTENER_QUEUE_SIZE);
-        let mut demux = self.demux.write().unwrap();
+        let mut listeners = self.listeners.write().unwrap();
         for channel in channels {
-            demux.insert(channel.to_string(), tx.clone());
+            listeners.push((channel.to_string(), tx.clone()));
         }
 
         Ok(ChanStream::new(rx))
