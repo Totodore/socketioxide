@@ -3797,6 +3797,7 @@ dependencies = [
  "serde",
  "socketioxide",
  "socketioxide-mongodb",
+ "socketioxide-postgres",
  "socketioxide-redis",
  "tokio",
  "tower",

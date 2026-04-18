@@ -1,5 +1,5 @@
-//! A simple whiteboard example using Redis as the adapter.
-//! It uses the redis crate to connect to a Redis server.
+//! A simple whiteboard example using postgres as the adapter.
+//! It uses the tokio_postgres crate to connect to a Postgtes server.
 use std::str::FromStr;
 
 use rmpv::Value;
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(EnvFilter::from_default_env())
         .init();
 
-    info!("connecting to redis");
+    info!("connecting to postgres");
     let config: Config = "postgres://socketio:socketio@localhost/socketio".parse()?;
     let adapter = PostgresAdapterCtr::new_with_tokio_postgres(config, NoTls).await?;
     info!("starting server");

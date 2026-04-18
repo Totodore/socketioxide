@@ -4,10 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-socketioxide-postgres = { path = "../../crates/socketioxide-postgres", features = [
-    "sqlx",
-    "tokio-postgres",
-] }
+socketioxide-postgres.workspace = true
 socketioxide = { workspace = true, features = ["tracing", "msgpack"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

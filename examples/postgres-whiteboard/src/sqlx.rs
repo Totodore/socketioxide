@@ -1,5 +1,5 @@
-//! A simple whiteboard example using Redis as the adapter.
-//! It uses the fred crate to connect to a Redis server.
+//! A simple whiteboard example using Postgres as the adapter.
+//! It uses the sqlx crate to connect to a Postgres server.
 use rmpv::Value;
 use socketioxide::{
     adapter::Adapter,
