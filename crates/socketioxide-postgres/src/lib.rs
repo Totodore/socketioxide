@@ -588,7 +588,6 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         while let Some(notif) = stream.next().await {
             let chan = notif.channel();
             let resp_chan = self.get_response_chan(self.local.server_id());
-            tracing::info!(chan, resp_chan, notif = notif.payload(), "");
             if chan == resp_chan {
                 match serde_json::from_str(notif.payload()) {
                     Ok(ResponsePacket {

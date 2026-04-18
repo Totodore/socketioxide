@@ -66,7 +66,7 @@ impl TokioPostgresDriver {
         let (client, mut conn) = config.connect(tls).await?;
 
         let listeners = Arc::new(RwLock::new(Vec::new()));
-        let stream = stream::poll_fn(move |cx| dbg!(conn.poll_message(cx)));
+        let stream = stream::poll_fn(move |cx| conn.poll_message(cx));
         tokio::spawn(stream.forward(sink::unfold(listeners.clone(), dispatch_notifs)));
 
         let driver = TokioPostgresDriver {
