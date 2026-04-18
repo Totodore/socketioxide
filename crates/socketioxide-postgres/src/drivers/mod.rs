@@ -39,6 +39,19 @@ pub trait Driver: Clone + Send + Sync + 'static {
         message: &str,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// Push an attachment when deferring a NOTIFY message to the attachment table.
+    fn push_attachment(
+        &self,
+        table: &str,
+        attachment: &[u8],
+    ) -> impl Future<Output = Result<i32, Self::Error>> + Send;
+
+    fn get_attachment(
+        &self,
+        table: &str,
+        id: i32,
+    ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
+
     /// UNLISTEN from every channel.
     fn close(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }

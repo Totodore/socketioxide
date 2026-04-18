@@ -300,7 +300,7 @@ pub type SqlxAdapter<E> = CustomPostgresAdapter<E, drivers::sqlx::SqlxDriver>;
 pub type TokioPostgresAdapter<E> =
     CustomPostgresAdapter<E, drivers::tokio_postgres::TokioPostgresDriver>;
 
-type ResponseHandlers = HashMap<Sid, mpsc::Sender<Box<RawValue>>>;
+type ResponseHandlers = HashMap<Sid, mpsc::Sender<ResponsePayload>>;
 
 /// The postgres adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the postgres server.
@@ -790,7 +790,18 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             Some(target) => self.get_node_chan(target),
             None => self.get_global_chan(),
         };
-        let payload = serde_json::to_string(&req)?;
+
+        let mut payload = serde_json::to_string(&req)?;
+        if payload.len() > self.config.payload_threshold {
+            let attachment_id = self
+                .driver
+                .push_attachment(&self.config.table_name, payload.as_bytes())
+                .await
+                .map_err(Error::Driver)?;
+
+            payload = attachment_id.to_string();
+        }
+
         self.driver
             .notify(&chan, &payload)
             .await
@@ -816,7 +827,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             .map(|payload| ResponsePacket {
                 req_id,
                 node_id: self.local.server_id(),
-                payload,
+                payload: ResponsePayload::Data(payload), //TODO: defer to attachments
             })
             .and_then(|res| serde_json::to_string(&res));
 
@@ -849,15 +860,22 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         let stream = ChanStream::new(rx);
 
         let stream = stream
-            .filter_map(|payload| {
-                let data = match serde_json::from_str::<Response<T>>(payload.get()) {
-                    Ok(data) => Some(data),
-                    Err(e) => {
-                        tracing::warn!("error decoding response: {e}");
-                        None
-                    }
-                };
-                future::ready(data)
+            .filter_map(async move |payload| match payload {
+                //TODO: response chan stream
+                ResponsePayload::Data(data) => serde_json::from_str::<Response<T>>(data.get())
+                    .inspect_err(|err| tracing::warn!("error decoding response: {err}"))
+                    .ok(),
+                ResponsePayload::Attachment(id) => self
+                    .driver
+                    .get_attachment(&self.config.table_name, id)
+                    .await
+                    .inspect_err(|err| tracing::warn!("error fetching attachment: {err}"))
+                    .ok()
+                    .and_then(|data| {
+                        serde_json::from_slice::<Response<T>>(&data)
+                            .inspect_err(|err| tracing::warn!("error decoding response: {err}"))
+                            .ok()
+                    }),
             })
             .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
             .take(remote_serv_cnt)
@@ -933,9 +951,20 @@ impl<D: Driver> Spawnable for InitRes<D> {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+enum RequestPacket<T> {
+    Request(T),
+    RequestWithAttachment(i32),
+}
+
 #[derive(Deserialize, Serialize)]
 struct ResponsePacket {
     req_id: Sid,
     node_id: Uid,
-    payload: Box<RawValue>,
+    payload: ResponsePayload,
+}
+#[derive(Deserialize, Serialize)]
+enum ResponsePayload {
+    Data(Box<RawValue>),
+    Attachment(i32),
 }

@@ -7,10 +7,11 @@ use socketioxide_postgres::{
     drivers::{Driver, Notification},
 };
 use std::{
+    collections::HashMap,
     convert::Infallible,
     pin::Pin,
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, atomic::AtomicI32},
     task,
     time::Duration,
 };
@@ -120,6 +121,8 @@ pub struct StubDriver {
     tx: mpsc::Sender<StubNotification>,
     /// Handlers for incoming notifications per listened channel.
     handlers: Arc<RwLock<Handlers>>,
+    attachments: Arc<RwLock<HashMap<i32, Vec<u8>>>>,
+    attachment_idx: Arc<AtomicI32>,
 }
 
 impl StubDriver {
@@ -140,6 +143,8 @@ impl StubDriver {
             server_id,
             tx,
             handlers,
+            attachments: Arc::new(RwLock::new(HashMap::new())),
+            attachment_idx: Arc::new(AtomicI32::new(0)),
         };
         (driver, rx, tx1)
     }
@@ -216,6 +221,19 @@ impl Driver for StubDriver {
             })
             .unwrap();
         Ok(())
+    }
+
+    async fn push_attachment(&self, _table: &str, attachment: &[u8]) -> Result<i32, Self::Error> {
+        let id = self
+            .attachment_idx
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        self.attachments
+            .write()
+            .unwrap()
+            .insert(id, attachment.to_vec());
+
+        Ok(id)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

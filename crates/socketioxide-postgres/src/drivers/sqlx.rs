@@ -67,6 +67,29 @@ impl Driver for SqlxDriver {
         Ok(())
     }
 
+    async fn push_attachment(&self, table: &str, attachment: &[u8]) -> Result<i32, Self::Error> {
+        let query =
+            format!("INSERT INTO {table} (id, created_at, payload) VALUES (?, ?, $2) RETURNING id");
+
+        let id: i32 = sqlx::query_scalar(&query)
+            .bind(attachment)
+            .fetch_one(&self.client)
+            .await?;
+
+        Ok(id)
+    }
+
+    async fn get_attachment(&self, table: &str, id: i32) -> Result<Vec<u8>, Self::Error> {
+        let query = format!("SELECT payload FROM {table} WHERE id = $1");
+
+        let attachment: Vec<u8> = sqlx::query_scalar(&query)
+            .bind(id)
+            .fetch_one(&self.client)
+            .await?;
+
+        Ok(attachment)
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         // PgListener will automatically unlisten channel when being dropped
         Ok(())
