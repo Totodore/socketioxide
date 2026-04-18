@@ -109,7 +109,7 @@ impl Driver for TokioPostgresDriver {
 
         let query: String = channels
             .iter()
-            .map(|c| format!(r#"LISTEN "{c}"; "#))
+            .map(|chan| format!(r#"LISTEN "{chan}";"#))
             .collect();
 
         self.client.batch_execute(&query).await?;

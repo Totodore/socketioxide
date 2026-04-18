@@ -46,9 +46,11 @@ pub fn spawn_buggy_servers<const N: usize>(
     let payload = serde_json::to_string(&heartbeat_json).unwrap();
 
     for (_, tx) in sync_buff.read().unwrap().iter() {
+        let hash = xxhash_rust::xxh3::xxh3_64("socket.io#/".as_bytes());
+        let channel = format!("ch_{:x}", hash);
         // Send the heartbeat to the global channel of the "/" namespace
         tx.try_send(StubNotification {
-            channel: "socket.io#/".to_string(),
+            channel,
             payload: payload.clone(),
         })
         .unwrap();
