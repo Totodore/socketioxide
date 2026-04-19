@@ -46,6 +46,7 @@ pub trait Driver: Clone + Send + Sync + 'static {
         attachment: &[u8],
     ) -> impl Future<Output = Result<i32, Self::Error>> + Send;
 
+    /// Get an attachment from the attachment table.
     fn get_attachment(
         &self,
         table: &str,

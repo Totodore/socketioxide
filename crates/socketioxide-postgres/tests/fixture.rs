@@ -44,7 +44,10 @@ pub fn spawn_buggy_servers<const N: usize>(
         "type": 20,
         "opts": null,
     });
-    let payload = serde_json::to_string(&heartbeat_json).unwrap();
+    let payload = serde_json::to_string(&serde_json::json!({
+        "Request": heartbeat_json,
+    }))
+    .unwrap();
 
     for (_, tx) in sync_buff.read().unwrap().iter() {
         let hash = xxhash_rust::xxh3::xxh3_64("socket.io#/".as_bytes());
@@ -234,6 +237,16 @@ impl Driver for StubDriver {
             .insert(id, attachment.to_vec());
 
         Ok(id)
+    }
+
+    async fn get_attachment(&self, _table: &str, id: i32) -> Result<Vec<u8>, Self::Error> {
+        Ok(self
+            .attachments
+            .read()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .unwrap_or_default())
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

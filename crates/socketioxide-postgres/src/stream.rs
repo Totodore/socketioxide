@@ -1,8 +1,12 @@
 use std::{
-    borrow::Cow, fmt, pin::Pin, sync::{Arc, Mutex}, task::{self, Poll}, time::Duration
+    fmt,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{self, Poll},
+    time::Duration,
 };
 
-use futures_core::{FusedStream, Stream, future::BoxFuture, ready};
+use futures_core::{FusedStream, Stream, stream::BoxStream};
 use futures_util::{StreamExt, stream::TakeUntil};
 use pin_project_lite::pin_project;
 use serde::de::DeserializeOwned;
@@ -16,10 +20,7 @@ use socketioxide_core::{
 };
 use tokio::{sync::mpsc, time};
 
-use crate::{
-    ResponseHandlers, ResponsePayload,
-    drivers::{Driver, Notification},
-};
+use crate::{ResponseHandlers, drivers::Notification};
 
 pin_project! {
     /// A stream of acknowledgement messages received from the local and remote servers.
@@ -35,7 +36,7 @@ pin_project! {
         #[pin]
         local: S,
         #[pin]
-        remote: DropStream<TakeUntil<ChanStream<Box<RawValue>>, time::Sleep>>,
+        remote: DropStream<TakeUntil<BoxStream<'static, Box<RawValue>>, time::Sleep>>,
         ack_cnt: u32,
         total_ack_cnt: usize,
         serv_cnt: u16,
@@ -43,15 +44,18 @@ pin_project! {
 }
 
 impl<S> AckStream<S> {
-    pub fn new(
+    /// Build an ack stream backed by a remote `ResponsePayload` channel. Attachment payloads are
+    /// resolved lazily, driven by polling — not by a background task — so dropping the stream
+    /// cancels any still-pending fetch.
+    pub(crate) fn new(
         local: S,
-        remote: mpsc::Receiver<Box<RawValue>>,
+        remote: BoxStream<'static, Box<RawValue>>,
         timeout: Duration,
         serv_cnt: u16,
         req_sid: Sid,
         handlers: Arc<Mutex<ResponseHandlers>>,
     ) -> Self {
-        let remote = ChanStream::new(remote).take_until(time::sleep(timeout));
+        let remote = remote.take_until(time::sleep(timeout));
         let remote = DropStream::new(remote, handlers, req_sid);
         Self {
             local,
@@ -62,10 +66,10 @@ impl<S> AckStream<S> {
         }
     }
 
-    pub fn new_local(local: S) -> Self {
+    pub(crate) fn new_local(local: S) -> Self {
         let handlers = Arc::new(Mutex::new(ResponseHandlers::new()));
-        let rx = mpsc::channel(1).1;
-        let remote = ChanStream::new(rx).take_until(time::sleep(Duration::ZERO));
+        let empty: BoxStream<'static, Box<RawValue>> = futures_util::stream::empty().boxed();
+        let remote = empty.take_until(time::sleep(Duration::ZERO));
         let remote = DropStream::new(remote, handlers, Sid::ZERO);
         Self {
             local,
@@ -233,55 +237,6 @@ impl<S: Stream> Stream for DropStream<S> {
 impl<S: FusedStream> FusedStream for DropStream<S> {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated()
-    }
-}
-
-pin_project! {
-    struct RemoteAckStream<D: Driver> {
-        driver: D,
-        table: Cow<'static, str>,
-        #[pin]
-        inner: ChanStream<ResponsePayload>,
-        #[pin]
-        state: RemoteAckStreamState<Box<dyn Future<Output = Box<RawValue>> + 'static>>,
-    }
-}
-
-pin_project! {
-    #[project = RemoteAckStreamStateProj]
-    enum RemoteAckStreamState {
-        Pending{ #[pin] fut: Box<dyn Future<Output = Result<Box<RawValue>, Error>> + 'static> },
-        Done,
-    }
-}
-
-impl<D: Driver> Stream for RemoteAckStream<D> {
-    type Item = Box<RawValue>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
-        let proj = self.project();
-        match proj.state.project() {
-            RemoteAckStreamStateProj::Pending { fut } => match ready!(fut.poll(cx)) {
-                Ok(value) => {
-                    proj.state.set(RemoteAckStreamState::Done);
-                    cx.waker().wake_by_ref();
-                    return Poll::Ready(Some(value))
-                },
-                Err(err) => Poll::Ready(Some(Box::new(Value::String(err.to_string())))),
-            },
-            RemoteAckStreamStateProj::Done => (),
-        };
-
-        match ready!(self.project().inner.poll_next(cx)) {
-            Some(ResponsePayload::Data(data)) => Poll::Ready(Some(data)),
-            Some(ResponsePayload::Attachment(id)) => self.driver.get_attachment(&self.table, id)
-            None => Poll::Ready(None),
-        }
-    }
-}
-impl<D: Driver> FusedStream for RemoteAckStream<D> {
-    fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
     }
 }
 

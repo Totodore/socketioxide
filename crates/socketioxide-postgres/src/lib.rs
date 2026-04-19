@@ -52,7 +52,7 @@
 //! first broadcast a request to all the servers and then perform the action locally.
 
 use drivers::Driver;
-use futures_core::Stream;
+use futures_core::{Stream, stream::BoxStream};
 use futures_util::{StreamExt, pin_mut};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::value::RawValue;
@@ -206,14 +206,17 @@ pub enum Error<D: Driver> {
     /// Packet encoding/decoding error
     #[error("packet decoding error: {0}")]
     Serde(#[from] serde_json::Error),
+    /// Response handler not found
+    #[error("response handler not found/closed for request: {req_id}")]
+    ResponseHandlerNotFound {
+        /// The request this response is for
+        req_id: Sid,
+    },
 }
 
 impl<R: Driver> fmt::Debug for Error<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Driver(err) => write!(f, "Driver error: {:?}", err),
-            Self::Serde(err) => write!(f, "Encode/Decode error: {:?}", err),
-        }
+        fmt::Display::fmt(self, f)
     }
 }
 
@@ -358,7 +361,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             // Send initial heartbeat when starting.
             self.emit_init_heartbeat().await.map_err(|e| match e {
                 Error::Driver(e) => e,
-                Error::Serde(_) => unreachable!(),
+                _ => unreachable!(),
             })?;
 
             on_success();
@@ -456,9 +459,17 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             .request_timeout
             .saturating_add(timeout.unwrap_or(self.local.ack_timeout()));
 
+        let table_name = self.config.table_name.clone();
+        let driver = self.driver.clone();
+        let remote: BoxStream<'static, Box<RawValue>> = ChanStream::new(rx)
+            .filter_map(move |payload| {
+                resolve_resp_payload(payload, driver.clone(), table_name.clone())
+            })
+            .boxed();
+
         Ok(AckStream::new(
             local,
-            rx,
+            remote,
             timeout,
             remote_serv_cnt,
             req_id,
@@ -588,41 +599,71 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         while let Some(notif) = stream.next().await {
             let chan = notif.channel();
             let resp_chan = self.get_response_chan(self.local.server_id());
-            if chan == resp_chan {
-                match serde_json::from_str(notif.payload()) {
-                    Ok(ResponsePacket {
-                        req_id,
-                        node_id,
-                        payload,
-                    }) if node_id != self.local.server_id() => {
-                        let handlers = self.responses.lock().unwrap();
-                        if let Some(handler) = handlers.get(&req_id) {
-                            if let Err(e) = handler.try_send(payload) {
-                                tracing::warn!(channel = resp_chan, req_id = %req_id, "error sending response: {e}");
-                            }
-                        } else {
-                            tracing::warn!(channel = resp_chan, req_id = %req_id, "response handler not found");
-                        }
-                    }
-                    Ok(_) => {
-                        tracing::trace!("skipping loopback packets");
-                    }
-                    Err(e) => {
-                        tracing::warn!(channel = %notif.channel(), "error handling response: {e}")
-                    }
-                };
+
+            let result = if chan == resp_chan {
+                self.handle_res_notif(notif).await
             } else {
-                match serde_json::from_str::<RequestIn>(notif.payload()) {
-                    Ok(req) if req.node_id != self.local.server_id() => self.recv_req(req),
-                    Ok(_) => {
-                        tracing::trace!("skipping loopback packets")
-                    }
-                    Err(e) => {
-                        tracing::warn!(channel = %notif.channel(), "error decoding request: {e}")
-                    }
-                };
+                self.handle_req_notif(notif)
+            };
+
+            if let Err(err) = result {
+                tracing::warn!(%err, "Error handling notification, skipping it");
             }
         }
+    }
+
+    /// Deserialize a response notification and trigger the corresponding handler.
+    /// If the request handler queue is full, it will wait, slowing down the notification event pipeline.
+    async fn handle_res_notif(&self, notif: D::Notification) -> Result<(), Error<D>> {
+        match serde_json::from_str(notif.payload())? {
+            p if p.is_loopback(self.local.server_id()) => {
+                tracing::trace!("skipping loopback packets")
+            }
+            ResponsePacket {
+                req_id, payload, ..
+            } => {
+                let tx = self
+                    .responses
+                    .lock()
+                    .unwrap()
+                    .get(&req_id)
+                    .ok_or(Error::ResponseHandlerNotFound { req_id })?
+                    .clone();
+
+                tx.send(payload)
+                    .await
+                    .map_err(|_| Error::ResponseHandlerNotFound { req_id })?;
+            }
+        };
+
+        Ok(())
+    }
+
+    /// Deserialize a request notification and propagate it. In case of attachment,
+    /// the resolution is done asynchronously.
+    fn handle_req_notif(self: &Arc<Self>, notif: D::Notification) -> Result<(), Error<D>> {
+        match serde_json::from_str::<RequestPacket<&RawValue>>(notif.payload())? {
+            p if p.is_loopback(self.local.server_id()) => {
+                tracing::trace!("skipping loopback packets");
+            }
+            RequestPacket::Request { payload, .. } => {
+                let request = serde_json::from_str::<RequestIn>(payload.get())?;
+                self.recv_req(request)
+            }
+            RequestPacket::RequestWithAttachment { id, .. } => {
+                let this = self.clone();
+                tokio::spawn(async move {
+                    resolve_attachment(&this.driver, &this.config.table_name, id)
+                        .await
+                        .map(|req| this.recv_req(req))
+                        .inspect_err(
+                            |err| tracing::warn!(%err, "failed to handle request with attachment"),
+                        )
+                        .ok();
+                });
+            }
+        };
+        Ok(())
     }
 
     fn recv_req(self: &Arc<Self>, req: RequestIn) {
@@ -784,6 +825,10 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     }
 
     /// Send a request to a specific target node or broadcast it to all nodes if no target is specified.
+    ///
+    /// The request body is serialized as JSON and wrapped in a [`RequestPacket`]. When the
+    /// serialized body exceeds [`PostgresAdapterConfig::payload_threshold`], it is stored in the
+    /// attachment table and only the row id travels over NOTIFY.
     async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
         tracing::trace!(?req, "sending request");
         let chan = match target {
@@ -791,16 +836,21 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             None => self.get_global_chan(),
         };
 
-        let mut payload = serde_json::to_string(&req)?;
-        if payload.len() > self.config.payload_threshold {
-            let attachment_id = self
+        let node_id = self.local.server_id();
+        let body = serde_json::to_string(&req)?;
+
+        let payload = if body.len() > self.config.payload_threshold {
+            let id = self
                 .driver
-                .push_attachment(&self.config.table_name, payload.as_bytes())
+                .push_attachment(&self.config.table_name, body.as_bytes())
                 .await
                 .map_err(Error::Driver)?;
 
-            payload = attachment_id.to_string();
-        }
+            serde_json::to_string(&RequestPacket::<()>::RequestWithAttachment { node_id, id })?
+        } else {
+            let payload = RawValue::from_string(body)?;
+            serde_json::to_string(&RequestPacket::Request { node_id, payload })?
+        };
 
         self.driver
             .notify(&chan, &payload)
@@ -810,7 +860,11 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     }
 
     /// Send a response to the node that sent the request.
-    fn send_res<T: Serialize + fmt::Debug + 'static>(
+    ///
+    /// When the serialized response exceeds [`PostgresAdapterConfig::payload_threshold`], it is
+    /// stored in the attachment table and only the row id travels over NOTIFY as a
+    /// [`ResponsePayload::Attachment`].
+    fn send_res<T: Serialize + fmt::Debug + Send + 'static>(
         &self,
         req_id: Sid,
         req_origin: Uid,
@@ -822,18 +876,30 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         );
         let driver = self.driver.clone();
         let chan = self.get_response_chan(req_origin);
-        let message = serde_json::to_string(&payload)
-            .and_then(RawValue::from_string)
-            .map(|payload| ResponsePacket {
-                req_id,
-                node_id: self.local.server_id(),
-                payload: ResponsePayload::Data(payload), //TODO: defer to attachments
-            })
-            .and_then(|res| serde_json::to_string(&res));
+        let table = self.config.table_name.clone();
+        let threshold = self.config.payload_threshold;
+        let node_id = self.local.server_id();
 
         async move {
+            let body = serde_json::to_string(&payload)?;
+            let payload = if body.len() > threshold {
+                let id = driver
+                    .push_attachment(&table, body.as_bytes())
+                    .await
+                    .map_err(Error::Driver)?;
+                ResponsePayload::Attachment(id)
+            } else {
+                ResponsePayload::Data(RawValue::from_string(body)?)
+            };
+
+            let message = serde_json::to_string(&ResponsePacket {
+                req_id,
+                node_id,
+                payload,
+            })?;
+
             driver
-                .notify(&chan, &message?)
+                .notify(&chan, &message)
                 .await
                 .map_err(Error::Driver)?;
             Ok(())
@@ -951,10 +1017,49 @@ impl<D: Driver> Spawnable for InitRes<D> {
     }
 }
 
+async fn resolve_resp_payload<D: Driver>(
+    payload: ResponsePayload,
+    driver: D,
+    table: Cow<'static, str>,
+) -> Option<Box<RawValue>> {
+    match payload {
+        ResponsePayload::Data(data) => Some(data),
+        ResponsePayload::Attachment(id) => resolve_attachment(&driver, &table, id)
+            .await
+            .inspect_err(|err| tracing::warn!(%err, id, "failed to resolve payload attachment"))
+            .ok(),
+    }
+}
+
+async fn resolve_attachment<T: DeserializeOwned, D: Driver>(
+    driver: &D,
+    table_name: &str,
+    id: i32,
+) -> Result<T, Error<D>> {
+    let bytes = driver
+        .get_attachment(table_name, id)
+        .await
+        .map_err(Error::Driver)?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Wire-level wrapper for request NOTIFY payloads.
+///
+/// A request may either be inline (serialized request JSON) or deferred to the
+/// attachment table. The `node_id` in the deferred variant lets the receiver
+/// filter out loopback notifications before hitting the database.
 #[derive(Debug, Serialize, Deserialize)]
 enum RequestPacket<T> {
-    Request(T),
-    RequestWithAttachment(i32),
+    Request { node_id: Uid, payload: T },
+    RequestWithAttachment { node_id: Uid, id: i32 },
+}
+impl<T> RequestPacket<T> {
+    fn is_loopback(&self, node_id: Uid) -> bool {
+        match self {
+            RequestPacket::Request { node_id: id, .. } => *id == node_id,
+            RequestPacket::RequestWithAttachment { node_id: id, .. } => *id == node_id,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -963,8 +1068,13 @@ struct ResponsePacket {
     node_id: Uid,
     payload: ResponsePayload,
 }
-#[derive(Deserialize, Serialize)]
-enum ResponsePayload {
+impl ResponsePacket {
+    fn is_loopback(&self, node_id: Uid) -> bool {
+        self.node_id == node_id
+    }
+}
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) enum ResponsePayload {
     Data(Box<RawValue>),
     Attachment(i32),
 }

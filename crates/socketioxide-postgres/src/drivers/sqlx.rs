@@ -68,8 +68,7 @@ impl Driver for SqlxDriver {
     }
 
     async fn push_attachment(&self, table: &str, attachment: &[u8]) -> Result<i32, Self::Error> {
-        let query =
-            format!("INSERT INTO {table} (id, created_at, payload) VALUES (?, ?, $2) RETURNING id");
+        let query = format!("INSERT INTO {table} (payload) VALUES ($1) RETURNING id");
 
         let id: i32 = sqlx::query_scalar(&query)
             .bind(attachment)
