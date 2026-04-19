@@ -231,9 +231,17 @@ pub enum Error<D: Driver> {
     /// Postgres driver error
     #[error("driver error: {0}")]
     Driver(D::Error),
-    /// Packet encoding/decoding error
-    #[error("packet decoding error: {0}")]
-    Serde(#[from] serde_json::Error),
+    /// Json Packet encoding/decoding error
+    #[error("json packet encoding/decoding error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    /// Binary packet encoding error
+    #[error("binary packet encoding error: {0}")]
+    MessagePackEncode(#[from] rmp_serde::encode::Error),
+    /// Binary packet decoding error
+    #[error("binary packet decoding error: {0}")]
+    MessagePackDecode(#[from] rmp_serde::decode::Error),
+
     /// Response handler not found/full/closed for request
     #[error("response handler not found/full/closed for request: {req_id}")]
     ResponseHandlerNotFound {
@@ -733,8 +741,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             RequestPacket::Request { payload, .. } => {
                 Ok(Some(serde_json::from_str::<RequestIn>(payload.get())?))
             }
-            RequestPacket::RequestWithAttachment { id, .. } => Ok(Some(
-                resolve_attachment(&self.driver, &self.config.table_name, id).await?,
+            RequestPacket::RequestWithAttachment { id, is_binary, .. } => Ok(Some(
+                resolve_attachment(&self.driver, &self.config.table_name, id, is_binary).await?,
             )),
         }
     }
@@ -910,19 +918,34 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         };
 
         let node_id = self.local.server_id();
-        let body = serde_json::to_string(&req)?;
+        let is_binary = req.is_binary();
+        let body = if is_binary {
+            rmp_serde::to_vec(&req)?
+        } else {
+            serde_json::to_vec(&req)?
+        };
 
-        let payload = if body.len() > self.config.payload_threshold {
+        let payload = if body.len() > self.config.payload_threshold || is_binary {
             let id = self
                 .driver
-                .push_attachment(&self.config.table_name, body.as_bytes())
+                .push_attachment(&self.config.table_name, &body)
                 .await
                 .map_err(Error::Driver)?;
 
             tracing::debug!("pushed attachment {id} for req {}", req.id);
 
-            serde_json::to_string(&RequestPacket::<()>::RequestWithAttachment { node_id, id })?
+            serde_json::to_string(&RequestPacket::<()>::RequestWithAttachment {
+                node_id,
+                is_binary,
+                id,
+            })?
         } else {
+            assert!(
+                !is_binary,
+                "binary packets should be stored in attachment table and serialized in msgpack"
+            );
+
+            let body = unsafe { String::from_utf8_unchecked(body) };
             let payload = RawValue::from_string(body)?;
             serde_json::to_string(&RequestPacket::Request { node_id, payload })?
         };
@@ -943,27 +966,34 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         &self,
         req_id: Sid,
         req_origin: Uid,
-        payload: Response<T>,
+        res: Response<T>,
     ) -> impl Future<Output = Result<(), Error<D>>> + 'static {
-        tracing::trace!(
-            ?payload,
-            "sending response for {req_id} req to {req_origin}"
-        );
+        tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
         let driver = self.driver.clone();
         let chan = self.get_response_chan(req_origin);
         let table = self.config.table_name.clone();
         let threshold = self.config.payload_threshold;
         let node_id = self.local.server_id();
-
+        let is_binary = res.is_binary();
         async move {
-            let body = serde_json::to_string(&payload)?;
-            let payload = if body.len() > threshold {
+            let body = if is_binary {
+                rmp_serde::to_vec(&res)?
+            } else {
+                serde_json::to_vec(&res)?
+            };
+
+            let payload = if body.len() > threshold || is_binary {
                 let id = driver
-                    .push_attachment(&table, body.as_bytes())
+                    .push_attachment(&table, &body)
                     .await
                     .map_err(Error::Driver)?;
-                ResponsePayload::Attachment(id)
+                ResponsePayload::Attachment { id, is_binary }
             } else {
+                assert!(
+                    !is_binary,
+                    "binary packets should be stored in attachment table and serialized in msgpack"
+                );
+                let body = unsafe { String::from_utf8_unchecked(body) };
                 ResponsePayload::Data(RawValue::from_string(body)?)
             };
 
@@ -1008,8 +1038,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                 ResponsePayload::Data(data) => serde_json::from_str::<Response<T>>(data.get())
                     .inspect_err(|err| tracing::warn!("error decoding response: {err}"))
                     .ok(),
-                ResponsePayload::Attachment(id) => {
-                    resolve_attachment(&self.driver, &self.config.table_name, id)
+                ResponsePayload::Attachment { id, is_binary } => {
+                    resolve_attachment(&self.driver, &self.config.table_name, id, is_binary)
                         .await
                         .inspect_err(|err| tracing::warn!("error fetching attachment: {err}"))
                         .ok()
@@ -1098,10 +1128,12 @@ async fn resolve_resp_payload<D: Driver>(
 ) -> Option<Box<RawValue>> {
     match payload {
         ResponsePayload::Data(data) => Some(data),
-        ResponsePayload::Attachment(id) => resolve_attachment(&driver, &table, id)
-            .await
-            .inspect_err(|err| tracing::warn!(%err, id, "failed to resolve payload attachment"))
-            .ok(),
+        ResponsePayload::Attachment { id, is_binary } => {
+            resolve_attachment(&driver, &table, id, is_binary)
+                .await
+                .inspect_err(|err| tracing::warn!(%err, id, "failed to resolve payload attachment"))
+                .ok()
+        }
     }
 }
 
@@ -1109,13 +1141,18 @@ async fn resolve_attachment<T: DeserializeOwned, D: Driver>(
     driver: &D,
     table_name: &str,
     id: i64,
+    is_binary: bool,
 ) -> Result<T, Error<D>> {
     let bytes = driver
         .get_attachment(table_name, id)
         .await
         .map_err(Error::Driver)?;
     tracing::debug!("resolving attachment {id}");
-    Ok(serde_json::from_slice(&bytes)?)
+    if is_binary {
+        Ok(rmp_serde::from_slice(&bytes)?)
+    } else {
+        Ok(serde_json::from_slice(&bytes)?)
+    }
 }
 
 /// Wire-level wrapper for request NOTIFY payloads.
@@ -1125,8 +1162,15 @@ async fn resolve_attachment<T: DeserializeOwned, D: Driver>(
 /// filter out loopback notifications before hitting the database.
 #[derive(Debug, Serialize, Deserialize)]
 enum RequestPacket<T> {
-    Request { node_id: Uid, payload: T },
-    RequestWithAttachment { node_id: Uid, id: i64 },
+    Request {
+        node_id: Uid,
+        payload: T,
+    },
+    RequestWithAttachment {
+        node_id: Uid,
+        is_binary: bool,
+        id: i64,
+    },
 }
 impl<T> RequestPacket<T> {
     fn is_loopback(&self, node_id: Uid) -> bool {
@@ -1151,5 +1195,5 @@ impl ResponsePacket {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum ResponsePayload {
     Data(Box<RawValue>),
-    Attachment(i64),
+    Attachment { id: i64, is_binary: bool },
 }
