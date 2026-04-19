@@ -2698,6 +2698,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "pin-project-lite",
+ "rmp-serde",
  "serde",
  "serde_json",
  "smallvec",

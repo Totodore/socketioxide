@@ -44,13 +44,13 @@ pub trait Driver: Clone + Send + Sync + 'static {
         &self,
         table: &str,
         attachment: &[u8],
-    ) -> impl Future<Output = Result<i32, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<i64, Self::Error>> + Send;
 
     /// Get an attachment from the attachment table.
     fn get_attachment(
         &self,
         table: &str,
-        id: i32,
+        id: i64,
     ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
 
     /// UNLISTEN from every channel.

@@ -67,10 +67,10 @@ impl Driver for SqlxDriver {
         Ok(())
     }
 
-    async fn push_attachment(&self, table: &str, attachment: &[u8]) -> Result<i32, Self::Error> {
-        let query = format!("INSERT INTO {table} (payload) VALUES ($1) RETURNING id");
+    async fn push_attachment(&self, table: &str, attachment: &[u8]) -> Result<i64, Self::Error> {
+        let query = format!("INSERT INTO \"{table}\" (payload) VALUES ($1) RETURNING id");
 
-        let id: i32 = sqlx::query_scalar(&query)
+        let id: i64 = sqlx::query_scalar(&query)
             .bind(attachment)
             .fetch_one(&self.client)
             .await?;
@@ -78,8 +78,8 @@ impl Driver for SqlxDriver {
         Ok(id)
     }
 
-    async fn get_attachment(&self, table: &str, id: i32) -> Result<Vec<u8>, Self::Error> {
-        let query = format!("SELECT payload FROM {table} WHERE id = $1");
+    async fn get_attachment(&self, table: &str, id: i64) -> Result<Vec<u8>, Self::Error> {
+        let query = format!("SELECT payload FROM \"{table}\" WHERE id = $1");
 
         let attachment: Vec<u8> = sqlx::query_scalar(&query)
             .bind(id)

@@ -125,13 +125,13 @@ impl Driver for TokioPostgresDriver {
         Ok(())
     }
 
-    async fn push_attachment(&self, table: &str, attachment: &[u8]) -> Result<i32, Self::Error> {
-        let query = format!("INSERT INTO {table} (payload) VALUES ($1) RETURNING id");
+    async fn push_attachment(&self, table: &str, attachment: &[u8]) -> Result<i64, Self::Error> {
+        let query = format!("INSERT INTO \"{table}\" (payload) VALUES ($1) RETURNING id");
         self.client.query_one_scalar(&query, &[&attachment]).await
     }
 
-    async fn get_attachment(&self, table: &str, id: i32) -> Result<Vec<u8>, Self::Error> {
-        let query = format!("SELECT payload FROM {table} WHERE id = $1");
+    async fn get_attachment(&self, table: &str, id: i64) -> Result<Vec<u8>, Self::Error> {
+        let query = format!("SELECT payload FROM \"{table}\" WHERE id = $1");
         self.client.query_one_scalar(&query, &[&id]).await
     }
 

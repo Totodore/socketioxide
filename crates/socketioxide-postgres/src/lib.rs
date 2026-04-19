@@ -74,11 +74,11 @@ use std::{
     collections::HashMap,
     fmt, future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::AbortHandle};
 
 use crate::{
     drivers::Notification,
@@ -329,6 +329,9 @@ pub struct CustomPostgresAdapter<E, D: Driver> {
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
     /// A map of response handlers used to await for responses from the remote servers.
     responses: Arc<Mutex<ResponseHandlers>>,
+    /// A task that listens for events from the remote servers.
+    ev_stream_task: OnceLock<AbortHandle>,
+    hb_task: OnceLock<AbortHandle>,
 }
 
 impl<E, D: Driver> DefinedAdapter for CustomPostgresAdapter<E, D> {}
@@ -345,6 +348,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             config: state.config.clone(),
             nodes_liveness: Mutex::new(Vec::new()),
             responses: Arc::new(Mutex::new(HashMap::new())),
+            ev_stream_task: OnceLock::new(),
+            hb_task: OnceLock::new(),
         }
     }
 
@@ -363,8 +368,16 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             ];
 
             let stream = self.driver.listen(&channels).await?;
-            tokio::spawn(self.clone().handle_ev_stream(stream));
-            tokio::spawn(self.clone().heartbeat_job());
+            let ev_stream_task = tokio::spawn(self.clone().handle_ev_stream(stream)).abort_handle();
+            assert!(
+                self.ev_stream_task.set(ev_stream_task).is_ok(),
+                "Adapter::init should be called only once"
+            );
+            let hb_task = tokio::spawn(self.clone().heartbeat_job()).abort_handle();
+            assert!(
+                self.hb_task.set(hb_task).is_ok(),
+                "Adapter::init should be called only once"
+            );
 
             // Send initial heartbeat when starting.
             self.emit_init_heartbeat().await.map_err(|e| match e {
@@ -379,6 +392,13 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
+        if let Some(hb_task) = self.hb_task.get() {
+            hb_task.abort();
+        }
+        if let Some(ev_stream_task) = self.ev_stream_task.get() {
+            ev_stream_task.abort();
+        }
+
         self.driver.close().await.map_err(Error::Driver)
     }
 
@@ -469,10 +489,15 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
 
         let table_name = self.config.table_name.clone();
         let driver = self.driver.clone();
+
+        // Resolve attachment payloads concurrently while preserving the order the notifications
+        // arrived in the channel. `buffered` keeps wire order, which is required so that each
+        // server's `BroadcastAckCount` is observed before its individual acks.
+        let concurrency = std::cmp::max(self.config.ack_response_buffer, 1);
         let remote: BoxStream<'static, Box<RawValue>> = ChanStream::new(rx)
-            .filter_map(move |payload| {
-                resolve_resp_payload(payload, driver.clone(), table_name.clone())
-            })
+            .map(move |payload| resolve_resp_payload(payload, driver.clone(), table_name.clone()))
+            .buffered(concurrency)
+            .filter_map(future::ready)
             .boxed();
 
         Ok(AckStream::new(
@@ -930,8 +955,11 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         self.responses.lock().unwrap().insert(req_id, tx);
         let stream = ChanStream::new(rx);
 
+        // Overlap attachment fetches across servers while preserving arrival order so that
+        // `take(remote_serv_cnt)` still closes the stream after exactly one response per server.
+        let concurrency = std::cmp::max(remote_serv_cnt, 1);
         let stream = stream
-            .filter_map(async move |payload| match payload {
+            .map(async move |payload| match payload {
                 ResponsePayload::Data(data) => serde_json::from_str::<Response<T>>(data.get())
                     .inspect_err(|err| tracing::warn!("error decoding response: {err}"))
                     .ok(),
@@ -942,6 +970,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                         .ok()
                 }
             })
+            .buffered(concurrency)
+            .filter_map(future::ready)
             .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
             .take(remote_serv_cnt)
             .take_until(tokio::time::sleep(self.config.request_timeout));
@@ -1033,7 +1063,7 @@ async fn resolve_resp_payload<D: Driver>(
 async fn resolve_attachment<T: DeserializeOwned, D: Driver>(
     driver: &D,
     table_name: &str,
-    id: i32,
+    id: i64,
 ) -> Result<T, Error<D>> {
     let bytes = driver
         .get_attachment(table_name, id)
@@ -1050,7 +1080,7 @@ async fn resolve_attachment<T: DeserializeOwned, D: Driver>(
 #[derive(Debug, Serialize, Deserialize)]
 enum RequestPacket<T> {
     Request { node_id: Uid, payload: T },
-    RequestWithAttachment { node_id: Uid, id: i32 },
+    RequestWithAttachment { node_id: Uid, id: i64 },
 }
 impl<T> RequestPacket<T> {
     fn is_loopback(&self, node_id: Uid) -> bool {
@@ -1075,5 +1105,5 @@ impl ResponsePacket {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum ResponsePayload {
     Data(Box<RawValue>),
-    Attachment(i32),
+    Attachment(i64),
 }

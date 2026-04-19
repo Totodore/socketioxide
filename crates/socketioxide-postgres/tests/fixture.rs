@@ -14,7 +14,7 @@ use std::{
     convert::Infallible,
     pin::Pin,
     str::FromStr,
-    sync::{Arc, RwLock, atomic::AtomicI32},
+    sync::{Arc, RwLock, atomic::AtomicI64},
     task,
     time::Duration,
 };
@@ -132,8 +132,8 @@ pub struct StubDriver {
     tx: mpsc::Sender<StubNotification>,
     /// Handlers for incoming notifications per listened channel.
     handlers: Arc<RwLock<Handlers>>,
-    attachments: Arc<RwLock<HashMap<i32, Vec<u8>>>>,
-    attachment_idx: Arc<AtomicI32>,
+    attachments: Arc<RwLock<HashMap<i64, Vec<u8>>>>,
+    attachment_idx: Arc<AtomicI64>,
 }
 
 impl StubDriver {
@@ -155,7 +155,7 @@ impl StubDriver {
             tx,
             handlers,
             attachments: Arc::new(RwLock::new(HashMap::new())),
-            attachment_idx: Arc::new(AtomicI32::new(0)),
+            attachment_idx: Arc::new(AtomicI64::new(0)),
         };
         (driver, rx, tx1)
     }
@@ -234,7 +234,7 @@ impl Driver for StubDriver {
         Ok(())
     }
 
-    async fn push_attachment(&self, _table: &str, attachment: &[u8]) -> Result<i32, Self::Error> {
+    async fn push_attachment(&self, _table: &str, attachment: &[u8]) -> Result<i64, Self::Error> {
         let id = self
             .attachment_idx
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -247,7 +247,7 @@ impl Driver for StubDriver {
         Ok(id)
     }
 
-    async fn get_attachment(&self, _table: &str, id: i32) -> Result<Vec<u8>, Self::Error> {
+    async fn get_attachment(&self, _table: &str, id: i64) -> Result<Vec<u8>, Self::Error> {
         Ok(self
             .attachments
             .read()
