@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use socketioxide::{adapter::Adapter, extract::SocketRef};
+use tracing_subscriber::EnvFilter;
 mod fixture;
 
 #[tokio::test]
@@ -107,6 +108,9 @@ pub async fn broadcast_with_ack() {
 
 #[tokio::test]
 pub async fn broadcast_with_ack_timeout() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
     use futures_util::StreamExt;
     const REQ_TIMEOUT: Duration = Duration::from_millis(50);
     const ACK_TIMEOUT: Duration = Duration::from_millis(50);

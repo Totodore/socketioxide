@@ -94,26 +94,34 @@ pub struct PostgresAdapterConfig {
     /// The heartbeat timeout duration. If a remote node does not respond within this duration,
     /// it will be considered disconnected. Default is 60 seconds.
     pub hb_timeout: Duration,
+
     /// The heartbeat interval duration. The current node will broadcast a heartbeat to the
     /// remote nodes at this interval. Default is 10 seconds.
     pub hb_interval: Duration,
+
     /// The request timeout. When expecting a response from remote nodes, if they do not respond within
     /// this duration, the request will be considered failed. Default is 5 seconds.
     pub request_timeout: Duration,
+
     /// The channel size used to receive ack responses. Default is 255.
     ///
     /// If you have a lot of servers/sockets and that you may miss acknowledgement because they arrive faster
     /// than you poll them with the returned stream, you might want to increase this value.
     pub ack_response_buffer: usize,
+
     /// The table name used to store socket.io attachments. Default is "socket_io_attachments".
     ///
     /// > The table name must be a sanitized string. Do not use special characters or spaces.
     pub table_name: Cow<'static, str>,
+
     /// The prefix used for the channels. Default is "socket.io".
     pub prefix: Cow<'static, str>,
-    /// The threshold to the payload size in bytes. It should match the configured value on your PostgreSQL instance:
+
+    /// The threshold from which the payload size in bytes is considered large and should be passed through the
+    /// attachment table. It should match the configured value on your PostgreSQL instance:
     /// <https://www.postgresql.org/docs/current/sql-notify.html>. By default it is 8KB (8000 bytes).
     pub payload_threshold: usize,
+
     /// The duration between cleanup queries on the attachment table.
     pub cleanup_interval: Duration,
 }
@@ -206,8 +214,8 @@ pub enum Error<D: Driver> {
     /// Packet encoding/decoding error
     #[error("packet decoding error: {0}")]
     Serde(#[from] serde_json::Error),
-    /// Response handler not found
-    #[error("response handler not found/closed for request: {req_id}")]
+    /// Response handler not found/full/closed for request
+    #[error("response handler not found/full/closed for request: {req_id}")]
     ResponseHandlerNotFound {
         /// The request this response is for
         req_id: Sid,
@@ -598,10 +606,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         pin_mut!(stream);
         while let Some(notif) = stream.next().await {
             let chan = notif.channel();
-            let resp_chan = self.get_response_chan(self.local.server_id());
-
-            let result = if chan == resp_chan {
-                self.handle_res_notif(notif).await
+            let result = if chan == self.get_response_chan(self.local.server_id()) {
+                self.handle_res_notif(notif)
             } else {
                 self.handle_req_notif(notif)
             };
@@ -614,7 +620,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
 
     /// Deserialize a response notification and trigger the corresponding handler.
     /// If the request handler queue is full, it will wait, slowing down the notification event pipeline.
-    async fn handle_res_notif(&self, notif: D::Notification) -> Result<(), Error<D>> {
+    fn handle_res_notif(&self, notif: D::Notification) -> Result<(), Error<D>> {
         match serde_json::from_str(notif.payload())? {
             p if p.is_loopback(self.local.server_id()) => {
                 tracing::trace!("skipping loopback packets")
@@ -630,8 +636,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                     .ok_or(Error::ResponseHandlerNotFound { req_id })?
                     .clone();
 
-                tx.send(payload)
-                    .await
+                tx.try_send(payload)
                     .map_err(|_| Error::ResponseHandlerNotFound { req_id })?;
             }
         };
@@ -927,21 +932,15 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
 
         let stream = stream
             .filter_map(async move |payload| match payload {
-                //TODO: response chan stream
                 ResponsePayload::Data(data) => serde_json::from_str::<Response<T>>(data.get())
                     .inspect_err(|err| tracing::warn!("error decoding response: {err}"))
                     .ok(),
-                ResponsePayload::Attachment(id) => self
-                    .driver
-                    .get_attachment(&self.config.table_name, id)
-                    .await
-                    .inspect_err(|err| tracing::warn!("error fetching attachment: {err}"))
-                    .ok()
-                    .and_then(|data| {
-                        serde_json::from_slice::<Response<T>>(&data)
-                            .inspect_err(|err| tracing::warn!("error decoding response: {err}"))
-                            .ok()
-                    }),
+                ResponsePayload::Attachment(id) => {
+                    resolve_attachment(&self.driver, &self.config.table_name, id)
+                        .await
+                        .inspect_err(|err| tracing::warn!("error fetching attachment: {err}"))
+                        .ok()
+                }
             })
             .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
             .take(remote_serv_cnt)

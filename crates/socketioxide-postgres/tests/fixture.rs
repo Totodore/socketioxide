@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 
 use futures_core::Stream;
-use socketioxide_core::Uid;
+use socketioxide_core::{
+    Uid,
+    adapter::remote_packet::{RequestOut, RequestTypeOut},
+};
 use socketioxide_postgres::{
     CustomPostgresAdapter, PostgresAdapterConfig, PostgresAdapterCtr,
     drivers::{Driver, Notification},
@@ -27,6 +30,20 @@ pub fn spawn_servers<const N: usize>() -> [SocketIo<CustomPostgresAdapter<Emitte
     spawn_inner(sync_buff, PostgresAdapterConfig::default())
 }
 
+/// Serialize a [`RequestOut`] in the same wire envelope the adapter emits for inline requests:
+/// `{"Request": {"node_id": <uid>, "payload": <request>}}`.
+///
+/// `node_id` is the emitter id used by the receiver's loopback filter — pass an id distinct
+/// from every real server spawned in the test, otherwise the packet will be dropped as a
+/// loopback.
+pub fn wrap_request(node_id: Uid, req: &RequestOut<'_>) -> String {
+    let payload = serde_json::to_value(req).unwrap();
+    serde_json::to_string(&serde_json::json!({
+        "Request": { "node_id": node_id, "payload": payload },
+    }))
+    .unwrap()
+}
+
 pub fn spawn_buggy_servers<const N: usize>(
     timeout: Duration,
 ) -> [SocketIo<CustomPostgresAdapter<Emitter, StubDriver>>; N] {
@@ -36,18 +53,9 @@ pub fn spawn_buggy_servers<const N: usize>(
 
     // Reinject a false heartbeat request to simulate a bad number of servers.
     // This will trigger timeouts when expecting responses from all servers.
-    // The heartbeat type is 20 (RequestTypeOut::Heartbeat) in the wire format.
     let uid: Uid = Uid::from_str("PHHq01ObWy7Godqx").unwrap();
-    let heartbeat_json = serde_json::json!({
-        "node_id": uid.to_string(),
-        "id": "ZG9K1r7xSLBiJYWD",
-        "type": 20,
-        "opts": null,
-    });
-    let payload = serde_json::to_string(&serde_json::json!({
-        "Request": heartbeat_json,
-    }))
-    .unwrap();
+    let heartbeat = RequestOut::new_empty(uid, RequestTypeOut::Heartbeat);
+    let payload = wrap_request(uid, &heartbeat);
 
     for (_, tx) in sync_buff.read().unwrap().iter() {
         let hash = xxhash_rust::xxh3::xxh3_64("socket.io#/".as_bytes());
