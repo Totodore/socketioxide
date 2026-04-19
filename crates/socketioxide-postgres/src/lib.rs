@@ -919,6 +919,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                 .await
                 .map_err(Error::Driver)?;
 
+            tracing::debug!("pushed attachment {id} for req {}", req.id);
+
             serde_json::to_string(&RequestPacket::<()>::RequestWithAttachment { node_id, id })?
         } else {
             let payload = RawValue::from_string(body)?;
@@ -1112,6 +1114,7 @@ async fn resolve_attachment<T: DeserializeOwned, D: Driver>(
         .get_attachment(table_name, id)
         .await
         .map_err(Error::Driver)?;
+    tracing::debug!("resolving attachment {id}");
     Ok(serde_json::from_slice(&bytes)?)
 }
 

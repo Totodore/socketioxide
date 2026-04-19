@@ -11,10 +11,13 @@ use socketioxide_postgres::{
 };
 use std::{
     collections::HashMap,
-    convert::Infallible,
+    collections::HashSet,
     pin::Pin,
     str::FromStr,
-    sync::{Arc, RwLock, atomic::AtomicI64},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicBool, AtomicI64},
+    },
     task,
     time::Duration,
 };
@@ -27,7 +30,29 @@ use socketioxide::{SocketIo, SocketIoConfig, adapter::Emitter};
 pub fn spawn_servers<const N: usize>() -> [SocketIo<CustomPostgresAdapter<Emitter, StubDriver>>; N]
 {
     let sync_buff = Arc::new(RwLock::new(Vec::with_capacity(N)));
-    spawn_inner(sync_buff, PostgresAdapterConfig::default())
+    let (ios, _handles) = spawn_inner(sync_buff, PostgresAdapterConfig::default());
+    ios
+}
+
+/// Spawns `N` servers with a custom [`PostgresAdapterConfig`].
+pub fn spawn_servers_with_config<const N: usize>(
+    config: PostgresAdapterConfig,
+) -> [SocketIo<CustomPostgresAdapter<Emitter, StubDriver>>; N] {
+    let sync_buff = Arc::new(RwLock::new(Vec::with_capacity(N)));
+    let (ios, _handles) = spawn_inner(sync_buff, config);
+    ios
+}
+
+/// Spawns `N` servers with a custom config AND returns handles to each stub driver so tests
+/// can assert on attachment-store state (how many rows pushed, which ids were fetched, etc.).
+pub fn spawn_servers_with_handles<const N: usize>(
+    config: PostgresAdapterConfig,
+) -> (
+    [SocketIo<CustomPostgresAdapter<Emitter, StubDriver>>; N],
+    [StubDriver; N],
+) {
+    let sync_buff = Arc::new(RwLock::new(Vec::with_capacity(N)));
+    spawn_inner(sync_buff, config)
 }
 
 /// Serialize a [`RequestOut`] in the same wire envelope the adapter emits for inline requests:
@@ -49,7 +74,7 @@ pub fn spawn_buggy_servers<const N: usize>(
 ) -> [SocketIo<CustomPostgresAdapter<Emitter, StubDriver>>; N] {
     let sync_buff = Arc::new(RwLock::new(Vec::with_capacity(N)));
     let config = PostgresAdapterConfig::default().with_request_timeout(timeout);
-    let res = spawn_inner(sync_buff.clone(), config);
+    let (res, _handles) = spawn_inner(sync_buff.clone(), config);
 
     // Reinject a false heartbeat request to simulate a bad number of servers.
     // This will trigger timeouts when expecting responses from all servers.
@@ -74,35 +99,44 @@ pub fn spawn_buggy_servers<const N: usize>(
 fn spawn_inner<const N: usize>(
     sync_buff: Arc<RwLock<NotifyHandlers>>,
     config: PostgresAdapterConfig,
-) -> [SocketIo<CustomPostgresAdapter<Emitter, StubDriver>>; N] {
-    [0; N].map(|_| {
-        let server_id = Uid::new();
-        let (driver, mut rx, tx) = StubDriver::new(server_id);
+) -> (
+    [SocketIo<CustomPostgresAdapter<Emitter, StubDriver>>; N],
+    [StubDriver; N],
+) {
+    let attachments = Arc::new(RwLock::new(RemoteTable::default()));
+    let (ios, handles) = [0; N]
+        .map(|_| {
+            let server_id = Uid::new();
+            let (driver, mut rx, tx) = StubDriver::new(server_id, attachments.clone());
 
-        // pipe messages to all other servers
-        sync_buff.write().unwrap().push((server_id, tx));
-        let sync_buff = sync_buff.clone();
-        tokio::spawn(async move {
-            while let Some(notif) = rx.recv().await {
-                tracing::debug!("received notify on channel {:?}", notif.channel);
-                for (sid, tx) in sync_buff.read().unwrap().iter() {
-                    if *sid != server_id {
-                        tracing::debug!("forwarding notify to server {:?}", sid);
-                        tx.try_send(notif.clone()).unwrap();
+            // pipe messages to all other servers
+            sync_buff.write().unwrap().push((server_id, tx));
+            let sync_buff = sync_buff.clone();
+            tokio::spawn(async move {
+                while let Some(notif) = rx.recv().await {
+                    tracing::debug!("received notify on channel {:?}", notif.channel);
+                    for (sid, tx) in sync_buff.read().unwrap().iter() {
+                        if *sid != server_id {
+                            tracing::debug!("forwarding notify to server {:?}", sid);
+                            tx.try_send(notif.clone()).unwrap();
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        let adapter = PostgresAdapterCtr::new_with_driver(driver, config.clone());
-        let mut config = SocketIoConfig::default();
-        config.server_id = server_id;
-        let (_svc, io) = SocketIo::builder()
-            .with_config(config)
-            .with_adapter::<CustomPostgresAdapter<_, _>>(adapter)
-            .build_svc();
-        io
-    })
+            let adapter = PostgresAdapterCtr::new_with_driver(driver.clone(), config.clone());
+            let mut config = SocketIoConfig::default();
+            config.server_id = server_id;
+            let (_svc, io) = SocketIo::builder()
+                .with_config(config)
+                .with_adapter::<CustomPostgresAdapter<_, _>>(adapter)
+                .build_svc();
+            (io, driver)
+        })
+        .into_iter()
+        .collect::<(Vec<_>, Vec<_>)>();
+
+    (ios.try_into().unwrap(), handles.try_into().unwrap())
 }
 
 type NotifyHandlers = Vec<(Uid, mpsc::Sender<StubNotification>)>;
@@ -125,6 +159,12 @@ impl Notification for StubNotification {
 
 type Handlers = Vec<(String, mpsc::Sender<StubNotification>)>;
 
+#[derive(Debug, Default)]
+pub struct RemoteTable {
+    table: HashMap<i64, Vec<u8>>,
+    idx: AtomicI64,
+}
+
 #[derive(Debug, Clone)]
 pub struct StubDriver {
     server_id: Uid,
@@ -132,13 +172,26 @@ pub struct StubDriver {
     tx: mpsc::Sender<StubNotification>,
     /// Handlers for incoming notifications per listened channel.
     handlers: Arc<RwLock<Handlers>>,
-    attachments: Arc<RwLock<HashMap<i64, Vec<u8>>>>,
-    attachment_idx: Arc<AtomicI64>,
+    attachments: Arc<RwLock<RemoteTable>>,
+    /// Ids passed to `get_attachment`, in call order. Used by tests to assert on fetch
+    /// activity (e.g. that a loopback large NOTIFY does not trigger a fetch).
+    fetched_ids: Arc<RwLock<Vec<i64>>>,
+    /// Ids that, when fetched, return garbage bytes — triggers decode failure in the adapter.
+    corrupt_ids: Arc<RwLock<HashSet<i64>>>,
+    /// One-shot flag: if true, the next `get_attachment` returns a driver error.
+    fail_next_get: Arc<AtomicBool>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StubError {
+    #[error("injected stub driver failure")]
+    Injected,
 }
 
 impl StubDriver {
     pub fn new(
         server_id: Uid,
+        attachments: Arc<RwLock<RemoteTable>>,
     ) -> (
         Self,
         mpsc::Receiver<StubNotification>,
@@ -154,10 +207,36 @@ impl StubDriver {
             server_id,
             tx,
             handlers,
-            attachments: Arc::new(RwLock::new(HashMap::new())),
-            attachment_idx: Arc::new(AtomicI64::new(0)),
+            attachments,
+            fetched_ids: Arc::new(RwLock::new(Vec::new())),
+            corrupt_ids: Arc::new(RwLock::new(HashSet::new())),
+            fail_next_get: Arc::new(AtomicBool::new(false)),
         };
         (driver, rx, tx1)
+    }
+
+    /// Number of attachment rows this server has written (i.e. sent via NOTIFY).
+    pub fn push_count(&self) -> usize {
+        self.attachments.read().unwrap().table.len()
+    }
+    /// Number of `get_attachment` calls this server has served.
+    pub fn fetch_count(&self) -> usize {
+        self.fetched_ids.read().unwrap().len()
+    }
+    /// All ids `get_attachment` was called with, in call order.
+    pub fn fetched(&self) -> Vec<i64> {
+        self.fetched_ids.read().unwrap().clone()
+    }
+    /// Mark an id as corrupt: next `get_attachment(id)` returns a garbage payload so the
+    /// decoder fails. Exercises the silent-drop path.
+    pub fn corrupt(&self, id: i64) {
+        self.corrupt_ids.write().unwrap().insert(id);
+    }
+    /// One-shot: the next `get_attachment` call returns a driver error (triggers the
+    /// attachment-resolution-failure path).
+    pub fn fail_once(&self) {
+        self.fail_next_get
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -192,7 +271,7 @@ impl Stream for NotificationStream {
 }
 
 impl Driver for StubDriver {
-    type Error = Infallible;
+    type Error = StubError;
     type Notification = StubNotification;
     type NotificationStream = NotificationStream;
 
@@ -236,22 +315,37 @@ impl Driver for StubDriver {
 
     async fn push_attachment(&self, _table: &str, attachment: &[u8]) -> Result<i64, Self::Error> {
         let id = self
-            .attachment_idx
+            .attachments
+            .read()
+            .unwrap()
+            .idx
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         self.attachments
             .write()
             .unwrap()
+            .table
             .insert(id, attachment.to_vec());
 
         Ok(id)
     }
 
     async fn get_attachment(&self, _table: &str, id: i64) -> Result<Vec<u8>, Self::Error> {
+        self.fetched_ids.write().unwrap().push(id);
+        if self
+            .fail_next_get
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(StubError::Injected);
+        }
+        if self.corrupt_ids.read().unwrap().contains(&id) {
+            return Ok(b"not a valid request".to_vec());
+        }
         Ok(self
             .attachments
             .read()
             .unwrap()
+            .table
             .get(&id)
             .cloned()
             .unwrap_or_default())
