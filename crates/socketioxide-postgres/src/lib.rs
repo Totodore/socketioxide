@@ -124,6 +124,18 @@ pub struct PostgresAdapterConfig {
 
     /// The duration between cleanup queries on the attachment table.
     pub cleanup_interval: Duration,
+
+    /// The maximum number of concurrent attachment fetches in-flight on the notification
+    /// event pipeline. Default is 64.
+    ///
+    /// Incoming NOTIFY messages are processed through `.map().buffered(n).for_each()` so that
+    /// [`recv_req`](CustomPostgresAdapter) is always called in wire order, while attachment DB
+    /// round-trips overlap up to this bound. Raising it improves throughput under bursts of
+    /// large payloads at the cost of more in-flight memory; lowering it tightens back-pressure
+    /// on the LISTEN/NOTIFY pipeline. Because `buffered` preserves input order, a single slow
+    /// attachment stalls every subsequent request until it resolves — so keep this comfortably
+    /// above the typical burst size.
+    pub ev_buffer_size: usize,
 }
 
 impl PostgresAdapterConfig {
@@ -188,6 +200,13 @@ impl PostgresAdapterConfig {
         self.cleanup_interval = cleanup_interval;
         self
     }
+
+    /// The maximum number of concurrent attachment fetches in-flight on the notification
+    /// event pipeline. Default is 64. See [`PostgresAdapterConfig::ev_buffer_size`] for tradeoffs.
+    pub fn with_ev_buffer_size(mut self, ev_buffer_size: usize) -> Self {
+        self.ev_buffer_size = ev_buffer_size;
+        self
+    }
 }
 
 impl Default for PostgresAdapterConfig {
@@ -201,6 +220,7 @@ impl Default for PostgresAdapterConfig {
             prefix: "socket.io".into(),
             payload_threshold: 8_000,
             cleanup_interval: Duration::from_secs(60),
+            ev_buffer_size: 64,
         }
     }
 }
@@ -627,24 +647,51 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         }
     }
 
+    /// Drive the notification stream.
+    ///
+    /// Because `buffered` preserves input order, [`recv_req`](Self::recv_req) is always called
+    /// in the order notifications were received on the NOTIFY channel — which is the same order
+    /// the producing node issued them. This matters for causal sequences from a single producer,
+    /// e.g. `AddSockets(room)` followed by `Broadcast(room)`: without ordering, a deferred
+    /// attachment fetch for the first request could be overtaken by an inline second request,
+    /// making the broadcast miss its target.
+    ///
+    /// The tradeoff of global ordering is head-of-line blocking: a single slow attachment
+    /// fetch delays every subsequent request on this namespace, including requests from
+    /// unrelated producer nodes.
+    ///
+    /// Response notifications (`handle_res_notif`) are handled synchronously inside the `map`
+    /// closure and produce `None` so they do not participate in the buffered pipeline.
     async fn handle_ev_stream(self: Arc<Self>, stream: impl Stream<Item = D::Notification>) {
+        let concurrency = std::cmp::max(self.config.ev_buffer_size, 1);
+        let response_chan: Arc<str> = Arc::from(self.get_response_chan(self.local.server_id()));
         pin_mut!(stream);
-        while let Some(notif) = stream.next().await {
-            let chan = notif.channel();
-            let result = if chan == self.get_response_chan(self.local.server_id()) {
-                self.handle_res_notif(notif)
-            } else {
-                self.handle_req_notif(notif)
-            };
+        stream
+            .map(|notif| {
+                let this = self.clone();
+                let response_chan = response_chan.clone();
+                async move {
+                    let result = if notif.channel() == &*response_chan {
+                        this.handle_res_notif(notif).map(|_| None)
+                    } else {
+                        this.resolve_req_notif(notif).await
+                    };
 
-            if let Err(err) = result {
-                tracing::warn!(%err, "Error handling notification, skipping it");
-            }
-        }
+                    result
+                        .inspect_err(|err| tracing::warn!(%err, "error handling notification"))
+                        .ok()
+                        .flatten()
+                }
+            })
+            .buffered(concurrency)
+            .filter_map(future::ready)
+            .for_each(async |req| self.recv_req(req))
+            .await;
     }
 
-    /// Deserialize a response notification and trigger the corresponding handler.
-    /// If the request handler queue is full, it will wait, slowing down the notification event pipeline.
+    /// Deserialize a response notification and forward it to the waiting ack-stream handler.
+    /// Synchronous: no DB round-trip, attachment resolution happens on the consumer side
+    /// (see `get_res`/`broadcast_with_ack`).
     fn handle_res_notif(&self, notif: D::Notification) -> Result<(), Error<D>> {
         match serde_json::from_str(notif.payload())? {
             p if p.is_loopback(self.local.server_id()) => {
@@ -669,31 +716,27 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         Ok(())
     }
 
-    /// Deserialize a request notification and propagate it. In case of attachment,
-    /// the resolution is done asynchronously.
-    fn handle_req_notif(self: &Arc<Self>, notif: D::Notification) -> Result<(), Error<D>> {
-        match serde_json::from_str::<RequestPacket<&RawValue>>(notif.payload())? {
-            p if p.is_loopback(self.local.server_id()) => {
-                tracing::trace!("skipping loopback packets");
-            }
+    /// Parse a request notification into a [`RequestIn`]. Inline requests are decoded
+    /// directly; attachment-deferred requests are fetched from the attachment table. Returns
+    /// `None` for loopback packets or any recoverable error (decode, DB) — errors are logged
+    /// and the packet is skipped so a single bad notification cannot derail the pipeline.
+    async fn resolve_req_notif(
+        self: &Arc<Self>,
+        notif: D::Notification,
+    ) -> Result<Option<RequestIn>, Error<D>> {
+        let packet = serde_json::from_str::<RequestPacket<&RawValue>>(notif.payload())?;
+        if packet.is_loopback(self.local.server_id()) {
+            tracing::trace!("skipping loopback packets");
+            return Ok(None);
+        }
+        match packet {
             RequestPacket::Request { payload, .. } => {
-                let request = serde_json::from_str::<RequestIn>(payload.get())?;
-                self.recv_req(request)
+                Ok(Some(serde_json::from_str::<RequestIn>(payload.get())?))
             }
-            RequestPacket::RequestWithAttachment { id, .. } => {
-                let this = self.clone();
-                tokio::spawn(async move {
-                    resolve_attachment(&this.driver, &this.config.table_name, id)
-                        .await
-                        .map(|req| this.recv_req(req))
-                        .inspect_err(
-                            |err| tracing::warn!(%err, "failed to handle request with attachment"),
-                        )
-                        .ok();
-                });
-            }
-        };
-        Ok(())
+            RequestPacket::RequestWithAttachment { id, .. } => Ok(Some(
+                resolve_attachment(&self.driver, &self.config.table_name, id).await?,
+            )),
+        }
     }
 
     fn recv_req(self: &Arc<Self>, req: RequestIn) {
