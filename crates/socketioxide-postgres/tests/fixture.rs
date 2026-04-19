@@ -10,8 +10,7 @@ use socketioxide_postgres::{
     drivers::{Driver, Notification},
 };
 use std::{
-    collections::HashMap,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     pin::Pin,
     str::FromStr,
     sync::{
@@ -19,7 +18,7 @@ use std::{
         atomic::{AtomicBool, AtomicI64},
     },
     task,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
 
@@ -161,8 +160,23 @@ type Handlers = Vec<(String, mpsc::Sender<StubNotification>)>;
 
 #[derive(Debug, Default)]
 pub struct RemoteTable {
-    table: HashMap<i64, Vec<u8>>,
+    table: HashMap<i64, Row>,
     idx: AtomicI64,
+}
+#[derive(Debug, Clone)]
+pub struct Row {
+    id: i64,
+    data: Vec<u8>,
+    created_at: Instant,
+}
+impl Row {
+    fn new(id: i64, data: Vec<u8>) -> Self {
+        Self {
+            id,
+            data,
+            created_at: Instant::now(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -325,7 +339,7 @@ impl Driver for StubDriver {
             .write()
             .unwrap()
             .table
-            .insert(id, attachment.to_vec());
+            .insert(id, Row::new(id, attachment.to_vec()));
 
         Ok(id)
     }
@@ -348,7 +362,22 @@ impl Driver for StubDriver {
             .table
             .get(&id)
             .cloned()
+            .map(|v| v.data)
             .unwrap_or_default())
+    }
+
+    async fn cleanup_attachments(
+        &self,
+        _table: &str,
+        interval: Duration,
+    ) -> Result<(), Self::Error> {
+        self.attachments
+            .write()
+            .unwrap()
+            .table
+            .retain(|_, v| v.created_at.elapsed() < interval);
+
+        Ok(())
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

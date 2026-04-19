@@ -357,9 +357,10 @@ pub struct CustomPostgresAdapter<E, D: Driver> {
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
     /// A map of response handlers used to await for responses from the remote servers.
     responses: Arc<Mutex<ResponseHandlers>>,
-    /// A task that listens for events from the remote servers.
+
     ev_stream_task: OnceLock<AbortHandle>,
     hb_task: OnceLock<AbortHandle>,
+    cleanup_task: OnceLock<AbortHandle>,
 }
 
 impl<E, D: Driver> DefinedAdapter for CustomPostgresAdapter<E, D> {}
@@ -378,6 +379,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             responses: Arc::new(Mutex::new(HashMap::new())),
             ev_stream_task: OnceLock::new(),
             hb_task: OnceLock::new(),
+            cleanup_task: OnceLock::new(),
         }
     }
 
@@ -404,6 +406,11 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             let hb_task = tokio::spawn(self.clone().heartbeat_job()).abort_handle();
             assert!(
                 self.hb_task.set(hb_task).is_ok(),
+                "Adapter::init should be called only once"
+            );
+            let cleanup_task = tokio::spawn(self.clone().cleanup_job()).abort_handle();
+            assert!(
+                self.cleanup_task.set(cleanup_task).is_ok(),
                 "Adapter::init should be called only once"
             );
 
@@ -652,6 +659,22 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         loop {
             interval.tick().await;
             self.emit_heartbeat(None).await?;
+        }
+    }
+
+    async fn cleanup_job(self: Arc<Self>) {
+        let mut interval = tokio::time::interval(self.config.cleanup_interval);
+        interval.tick().await; // first tick yields immediately
+
+        loop {
+            interval.tick().await;
+            if let Err(err) = self
+                .driver
+                .cleanup_attachments(&self.config.table_name, self.config.cleanup_interval)
+                .await
+            {
+                tracing::warn!(%err, "failed to cleanup attachment table");
+            }
         }
     }
 

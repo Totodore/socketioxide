@@ -1,6 +1,8 @@
 //! Drivers are an abstraction over the PostgreSQL LISTEN/NOTIFY backend used by the adapter.
 //! You can use the provided implementation or implement your own.
 
+use std::time::Duration;
+
 use futures_core::Stream;
 
 /// A driver implementation for the [`sqlx`](https://docs.rs/sqlx) PostgreSQL backend.
@@ -52,6 +54,13 @@ pub trait Driver: Clone + Send + Sync + 'static {
         table: &str,
         id: i64,
     ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
+
+    /// Cleanup attachments older than a certain timestamp.
+    fn cleanup_attachments(
+        &self,
+        table: &str,
+        interval: Duration,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// UNLISTEN from every channel.
     fn close(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;

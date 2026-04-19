@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures_core::stream::BoxStream;
 use futures_util::StreamExt;
 use sqlx::{
@@ -87,6 +89,26 @@ impl Driver for SqlxDriver {
             .await?;
 
         Ok(attachment)
+    }
+
+    async fn cleanup_attachments(
+        &self,
+        table: &str,
+        interval: Duration,
+    ) -> Result<(), Self::Error> {
+        let query = format!(
+            "DELETE FROM \"{table}\" WHERE created_at < now() - interval '{} milliseconds'",
+            interval.as_millis()
+        );
+
+        let affected = sqlx::query(&query)
+            .execute(&self.client)
+            .await?
+            .rows_affected();
+
+        tracing::debug!(affected, "pruned attachments");
+
+        Ok(())
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

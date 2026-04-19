@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use futures_util::{StreamExt, sink, stream};
 use tokio::sync::mpsc;
@@ -133,6 +136,22 @@ impl Driver for TokioPostgresDriver {
     async fn get_attachment(&self, table: &str, id: i64) -> Result<Vec<u8>, Self::Error> {
         let query = format!("SELECT payload FROM \"{table}\" WHERE id = $1");
         self.client.query_one_scalar(&query, &[&id]).await
+    }
+
+    async fn cleanup_attachments(
+        &self,
+        table: &str,
+        interval: Duration,
+    ) -> Result<(), Self::Error> {
+        let query = format!(
+            "DELETE FROM \"{table}\" WHERE created_at < now() - interval '{} milliseconds'",
+            interval.as_millis()
+        );
+
+        let affected = self.client.execute(&query, &[]).await?;
+        tracing::debug!(affected, "pruned attachments");
+
+        Ok(())
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
