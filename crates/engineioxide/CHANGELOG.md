@@ -1,3 +1,7 @@
+# engineioxide 0.17.3
+* fix: issue [#719](https://github.com/Totodore/socketioxide/issues/719). Because of an unpinned dependency on `tokio-util`
+building engineioxide would fail with `tokio-util < 0.7.14`.
+
 # engineioxide 0.17.2
 * fix: `Noop` packet was emitted only one time during the upgrade mechanism, leading to an infinite upgrade loop when the client sent multiple http polling requests.
 * fix: the socket closing process was incorrect in some edge cases, leading to leaky sockets. This fix ensures that sockets are properly closed and resources are released.
