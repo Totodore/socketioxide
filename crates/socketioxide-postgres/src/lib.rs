@@ -433,6 +433,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         if let Some(ev_stream_task) = self.ev_stream_task.get() {
             ev_stream_task.abort();
         }
+        if let Some(cleanup_task) = self.cleanup_task.get() {
+            cleanup_task.abort();
+        }
 
         self.driver.close().await.map_err(Error::Driver)
     }
@@ -948,7 +951,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             serde_json::to_vec(&req)?
         };
 
-        let payload = if body.len() > self.config.payload_threshold || is_binary {
+        let payload = if body.len() >= self.config.payload_threshold || is_binary {
             let id = self
                 .driver
                 .push_attachment(&self.config.table_name, &body)
@@ -1005,7 +1008,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                 serde_json::to_vec(&res)?
             };
 
-            let payload = if body.len() > threshold || is_binary {
+            let payload = if body.len() >= threshold || is_binary {
                 let id = driver
                     .push_attachment(&table, &body)
                     .await
