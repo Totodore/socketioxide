@@ -1,9 +1,10 @@
-use fred::types::RespVersion;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use socketioxide::SocketIo;
-use socketioxide_redis::drivers::fred::fred_client as fred;
-use socketioxide_redis::{RedisAdapterConfig, RedisAdapterCtr};
+
+use socketioxide_postgres::{
+    PostgresAdapterConfig, PostgresAdapterCtr, SqlxAdapter, drivers::sqlx::sqlx_client::PgPool,
+};
 use tokio::net::TcpListener;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
@@ -15,37 +16,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(Level::TRACE)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
-    let server_config = fred::prelude::ServerConfig::new_clustered(vec![
-        ("127.0.0.1", 7000),
-        ("127.0.0.1", 7001),
-        ("127.0.0.1", 7002),
-        ("127.0.0.1", 7003),
-        ("127.0.0.1", 7004),
-        ("127.0.0.1", 7005),
-    ]);
-    let config = fred::prelude::Config {
-        server: server_config,
-        version: RespVersion::RESP3,
-        ..Default::default()
-    };
-    let client = fred::prelude::Builder::from_config(config).build_subscriber_client()?;
     let variant = std::env::args().next().unwrap();
     let variant = variant.split("/").last().unwrap();
-    let config = RedisAdapterConfig::new().with_prefix(format!("socket.io-{variant}"));
-    let adapter = RedisAdapterCtr::new_with_fred_config(client, config).await?;
 
+    let config = PostgresAdapterConfig::new().with_prefix(format!("socket.io-{variant}"));
+
+    let pg_pool = PgPool::connect("postgres://socketio:socketio@localhost:5432/socketio").await?;
+    let adapter = PostgresAdapterCtr::new_with_sqlx_config(pg_pool, config);
     let (svc, io) = SocketIo::builder()
-        .with_adapter::<socketioxide_redis::FredAdapter<_>>(adapter)
-        .with_parser(socketioxide::ParserConfig::msgpack())
+        .with_adapter::<SqlxAdapter<_>>(adapter)
         .build_svc();
 
-    io.ns("/", adapter_e2e::handler).await.unwrap();
+    io.ns("/", adapter_e2e::handler).await?;
 
     info!("Starting server with v5 protocol");
     let port: u16 = std::env::var("PORT")
         .expect("a PORT env var should be set")
-        .parse()
-        .unwrap();
+        .parse()?;
 
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
 

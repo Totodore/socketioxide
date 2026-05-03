@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2024"
-rust-version = "1.86.0"
+rust-version = "1.88.0"
 authors = ["Théodore Prévot <"]
 repository = "https://github.com/totodore/socketioxide"
 homepage = "https://github.com/totodore/socketioxide"

@@ -22,4 +22,8 @@ socketioxide-redis = { path = "../crates/socketioxide-redis", features = [
     "fred",
 ] }
 socketioxide-mongodb = { path = "../crates/socketioxide-mongodb" }
+socketioxide-postgres = { path = "../crates/socketioxide-postgres", features = [
+    "sqlx",
+    "tokio-postgres",
+] }
 serde_json = "1"
