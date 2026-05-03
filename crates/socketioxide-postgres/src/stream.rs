@@ -9,7 +9,7 @@ use std::{
 use futures_core::{FusedStream, Stream, stream::BoxStream};
 use futures_util::{StreamExt, stream::TakeUntil};
 use pin_project_lite::pin_project;
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::value::RawValue;
 use socketioxide_core::{
     Sid,
@@ -21,6 +21,26 @@ use socketioxide_core::{
 use tokio::{sync::mpsc, time};
 
 use crate::{ResponseHandlers, drivers::Notification};
+
+/// A resolved ack-response payload carrying either a JSON `RawValue` (inline data or a
+/// JSON-encoded attachment) or raw msgpack bytes (a binary attachment). The format
+/// has to travel with the payload because the eventual `Response<E>` is decoded
+/// downstream in [`AckStream::poll_remote`], where the right serde codec is selected.
+pub enum AckPayload {
+    Json(Box<RawValue>),
+    MsgPack(Vec<u8>),
+}
+
+impl AckPayload {
+    fn deserialize<'de, T: Deserialize<'de>>(&'de self) -> Result<T, Box<dyn std::error::Error>> {
+        let v = match &self {
+            AckPayload::Json(rv) => serde_json::from_str::<T>(rv.get())?,
+            AckPayload::MsgPack(bytes) => rmp_serde::from_slice::<T>(bytes)?,
+        };
+
+        Ok(v)
+    }
+}
 
 pin_project! {
     /// A stream of acknowledgement messages received from the local and remote servers.
@@ -36,7 +56,7 @@ pin_project! {
         #[pin]
         local: S,
         #[pin]
-        remote: DropStream<TakeUntil<BoxStream<'static, Box<RawValue>>, time::Sleep>>,
+        remote: DropStream<TakeUntil<BoxStream<'static, AckPayload>, time::Sleep>>,
         ack_cnt: u32,
         total_ack_cnt: usize,
         serv_cnt: u16,
@@ -49,7 +69,7 @@ impl<S> AckStream<S> {
     /// cancels any still-pending fetch.
     pub(crate) fn new(
         local: S,
-        remote: BoxStream<'static, Box<RawValue>>,
+        remote: BoxStream<'static, AckPayload>,
         timeout: Duration,
         serv_cnt: u16,
         req_sid: Sid,
@@ -68,7 +88,7 @@ impl<S> AckStream<S> {
 
     pub(crate) fn new_local(local: S) -> Self {
         let handlers = Arc::new(Mutex::new(ResponseHandlers::new()));
-        let empty: BoxStream<'static, Box<RawValue>> = futures_util::stream::empty().boxed();
+        let empty: BoxStream<'static, AckPayload> = futures_util::stream::empty().boxed();
         let remote = empty.take_until(time::sleep(Duration::ZERO));
         let remote = DropStream::new(remote, handlers, Sid::ZERO);
         Self {
@@ -101,34 +121,31 @@ where
             match projection.remote.as_mut().poll_next(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Ready(Some(notif)) => {
-                    let res = serde_json::from_str::<Response<E>>(notif.get());
-                    match res {
-                        Ok(Response {
-                            node_id: uid,
-                            r#type: ResponseType::BroadcastAckCount(count),
-                        }) if *projection.serv_cnt > 0 => {
-                            tracing::trace!(?uid, "receiving broadcast ack count {count}");
-                            *projection.ack_cnt += count;
-                            *projection.total_ack_cnt += count as usize;
-                            *projection.serv_cnt -= 1;
-                        }
-                        Ok(Response {
-                            node_id: uid,
-                            r#type: ResponseType::BroadcastAck((sid, res)),
-                        }) if *projection.ack_cnt > 0 => {
-                            tracing::trace!(?uid, "receiving broadcast ack {sid} {:?}", res);
-                            *projection.ack_cnt -= 1;
-                            return Poll::Ready(Some((sid, res)));
-                        }
-                        Ok(Response { node_id: uid, .. }) => {
-                            tracing::warn!(?uid, "unexpected response type");
-                        }
-                        Err(e) => {
-                            tracing::warn!("error decoding ack response: {e}");
-                        }
+                Poll::Ready(Some(notif)) => match notif.deserialize() {
+                    Ok(Response {
+                        node_id: uid,
+                        r#type: ResponseType::BroadcastAckCount(count),
+                    }) if *projection.serv_cnt > 0 => {
+                        tracing::trace!(?uid, "receiving broadcast ack count {count}");
+                        *projection.ack_cnt += count;
+                        *projection.total_ack_cnt += count as usize;
+                        *projection.serv_cnt -= 1;
                     }
-                }
+                    Ok(Response {
+                        node_id: uid,
+                        r#type: ResponseType::BroadcastAck((sid, res)),
+                    }) if *projection.ack_cnt > 0 => {
+                        tracing::trace!(?uid, "receiving broadcast ack {sid} {:?}", res);
+                        *projection.ack_cnt -= 1;
+                        return Poll::Ready(Some((sid, res)));
+                    }
+                    Ok(Response { node_id: uid, .. }) => {
+                        tracing::warn!(?uid, "unexpected response type");
+                    }
+                    Err(e) => {
+                        tracing::warn!("error decoding ack response: {e}");
+                    }
+                },
             }
         }
     }

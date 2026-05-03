@@ -82,7 +82,7 @@ use tokio::{sync::mpsc, task::AbortHandle};
 
 use crate::{
     drivers::Notification,
-    stream::{AckStream, ChanStream},
+    stream::{AckPayload, AckStream, ChanStream},
 };
 
 pub mod drivers;
@@ -529,8 +529,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         // arrived in the channel. `buffered` keeps wire order, which is required so that each
         // server's `BroadcastAckCount` is observed before its individual acks.
         let concurrency = std::cmp::max(self.config.ack_response_buffer, 1);
-        let remote: BoxStream<'static, Box<RawValue>> = ChanStream::new(rx)
-            .map(move |payload| resolve_resp_payload(payload, driver.clone(), table_name.clone()))
+        let remote: BoxStream<'static, AckPayload> = ChanStream::new(rx)
+            .map(move |payload| resolve_ack_payload(payload, driver.clone(), table_name.clone()))
             .buffered(concurrency)
             .filter_map(future::ready)
             .boxed();
@@ -1144,16 +1144,32 @@ impl<D: Driver> Spawnable for InitRes<D> {
     }
 }
 
-async fn resolve_resp_payload<D: Driver>(
+/// Resolve an ack payload either from a direct notify payload
+/// or an attachment that might be JSON or MsgPack.
+async fn resolve_ack_payload<D: Driver>(
     payload: ResponsePayload,
     driver: D,
     table: Cow<'static, str>,
-) -> Option<Box<RawValue>> {
+) -> Option<AckPayload> {
     match payload {
-        ResponsePayload::Data(data) => Some(data),
-        ResponsePayload::Attachment { id, is_binary } => {
-            resolve_attachment(&driver, &table, id, is_binary)
+        ResponsePayload::Data(data) => Some(AckPayload::Json(data)),
+        ResponsePayload::Attachment {
+            id,
+            is_binary: false,
+        } => resolve_attachment::<Box<RawValue>, _>(&driver, &table, id, false)
+            .await
+            .map(AckPayload::Json)
+            .inspect_err(|err| tracing::warn!(%err, id, "failed to resolve payload attachment"))
+            .ok(),
+        ResponsePayload::Attachment {
+            id,
+            is_binary: true,
+        } => {
+            tracing::debug!("resolving attachment {id}");
+            driver
+                .get_attachment(&table, id)
                 .await
+                .map(AckPayload::MsgPack)
                 .inspect_err(|err| tracing::warn!(%err, id, "failed to resolve payload attachment"))
                 .ok()
         }
