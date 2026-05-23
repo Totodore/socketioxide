@@ -86,10 +86,10 @@ where
         let mut packet_buf: Vec<u8> = Vec::new();
         loop {
             // Read data from the body stream into the buffer
-            if !state.end_of_stream {
-                if let Err(e) = poll_body(&mut state, max_payload).await {
-                    break Some((Err(e), state));
-                }
+            if !state.end_of_stream
+                && let Err(e) = poll_body(&mut state, max_payload).await
+            {
+                break Some((Err(e), state));
             }
 
             // Read from the buffer until the packet separator is found
@@ -147,10 +147,10 @@ where
 
         loop {
             // Read data from the body stream into the buffer
-            if !state.end_of_stream {
-                if let Err(e) = poll_body(&mut state, max_payload).await {
-                    break Some((Err(e), state));
-                }
+            if !state.end_of_stream
+                && let Err(e) = poll_body(&mut state, max_payload).await
+            {
+                break Some((Err(e), state));
             }
 
             // If there is no packet_type found
@@ -237,10 +237,10 @@ pub fn v3_string_decoder(
         let mut packet_graphemes_len: usize = 0;
         loop {
             // Read data from the body stream into the buffer
-            if !state.end_of_stream {
-                if let Err(e) = poll_body(&mut state, max_payload).await {
-                    break Some((Err(e), state));
-                }
+            if !state.end_of_stream
+                && let Err(e) = poll_body(&mut state, max_payload).await
+            {
+                break Some((Err(e), state));
             }
             if state.end_of_stream && state.buffer.remaining() == 0 && state.yield_packets > 0 {
                 break None; // Reached end of stream with no more data, end the stream
@@ -430,8 +430,6 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn string_payload_iterator_v3() {
-        assert!(cfg!(feature = "v3"));
-
         let data = Full::new(Bytes::from("4:4foo3:4€f11:4faaaaaaaaa"));
         let payload = v3_string_decoder(data, MAX_PAYLOAD);
         futures_util::pin_mut!(payload);
@@ -453,8 +451,6 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn binary_payload_iterator_v3() {
-        assert!(cfg!(feature = "v3"));
-
         const PAYLOAD: &[u8] = &[
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
         ];
@@ -476,7 +472,6 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn string_payload_stream_v3() {
-        assert!(cfg!(feature = "v3"));
         const DATA: &[u8] = "4:4foo3:4€f11:4baaaaaaaar".as_bytes();
         for i in 1..DATA.len() {
             println!("payload stream v3 chunk size: {i}");
@@ -507,8 +502,6 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn binary_payload_stream_v3() {
-        assert!(cfg!(feature = "v3"));
-
         const PAYLOAD: &[u8] = &[
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
         ];
@@ -539,7 +532,6 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn max_payload_v3() {
-        assert!(cfg!(feature = "v3"));
         const DATA: &[u8] = "4:4foo3:4€f11:4baaaaaaaar".as_bytes();
         const MAX_PAYLOAD: u64 = 3;
         for i in 1..DATA.len() {

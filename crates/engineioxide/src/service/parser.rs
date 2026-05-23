@@ -347,8 +347,6 @@ mod tests {
     #[test]
     #[cfg(feature = "v3")]
     fn request_info_polling_withb64() {
-        assert!(cfg!(feature = "v3"));
-
         let req = build_request("http://localhost:3000/socket.io/?EIO=3&transport=polling&b64=1");
         let req = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
         assert!(req.b64);

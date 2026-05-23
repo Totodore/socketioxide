@@ -24,7 +24,7 @@ async fn fetch_sockets_data<A: Adapter>(op: BroadcastOperators<A>) -> Vec<Remote
         .into_iter()
         .map(RemoteSocket::into_data)
         .collect::<Vec<_>>();
-    sockets.sort_by(|a, b| a.id.cmp(&b.id));
+    sockets.sort_by_key(|a| a.id);
     sockets
 }
 fn create_expected_sockets<const N: usize, A: Adapter>(
@@ -41,7 +41,7 @@ fn create_expected_sockets<const N: usize, A: Adapter>(
             ns: Str::from("/"),
         }
     });
-    sockets.sort_by(|a, b| a.id.cmp(&b.id));
+    sockets.sort_by_key(|a| a.id);
     sockets
 }
 
@@ -62,7 +62,7 @@ pub async fn fetch_sockets() {
     let id3 = extract_sid(&timeout_rcv!(&mut rx3));
 
     let mut expected_sockets = create_expected_sockets([id1, id2, id3], [&io1, &io2, &io3]);
-    expected_sockets.sort_by(|a, b| a.id.cmp(&b.id));
+    expected_sockets.sort_by_key(|a| a.id);
 
     let sockets = fetch_sockets_data(io1.broadcast()).await;
     assert_eq!(sockets, expected_sockets);
