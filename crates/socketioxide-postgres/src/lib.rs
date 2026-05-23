@@ -242,11 +242,20 @@ pub enum Error<D: Driver> {
     #[error("binary packet decoding error: {0}")]
     MessagePackDecode(#[from] rmp_serde::decode::Error),
 
-    /// Response handler not found/full/closed for request
-    #[error("response handler not found/full/closed for request: {req_id}")]
+    /// Response handler not found for request
+    #[error("response handler not found for request: {req_id}")]
     ResponseHandlerNotFound {
         /// The request this response is for
         req_id: Sid,
+    },
+    /// Response handler error for request
+    #[error("response handler error for request: {req_id}")]
+    ResponseHandlerChan {
+        /// The request this response is for
+        req_id: Sid,
+        /// The source channel error
+        #[source]
+        source: mpsc::error::TrySendError<()>,
     },
 }
 
@@ -727,6 +736,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     /// Synchronous: no DB round-trip, attachment resolution happens on the consumer side
     /// (see `get_res`/`broadcast_with_ack`).
     fn handle_res_notif(&self, notif: D::Notification) -> Result<(), Error<D>> {
+        use mpsc::error::TrySendError;
+
         match serde_json::from_str(notif.payload())? {
             p if p.is_loopback(self.local.server_id()) => {
                 tracing::trace!("skipping loopback packets")
@@ -743,7 +754,13 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                     .clone();
 
                 tx.try_send(payload)
-                    .map_err(|_| Error::ResponseHandlerNotFound { req_id })?;
+                    .map_err(|e| Error::ResponseHandlerChan {
+                        req_id,
+                        source: match e {
+                            TrySendError::Full(_) => TrySendError::Full(()),
+                            TrySendError::Closed(_) => TrySendError::Closed(()),
+                        },
+                    })?;
             }
         };
 
