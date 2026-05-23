@@ -36,7 +36,7 @@ thiserror.workspace = true
 tokio-postgres = { version = "0.7", default-features = false, optional = true, features = [
     "runtime",
 ] }
-sqlx = { version = "0.8", default-features = false, optional = true, features = [
+sqlx = { version = "0.9", default-features = false, optional = true, features = [
     "postgres",
     "runtime-tokio",
 ] }
