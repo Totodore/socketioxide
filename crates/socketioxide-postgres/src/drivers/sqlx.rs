@@ -3,7 +3,7 @@ use std::time::Duration;
 use futures_core::stream::BoxStream;
 use futures_util::StreamExt;
 use sqlx::{
-    PgPool,
+    AssertSqlSafe, PgPool,
     postgres::{PgListener, PgNotification},
 };
 
@@ -32,13 +32,13 @@ impl Driver for SqlxDriver {
     type NotificationStream = BoxStream<'static, Self::Notification>;
 
     async fn init(&self, table: &str) -> Result<(), Self::Error> {
-        sqlx::query(&format!(
+        sqlx::query(AssertSqlSafe(format!(
             r#"CREATE TABLE IF NOT EXISTS "{table}" (
                 id BIGSERIAL UNIQUE,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 payload BYTEA
         )"#,
-        ))
+        )))
         .execute(&self.client)
         .await?;
 
@@ -72,7 +72,7 @@ impl Driver for SqlxDriver {
     async fn push_attachment(&self, table: &str, attachment: &[u8]) -> Result<i64, Self::Error> {
         let query = format!("INSERT INTO \"{table}\" (payload) VALUES ($1) RETURNING id");
 
-        let id: i64 = sqlx::query_scalar(&query)
+        let id: i64 = sqlx::query_scalar(AssertSqlSafe(query))
             .bind(attachment)
             .fetch_one(&self.client)
             .await?;
@@ -83,7 +83,7 @@ impl Driver for SqlxDriver {
     async fn get_attachment(&self, table: &str, id: i64) -> Result<Vec<u8>, Self::Error> {
         let query = format!("SELECT payload FROM \"{table}\" WHERE id = $1");
 
-        let attachment: Vec<u8> = sqlx::query_scalar(&query)
+        let attachment: Vec<u8> = sqlx::query_scalar(AssertSqlSafe(query))
             .bind(id)
             .fetch_one(&self.client)
             .await?;
@@ -101,7 +101,7 @@ impl Driver for SqlxDriver {
             interval.as_millis()
         );
 
-        let affected = sqlx::query(&query)
+        let affected = sqlx::query(AssertSqlSafe(query))
             .execute(&self.client)
             .await?
             .rows_affected();
