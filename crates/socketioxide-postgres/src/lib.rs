@@ -32,7 +32,8 @@
 //!
 //! Once it is created the adapter is initialized with the [`CustomPostgresAdapter::init`] method.
 //! It will subscribe to three PostgreSQL NOTIFY channels and emit heartbeats.
-//! All messages are encoded with JSON.
+//! Classic messages are encoded with JSON and binary messages encoded with msgpack and
+//! deffered to the postgres attachment table.
 //!
 //! There are 7 types of requests:
 //! * Broadcast a packet to all the matching sockets.
@@ -241,22 +242,6 @@ pub enum Error<D: Driver> {
     /// Binary packet decoding error
     #[error("binary packet decoding error: {0}")]
     MessagePackDecode(#[from] rmp_serde::decode::Error),
-
-    /// Response handler not found for request
-    #[error("response handler not found for request: {req_id}")]
-    ResponseHandlerNotFound {
-        /// The request this response is for
-        req_id: Sid,
-    },
-    /// Response handler error for request
-    #[error("response handler error for request: {req_id}")]
-    ResponseHandlerChan {
-        /// The request this response is for
-        req_id: Sid,
-        /// The source channel error
-        #[source]
-        source: mpsc::error::TrySendError<()>,
-    },
 }
 
 impl<R: Driver> fmt::Debug for Error<R> {
@@ -714,6 +699,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                 let this = self.clone();
                 let response_chan = response_chan.clone();
                 async move {
+                    // a resolved request or None if this is was a response
+                    // that got successfully dispatched
                     let result = if notif.channel() == &*response_chan {
                         this.handle_res_notif(notif).map(|_| None)
                     } else {
@@ -736,8 +723,6 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     /// Synchronous: no DB round-trip, attachment resolution happens on the consumer side
     /// (see `get_res`/`broadcast_with_ack`).
     fn handle_res_notif(&self, notif: D::Notification) -> Result<(), Error<D>> {
-        use mpsc::error::TrySendError;
-
         match serde_json::from_str(notif.payload())? {
             p if p.is_loopback(self.local.server_id()) => {
                 tracing::trace!("skipping loopback packets")
@@ -745,22 +730,15 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             ResponsePacket {
                 req_id, payload, ..
             } => {
-                let tx = self
-                    .responses
-                    .lock()
-                    .unwrap()
-                    .get(&req_id)
-                    .ok_or(Error::ResponseHandlerNotFound { req_id })?
-                    .clone();
+                let responses = self.responses.lock().unwrap();
+                let Some(tx) = responses.get(&req_id) else {
+                    tracing::debug!(%req_id, "channel not found in response map");
+                    return Ok(());
+                };
 
                 tx.try_send(payload)
-                    .map_err(|e| Error::ResponseHandlerChan {
-                        req_id,
-                        source: match e {
-                            TrySendError::Full(_) => TrySendError::Full(()),
-                            TrySendError::Closed(_) => TrySendError::Closed(()),
-                        },
-                    })?;
+                    .inspect_err(|err| tracing::debug!("failed to send response to handler: {err}"))
+                    .ok();
             }
         };
 
@@ -988,7 +966,8 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                 "binary packets should be stored in attachment table and serialized in msgpack"
             );
 
-            let body = unsafe { String::from_utf8_unchecked(body) };
+            let body =
+                String::from_utf8(body).expect("this should be serde_json output and valid UTF8");
             let payload = RawValue::from_string(body)?;
             serde_json::to_string(&RequestPacket::Request { node_id, payload })?
         };
