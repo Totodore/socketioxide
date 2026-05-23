@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
       - uses: actions/cache@v5
         with:
           path: |
@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
 
       - name: Install cargo-hack
         run: cargo install cargo-hack
@@ -115,7 +115,8 @@ jobs:
           -p socketioxide \
           -p engineioxide \
           -p socketioxide-redis \
-          -p socketioxide-mongodb
+          -p socketioxide-mongodb \
+          -p socketioxide-postgres
 
   examples:
     runs-on: ubuntu-latest
@@ -123,7 +124,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
       - uses: actions/cache@v5
         with:
           path: |
@@ -148,7 +149,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
           components: clippy
       - uses: actions/cache@v5
         with:
@@ -186,7 +187,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -223,7 +224,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -258,7 +259,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.89.0
+          toolchain: 1.94.0
       - uses: actions/cache@v5
         with:
           path: |

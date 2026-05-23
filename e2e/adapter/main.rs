@@ -3,7 +3,7 @@ use std::fs;
 use std::process::{Child, Command};
 use std::time::Duration;
 
-const BINS: [&str; 12] = [
+const BINS: &[&str] = &[
     "fred-e2e",
     "fred-e2e-msgpack",
     "redis-e2e",
@@ -16,24 +16,30 @@ const BINS: [&str; 12] = [
     "mongodb-ttl-e2e-msgpack",
     "mongodb-capped-e2e",
     "mongodb-capped-e2e-msgpack",
+    "sqlx-e2e",
+    "sqlx-e2e-msgpack",
+    "tokio-postgres-e2e",
+    "tokio-postgres-e2e-msgpack",
 ];
 const EXEC_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
 const LOG_DIR: &str = "e2e/adapter/logs";
 
-fn main() {
-    let filter = args().skip(1).next().unwrap_or("".to_string());
-    println!("filter: {}", filter);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let bin_filter = args().nth(1).unwrap_or("".to_string());
+    println!("binary target filter: {}", bin_filter);
 
-    if fs::exists(LOG_DIR).unwrap() {
-        fs::remove_dir_all(LOG_DIR).unwrap();
+    if fs::exists(LOG_DIR)? {
+        fs::remove_dir_all(LOG_DIR)?;
     }
-    fs::create_dir_all(LOG_DIR).unwrap();
+    fs::create_dir_all(LOG_DIR)?;
 
     // run everything
-    for target in BINS.into_iter().filter(|name| name.contains(&filter)) {
+    for target in BINS.iter().filter(|name| name.contains(&bin_filter)) {
         run(target);
     }
     println!("All tests passed!");
+
+    Ok(())
 }
 
 fn run(target: &'static str) {
@@ -51,7 +57,6 @@ fn run(target: &'static str) {
     std::thread::sleep(Duration::from_millis(200));
 
     let child = Command::new("node")
-        .arg("--experimental-strip-types")
         .arg("--test-reporter=spec")
         .arg("--test")
         .arg("e2e/adapter/client.ts")

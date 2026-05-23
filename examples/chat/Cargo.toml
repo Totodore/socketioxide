@@ -9,6 +9,7 @@ edition = "2021"
 socketioxide = { workspace = true, features = ["extensions", "state"] }
 socketioxide-redis.workspace = true
 socketioxide-mongodb.workspace = true
+socketioxide-postgres.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower-http.workspace = true
@@ -39,3 +40,11 @@ path = "src/mongodb/mongodb_capped.rs"
 [[bin]]
 name = "mongodb-adapter-ttl"
 path = "src/mongodb/mongodb_ttl.rs"
+
+[[bin]]
+name = "postgres-adapter-sqlx"
+path = "src/postgres/sqlx.rs"
+
+[[bin]]
+name = "postgres-adapter-tokio-postgres"
+path = "src/postgres/tokio_postgres.rs"
