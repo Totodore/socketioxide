@@ -23,6 +23,16 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "time",
+] }
+tokio-tungstenite.workspace = true
+
 [[bin]]
 name = "engineioxide-e2e"
 path = "engineioxide.rs"

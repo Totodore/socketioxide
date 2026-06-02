@@ -129,7 +129,26 @@ where
             Some(socket) if socket.is_ws() => return Err(Error::MultipleWebsocketRequests),
             Some(socket) => {
                 let mut ws = ws_init().await;
-                upgrade_handshake::<H, S>(&socket, &mut ws).await?;
+                // Bound the upgrade handshake with a timeout. While a session is upgrading its
+                // heartbeat is paused, so a client that opens the websocket upgrade but never
+                // completes the probe handshake (e.g. a reverse proxy that forwards the upgrade as a
+                // pooled request and never relays the `101`, after which the browser falls back to
+                // polling) would otherwise keep the session — and its underlying connection — alive
+                // forever. On timeout we reclaim the session so it cannot leak.
+                match tokio::time::timeout(
+                    engine.config.upgrade_timeout,
+                    upgrade_handshake::<H, S>(&socket, &mut ws),
+                )
+                .await
+                {
+                    Ok(res) => res?,
+                    Err(_) => {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(?sid, "ws upgrade timed out, closing session");
+                        engine.close_session(socket.id, DisconnectReason::TransportError);
+                        return Err(Error::Upgrade);
+                    }
+                }
                 (socket, ws)
             }
         }

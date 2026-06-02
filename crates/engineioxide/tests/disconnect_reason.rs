@@ -10,7 +10,9 @@ use std::{sync::Arc, time::Duration};
 use bytes::Bytes;
 use engineioxide::{
     Str,
+    config::EngineIoConfig,
     handler::EngineIoHandler,
+    service::EngineIoService,
     socket::{DisconnectReason, Socket},
 };
 use futures_util::SinkExt;
@@ -21,7 +23,7 @@ mod fixture;
 use fixture::{create_server, create_ws_connection, send_req};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::fixture::create_polling_connection;
+use crate::fixture::{create_polling_connection, create_ws_upgrade_connection};
 
 #[derive(Debug, Clone)]
 struct MyHandler {
@@ -76,6 +78,33 @@ pub async fn ws_heartbeat_timeout() {
         .unwrap();
 
     assert_eq!(data, DisconnectReason::HeartbeatTimeout);
+}
+
+#[tokio::test]
+pub async fn ws_upgrade_abandoned_timeout() {
+    let (disconnect_tx, mut rx) = mpsc::channel(10);
+    // Long heartbeat so it cannot mask the leak during the test window, and a short upgrade
+    // timeout so an abandoned upgrade is reclaimed quickly.
+    let config = EngineIoConfig::builder()
+        .ping_interval(Duration::from_secs(60))
+        .ping_timeout(Duration::from_secs(60))
+        .upgrade_timeout(Duration::from_millis(200))
+        .build();
+    let mut svc = EngineIoService::with_config(Arc::new(MyHandler { disconnect_tx }), config);
+
+    // Establish a polling session, then open a websocket upgrade for it that never completes the
+    // probe handshake while keeping the connection open (mimics a proxy that forwards the upgrade
+    // as a pooled request and never relays the `101`). The heartbeat is paused while upgrading, so
+    // without an upgrade timeout the session — and its underlying connection — would leak forever.
+    let sid = create_polling_connection(&mut svc).await.parse().unwrap();
+    let _stream = create_ws_upgrade_connection(&mut svc, sid).await;
+
+    let data = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+        .await
+        .expect("session was not reclaimed after an abandoned ws upgrade (leak)")
+        .unwrap();
+
+    assert_eq!(data, DisconnectReason::TransportError);
 }
 
 #[tokio::test]

@@ -49,6 +49,17 @@ pub struct EngineIoConfig {
     /// Defaults to 20 seconds.
     pub ping_timeout: Duration,
 
+    /// The amount of time the server will wait for a transport upgrade to complete before aborting it.
+    ///
+    /// While a session is upgrading from HTTP long-polling to WebSocket its heartbeat is paused. A
+    /// client that opens the upgrade request but never finishes the probe handshake (e.g. a reverse
+    /// proxy that forwards the upgrade as a regular pooled request and never relays the `101`, after
+    /// which the browser falls back to polling) would otherwise keep the session — and its underlying
+    /// connection — alive forever. This timeout bounds that window so the session is reclaimed.
+    ///
+    /// Defaults to 10 seconds.
+    pub upgrade_timeout: Duration,
+
     /// The maximum number of packets that can be buffered per connection before being emitted to the client.
     ///
     /// If the buffer if full the `emit()` method will return an error
@@ -78,6 +89,7 @@ impl Default for EngineIoConfig {
             req_path: "/engine.io".into(),
             ping_interval: Duration::from_millis(25000),
             ping_timeout: Duration::from_millis(20000),
+            upgrade_timeout: Duration::from_millis(10000),
             max_buffer_size: 128,
             max_payload: 1e5 as u64, // 100kb
             ws_read_buffer_size: 4096,
@@ -130,6 +142,15 @@ impl EngineIoConfigBuilder {
     /// Defaults to 20 seconds.
     pub fn ping_timeout(mut self, ping_timeout: Duration) -> Self {
         self.config.ping_timeout = ping_timeout;
+        self
+    }
+
+    /// The amount of time the server will wait for a transport upgrade to complete before aborting it
+    /// and reclaiming the session.
+    ///
+    /// Defaults to 10 seconds.
+    pub fn upgrade_timeout(mut self, upgrade_timeout: Duration) -> Self {
+        self.config.upgrade_timeout = upgrade_timeout;
         self
     }
 
