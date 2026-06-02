@@ -111,6 +111,40 @@ async fn handshake(addr: SocketAddr) -> Option<String> {
     Some(body[start..end].to_string())
 }
 
+/// Long-poll once on an existing session, draining one server packet (e.g. the first ping).
+async fn poll_once(addr: SocketAddr, sid: &str) -> Option<()> {
+    let mut stream = TcpStream::connect(addr).await.ok()?;
+    let req = format!(
+        "GET /engine.io/?EIO=4&transport=polling&sid={sid} HTTP/1.1\r\n\
+         Host: localhost\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(req.as_bytes()).await.ok()?;
+    let mut buf = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+    Some(())
+}
+
+/// POST an engine.io payload on an existing polling session (e.g. a pong `"3"`).
+async fn post_packet(addr: SocketAddr, sid: &str, body: &str) -> Option<()> {
+    let mut stream = TcpStream::connect(addr).await.ok()?;
+    let req = format!(
+        "POST /engine.io/?EIO=4&transport=polling&sid={sid} HTTP/1.1\r\n\
+         Host: localhost\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\
+         Connection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(req.as_bytes()).await.ok()?;
+    let mut buf = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+    Some(())
+}
+
 /// Open a websocket upgrade for an existing session and **never** complete the probe handshake.
 /// The returned stream is held by the caller so the underlying TCP connection stays open.
 async fn stall_upgrade(addr: SocketAddr, sid: &str) -> Option<WebSocketStream<TcpStream>> {
@@ -186,4 +220,58 @@ async fn abandoned_ws_upgrades_do_not_leak_sessions() {
     // Keep the client connections alive until the very end so the server truly had to reclaim the
     // sessions on its own rather than because the client closed the socket.
     drop(held);
+}
+
+/// The *permanent* leak (the dhat's "heartbeat task never ends").
+///
+/// Here the session first completes a ping/pong cycle so its heartbeat parks in
+/// `interval_tick.tick()` BETWEEN pings, and only then starts a websocket upgrade that never
+/// completes the probe (connection held open). Pre-fix, the parked heartbeat sees `is_upgrading()`
+/// at the top of every loop iteration and just `continue`s — it never sends another ping, never
+/// reaches the pong recv-timeout, and so never fires `HeartbeatTimeout`. With the connection held
+/// open there is no transport-close reclaim either, so the session is retained *forever*. The
+/// upgrade timeout is the only thing that can reclaim it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parked_heartbeat_abandoned_upgrade_is_reclaimed() {
+    let handler = Arc::new(CountingHandler::default());
+    // Long heartbeat so that, once parked, it cannot reclaim on its own within the test window;
+    // short upgrade timeout so the fix reclaims quickly.
+    let config = EngineIoConfig::builder()
+        .ping_interval(Duration::from_secs(30))
+        .ping_timeout(Duration::from_secs(30))
+        .upgrade_timeout(Duration::from_millis(500))
+        .build();
+    let addr = spawn_server(handler.clone(), config).await;
+
+    // 1) handshake — creates the engine session (on_connect) and spawns the heartbeat, which sends
+    //    its first ping and then waits for the pong.
+    let sid = handshake(addr).await.expect("handshake failed");
+    // 2) poll to receive that first ping (the heartbeat is now at its post-ping recv).
+    poll_once(addr, &sid).await.expect("poll failed");
+    // 3) pong — the heartbeat consumes it and parks between pings.
+    post_packet(addr, &sid, "3")
+        .await
+        .expect("pong post failed");
+    // 4) open a websocket upgrade and never send the probe, keeping the connection open.
+    let ws = stall_upgrade(addr, &sid).await.expect("ws upgrade failed");
+
+    assert_eq!(
+        handler.connects.load(Ordering::SeqCst),
+        1,
+        "session was not created"
+    );
+
+    // The heartbeat is parked, so the upgrade timeout is the only path that can reclaim the session.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while handler.live.load(Ordering::SeqCst) > 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let live = handler.live.load(Ordering::SeqCst);
+    assert_eq!(
+        live, 0,
+        "parked-heartbeat stalled upgrade was not reclaimed — permanent leak"
+    );
+
+    drop(ws);
 }
