@@ -108,6 +108,43 @@ pub async fn ws_upgrade_abandoned_timeout() {
 }
 
 #[tokio::test]
+pub async fn ws_upgrade_abandoned_parked_heartbeat_timeout() {
+    let (disconnect_tx, mut rx) = mpsc::channel(10);
+    // Long heartbeat so that, once parked between pings, it cannot reclaim the session on its own
+    // within the test window; short upgrade timeout so the fix reclaims quickly.
+    let config = EngineIoConfig::builder()
+        .ping_interval(Duration::from_secs(30))
+        .ping_timeout(Duration::from_secs(30))
+        .upgrade_timeout(Duration::from_millis(200))
+        .build();
+    let mut svc = EngineIoService::with_config(Arc::new(MyHandler { disconnect_tx }), config);
+
+    let sid = create_polling_connection(&mut svc).await;
+    send_req(
+        &mut svc,
+        format!("transport=polling&sid={sid}"),
+        http::Method::GET,
+        None,
+    )
+    .await; // drain the first ping; the heartbeat is now waiting for the pong.
+    send_req(
+        &mut svc,
+        format!("transport=polling&sid={sid}"),
+        http::Method::POST,
+        Some("3".into()),
+    )
+    .await; // pong — the heartbeat consumes it and parks between pings.
+    let _stream = create_ws_upgrade_connection(&mut svc, sid.parse().unwrap()).await;
+
+    let data = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+        .await
+        .expect("parked-heartbeat abandoned ws upgrade was not reclaimed (permanent leak)")
+        .unwrap();
+
+    assert_eq!(data, DisconnectReason::TransportError);
+}
+
+#[tokio::test]
 pub async fn polling_transport_closed() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
     let mut svc = create_server(MyHandler { disconnect_tx }).await;
