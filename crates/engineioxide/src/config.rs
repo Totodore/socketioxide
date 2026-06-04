@@ -50,13 +50,6 @@ pub struct EngineIoConfig {
     pub ping_timeout: Duration,
 
     /// The amount of time the server will wait for a transport upgrade to complete before aborting it.
-    ///
-    /// While a session is upgrading from HTTP long-polling to WebSocket its heartbeat is paused. A
-    /// client that opens the upgrade request but never finishes the probe handshake (e.g. a reverse
-    /// proxy that forwards the upgrade as a regular pooled request and never relays the `101`, after
-    /// which the browser falls back to polling) would otherwise keep the session — and its underlying
-    /// connection — alive forever. This timeout bounds that window so the session is reclaimed.
-    ///
     /// Defaults to 10 seconds.
     pub upgrade_timeout: Duration,
 
