@@ -213,6 +213,10 @@ where
                 break Some((packet, state));
             } else if state.end_of_stream && state.buffer.remaining() == 0 {
                 break None;
+            } else if state.end_of_stream {
+                // EOS reached with leftover bytes that cannot form a complete
+                // packet (truncated header or truncated body).
+                break Some((Err(Error::InvalidPacketLength), state));
             }
         }
     })
@@ -527,6 +531,25 @@ mod tests {
             ));
             assert!(payload.next().await.is_none());
         }
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn binary_payload_truncated_v3() {
+        // Header declares a 5-byte (type byte + 4 payload bytes) binary
+        // packet but the body ends after only 2 payload bytes. The decoder
+        // must terminate (with an error or end-of-stream) rather than spin
+        // forever waiting on data that will never arrive.
+        const TRUNCATED: &[u8] = &[1, 5, 255, 4, 1, 2];
+        let data = Full::new(Bytes::from(TRUNCATED));
+        let payload = v3_binary_decoder(data, MAX_PAYLOAD);
+        let result = tokio::time::timeout(std::time::Duration::from_millis(200), async {
+            futures_util::pin_mut!(payload);
+            payload.next().await
+        })
+        .await
+        .expect("v3_binary_decoder hung on truncated packet");
+        assert!(matches!(result, Some(Err(_)) | None));
     }
 
     #[cfg(feature = "v3")]
