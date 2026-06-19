@@ -215,16 +215,13 @@ pub async fn v3_binary_encoder(
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
         let packets = recv_packet(&mut rx).await?;
+        has_binary = packets.iter().any(|p| p.is_binary());
         for packet in packets {
-            match packet {
-                Packet::BinaryV3(_) | Packet::Binary(_) => {
-                    v3_bin_packet_encoder(packet, &mut data);
-                    has_binary = true;
-                }
-                packet => {
-                    v3_string_packet_encoder(packet, &mut data);
-                }
-            };
+            if has_binary {
+                v3_bin_packet_encoder(packet, &mut data);
+            } else {
+                v3_string_packet_encoder(packet, &mut data);
+            }
         }
     }
 
@@ -413,6 +410,35 @@ mod tests {
             &[1, 2, 3, 4]
         ))])
         .unwrap();
+        let Payload {
+            data, has_binary, ..
+        } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        assert_eq!(*data, PAYLOAD);
+        assert!(has_binary);
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn encode_v3binary_payload_parked_poll_multi_packet_batch() {
+        // When the v3 binary encoder is parked on an empty buffer and a
+        // multi-packet batch arrives, every packet must be encoded with the
+        // same framing (binary framing if any packet in the batch is binary).
+        // Otherwise the payload mixes string- and binary-framed packets while
+        // being flagged as binary.
+        const PAYLOAD: [u8; 20] = [
+            0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
+        ];
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        let rx = mutex.lock().await;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tx.try_send(smallvec::smallvec![
+                Packet::Message("hello€".into()),
+                Packet::BinaryV3(Bytes::from_static(&[1, 2, 3, 4]))
+            ])
+            .unwrap();
+        });
         let Payload {
             data, has_binary, ..
         } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
