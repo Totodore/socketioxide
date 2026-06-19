@@ -245,9 +245,12 @@ pub async fn v3_string_encoder(
     const PUNCTUATION_LEN: usize = 2;
     // number of digits of the max packet size, used to approximate the payload size
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
-    // Current size of the payload
-    let current_size = data.len() + PUNCTUATION_LEN + max_packet_size_len;
-    while let Some(packets) = try_recv_packet(&mut rx, current_size, max_payload, true) {
+    while let Some(packets) = try_recv_packet(
+        &mut rx,
+        data.len() + PUNCTUATION_LEN + max_packet_size_len,
+        max_payload,
+        true,
+    ) {
         for packet in packets {
             v3_string_packet_encoder(packet, &mut data);
         }
@@ -390,7 +393,13 @@ mod tests {
         {
             let rx = mutex.lock().await;
             let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
-            assert_eq!(data, "10:b4AQIDBA==7:4hello€7:4hello€".as_bytes());
+            assert_eq!(data, "10:b4AQIDBA==".as_bytes());
+        }
+        {
+            // Next call drains one of the remaining Message packets.
+            let rx = mutex.lock().await;
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            assert_eq!(data, "7:4hello€".as_bytes());
         }
     }
 
