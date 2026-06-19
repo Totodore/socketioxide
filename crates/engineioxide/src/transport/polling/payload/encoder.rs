@@ -101,6 +101,10 @@ pub async fn v4_encoder(
     if data.is_empty() {
         let packets = recv_packet(&mut rx).await?;
         for packet in packets {
+            if !data.is_empty() {
+                data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
+            }
+
             let packet: String = packet.into();
             data.push_str(&packet);
         }
@@ -289,6 +293,24 @@ mod tests {
             .unwrap();
         let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn encode_v4_payload_parked_poll_multi_packet_batch() {
+        const PAYLOAD: &str = "4hello€\x1ebAQIDBA==";
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let rx = Mutex::new(PeekableReceiver::new(rx));
+        let rx = rx.lock().await;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tx.try_send(smallvec::smallvec![
+                Packet::Message("hello€".into()),
+                Packet::Binary(Bytes::from_static(&[1, 2, 3, 4]))
+            ])
+            .unwrap();
+        });
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        assert_eq!(data, PAYLOAD);
     }
 
     #[tokio::test]
