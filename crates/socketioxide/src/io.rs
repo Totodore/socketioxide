@@ -136,6 +136,16 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// The amount of time the server will wait for a transport upgrade (HTTP long-polling to
+    /// WebSocket) to complete before aborting it and reclaiming the session.
+    ///
+    /// Defaults to 10 seconds.
+    #[inline]
+    pub fn upgrade_timeout(mut self, upgrade_timeout: Duration) -> Self {
+        self.engine_config_builder = self.engine_config_builder.upgrade_timeout(upgrade_timeout);
+        self
+    }
+
     /// The maximum number of packets that can be buffered per connection before being emitted to the client.
     /// If the buffer if full the `emit()` method will return an error
     ///

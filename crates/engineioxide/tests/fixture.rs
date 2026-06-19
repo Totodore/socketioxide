@@ -91,6 +91,15 @@ pub async fn create_ws_connection<H: EngineIoHandler>(
     new_ws_mock_conn(svc, ProtocolVersion::V4, None).await
 }
 
+/// Open a websocket upgrade connection for an existing (polling) session without ever
+/// completing the probe handshake. Used to simulate a client that abandons the upgrade.
+pub async fn create_ws_upgrade_connection<H: EngineIoHandler>(
+    svc: &mut EngineIoService<H>,
+    sid: Sid,
+) -> WebSocketStream<StreamImpl> {
+    new_ws_mock_conn(svc, ProtocolVersion::V4, Some(sid)).await
+}
+
 pin_project_lite::pin_project! {
     pub struct StreamImpl {
         tx: mpsc::UnboundedSender<Result<Bytes, io::Error>>,

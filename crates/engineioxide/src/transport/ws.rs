@@ -129,7 +129,20 @@ where
             Some(socket) if socket.is_ws() => return Err(Error::MultipleWebsocketRequests),
             Some(socket) => {
                 let mut ws = ws_init().await;
-                upgrade_handshake::<H, S>(&socket, &mut ws).await?;
+                match tokio::time::timeout(
+                    engine.config.upgrade_timeout,
+                    upgrade_handshake::<H, S>(&socket, &mut ws),
+                )
+                .await
+                {
+                    Ok(res) => res?,
+                    Err(_) => {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(?sid, "ws upgrade timed out, closing session");
+                        engine.close_session(socket.id, DisconnectReason::TransportError);
+                        return Err(Error::Upgrade);
+                    }
+                }
                 (socket, ws)
             }
         }
