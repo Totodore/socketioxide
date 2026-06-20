@@ -264,7 +264,7 @@ impl RequestInfo {
         let b64: bool = query
             .split('&')
             .find(|s| s.starts_with("b64="))
-            .map(|_| true)
+            .map(|v| v == "1" || v == "true")
             .unwrap_or_default();
 
         let method = req.method().clone();
