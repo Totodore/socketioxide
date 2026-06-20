@@ -91,6 +91,15 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
         self.timeout = Some(timeout);
         self
     }
+
+    /// Sets the volatile flag for the emit. When set, the event may be dropped
+    /// if the client is not ready to receive it (e.g. the connection is buffering or not connected).
+    /// This is useful for events that are not critical, such as position updates in a game.
+    ///
+    /// See [socket.io volatile events](https://socket.io/docs/v4/emitting-events/#volatile-events).
+    pub fn volatile(self) -> BroadcastOperators<A> {
+        BroadcastOperators::from(self).volatile()
+    }
 }
 
 // ==== impl ConfOperators consume fns ====
@@ -226,6 +235,16 @@ impl<A: Adapter> BroadcastOperators<A> {
     #[doc = include_str!("../docs/operators/timeout.md")]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the volatile flag for the emit. When set, the event may be dropped
+    /// if the client is not ready to receive it (e.g. the connection is buffering or not connected).
+    /// This is useful for events that are not critical, such as position updates in a game.
+    ///
+    /// See [socket.io volatile events](https://socket.io/docs/v4/emitting-events/#volatile-events).
+    pub fn volatile(mut self) -> Self {
+        self.opts.add_flag(BroadcastFlags::Volatile);
         self
     }
 }

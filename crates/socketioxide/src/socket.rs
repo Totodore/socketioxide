@@ -278,6 +278,94 @@ impl From<BroadcastError> for RemoteActionError {
     }
 }
 
+/// A wrapper around a [`Socket`] that marks emitted events as volatile.
+///
+/// Volatile events may be dropped if the client is not ready to receive them
+/// (e.g. the underlying connection is buffering or the socket is not connected).
+/// This is useful for events that are not critical, such as position updates in a game.
+///
+/// See [socket.io volatile events](https://socket.io/docs/v4/emitting-events/#volatile-events).
+///
+/// # Example
+/// ```
+/// # use socketioxide::{SocketIo, extract::*};
+/// # use serde::Serialize;
+/// #[derive(Serialize)]
+/// struct GameState { x: f64, y: f64 }
+///
+/// let (_, io) = SocketIo::new_svc();
+/// io.ns("/", async |socket: SocketRef| {
+///     // Position updates may be dropped if the connection is slow
+///     socket.volatile().emit("position", &GameState { x: 1.0, y: 2.0 });
+/// });
+/// ```
+pub struct VolatileSocket<'a, A: Adapter = LocalAdapter> {
+    socket: &'a Socket<A>,
+}
+
+impl<A: Adapter> VolatileSocket<'_, A> {
+    /// Emit a volatile event to the client. If the socket is not connected or
+    /// the internal buffer is full, the event is silently dropped.
+    pub fn emit<T: ?Sized + Serialize>(&self, event: impl AsRef<str>, data: &T) {
+        if !self.socket.connected() {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(?self.socket.id, "dropping volatile event: socket not connected");
+            return;
+        }
+
+        let permit = match self.socket.reserve() {
+            Ok(permit) => permit,
+            Err(_e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(?_e, ?self.socket.id, "dropping volatile event: cannot reserve");
+                return;
+            }
+        };
+
+        let ns = self.socket.ns.path.clone();
+        let data = match self.socket.parser.encode_value(data, Some(event.as_ref())) {
+            Ok(data) => data,
+            Err(_e) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(?_e, "dropping volatile event: encode error");
+                return;
+            }
+        };
+
+        permit.send(Packet::event(ns, data), self.socket.parser);
+    }
+
+    #[doc = include_str!("../docs/operators/to.md")]
+    pub fn to(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        self.socket.to(rooms).volatile()
+    }
+
+    #[doc = include_str!("../docs/operators/within.md")]
+    pub fn within(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        self.socket.within(rooms).volatile()
+    }
+
+    #[doc = include_str!("../docs/operators/except.md")]
+    pub fn except(self, rooms: impl RoomParam) -> BroadcastOperators<A> {
+        self.socket.except(rooms).volatile()
+    }
+
+    #[doc = include_str!("../docs/operators/local.md")]
+    pub fn local(self) -> BroadcastOperators<A> {
+        self.socket.local().volatile()
+    }
+
+    #[doc = include_str!("../docs/operators/broadcast.md")]
+    pub fn broadcast(self) -> BroadcastOperators<A> {
+        self.socket.broadcast().volatile()
+    }
+
+    #[doc = include_str!("../docs/operators/timeout.md")]
+    pub fn timeout(self, timeout: Duration) -> BroadcastOperators<A> {
+        BroadcastOperators::from(ConfOperators::new(self.socket).timeout(timeout)).volatile()
+    }
+}
+
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
@@ -637,6 +725,29 @@ impl<A: Adapter> Socket<A> {
     #[doc = include_str!("../docs/operators/broadcast.md")]
     pub fn broadcast(&self) -> BroadcastOperators<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).broadcast()
+    }
+
+    /// Returns a [`VolatileSocket`] wrapper that emits volatile events to this socket.
+    /// Volatile events may be dropped if the client is not ready to receive them
+    /// (e.g. the underlying connection is buffering or the socket is not connected).
+    ///
+    /// See [`VolatileSocket`] for more details.
+    ///
+    /// # Example
+    /// ```
+    /// # use socketioxide::{SocketIo, extract::SocketRef};
+    /// # use serde::Serialize;
+    /// #[derive(Serialize)]
+    /// struct GameState { x: f64, y: f64 }
+    ///
+    /// let (_, io) = SocketIo::new_svc();
+    /// io.ns("/", async |socket: SocketRef| {
+    ///     socket.volatile().emit("position", &GameState { x: 1.0, y: 2.0 });
+    ///     socket.volatile().to("room1").emit("update", &42);
+    /// });
+    /// ```
+    pub fn volatile(&self) -> VolatileSocket<'_, A> {
+        VolatileSocket { socket: self }
     }
 
     /// # Get the [`SocketIo`] context related to this socket

@@ -591,6 +591,16 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op()
     }
 
+    /// _Alias for `io.of("/").unwrap().volatile()`_. If the **default namespace "/" is not found** this fn will panic!
+    ///
+    /// Sets the volatile flag on the broadcast operators. Volatile events may be dropped
+    /// if the client is not ready to receive them.
+    /// See [socket.io volatile events](https://socket.io/docs/v4/emitting-events/#volatile-events).
+    #[inline]
+    pub fn volatile(&self) -> BroadcastOperators<A> {
+        self.get_default_op().volatile()
+    }
+
     #[cfg(feature = "state")]
     pub(crate) fn get_state<T: Clone + 'static>(&self) -> Option<T> {
         self.0.state.try_get::<T>().cloned()
