@@ -841,7 +841,6 @@ dependencies = [
  "tower-service",
  "tracing",
  "tracing-subscriber",
- "unicode-segmentation",
 ]
 
 [[package]]

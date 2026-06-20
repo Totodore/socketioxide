@@ -222,13 +222,36 @@ where
     })
 }
 
+/// Return the byte offset in `s` reached after exactly `target` UTF-16 code units.
+/// Returns `None` if `s` has fewer UTF-16 code units than requested.
+#[cfg(feature = "v3")]
+fn utf16_byte_offset(s: &str, target: usize) -> Option<usize> {
+    if target == 0 {
+        return Some(0);
+    }
+    let mut count = 0usize;
+    for (i, ch) in s.char_indices() {
+        count += ch.len_utf16();
+        if count >= target {
+            // If a surrogate-pair char straddles the boundary (count > target),
+            // we still cut after the char — the length check below will reject it.
+            return Some(i + ch.len_utf8());
+        }
+    }
+    None
+}
+
+#[cfg(feature = "v3")]
+fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
 #[cfg(feature = "v3")]
 pub fn v3_string_decoder(
     body: impl Body<Error = impl std::fmt::Debug> + Unpin,
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, Error>> {
     use std::io::ErrorKind;
-    use unicode_segmentation::UnicodeSegmentation;
 
     use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
 
@@ -238,7 +261,7 @@ pub fn v3_string_decoder(
 
     futures_util::stream::unfold(state, move |mut state| async move {
         let mut packet_buf: Vec<u8> = Vec::new();
-        let mut packet_graphemes_len: usize = 0;
+        let mut packet_utf16_len: usize = 0;
         loop {
             // Read data from the body stream into the buffer
             if !state.end_of_stream
@@ -255,7 +278,7 @@ pub fn v3_string_decoder(
             let mut reader = (&mut state.buffer).reader();
 
             // Read the packet length from the buffer
-            if packet_graphemes_len == 0 {
+            if packet_utf16_len == 0 {
                 loop {
                     let (done, used) = {
                         let remaining = reader.get_ref().remaining();
@@ -270,7 +293,7 @@ pub fn v3_string_decoder(
                         match memchr::memchr(STRING_PACKET_SEPARATOR_V3, &packet_buf) {
                             Some(i) => {
                                 // Extract the packet length from the available data
-                                packet_graphemes_len = match std::str::from_utf8(&packet_buf[..i])
+                                packet_utf16_len = match std::str::from_utf8(&packet_buf[..i])
                                     .map_err(|_| Error::InvalidPacketLength)
                                     .and_then(|s| {
                                         s.parse::<usize>().map_err(|_| Error::InvalidPacketLength)
@@ -295,7 +318,7 @@ pub fn v3_string_decoder(
                 }
             }
 
-            if packet_graphemes_len == 0 {
+            if packet_utf16_len == 0 {
                 continue; // No packet length, continue to read more data
             }
 
@@ -306,39 +329,33 @@ pub fn v3_string_decoder(
 
             let old_len = packet_buf.len();
             packet_buf.extend_from_slice(data);
+            let truncate_to = |s: &str| utf16_byte_offset(s, packet_utf16_len);
             let byte_read = match std::str::from_utf8(&packet_buf) {
-                Ok(fulldata) => {
-                    let i = fulldata
-                        .grapheme_indices(true)
-                        .nth(packet_graphemes_len)
-                        .map(|(i, _)| i);
-                    if let Some(i) = i {
+                Ok(fulldata) => match truncate_to(fulldata) {
+                    Some(i) => {
                         packet_buf.truncate(i);
                         packet_buf.len() - old_len
-                    } else {
-                        data.len()
                     }
-                }
+                    None => data.len(),
+                },
                 Err(e) => {
+                    // SAFETY: packet_buf is a valid utf8 string checkd above
                     let chunk =
                         unsafe { std::str::from_utf8_unchecked(&packet_buf[..e.valid_up_to()]) };
-                    let i = chunk
-                        .grapheme_indices(true)
-                        .nth(packet_graphemes_len)
-                        .map(|(i, _)| i);
-                    if let Some(i) = i {
-                        packet_buf.truncate(i);
-                        packet_buf.len() - old_len
-                    } else {
-                        data.len()
+                    match truncate_to(chunk) {
+                        Some(i) => {
+                            packet_buf.truncate(i);
+                            packet_buf.len() - old_len
+                        }
+                        None => data.len(),
                     }
                 }
             };
             reader.consume(byte_read);
 
-            // Check if the packet length matches the number of characters
+            // Check if the packet length matches the number of UTF-16 code units
             if let Ok(packet) = std::str::from_utf8(&packet_buf) {
-                if packet.graphemes(true).count() == packet_graphemes_len {
+                if utf16_len(packet) == packet_utf16_len {
                     // SAFETY: packet_buf is a valid utf8 string checkd above
                     let packet = unsafe { String::from_utf8_unchecked(packet_buf) };
                     let packet = Packet::parse(ProtocolVersion::V3, packet)
@@ -430,6 +447,26 @@ mod tests {
             let packet = payload.next().await.unwrap();
             assert!(matches!(packet, Err(Error::PayloadTooLarge)));
         }
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn string_payload_v3_utf16_length() {
+        // The wire length is the number of UTF-16 code units (JS-style).
+        // Two packets: "4𝕊" → 3 UTF-16 code units ('4' + surrogate pair),
+        // then "4ab" → 3 UTF-16 code units.
+        let data = Full::new(Bytes::from("3:4𝕊3:4ab"));
+        let payload = v3_string_decoder(data, MAX_PAYLOAD);
+        futures_util::pin_mut!(payload);
+        assert!(matches!(
+            payload.next().await.unwrap().unwrap(),
+            Packet::Message(msg) if msg == "𝕊"
+        ));
+        assert!(matches!(
+            payload.next().await.unwrap().unwrap(),
+            Packet::Message(msg) if msg == "ab"
+        ));
+        assert!(payload.next().await.is_none());
     }
 
     #[cfg(feature = "v3")]
