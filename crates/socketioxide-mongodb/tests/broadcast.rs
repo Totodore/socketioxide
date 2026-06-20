@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use engineioxide::{Packet, ProtocolVersion};
 use socketioxide::{adapter::Adapter, extract::SocketRef};
 mod fixture;
 
@@ -97,7 +98,7 @@ pub async fn broadcast_with_ack() {
     timeout_rcv!(&mut rx2); // Connect "/" packet
 
     assert_eq!(timeout_rcv!(&mut rx2), r#"421["test","bar"]"#);
-    let packet_res = r#"431["foo"]"#.to_string().try_into().unwrap();
+    let packet_res = Packet::parse(ProtocolVersion::V4, r#"431["foo"]"#).unwrap();
     tx2.try_send(packet_res).unwrap();
     assert_eq!(timeout_rcv!(&mut rx1), r#"42["ack_res",{"Ok":"foo"}]"#);
 

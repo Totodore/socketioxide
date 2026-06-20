@@ -55,6 +55,7 @@ socketioxide = { path = "../socketioxide", features = [
     "tracing",
     "__test_harness",
 ] }
+engineioxide = { path = "../engineioxide" }
 tracing-subscriber.workspace = true
 
 # docs.rs-specific configuration
