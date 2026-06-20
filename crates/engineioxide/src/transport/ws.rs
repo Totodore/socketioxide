@@ -21,7 +21,7 @@ use tokio_tungstenite::{
     },
 };
 
-use engineioxide_core::{Sid, Str};
+use engineioxide_core::Sid;
 
 use crate::{
     DisconnectReason, Socket,
@@ -203,7 +203,7 @@ where
 {
     while let Some(msg) = rx.try_next().await? {
         match msg {
-            Message::Text(msg) => match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
+            Message::Text(msg) => match Packet::try_from(msg)? {
                 Packet::Close => break,
                 Packet::Pong | Packet::Ping => socket
                     .heartbeat_tx
@@ -369,7 +369,7 @@ where
         Some(Ok(Message::Text(d))) => d,
         _ => Err(Error::Upgrade)?,
     };
-    match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
+    match Packet::try_from(msg)? {
         Packet::PingUpgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("received first ping upgrade");
@@ -394,7 +394,7 @@ where
             Err(Error::Upgrade)?
         }
     };
-    match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
+    match Packet::try_from(msg)? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("ws upgraded successfully")
@@ -404,9 +404,4 @@ where
 
     socket.upgrade_to_websocket();
     Ok(())
-}
-
-fn utf8_bytes_to_str(bytes: tokio_tungstenite::tungstenite::Utf8Bytes) -> Str {
-    // SAFETY: the bytes are guaranteed to be valid UTF-8 by the tungstenite parser
-    unsafe { Str::from_bytes_unchecked(bytes.into()) }
 }

@@ -9,7 +9,7 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use http::StatusCode;
 
-use crate::{ProtocolVersion, errors::Error, packet::Packet};
+use crate::{errors::Error, packet::Packet};
 use bytes::Buf;
 use http_body::Body;
 use http_body_util::BodyStream;
@@ -112,7 +112,7 @@ where
             {
                 let packet = String::from_utf8(packet_buf)
                     .map_err(|_| Error::InvalidPacketLength)
-                    .and_then(|v| Packet::parse(ProtocolVersion::V4, v)); // Convert the packet buffer to a Packet object
+                    .and_then(Packet::try_from); // Convert the packet buffer to a Packet object
                 break Some((packet, state)); // Emit the packet and the updated state
             } else if state.end_of_stream && state.buffer.remaining() == 0 {
                 break None; // Reached end of stream with no more data, end the stream
@@ -182,7 +182,7 @@ where
 
                     let size_str = &packet_buf[1..]
                         .iter()
-                        .map(|b| (b + 48) as char)
+                        .map(|b| (b.wrapping_add(b'0')) as char)
                         .collect::<String>();
                     if let Ok(size) = size_str.parse() {
                         packet_size = size;
@@ -205,7 +205,7 @@ where
                 let packet = match packet_type.unwrap() {
                     STRING_PACKET_IDENTIFIER_V3 => String::from_utf8(packet_buf)
                         .map_err(|_| Error::InvalidPacketLength)
-                        .and_then(|v| Packet::parse(ProtocolVersion::V3, v)), // Convert the packet buffer to a Packet object
+                        .and_then(Packet::try_from), // Convert the packet buffer to a Packet object
                     BINARY_PACKET_IDENTIFIER_V3 => Ok(Packet::BinaryV3(packet_buf.into())),
                     _ => Err(Error::InvalidPacketLength),
                 };
@@ -341,8 +341,7 @@ pub fn v3_string_decoder(
                 if packet.graphemes(true).count() == packet_graphemes_len {
                     // SAFETY: packet_buf is a valid utf8 string checkd above
                     let packet = unsafe { String::from_utf8_unchecked(packet_buf) };
-                    let packet = Packet::parse(ProtocolVersion::V3, packet)
-                        .map_err(|_| Error::InvalidPacketLength);
+                    let packet = Packet::try_from(packet).map_err(|_| Error::InvalidPacketLength);
                     state.yield_packets += 1;
                     break Some((packet, state)); // Emit the packet and the updated state
                 }

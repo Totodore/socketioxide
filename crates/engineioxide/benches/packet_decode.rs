@@ -8,7 +8,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet: String = Packet::Ping.into();
         b.iter_batched(
             || packet.clone(),
-            |p| Packet::parse(engineioxide::ProtocolVersion::V4, p).unwrap(),
+            |p| Packet::try_from(p).unwrap(),
             BatchSize::SmallInput,
         )
     });
@@ -16,7 +16,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet: String = Packet::PingUpgrade.into();
         b.iter_batched(
             || packet.clone(),
-            |p| Packet::parse(engineioxide::ProtocolVersion::V4, p).unwrap(),
+            |p| Packet::try_from(p).unwrap(),
             BatchSize::SmallInput,
         )
     });
@@ -24,7 +24,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet: String = Packet::Message(black_box("Hello").into()).into();
         b.iter_batched(
             || packet.clone(),
-            |p| Packet::parse(engineioxide::ProtocolVersion::V4, p).unwrap(),
+            |p| Packet::try_from(p).unwrap(),
             BatchSize::SmallInput,
         )
     });
@@ -32,7 +32,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet: String = Packet::Noop.into();
         b.iter_batched(
             || packet.clone(),
-            |p| Packet::parse(engineioxide::ProtocolVersion::V4, p).unwrap(),
+            |p| Packet::try_from(p).unwrap(),
             BatchSize::SmallInput,
         )
     });
@@ -41,7 +41,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let packet: String = Packet::Binary(BYTES).into();
         b.iter_batched(
             || packet.clone(),
-            |p| Packet::parse(engineioxide::ProtocolVersion::V4, p).unwrap(),
+            |p| Packet::try_from(p).unwrap(),
             BatchSize::SmallInput,
         )
     });

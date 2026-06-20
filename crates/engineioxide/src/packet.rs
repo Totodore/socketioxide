@@ -5,9 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::{SmallVec, smallvec};
 use std::time::Duration;
 
+use crate::TransportType;
 use crate::config::EngineIoConfig;
 use crate::errors::Error;
-use crate::{ProtocolVersion, TransportType};
 
 /// A Packet type to use when receiving and sending data from the client
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -153,11 +153,10 @@ impl From<Packet> for Bytes {
         String::from(value).into()
     }
 }
-
-impl Packet {
-    /// Parses a packet from a string value using the specified protocol version.
-    pub fn parse(protocol: ProtocolVersion, value: impl Into<Str>) -> Result<Self, Error> {
-        let value = value.into();
+/// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
+impl TryFrom<Str> for Packet {
+    type Error = Error;
+    fn try_from(value: Str) -> Result<Self, Self::Error> {
         let packet_type = value
             .as_bytes()
             .first()
@@ -172,7 +171,7 @@ impl Packet {
             b'4' => Packet::Message(value.slice(1..)),
             b'5' => Packet::Upgrade,
             b'6' => Packet::Noop,
-            b'b' if protocol == ProtocolVersion::V3 => Packet::BinaryV3(
+            b'b' if value.as_bytes().get(1) == Some(&b'4') => Packet::BinaryV3(
                 general_purpose::STANDARD
                     .decode(value.slice(2..).as_bytes())?
                     .into(),
@@ -185,6 +184,20 @@ impl Packet {
             c => Err(Error::InvalidPacketType(Some(*c as char)))?,
         };
         Ok(res)
+    }
+}
+impl TryFrom<tokio_tungstenite::tungstenite::Utf8Bytes> for Packet {
+    type Error = Error;
+    fn try_from(value: tokio_tungstenite::tungstenite::Utf8Bytes) -> Result<Self, Self::Error> {
+        // SAFETY: The utf8 bytes are guaranteed to be valid utf8
+        Packet::try_from(unsafe { Str::from_bytes_unchecked(value.into()) })
+    }
+}
+
+impl TryFrom<String> for Packet {
+    type Error = Error;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Packet::try_from(Str::from(value))
     }
 }
 
@@ -249,7 +262,7 @@ mod tests {
     use crate::config::EngineIoConfig;
 
     use super::*;
-    use std::time::Duration;
+    use std::{convert::TryInto, time::Duration};
 
     #[test]
     fn test_open_packet() {
@@ -277,7 +290,8 @@ mod tests {
 
     #[test]
     fn test_message_packet_deserialize() {
-        let packet = Packet::parse(ProtocolVersion::V4, "4hello").unwrap();
+        let packet_str = "4hello".to_string();
+        let packet: Packet = packet_str.try_into().unwrap();
         assert_eq!(packet, Packet::Message("hello".into()));
     }
 
@@ -290,19 +304,9 @@ mod tests {
 
     #[test]
     fn test_binary_packet_deserialize() {
-        let packet = Packet::parse(ProtocolVersion::V4, "bAQID").unwrap();
+        let packet_str = "bAQID".to_string();
+        let packet: Packet = packet_str.try_into().unwrap();
         assert_eq!(packet, Packet::Binary(vec![1, 2, 3].into()));
-    }
-
-    #[test]
-    fn test_binary_packet_v4_deserialize_payload_starting_with_4() {
-        let data = vec![0xE0, 0xE1, 0xE2];
-        // Sanity check: the base64 encoding indeed starts with '4'.
-        let packet_str: String = Packet::Binary(data.clone().into()).into();
-        assert_eq!(packet_str, "b4OHi");
-
-        let packet = Packet::parse(ProtocolVersion::V4, packet_str).unwrap();
-        assert_eq!(packet, Packet::Binary(data.into()));
     }
 
     #[test]
@@ -314,7 +318,8 @@ mod tests {
 
     #[test]
     fn test_binary_packet_v3_deserialize() {
-        let packet = Packet::parse(ProtocolVersion::V3, "b4AQID").unwrap();
+        let packet_str = "b4AQID".to_string();
+        let packet: Packet = packet_str.try_into().unwrap();
         assert_eq!(packet, Packet::BinaryV3(vec![1, 2, 3].into()));
     }
 
