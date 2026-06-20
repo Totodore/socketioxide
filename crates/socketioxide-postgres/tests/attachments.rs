@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use engineioxide::Packet;
 use socketioxide::{adapter::Adapter, extract::SocketRef};
 use socketioxide_postgres::PostgresAdapterConfig;
 
@@ -160,8 +161,11 @@ async fn ack_stream_with_large_responses() {
     // Server 2's socket sees the emit-with-ack request and answers with a large payload.
     timeout_rcv!(&mut rx2, 100);
     let big_ack = filler(4096);
-    let packet_res = format!(r#"431["{big_ack}"]"#).try_into().unwrap();
-    tx2.try_send(packet_res).unwrap();
+    let packet_res = Packet::parse(
+        engineioxide::ProtocolVersion::V4,
+        format!(r#"431["{big_ack}"]"#),
+    );
+    tx2.try_send(packet_res.unwrap()).unwrap();
 
     // Server 1's socket receives the forwarded ack payload.
     let received = timeout_rcv!(&mut rx1, 500);
