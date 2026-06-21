@@ -4,7 +4,7 @@
 //! Other functions are used internally to handle the websocket connection through tasks and channels
 //! and to handle upgrade from polling to ws
 
-use std::sync::Arc;
+use std::{ops::ControlFlow, sync::Arc};
 
 use futures_util::{
     SinkExt, StreamExt, TryStreamExt,
@@ -15,7 +15,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
-        Message,
+        Message, Utf8Bytes,
         handshake::derive_accept_key,
         protocol::{Role, WebSocketConfig},
     },
@@ -250,57 +250,76 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
 {
     let mut internal_rx = socket.internal_rx.try_lock().unwrap();
 
-    // map a packet to a websocket message
-    // It is declared as a macro rather than a closure to avoid ownership issues
-    macro_rules! map_fn {
-            ($item:ident) => {
-                let res = match $item {
-                    Packet::Binary(bin) | Packet::BinaryV3(bin) => {
-                        if socket.protocol == ProtocolVersion::V3 {
-                            // v3 protocol requires packet type as the first byte.
-                            // This requires a new buffer. This is OK as it is only for the V3 protocol.
-                            let mut buff = Vec::with_capacity(bin.len() + 1);
-                            buff.push(0x04);
-                            buff.extend(bin);
-                            tx.feed(Message::Binary(buff.into())).await
-                        } else {
-                            tx.feed(Message::Binary(bin)).await
+    loop {
+        match internal_rx.recv().await {
+            Some(packets) => {
+                for packet in packets {
+                    if feed_tx(&mut tx, packet, &socket).await == ControlFlow::Break(()) {
+                        break;
+                    }
+                }
+                // For every available packet we continue to send until the channel is drained
+                while let Ok(packets) = internal_rx.try_recv() {
+                    for packet in packets {
+                        if feed_tx(&mut tx, packet, &socket).await == ControlFlow::Break(()) {
+                            break;
                         }
                     }
-                    Packet::Close => {
-                        tx.send(Message::Close(None)).await.ok();
-                        internal_rx.close();
-                        break;
-                    },
-                    // A Noop Packet maybe sent by the server to upgrade from a polling connection
-                    // In the case that the packet was not poll in time it will remain in the buffer and therefore
-                    // it should be discarded here
-                    Packet::Noop => Ok(()),
-                    _ => {
-                        let packet: String = $item.try_into().unwrap();
-                        tx.feed(Message::Text(packet.into())).await
-                    }
-                };
-                if let Err(_e) = res {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("[sid={}] error sending packet: {}", socket.id, _e);
                 }
-            };
-        }
-
-    while let Some(items) = internal_rx.recv().await {
-        for item in items {
-            map_fn!(item);
-        }
-        // For every available packet we continue to send until the channel is drained
-        while let Ok(items) = internal_rx.try_recv() {
-            for item in items {
-                map_fn!(item);
+                tx.flush().await.ok();
             }
+            None => break,
         }
 
         tx.flush().await.ok();
     }
+}
+
+/// Helper that will feed the sink with the current packet.
+///
+/// Return [`ControlFlow::Break`] if we return a [`Packet::close`] and
+/// that we should stop everything.
+async fn feed_tx<S, D>(
+    tx: &mut SplitSink<WebSocketStream<S>, Message>,
+    packet: Packet,
+    socket: &Socket<D>,
+) -> ControlFlow<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    D: Default + Send + Sync + 'static,
+{
+    let res = match packet {
+        Packet::Binary(bin) | Packet::BinaryV3(bin) => {
+            if socket.protocol == ProtocolVersion::V3 {
+                // v3 protocol requires packet type as the first byte.
+                // This requires a new buffer. This is OK as it is only for the V3 protocol.
+                let mut buff = Vec::with_capacity(bin.len() + 1);
+                buff.push(0x04);
+                buff.extend(bin);
+                tx.feed(Message::Binary(buff.into())).await
+            } else {
+                tx.feed(Message::Binary(bin.clone())).await
+            }
+        }
+        Packet::Close => {
+            tx.send(Message::Close(None)).await.ok();
+            return ControlFlow::Break(());
+        }
+        // A Noop Packet maybe sent by the server to upgrade from a polling connection
+        // In the case that the packet was not poll in time it will remain in the buffer and therefore
+        // it should be discarded here
+        Packet::Noop => Ok(()),
+        _ => {
+            tx.feed(Message::Text(Utf8Bytes::from(String::from(packet))))
+                .await
+        }
+    };
+    if let Err(_e) = res {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(sid = %socket.id, "failed to send packet to websocket: {}", _e);
+    }
+
+    ControlFlow::Continue(())
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
 async fn init_handshake<S>(
