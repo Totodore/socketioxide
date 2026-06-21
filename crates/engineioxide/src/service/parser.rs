@@ -263,7 +263,7 @@ impl RequestInfo {
         #[cfg(feature = "v3")]
         let b64: bool = query
             .split('&')
-            .find(|s| s.starts_with("b64="))
+            .find_map(|s| s.strip_prefix("b64="))
             .map(|v| v == "1" || v == "true")
             .unwrap_or_default();
 
