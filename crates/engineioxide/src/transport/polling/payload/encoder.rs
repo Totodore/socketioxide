@@ -160,11 +160,9 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
     use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
     use bytes::BufMut;
     let packet: String = packet.into();
-    // Engine.IO v3 length is the number of UTF-16 code units in the packet,
-    // matching the reference JS client/server which use `String.prototype.length`.
     let packet = format!(
         "{}{}{}",
-        packet.encode_utf16().count(),
+        packet.encode_utf16().count(), // The protocol uses in UTF16 code points for packet size because of JS
         STRING_PACKET_SEPARATOR_V3 as char,
         packet
     );

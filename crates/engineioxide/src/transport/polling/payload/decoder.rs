@@ -325,20 +325,26 @@ pub fn v3_string_decoder(
             // Read bytes from the buffer until the packet length is reached
 
             // Read the next chunk of data from the chunk list
-            let data: &[u8] = reader.fill_buf().unwrap();
+            let data: &[u8] = reader.fill_buf().unwrap(); // fill_buf is infallible.
 
             let old_len = packet_buf.len();
             packet_buf.extend_from_slice(data);
             let truncate_to = |s: &str| utf16_byte_offset(s, packet_utf16_len);
+
+            // try to decode the packet buf, if there is still not enough data we consume
+            // everything and continue polling.
             let byte_read = match std::str::from_utf8(&packet_buf) {
                 Ok(fulldata) => match truncate_to(fulldata) {
                     Some(i) => {
                         packet_buf.truncate(i);
                         packet_buf.len() - old_len
                     }
-                    None => data.len(),
+                    None => data.len(), // not enough data, we consume everything
                 },
                 Err(e) => {
+                    // packet buf is in the middle of a char boundary. We get the available data and try to extract
+                    // packets.
+
                     // SAFETY: packet_buf is a valid utf8 string checkd above
                     let chunk =
                         unsafe { std::str::from_utf8_unchecked(&packet_buf[..e.valid_up_to()]) };
@@ -408,7 +414,6 @@ mod tests {
     async fn payload_stream_v4() {
         const DATA: &[u8] = "4foo\x1e4€f\x1e4fo".as_bytes();
         for i in 1..DATA.len() {
-            println!("payload stream v4 chunk size: {i}");
             let stream = StreamBody::new(futures_util::stream::iter(
                 DATA.chunks(i)
                     .map(Frame::data)
@@ -516,7 +521,6 @@ mod tests {
     async fn string_payload_stream_v3() {
         const DATA: &[u8] = "4:4foo3:4€f11:4baaaaaaaar".as_bytes();
         for i in 1..DATA.len() {
-            println!("payload stream v3 chunk size: {i}");
             let stream = StreamBody::new(futures_util::stream::iter(
                 DATA.chunks(i)
                     .map(Frame::data)
@@ -550,7 +554,6 @@ mod tests {
         const BINARY_PAYLOAD: &[u8] = &[1, 2, 3, 4];
 
         for i in 1..PAYLOAD.len() {
-            println!("payload stream v3 chunk size: {i}");
             let stream = StreamBody::new(futures_util::stream::iter(
                 PAYLOAD
                     .chunks(i)
@@ -617,5 +620,107 @@ mod tests {
             let packet = payload.next().await.unwrap();
             assert!(matches!(packet, Err(Error::PayloadTooLarge)));
         }
+    }
+
+    // (1) Same payload as `string_payload_v3_utf16_length`, but fed through the
+    // stream in chunks of every size. This exercises the `Err(valid_up_to())`
+    // path where the 4-byte `𝕊` (2 UTF-16 code units) is split across chunk
+    // boundaries, combined with the UTF-16 length accounting and truncation.
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn string_payload_stream_v3_utf16_length() {
+        const DATA: &[u8] = "3:4𝕊3:4ab".as_bytes();
+        for i in 1..DATA.len() {
+            let stream = StreamBody::new(futures_util::stream::iter(
+                DATA.chunks(i)
+                    .map(Frame::data)
+                    .map(Ok::<_, std::convert::Infallible>),
+            ));
+            let payload = v3_string_decoder(stream, MAX_PAYLOAD);
+            futures_util::pin_mut!(payload);
+            assert!(matches!(
+                payload.next().await.unwrap().unwrap(),
+                Packet::Message(msg) if msg == "𝕊"
+            ));
+            assert!(matches!(
+                payload.next().await.unwrap().unwrap(),
+                Packet::Message(msg) if msg == "ab"
+            ));
+            assert!(payload.next().await.is_none());
+        }
+    }
+
+    // (2) The declared length cuts in the middle of a surrogate pair: the
+    // content "4𝕊" is 3 UTF-16 code units but the header declares 2, landing
+    // the boundary between the two code units of `𝕊`. `utf16_byte_offset` cuts
+    // after the whole char (count > target), so the UTF-16 length check must
+    // reject the packet rather than mis-decode it or loop forever.
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn string_payload_v3_surrogate_straddle_rejected() {
+        let data = Full::new(Bytes::from("2:4𝕊"));
+        let payload = v3_string_decoder(data, MAX_PAYLOAD);
+        let result = tokio::time::timeout(std::time::Duration::from_millis(200), async {
+            futures_util::pin_mut!(payload);
+            payload.next().await
+        })
+        .await
+        .expect("v3_string_decoder hung on surrogate-straddling length");
+        assert!(matches!(result, Some(Err(_)) | None));
+    }
+
+    // (3) Direct unit tests for the UTF-16 helpers.
+    #[cfg(feature = "v3")]
+    #[test]
+    fn utf16_byte_offset_unit() {
+        // target 0 always yields offset 0
+        assert_eq!(utf16_byte_offset("", 0), Some(0));
+        assert_eq!(utf16_byte_offset("abc", 0), Some(0));
+
+        // pure ASCII: 1 byte == 1 UTF-16 code unit
+        assert_eq!(utf16_byte_offset("abc", 2), Some(2));
+        assert_eq!(utf16_byte_offset("abc", 3), Some(3));
+        assert_eq!(utf16_byte_offset("abc", 5), None); // too short
+
+        // `€` is 3 UTF-8 bytes but a single UTF-16 code unit
+        assert_eq!(utf16_byte_offset("€", 1), Some(3));
+
+        // `𝕊` is 4 UTF-8 bytes and 2 UTF-16 code units
+        assert_eq!(utf16_byte_offset("𝕊", 2), Some(4));
+        // straddle: asking for 1 code unit still cuts after the whole char
+        assert_eq!(utf16_byte_offset("𝕊", 1), Some(4));
+
+        // mixed: '4' (1 unit) + `𝕊` (2 units)
+        assert_eq!(utf16_byte_offset("4𝕊", 3), Some(5));
+        assert_eq!(utf16_byte_offset("4𝕊", 2), Some(5)); // straddle past target
+        assert_eq!(utf16_byte_offset("4𝕊", 10), None); // too short
+    }
+
+    #[cfg(feature = "v3")]
+    #[test]
+    fn utf16_len_unit() {
+        assert_eq!(utf16_len(""), 0);
+        assert_eq!(utf16_len("abc"), 3);
+        assert_eq!(utf16_len("€f"), 2);
+        assert_eq!(utf16_len("𝕊"), 2);
+        assert_eq!(utf16_len("4𝕊"), 3);
+    }
+
+    // (4) The header declares a 10 UTF-16 code unit packet but the body ends
+    // after only 3 ("4ab"). The decoder must terminate (error or end-of-stream)
+    // rather than spin forever waiting on data that will never arrive. This is
+    // the string-side analog of `binary_payload_truncated_v3`.
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn string_payload_truncated_v3() {
+        let data = Full::new(Bytes::from("10:4ab"));
+        let payload = v3_string_decoder(data, MAX_PAYLOAD);
+        let result = tokio::time::timeout(std::time::Duration::from_millis(200), async {
+            futures_util::pin_mut!(payload);
+            payload.next().await
+        })
+        .await
+        .expect("v3_string_decoder hung on truncated packet");
+        assert!(matches!(result, Some(Err(_)) | None));
     }
 }
