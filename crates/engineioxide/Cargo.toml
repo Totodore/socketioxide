@@ -1,7 +1,7 @@
 [package]
 name = "engineioxide"
 description = "Engine IO server implementation as a Tower Service."
-version = "0.17.4"
+version = "0.17.5"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

@@ -1,3 +1,6 @@
+# engineioxide 0.17.5
+fix: v3 packet header in polling payload should have a size in utf-16 code points.
+
 # engineioxide 0.17.4
 * MSRV: rust-version is now 1.94
 * fix: issue [#731](https://github.com/Totodore/socketioxide/issues/731). Memory leak with unclaimed engine.io sessions whose WebSocket upgrade is started but never completed.
