@@ -33,6 +33,7 @@ use crate::{
     packet::{OpenPacket, Packet},
     service::ProtocolVersion,
     service::TransportType,
+    socket::PacketBuf,
 };
 
 /// Create a response for websocket upgrade
@@ -251,33 +252,49 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
     let mut internal_rx = socket.internal_rx.try_lock().unwrap();
 
     loop {
-        match internal_rx.recv().await {
-            Some(packets) => {
-                for packet in packets {
-                    if feed_tx(&mut tx, packet, &socket).await == ControlFlow::Break(()) {
-                        break;
-                    }
-                }
-                // For every available packet we continue to send until the channel is drained
-                while let Ok(packets) = internal_rx.try_recv() {
-                    for packet in packets {
-                        if feed_tx(&mut tx, packet, &socket).await == ControlFlow::Break(()) {
-                            break;
-                        }
-                    }
-                }
-                tx.flush().await.ok();
-            }
-            None => break,
-        }
+        let Some(packets) = internal_rx.recv().await else {
+            break;
+        };
 
+        let mut should_close = feed_all(&mut tx, packets, &socket).await.is_break();
+        // For every available packet we continue to send until the channel is drained
+        while !should_close {
+            match internal_rx.try_recv() {
+                Ok(packets) => should_close = feed_all(&mut tx, packets, &socket).await.is_break(),
+                Err(_) => break,
+            }
+        }
         tx.flush().await.ok();
+
+        // A `Packet::Close` was sent: close the channel so that pending senders
+        // are notified and stop forwarding.
+        if should_close {
+            internal_rx.close();
+            break;
+        }
     }
+}
+
+/// Feeds a batch of packets to the sink, stopping early and returning
+/// [`ControlFlow::Break`] as soon as a [`Packet::Close`] is encountered.
+async fn feed_all<S, D>(
+    tx: &mut SplitSink<WebSocketStream<S>, Message>,
+    packets: PacketBuf,
+    socket: &Socket<D>,
+) -> ControlFlow<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    D: Default + Send + Sync + 'static,
+{
+    for packet in packets {
+        feed_tx(tx, packet, socket).await?;
+    }
+    ControlFlow::Continue(())
 }
 
 /// Helper that will feed the sink with the current packet.
 ///
-/// Return [`ControlFlow::Break`] if we return a [`Packet::close`] and
+/// Return [`ControlFlow::Break`] if we return a [`Packet::Close`] and
 /// that we should stop everything.
 async fn feed_tx<S, D>(
     tx: &mut SplitSink<WebSocketStream<S>, Message>,
@@ -298,7 +315,7 @@ where
                 buff.extend(bin);
                 tx.feed(Message::Binary(buff.into())).await
             } else {
-                tx.feed(Message::Binary(bin.clone())).await
+                tx.feed(Message::Binary(bin)).await
             }
         }
         Packet::Close => {
