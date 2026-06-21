@@ -812,7 +812,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.17.3"
+version = "0.17.4"
 dependencies = [
  "axum",
  "base64",
@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.18.3"
+version = "0.18.4"
 dependencies = [
  "axum",
  "bytes",

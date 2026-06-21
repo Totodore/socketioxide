@@ -182,7 +182,7 @@ where
 
                     let size_str = &packet_buf[1..]
                         .iter()
-                        .map(|b| (b + 48) as char)
+                        .map(|b| (b.wrapping_add(b'0')) as char)
                         .collect::<String>();
                     if let Ok(size) = size_str.parse() {
                         packet_size = size;
