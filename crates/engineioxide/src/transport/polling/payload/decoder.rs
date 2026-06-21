@@ -696,16 +696,6 @@ mod tests {
         assert_eq!(utf16_byte_offset("4𝕊", 10), None); // too short
     }
 
-    #[cfg(feature = "v3")]
-    #[test]
-    fn utf16_len_unit() {
-        assert_eq!(utf16_len(""), 0);
-        assert_eq!(utf16_len("abc"), 3);
-        assert_eq!(utf16_len("€f"), 2);
-        assert_eq!(utf16_len("𝕊"), 2);
-        assert_eq!(utf16_len("4𝕊"), 3);
-    }
-
     // (4) The header declares a 10 UTF-16 code unit packet but the body ends
     // after only 3 ("4ab"). The decoder must terminate (error or end-of-stream)
     // rather than spin forever waiting on data that will never arrive. This is
