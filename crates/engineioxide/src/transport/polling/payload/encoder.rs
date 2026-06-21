@@ -75,12 +75,25 @@ async fn recv_packet(
 pub async fn v4_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
+    volatile_packets: Vec<PacketBuf>,
 ) -> Result<Payload, Error> {
     use crate::transport::polling::payload::PACKET_SEPARATOR_V4;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("encoding payload with v4 encoder");
     let mut data: String = String::new();
+
+    // Encode volatile packets first so they bypass the main channel backlog
+    for packets in volatile_packets {
+        for packet in packets {
+            let packet: String = packet.into();
+
+            if !data.is_empty() {
+                data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
+            }
+            data.push_str(&packet);
+        }
+    }
 
     // Send all packets in the buffer
     const PUNCTUATION_LEN: usize = 1;
@@ -175,6 +188,7 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
 pub async fn v3_binary_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
+    volatile_packets: Vec<PacketBuf>,
 ) -> Result<Payload, Error> {
     let mut data = bytes::BytesMut::new();
     let mut packet_buffer: Vec<Packet> = Vec::new();
@@ -188,6 +202,18 @@ pub async fn v3_binary_encoder(
     tracing::debug!("encoding payload with v3 binary encoder");
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
+
+    // Encode volatile packets first so they bypass the main channel backlog
+    for packets in volatile_packets {
+        for packet in packets {
+            if packet.is_binary() {
+                has_binary = true;
+            }
+            const PUNCTUATION_LEN: usize = 2;
+            estimated_size += packet.get_size_hint(false) + max_packet_size_len + PUNCTUATION_LEN;
+            packet_buffer.push(packet);
+        }
+    }
 
     while let Some(packets) = try_recv_packet(&mut rx, estimated_size, max_payload, false) {
         for packet in packets {
@@ -236,6 +262,7 @@ pub async fn v3_binary_encoder(
 pub async fn v3_string_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
+    volatile_packets: Vec<PacketBuf>,
 ) -> Result<Payload, Error> {
     let mut data = bytes::BytesMut::new();
 
@@ -245,6 +272,14 @@ pub async fn v3_string_encoder(
     const PUNCTUATION_LEN: usize = 2;
     // number of digits of the max packet size, used to approximate the payload size
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
+
+    // Encode volatile packets first so they bypass the main channel backlog
+    for packets in volatile_packets {
+        for packet in packets {
+            v3_string_packet_encoder(packet, &mut data);
+        }
+    }
+
     while let Some(packets) = try_recv_packet(
         &mut rx,
         data.len() + PUNCTUATION_LEN + max_packet_size_len,
@@ -291,7 +326,7 @@ mod tests {
         .unwrap();
         tx.try_send(smallvec::smallvec![Packet::Message("hello€".into())])
             .unwrap();
-        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
     }
 
@@ -309,7 +344,7 @@ mod tests {
             ])
             .unwrap();
         });
-        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
         assert_eq!(data, PAYLOAD);
     }
 
@@ -330,17 +365,17 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
             assert_eq!(data, "4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10, vec![]).await.unwrap();
             assert_eq!(data, "bAQIDBA==\x1e4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10, vec![]).await.unwrap();
             assert_eq!(data, "4hello€".as_bytes());
         }
     }
@@ -380,7 +415,7 @@ mod tests {
             .unwrap();
         let Payload {
             data, has_binary, ..
-        } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        } = v3_string_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
         assert!(!has_binary);
     }
@@ -404,18 +439,22 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
             assert_eq!(data, "7:4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10, vec![])
+                .await
+                .unwrap();
             assert_eq!(data, "10:b4AQIDBA==".as_bytes());
         }
         {
             // Next call drains one of the remaining Message packets.
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10, vec![])
+                .await
+                .unwrap();
             assert_eq!(data, "7:4hello€".as_bytes());
         }
     }
@@ -438,7 +477,7 @@ mod tests {
         .unwrap();
         let Payload {
             data, has_binary, ..
-        } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }
@@ -467,7 +506,7 @@ mod tests {
         });
         let Payload {
             data, has_binary, ..
-        } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }
@@ -495,12 +534,12 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
             assert_eq!(*data, PAYLOAD);
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
             assert_eq!(data, "7:4hello€7:4hello€".as_bytes());
         }
     }

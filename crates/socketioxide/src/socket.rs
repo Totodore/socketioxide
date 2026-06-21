@@ -309,30 +309,21 @@ impl<A: Adapter> VolatileSocket<'_, A> {
     pub fn emit<T: ?Sized + Serialize>(&self, event: impl AsRef<str>, data: &T) {
         if !self.socket.connected() {
             #[cfg(feature = "tracing")]
-            tracing::debug!(?self.socket.id, "dropping volatile event: socket not connected");
+            tracing::debug!(
+                ?self.socket.id,
+                "dropping volatile event: socket not connected"
+            );
             return;
         }
 
-        let permit = match self.socket.reserve() {
-            Ok(permit) => permit,
-            Err(_e) => {
-                #[cfg(feature = "tracing")]
-                tracing::debug!(?_e, ?self.socket.id, "dropping volatile event: cannot reserve");
-                return;
-            }
-        };
-
         let ns = self.socket.ns.path.clone();
-        let data = match self.socket.parser.encode_value(data, Some(event.as_ref())) {
-            Ok(data) => data,
-            Err(_e) => {
-                #[cfg(feature = "tracing")]
-                tracing::debug!(?_e, "dropping volatile event: encode error");
-                return;
-            }
+        let Ok(data) = self.socket.parser.encode_value(data, Some(event.as_ref())) else {
+            return;
         };
 
-        permit.send(Packet::event(ns, data), self.socket.parser);
+        let packet = Packet::event(ns, data);
+        self.socket
+            .send_raw_volatile(self.socket.parser.encode(packet));
     }
 
     #[doc = include_str!("../docs/operators/to.md")]
@@ -847,6 +838,20 @@ impl<A: Adapter> Socket<A> {
         let permit = self.reserve()?;
         permit.send_raw(value);
         Ok(())
+    }
+
+    pub(crate) fn send_raw_volatile(&self, value: Value) {
+        match value {
+            Value::Str(msg, None) => {
+                self.esocket.emit_volatile(msg);
+            }
+            Value::Str(msg, Some(bin_payloads)) => {
+                self.esocket.emit_many_volatile(msg, bin_payloads);
+            }
+            Value::Bytes(bin) => {
+                self.esocket.emit_binary_volatile(bin);
+            }
+        }
     }
 
     pub(crate) fn send_with_ack_permit(

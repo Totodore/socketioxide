@@ -207,6 +207,12 @@ pub trait SocketEmitter: Send + Sync + 'static {
     fn get_remote_sockets(&self, sids: BroadcastIter<'_>) -> Vec<RemoteSocketData>;
     /// Send data to the list of socket ids.
     fn send_many(&self, sids: BroadcastIter<'_>, data: Value) -> Result<(), Vec<SocketError>>;
+    /// Send data to the list of socket ids with volatile semantics.
+    /// Errors are silently discarded; packets may be dropped if the
+    /// transport is not ready.
+    fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value) {
+        _ = self.send_many(sids, data);
+    }
     /// Send data to the list of socket ids and get a stream of acks and the number of expected acks.
     fn send_many_with_ack(
         &self,
@@ -438,7 +444,7 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         let is_volatile = opts.has_flag(BroadcastFlags::Volatile);
         let data = self.emitter.parser().encode(packet);
         if is_volatile {
-            _ = self.emitter.send_many(sids, data);
+            self.emitter.send_many_volatile(sids, data);
             Ok(())
         } else {
             self.emitter.send_many(sids, data)

@@ -249,6 +249,7 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+    let mut volatile_rx = socket.volatile_rx.clone();
 
     // map a packet to a websocket message
     // It is declared as a macro rather than a closure to avoid ownership issues
@@ -288,18 +289,40 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
             };
         }
 
-    while let Some(items) = internal_rx.recv().await {
-        for item in items {
-            map_fn!(item);
-        }
-        // For every available packet we continue to send until the channel is drained
-        while let Ok(items) = internal_rx.try_recv() {
-            for item in items {
-                map_fn!(item);
+    loop {
+        tokio::select! {
+            // Priority: main channel is checked first so regular events
+            // are never starved by a flood of volatile ones.
+            items = internal_rx.recv() => {
+                match items {
+                    Some(items) => {
+                        for item in items {
+                            map_fn!(item);
+                        }
+                        // For every available packet we continue to send until the channel is drained
+                        while let Ok(items) = internal_rx.try_recv() {
+                            for item in items {
+                                map_fn!(item);
+                            }
+                        }
+                        tx.flush().await.ok();
+                    }
+                    None => break,
+                }
+            }
+            // Lower priority: volatile watch channel.
+            // Only the latest volatile message is retained; earlier ones
+            // are overwritten if they haven't been consumed yet.
+            Ok(()) = volatile_rx.changed() => {
+                let value = volatile_rx.borrow_and_update().clone();
+                if let Some(packets) = value {
+                    for item in packets {
+                        map_fn!(item);
+                    }
+                    tx.flush().await.ok();
+                }
             }
         }
-
-        tx.flush().await.ok();
     }
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
