@@ -1,3 +1,6 @@
+# socketioxide 0.18.4
+* docs: document accessing state from custom extractors
+
 # socketioxide 0.18.3
 * fix: race condition when emitting with acknowledgement.
 * feat: expose global configured ack timeout to adapter implementations
