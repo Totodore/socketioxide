@@ -504,6 +504,9 @@ where
     /// Try to send a volatile message bypassing the internal buffer channel.
     /// Volatile messages may be dropped if the transport is not ready to
     /// receive them.
+    ///
+    /// Because volatile messages bypass the main mpsc buffer queue, they may
+    /// arrive out of order relative to regular messages.
     #[inline]
     pub fn emit_volatile(&self, msg: impl Into<Str>) -> bool {
         self.send_volatile(smallvec![Packet::Message(msg.into())])

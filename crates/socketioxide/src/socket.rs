@@ -284,6 +284,11 @@ impl From<BroadcastError> for RemoteActionError {
 /// (e.g. the underlying connection is buffering or the socket is not connected).
 /// This is useful for events that are not critical, such as position updates in a game.
 ///
+/// Because volatile events use a separate channel that bypasses the main
+/// mpsc buffer, they may arrive **out of order** relative to regular events
+/// emitted around the same time. Only use volatile when ordering relative to
+/// regular events is not important.
+///
 /// See [socket.io volatile events](https://socket.io/docs/v4/emitting-events/#volatile-events).
 ///
 /// # Example
