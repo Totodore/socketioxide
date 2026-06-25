@@ -34,7 +34,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Get releasing version
         working-directory: ${{ matrix.package.path }}
