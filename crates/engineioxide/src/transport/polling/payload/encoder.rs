@@ -393,7 +393,7 @@ mod tests {
         let rx = mutex.lock().await;
         tx.try_send(smallvec::smallvec![Packet::Message("𝕊".into())])
             .unwrap();
-        let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
     }
 
