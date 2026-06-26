@@ -130,15 +130,7 @@ where
 
     let max_payload = engine.config.max_payload;
 
-    // Read the latest volatile packet from the watch channel, if any.
-    // Because the watch channel only retains the most recent value,
-    // any volatile messages that were overwritten since the last poll
-    // are automatically discarded.
-    let volatile_packets: Vec<_> = {
-        let mut rx = socket.volatile_rx.clone();
-        let value = rx.borrow_and_update();
-        value.as_ref().map(|p| vec![p.clone()]).unwrap_or_default()
-    };
+    let mut volatile_rx = socket.volatile_rx.clone();
 
     #[cfg(feature = "v3")]
     let Payload { data, has_binary } = payload::encoder(
@@ -146,12 +138,12 @@ where
         protocol,
         socket.supports_binary,
         max_payload,
-        volatile_packets,
+        &mut volatile_rx,
     )
     .await?;
     #[cfg(not(feature = "v3"))]
     let Payload { data, has_binary } =
-        payload::encoder(rx, protocol, max_payload, volatile_packets).await?;
+        payload::encoder(rx, protocol, max_payload, &mut volatile_rx).await?;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={sid}] sending data: {:?}", data);

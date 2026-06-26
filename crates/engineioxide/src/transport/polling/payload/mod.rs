@@ -70,24 +70,22 @@ pub async fn encoder(
     #[allow(unused_variables)] protocol: ProtocolVersion,
     #[cfg(feature = "v3")] supports_binary: bool,
     max_payload: u64,
-    volatile_packets: Vec<PacketBuf>,
+    volatile_rx: &mut tokio::sync::watch::Receiver<Option<PacketBuf>>,
 ) -> Result<Payload, Error> {
     #[cfg(feature = "v3")]
     {
         match protocol {
-            ProtocolVersion::V4 => encoder::v4_encoder(rx, max_payload, volatile_packets).await,
+            ProtocolVersion::V4 => encoder::v4_encoder(rx, max_payload, volatile_rx).await,
             ProtocolVersion::V3 if supports_binary => {
-                encoder::v3_binary_encoder(rx, max_payload, volatile_packets).await
+                encoder::v3_binary_encoder(rx, max_payload, volatile_rx).await
             }
-            ProtocolVersion::V3 => {
-                encoder::v3_string_encoder(rx, max_payload, volatile_packets).await
-            }
+            ProtocolVersion::V3 => encoder::v3_string_encoder(rx, max_payload, volatile_rx).await,
         }
     }
 
     #[cfg(not(feature = "v3"))]
     {
-        encoder::v4_encoder(rx, max_payload, volatile_packets).await
+        encoder::v4_encoder(rx, max_payload, volatile_rx).await
     }
 }
 

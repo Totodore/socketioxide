@@ -75,7 +75,7 @@ async fn recv_packet(
 pub async fn v4_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
-    volatile_packets: Vec<PacketBuf>,
+    volatile_rx: &mut tokio::sync::watch::Receiver<Option<PacketBuf>>,
 ) -> Result<Payload, Error> {
     use crate::transport::polling::payload::PACKET_SEPARATOR_V4;
 
@@ -83,23 +83,24 @@ pub async fn v4_encoder(
     tracing::debug!("encoding payload with v4 encoder");
     let mut data: String = String::new();
 
-    // Encode volatile packets first so they bypass the main channel backlog
-    for packets in volatile_packets {
-        for packet in packets {
-            let packet: String = packet.into();
-
-            if !data.is_empty() {
-                data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
-            }
-            data.push_str(&packet);
-        }
-    }
+    // Encode any pending volatile packets first so they are included in
+    // the current response even if the main channel has a backlog.
+    // The watch receiver is checked again at each iteration of the main
+    // channel drain loop, so volatile packets arriving during encoding
+    // (between .await points) are also captured.
+    encode_volatile_packets_v4(&mut data, volatile_rx);
 
     // Send all packets in the buffer
     const PUNCTUATION_LEN: usize = 1;
-    while let Some(packets) =
-        try_recv_packet(&mut rx, data.len() + PUNCTUATION_LEN, max_payload, true)
-    {
+    loop {
+        // Check for volatile data before each main channel read
+        encode_volatile_packets_v4(&mut data, volatile_rx);
+
+        let Some(packets) =
+            try_recv_packet(&mut rx, data.len() + PUNCTUATION_LEN, max_payload, true)
+        else {
+            break;
+        };
         for packet in packets {
             let packet: String = packet.into();
 
@@ -124,6 +125,30 @@ pub async fn v4_encoder(
     }
 
     Ok(Payload::new(data.into(), false))
+}
+
+/// Encode any pending volatile packets from the watch receiver into the
+/// v4 payload string. The watch is checked lazily (only when new data is
+/// available) so volatile packets arriving during encoding are captured.
+fn encode_volatile_packets_v4(
+    data: &mut String,
+    volatile_rx: &mut tokio::sync::watch::Receiver<Option<PacketBuf>>,
+) {
+    use crate::transport::polling::payload::PACKET_SEPARATOR_V4;
+
+    if !volatile_rx.has_changed().unwrap_or(false) {
+        return;
+    }
+    let value = volatile_rx.borrow_and_update().clone();
+    if let Some(packets) = value {
+        for packet in packets {
+            let packet: String = packet.into();
+            if !data.is_empty() {
+                data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
+            }
+            data.push_str(&packet);
+        }
+    }
 }
 
 /// Encode one packet into a *binary* payload according to the
@@ -188,7 +213,7 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
 pub async fn v3_binary_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
-    volatile_packets: Vec<PacketBuf>,
+    volatile_rx: &mut tokio::sync::watch::Receiver<Option<PacketBuf>>,
 ) -> Result<Payload, Error> {
     let mut data = bytes::BytesMut::new();
     let mut packet_buffer: Vec<Packet> = Vec::new();
@@ -203,19 +228,28 @@ pub async fn v3_binary_encoder(
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
 
-    // Encode volatile packets first so they bypass the main channel backlog
-    for packets in volatile_packets {
-        for packet in packets {
-            if packet.is_binary() {
-                has_binary = true;
-            }
-            const PUNCTUATION_LEN: usize = 2;
-            estimated_size += packet.get_size_hint(false) + max_packet_size_len + PUNCTUATION_LEN;
-            packet_buffer.push(packet);
-        }
-    }
+    // Encode any pending volatile packets first. Checked again inside the
+    // main drain loop so volatile packets arriving during encoding are captured.
+    buffer_volatile_packets(
+        &mut packet_buffer,
+        &mut estimated_size,
+        &mut has_binary,
+        max_packet_size_len,
+        volatile_rx,
+    );
 
-    while let Some(packets) = try_recv_packet(&mut rx, estimated_size, max_payload, false) {
+    loop {
+        buffer_volatile_packets(
+            &mut packet_buffer,
+            &mut estimated_size,
+            &mut has_binary,
+            max_packet_size_len,
+            volatile_rx,
+        );
+
+        let Some(packets) = try_recv_packet(&mut rx, estimated_size, max_payload, false) else {
+            break;
+        };
         for packet in packets {
             if packet.is_binary() {
                 has_binary = true;
@@ -256,13 +290,40 @@ pub async fn v3_binary_encoder(
     Ok(Payload::new(data.freeze(), has_binary))
 }
 
+/// Buffer any pending volatile packets from the watch receiver into the
+/// packet buffer. Called at each iteration so volatile packets arriving
+/// during encoding (between .await points) are captured.
+#[cfg(feature = "v3")]
+fn buffer_volatile_packets(
+    packet_buffer: &mut Vec<Packet>,
+    estimated_size: &mut usize,
+    has_binary: &mut bool,
+    max_packet_size_len: usize,
+    volatile_rx: &mut tokio::sync::watch::Receiver<Option<PacketBuf>>,
+) {
+    if !volatile_rx.has_changed().unwrap_or(false) {
+        return;
+    }
+    let value = volatile_rx.borrow_and_update().clone();
+    if let Some(packets) = value {
+        for packet in packets {
+            if packet.is_binary() {
+                *has_binary = true;
+            }
+            const PUNCTUATION_LEN: usize = 2;
+            *estimated_size += packet.get_size_hint(false) + max_packet_size_len + PUNCTUATION_LEN;
+            packet_buffer.push(packet);
+        }
+    }
+}
+
 /// Encode multiple packet packet into a *string* payload according to the
 /// [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 #[cfg(feature = "v3")]
 pub async fn v3_string_encoder(
     mut rx: MutexGuard<'_, PeekableReceiver<PacketBuf>>,
     max_payload: u64,
-    volatile_packets: Vec<PacketBuf>,
+    volatile_rx: &mut tokio::sync::watch::Receiver<Option<PacketBuf>>,
 ) -> Result<Payload, Error> {
     let mut data = bytes::BytesMut::new();
 
@@ -273,19 +334,21 @@ pub async fn v3_string_encoder(
     // number of digits of the max packet size, used to approximate the payload size
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
 
-    // Encode volatile packets first so they bypass the main channel backlog
-    for packets in volatile_packets {
-        for packet in packets {
-            v3_string_packet_encoder(packet, &mut data);
-        }
-    }
+    // Encode any pending volatile packets first; checked again in the main
+    // drain loop so volatile packets arriving during encoding are captured.
+    encode_volatile_v3_string(&mut data, volatile_rx);
 
-    while let Some(packets) = try_recv_packet(
-        &mut rx,
-        data.len() + PUNCTUATION_LEN + max_packet_size_len,
-        max_payload,
-        true,
-    ) {
+    loop {
+        encode_volatile_v3_string(&mut data, volatile_rx);
+
+        let Some(packets) = try_recv_packet(
+            &mut rx,
+            data.len() + PUNCTUATION_LEN + max_packet_size_len,
+            max_payload,
+            true,
+        ) else {
+            break;
+        };
         for packet in packets {
             v3_string_packet_encoder(packet, &mut data);
         }
@@ -302,6 +365,25 @@ pub async fn v3_string_encoder(
     Ok(Payload::new(data.freeze(), false))
 }
 
+/// Encode any pending volatile packets from the watch receiver into the
+/// v3 string payload. Called at each iteration so volatile packets
+/// arriving during encoding are captured.
+#[cfg(feature = "v3")]
+fn encode_volatile_v3_string(
+    data: &mut bytes::BytesMut,
+    volatile_rx: &mut tokio::sync::watch::Receiver<Option<PacketBuf>>,
+) {
+    if !volatile_rx.has_changed().unwrap_or(false) {
+        return;
+    }
+    let value = volatile_rx.borrow_and_update().clone();
+    if let Some(packets) = value {
+        for packet in packets {
+            v3_string_packet_encoder(packet, data);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
@@ -312,8 +394,14 @@ mod tests {
     use super::*;
     const MAX_PAYLOAD: u64 = 100_000;
 
+    fn dummy_volatile_rx() -> tokio::sync::watch::Receiver<Option<PacketBuf>> {
+        let (_, rx) = tokio::sync::watch::channel(None);
+        rx
+    }
+
     #[tokio::test]
     async fn encode_v4_payload() {
+        let mut vr = dummy_volatile_rx();
         const PAYLOAD: &str = "4hello€\x1ebAQIDBA==\x1e4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let rx = Mutex::new(PeekableReceiver::new(rx));
@@ -326,12 +414,13 @@ mod tests {
         .unwrap();
         tx.try_send(smallvec::smallvec![Packet::Message("hello€".into())])
             .unwrap();
-        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
     }
 
     #[tokio::test]
     async fn encode_v4_payload_parked_poll_multi_packet_batch() {
+        let mut vr = dummy_volatile_rx();
         const PAYLOAD: &str = "4hello€\x1ebAQIDBA==";
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let rx = Mutex::new(PeekableReceiver::new(rx));
@@ -344,12 +433,13 @@ mod tests {
             ])
             .unwrap();
         });
-        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
         assert_eq!(data, PAYLOAD);
     }
 
     #[tokio::test]
     async fn max_payload_v4() {
+        let mut vr = dummy_volatile_rx();
         const MAX_PAYLOAD: u64 = 10;
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
@@ -365,17 +455,17 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
             assert_eq!(data, "4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10, vec![]).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10, &mut vr).await.unwrap();
             assert_eq!(data, "bAQIDBA==\x1e4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10, vec![]).await.unwrap();
+            let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10, &mut vr).await.unwrap();
             assert_eq!(data, "4hello€".as_bytes());
         }
     }
@@ -383,6 +473,7 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn encode_v3_string_payload_utf16_length() {
+        let mut vr = dummy_volatile_rx();
         // Length must be the number of UTF-16 code units to match the
         // engine.io v3 JS reference implementation. The message "4𝕊"
         // (packet type '4' + non-BMP codepoint U+1D54A) has 2 codepoints
@@ -393,13 +484,14 @@ mod tests {
         let rx = mutex.lock().await;
         tx.try_send(smallvec::smallvec![Packet::Message("𝕊".into())])
             .unwrap();
-        let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+        let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
     }
 
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn encode_v3b64_payload() {
+        let mut vr = dummy_volatile_rx();
         const PAYLOAD: &str = "7:4hello€10:b4AQIDBA==7:4hello€";
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let mutex = Mutex::new(PeekableReceiver::new(rx));
@@ -415,7 +507,7 @@ mod tests {
             .unwrap();
         let Payload {
             data, has_binary, ..
-        } = v3_string_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+        } = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
         assert_eq!(data, PAYLOAD.as_bytes());
         assert!(!has_binary);
     }
@@ -423,6 +515,7 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn max_payload_v3_b64() {
+        let mut vr = dummy_volatile_rx();
         const MAX_PAYLOAD: u64 = 10;
 
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
@@ -439,12 +532,12 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
             assert_eq!(data, "7:4hello€".as_bytes());
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10, vec![])
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10, &mut vr)
                 .await
                 .unwrap();
             assert_eq!(data, "10:b4AQIDBA==".as_bytes());
@@ -452,7 +545,7 @@ mod tests {
         {
             // Next call drains one of the remaining Message packets.
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10, vec![])
+            let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD + 10, &mut vr)
                 .await
                 .unwrap();
             assert_eq!(data, "7:4hello€".as_bytes());
@@ -462,6 +555,7 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn encode_v3binary_payload() {
+        let mut vr = dummy_volatile_rx();
         const PAYLOAD: [u8; 20] = [
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
         ];
@@ -477,7 +571,7 @@ mod tests {
         .unwrap();
         let Payload {
             data, has_binary, ..
-        } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+        } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }
@@ -485,6 +579,7 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn encode_v3binary_payload_parked_poll_multi_packet_batch() {
+        let mut vr = dummy_volatile_rx();
         // When the v3 binary encoder is parked on an empty buffer and a
         // multi-packet batch arrives, every packet must be encoded with the
         // same framing (binary framing if any packet in the batch is binary).
@@ -506,7 +601,7 @@ mod tests {
         });
         let Payload {
             data, has_binary, ..
-        } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+        } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }
@@ -514,6 +609,7 @@ mod tests {
     #[cfg(feature = "v3")]
     #[tokio::test]
     async fn max_payload_v3_binary() {
+        let mut vr = dummy_volatile_rx();
         const MAX_PAYLOAD: u64 = 25;
 
         const PAYLOAD: [u8; 23] = [
@@ -534,12 +630,12 @@ mod tests {
             .unwrap();
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
             assert_eq!(*data, PAYLOAD);
         }
         {
             let rx = mutex.lock().await;
-            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD, vec![]).await.unwrap();
+            let Payload { data, .. } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
             assert_eq!(data, "7:4hello€7:4hello€".as_bytes());
         }
     }
