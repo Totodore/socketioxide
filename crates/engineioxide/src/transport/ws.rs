@@ -290,37 +290,32 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
         }
 
     loop {
-        tokio::select! {
-            // Priority: main channel is checked first so regular events
-            // are never starved by a flood of volatile ones.
-            items = internal_rx.recv() => {
-                match items {
-                    Some(items) => {
-                        for item in items {
-                            map_fn!(item);
-                        }
-                        // For every available packet we continue to send until the channel is drained
-                        while let Ok(items) = internal_rx.try_recv() {
-                            for item in items {
-                                map_fn!(item);
-                            }
-                        }
-                        tx.flush().await.ok();
-                    }
-                    None => break,
-                }
+        // Priority: wait for and drain the main channel.
+        // Volatile events are checked after each main-channel cycle.
+        let items = match internal_rx.recv().await {
+            Some(items) => items,
+            None => break,
+        };
+        for item in items {
+            map_fn!(item);
+        }
+        while let Ok(items) = internal_rx.try_recv() {
+            for item in items {
+                map_fn!(item);
             }
-            // Lower priority: volatile watch channel.
-            // Only the latest volatile message is retained; earlier ones
-            // are overwritten if they haven't been consumed yet.
-            Ok(()) = volatile_rx.changed() => {
-                let value = volatile_rx.borrow_and_update().clone();
-                if let Some(packets) = value {
-                    for item in packets {
-                        map_fn!(item);
-                    }
-                    tx.flush().await.ok();
+        }
+        tx.flush().await.ok();
+
+        // Check volatile channel after main is drained.
+        // `has_changed` is non-blocking; if no volatile data is
+        // pending we simply go back to waiting for the main channel.
+        if volatile_rx.has_changed().unwrap_or(false) {
+            let val = volatile_rx.borrow_and_update().clone();
+            if let Some(packets) = val {
+                for item in packets {
+                    map_fn!(item);
                 }
+                tx.flush().await.ok();
             }
         }
     }

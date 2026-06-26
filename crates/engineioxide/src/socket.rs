@@ -507,6 +507,9 @@ where
     ///
     /// Because volatile messages bypass the main mpsc buffer queue, they may
     /// arrive out of order relative to regular messages.
+    ///
+    /// Returns `true` if the message was queued for sending, `false` if it
+    /// was dropped (channel full or transport shutting down).
     #[inline]
     pub fn emit_volatile(&self, msg: impl Into<Str>) -> bool {
         self.send_volatile(smallvec![Packet::Message(msg.into())])
@@ -515,6 +518,9 @@ where
     /// Try to send a volatile binary message bypassing the internal buffer channel.
     /// Volatile messages may be dropped if the transport is not ready to
     /// receive them.
+    ///
+    /// Returns `true` if the message was queued for sending, `false` if it
+    /// was dropped.
     #[inline]
     pub fn emit_binary_volatile<B: Into<Bytes>>(&self, data: B) -> bool {
         if self.protocol == ProtocolVersion::V3 {
@@ -527,6 +533,9 @@ where
     /// Try to send a volatile message with multiple adjacent binary payloads.
     /// The message and all binary payloads are sent atomically as a single
     /// volatile write.
+    ///
+    /// Returns `true` if the message was queued for sending, `false` if it
+    /// was dropped.
     #[inline]
     pub fn emit_many_volatile(&self, msg: Str, data: VecDeque<Bytes>) -> bool {
         let mut packets = SmallVec::with_capacity(1 + data.len());
