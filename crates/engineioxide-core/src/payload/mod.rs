@@ -19,20 +19,23 @@ const BINARY_PACKET_SEPARATOR_V3: u8 = 0xff;
 const STRING_PACKET_IDENTIFIER_V3: u8 = 0x00;
 #[cfg(feature = "v3")]
 const BINARY_PACKET_IDENTIFIER_V3: u8 = 0x01;
+const BINARY_CONTENT_TYPE: HeaderValue = HeaderValue::from_static("application/octet-stream");
 
 /// Decode a payload into a stream of packets.
 pub fn decoder(
     body: impl http_body::Body<Error = impl std::fmt::Debug> + Unpin,
     content_type: Option<&HeaderValue>,
-    #[allow(unused_variables)] protocol: ProtocolVersion,
+    protocol: ProtocolVersion,
     max_payload: u64,
 ) -> impl Stream<Item = Result<Packet, PacketParseError>> {
+    #[cfg(feature = "tracing")]
+    tracing::debug!(?content_type, %protocol, "decoding payload");
+
     #[cfg(feature = "v3")]
     {
         use futures_util::future::Either;
-        #[cfg(feature = "tracing")]
-        tracing::debug!("decoding payload {:?}", content_type);
-        let is_binary = content_type == Some(&"application/octet-stream".parse().unwrap());
+
+        let is_binary = content_type == Some(&BINARY_CONTENT_TYPE);
         match protocol {
             ProtocolVersion::V4 => Either::Left(decoder::v4_decoder(body, max_payload)),
             ProtocolVersion::V3 if is_binary => {
@@ -67,8 +70,8 @@ impl Payload {
 /// Encodes a payload into a byte stream.
 pub async fn encoder(
     rx: impl Stream<Item = PacketBuf>,
-    #[allow(unused_variables)] protocol: ProtocolVersion,
-    #[cfg(feature = "v3")] supports_binary: bool,
+    protocol: ProtocolVersion,
+    supports_binary: bool,
     max_payload: u64,
 ) -> Payload {
     let rx = std::pin::pin!(rx.peekable());

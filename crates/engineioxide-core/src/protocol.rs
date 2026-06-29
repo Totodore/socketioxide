@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -98,6 +98,11 @@ pub enum ProtocolVersion {
     V4 = 4,
 }
 
+impl fmt::Display for ProtocolVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&(*self as u8), f)
+    }
+}
 impl FromStr for ProtocolVersion {
     type Err = UnknownProtocolVersionError;
 

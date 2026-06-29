@@ -90,11 +90,6 @@ pub enum ParseError {
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
 }
-impl From<engineioxide_core::UnknownTransportError> for ParseError {
-    fn from(_: engineioxide_core::UnknownTransportError) -> Self {
-        ParseError::UnknownTransport
-    }
-}
 
 /// Convert an error into an http response
 /// If it is a known error, return the appropriate http status code
