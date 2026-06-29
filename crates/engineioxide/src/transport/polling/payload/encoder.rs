@@ -639,4 +639,215 @@ mod tests {
             assert_eq!(data, "7:4hello€7:4hello€".as_bytes());
         }
     }
+
+    fn make_volatile_chan(
+        packets: PacketBuf,
+    ) -> (
+        tokio::sync::watch::Sender<Option<PacketBuf>>,
+        tokio::sync::watch::Receiver<Option<PacketBuf>>,
+    ) {
+        let (tx, rx) = tokio::sync::watch::channel(None);
+        tx.send(Some(packets)).unwrap();
+        (tx, rx)
+    }
+
+    #[tokio::test]
+    async fn v4_volatile_before_normal() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("foo".into())])
+            .unwrap();
+        tx.try_send(smallvec::smallvec![Packet::Message("bar".into())])
+            .unwrap();
+        let (_volatile_tx, mut vr) =
+            make_volatile_chan(smallvec::smallvec![Packet::Message("v1".into())]);
+
+        let rx = mutex.lock().await;
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert_eq!(data, "4v1\x1e4foo\x1e4bar".as_bytes());
+    }
+
+    #[tokio::test]
+    async fn v4_normal_before_volatile() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("foo".into())])
+            .unwrap();
+        tx.try_send(smallvec::smallvec![Packet::Message("bar".into())])
+            .unwrap();
+        let (_volatile_tx, mut vr) =
+            make_volatile_chan(smallvec::smallvec![Packet::Message("v1".into())]);
+
+        let rx = mutex.lock().await;
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert_eq!(data, "4v1\x1e4foo\x1e4bar".as_bytes());
+    }
+
+    #[tokio::test]
+    async fn v4_volatile_overwrite() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("normal".into())])
+            .unwrap();
+        let (volatile_tx, mut vr) = tokio::sync::watch::channel(None);
+        volatile_tx
+            .send(Some(smallvec::smallvec![Packet::Message("dropped".into())]))
+            .unwrap();
+        volatile_tx
+            .send(Some(smallvec::smallvec![Packet::Message("kept".into())]))
+            .unwrap();
+
+        let rx = mutex.lock().await;
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert_eq!(data, "4kept\x1e4normal".as_bytes());
+    }
+
+    #[tokio::test]
+    async fn v4_volatile_mid_encoding() {
+        let (main_tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        let (volatile_tx, mut vr) = tokio::sync::watch::channel(None);
+        main_tx
+            .try_send(smallvec::smallvec![Packet::Message("first".into())])
+            .unwrap();
+        main_tx
+            .try_send(smallvec::smallvec![Packet::Message("second".into())])
+            .unwrap();
+
+        let rx = mutex.lock().await;
+        volatile_tx
+            .send(Some(smallvec::smallvec![Packet::Message("mid".into())]))
+            .unwrap();
+
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert_eq!(data, "4mid\x1e4first\x1e4second".as_bytes());
+    }
+
+    #[tokio::test]
+    async fn v4_volatile_only_no_drain() {
+        let (_main_tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        let (_volatile_tx, mut vr) =
+            make_volatile_chan(smallvec::smallvec![Packet::Message("v_only".into())]);
+        drop(_main_tx);
+
+        let rx = mutex.lock().await;
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert_eq!(data, "4v_only".as_bytes());
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn v3_string_volatile_mixed() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("foo".into())])
+            .unwrap();
+        tx.try_send(smallvec::smallvec![Packet::Message("bar".into())])
+            .unwrap();
+        let (_volatile_tx, mut vr) =
+            make_volatile_chan(smallvec::smallvec![Packet::Message("v1".into())]);
+
+        let rx = mutex.lock().await;
+        let Payload {
+            data, has_binary, ..
+        } = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert_eq!(data, "3:4v14:4foo4:4bar".as_bytes());
+        assert!(!has_binary);
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn v3_string_volatile_overwrite() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("normal".into())])
+            .unwrap();
+        let (volatile_tx, mut vr) = tokio::sync::watch::channel(None);
+        volatile_tx
+            .send(Some(smallvec::smallvec![Packet::Message("drop1".into())]))
+            .unwrap();
+        volatile_tx
+            .send(Some(smallvec::smallvec![Packet::Message("keep1".into())]))
+            .unwrap();
+
+        let rx = mutex.lock().await;
+        let Payload {
+            data, has_binary, ..
+        } = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert_eq!(data, "6:4keep17:4normal".as_bytes());
+        assert!(!has_binary);
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn v3_binary_volatile_mixed() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("foo".into())])
+            .unwrap();
+        let (_volatile_tx, mut vr) = make_volatile_chan(smallvec::smallvec![Packet::BinaryV3(
+            Bytes::from_static(&[1, 2, 3, 4])
+        )]);
+
+        let rx = mutex.lock().await;
+        let Payload {
+            data, has_binary, ..
+        } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert!(has_binary);
+        assert_eq!(
+            &data[..8],
+            &[0x01, 0x05, 0xff, 0x04, 0x01, 0x02, 0x03, 0x04][..]
+        );
+        assert_eq!(&data[8..], &[0x00, 0x04, 0xff, 0x34, 0x66, 0x6f, 0x6f][..]);
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn v3_binary_volatile_overwrite() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("normal".into())])
+            .unwrap();
+        let (volatile_tx, mut vr) = tokio::sync::watch::channel(None);
+        volatile_tx
+            .send(Some(smallvec::smallvec![Packet::Message("drop_v".into())]))
+            .unwrap();
+        volatile_tx
+            .send(Some(smallvec::smallvec![Packet::BinaryV3(
+                Bytes::from_static(&[9, 9])
+            )]))
+            .unwrap();
+
+        let rx = mutex.lock().await;
+        let Payload {
+            data, has_binary, ..
+        } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert!(has_binary);
+        assert_eq!(&data[..6], &[0x01, 0x03, 0xff, 0x04, 0x09, 0x09][..]);
+        assert_eq!(
+            &data[6..],
+            &[0x00, 0x07, 0xff, 0x34, 0x6e, 0x6f, 0x72, 0x6d, 0x61, 0x6c][..]
+        );
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn v3_binary_volatile_determines_has_binary() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        tx.try_send(smallvec::smallvec![Packet::Message("foo".into())])
+            .unwrap();
+        let (_volatile_tx, mut vr) = make_volatile_chan(smallvec::smallvec![Packet::BinaryV3(
+            Bytes::from_static(&[1, 2, 3])
+        )]);
+
+        let rx = mutex.lock().await;
+        let Payload {
+            data: _,
+            has_binary,
+            ..
+        } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
+        assert!(has_binary);
+    }
 }
