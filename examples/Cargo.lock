@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.17.3"
+version = "0.17.5"
 dependencies = [
  "base64",
  "bytes",
@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.18.3"
+version = "0.18.4"
 dependencies = [
  "bytes",
  "engineioxide",
@@ -3814,7 +3814,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-core"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "arbitrary",
  "bytes",

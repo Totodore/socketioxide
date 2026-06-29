@@ -249,6 +249,7 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+    let mut volatile_rx = socket.volatile_rx.clone();
 
     // map a packet to a websocket message
     // It is declared as a macro rather than a closure to avoid ownership issues
@@ -288,17 +289,35 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
             };
         }
 
-    while let Some(items) = internal_rx.recv().await {
+    loop {
+        // Priority: wait for and drain the main channel.
+        // Volatile events are checked after each main-channel cycle.
+        let items = match internal_rx.recv().await {
+            Some(items) => items,
+            None => break,
+        };
         for item in items {
             map_fn!(item);
         }
-        // For every available packet we continue to send until the channel is drained
         while let Ok(items) = internal_rx.try_recv() {
             for item in items {
                 map_fn!(item);
             }
         }
 
+        // Check volatile channel after main is drained.
+        // `has_changed` is non-blocking; if no volatile data is
+        // pending we simply go back to waiting for the main channel.
+        if volatile_rx.has_changed().unwrap_or(false) {
+            let val = volatile_rx.borrow_and_update().clone();
+            if let Some(packets) = val {
+                #[cfg(feature = "tracing")]
+                tracing::info!(sid = ?socket.id, "ws volatile check: flushing {:?}", &packets);
+                for item in packets {
+                    map_fn!(item);
+                }
+            }
+        }
         tx.flush().await.ok();
     }
 }

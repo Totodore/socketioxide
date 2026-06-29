@@ -130,11 +130,20 @@ where
 
     let max_payload = engine.config.max_payload;
 
+    let mut volatile_rx = socket.volatile_rx.clone();
+
     #[cfg(feature = "v3")]
-    let Payload { data, has_binary } =
-        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await?;
+    let Payload { data, has_binary } = payload::encoder(
+        rx,
+        protocol,
+        socket.supports_binary,
+        max_payload,
+        &mut volatile_rx,
+    )
+    .await?;
     #[cfg(not(feature = "v3"))]
-    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await?;
+    let Payload { data, has_binary } =
+        payload::encoder(rx, protocol, max_payload, &mut volatile_rx).await?;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("[sid={sid}] sending data: {:?}", data);
