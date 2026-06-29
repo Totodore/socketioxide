@@ -140,13 +140,7 @@ where
             }
         }
     } else {
-        let socket = engine.create_session(
-            protocol,
-            TransportType::Websocket,
-            req_data,
-            #[cfg(feature = "v3")]
-            false,
-        );
+        let socket = engine.create_session(protocol, TransportType::Websocket, req_data, false);
 
         #[cfg(feature = "tracing")]
         tracing::debug!("new websocket connection");

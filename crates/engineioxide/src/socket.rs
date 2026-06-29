@@ -217,7 +217,6 @@ where
     pub req_parts: Parts,
 
     /// If the client supports binary packets (via polling XHR2)
-    #[cfg(feature = "v3")]
     pub(crate) supports_binary: bool,
 }
 
@@ -231,7 +230,7 @@ where
         config: &EngineIoConfig,
         req_parts: Parts,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
-        #[cfg(feature = "v3")] supports_binary: bool,
+        supports_binary: bool,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
@@ -254,7 +253,6 @@ where
             data: D::default(),
             req_parts,
 
-            #[cfg(feature = "v3")]
             supports_binary,
         }
     }

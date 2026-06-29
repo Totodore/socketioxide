@@ -21,6 +21,8 @@ struct Payload<B: Body + Unpin> {
     end_of_stream: bool,
     current_payload_size: u64,
 
+    /// counter to detect if packets have already been
+    /// yielded or if the poller needs to wait
     #[cfg(feature = "v3")]
     yield_packets: u32,
 }
@@ -217,8 +219,12 @@ where
                     _ => Err(PacketParseError::InvalidPacketLen),
                 };
 
+                state.yield_packets += 1;
                 break Some((packet, state));
-            } else if state.end_of_stream && state.buffer.remaining() == 0 {
+            } else if state.end_of_stream
+                && state.buffer.remaining() == 0
+                && state.yield_packets > 0
+            {
                 break None;
             } else if state.end_of_stream {
                 // EOS reached with leftover bytes that cannot form a complete

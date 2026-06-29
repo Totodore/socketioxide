@@ -41,7 +41,7 @@ pub fn open_req<H, B, R>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     req: Request<R>,
-    #[cfg(feature = "v3")] supports_binary: bool,
+    supports_binary: bool,
 ) -> Result<Response<ResponseBody<B>>, Error>
 where
     H: EngineIoHandler,
@@ -51,7 +51,6 @@ where
         protocol,
         TransportType::Polling,
         req.into_parts().0,
-        #[cfg(feature = "v3")]
         supports_binary,
     );
 
@@ -99,10 +98,7 @@ where
         #[cfg(feature = "tracing")]
         tracing::debug!(?sid, "socket is upgrading, sending NOOP packet");
 
-        #[cfg(feature = "v3")]
         let data = payload::packet_encoder(Packet::Noop, socket.protocol, socket.supports_binary);
-        #[cfg(not(feature = "v3"))]
-        let data = payload::packet_encoder(Packet::Noop, socket.protocol);
 
         let is_binary = false; // The noop packet is guaranteed to be serialized as text
         return Ok(http_response(StatusCode::OK, data, is_binary)?);
@@ -118,24 +114,21 @@ where
         }
     };
 
-    //TODO: handle closing channel packet better than in the encoding process.
+    //TODO: handle closing channel packet better than in %the encoding process.
 
     #[cfg(feature = "tracing")]
-    tracing::debug!("[sid={sid}] polling request");
+    tracing::debug!(%sid, %protocol, supports_binary = socket.supports_binary, "polling request");
 
     let max_payload = engine.config.max_payload;
 
     let rx = rx_stream::ReceiverStream::new(&mut rx);
 
-    #[cfg(feature = "v3")]
     let Payload { data, has_binary } =
         payload::encoder(rx, protocol, socket.supports_binary, max_payload).await;
 
-    #[cfg(not(feature = "v3"))]
-    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await;
-
     #[cfg(feature = "tracing")]
-    tracing::debug!("[sid={sid}] sending data: {:?}", data);
+    tracing::trace!(%sid, %protocol, supports_binary = socket.supports_binary, "sending data: {:?}", data);
+
     Ok(http_response(StatusCode::OK, data, has_binary)?)
 }
 
