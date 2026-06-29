@@ -9,3 +9,7 @@ This example also include all the available adapters examples:
 * [Standalone redis](./src/redis/redis.rs)
 * [Clustered redis](./src/redis/redis_cluster.rs)
 * [Redis with the fred crate](./src/redis/redis_fred.rs)
+* [MongoDB with a capped collection](./src/mongodb/mongodb_capped.rs)
+* [MongoDB with a TTL index](./src/mongodb/mongodb_ttl.rs)
+* [Postgres with the sqlx crate](./src/postgres/sqlx.rs)
+* [Postgres with the tokio-postgres crate](./src/postgres/tokio_postgres.rs)

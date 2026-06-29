@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide-mongodb"
 description = "MongoDB adapter for socketioxide"
-version = "0.1.0"
+version = "0.1.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -18,7 +18,7 @@ ttl-index = ["dep:bson"]
 default = ["mongodb", "ttl-index"]
 
 [dependencies]
-socketioxide-core = { version = "0.17", path = "../socketioxide-core", features = [
+socketioxide-core = { version = "0.18", path = "../socketioxide-core", features = [
     "remote-adapter",
 ] }
 futures-core.workspace = true
@@ -32,7 +32,10 @@ tracing.workspace = true
 thiserror.workspace = true
 
 # BSON implementation for TtlIndex data expiration strategy only
-bson = { version = "2", default-features = false, optional = true }
+bson = { version = "3", default-features = false, optional = true, features = [
+    "compat-3-0-0",
+    "serde",
+] }
 
 # Mongodb implementation
 mongodb = { version = "3", default-features = false, optional = true, features = [
@@ -50,6 +53,7 @@ socketioxide = { path = "../socketioxide", features = [
     "tracing",
     "__test_harness",
 ] }
+engineioxide = { path = "../engineioxide" }
 tracing-subscriber.workspace = true
 bytes.workspace = true
 
@@ -57,3 +61,6 @@ bytes.workspace = true
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true

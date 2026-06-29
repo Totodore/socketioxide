@@ -104,6 +104,17 @@ impl<'a> RequestOut<'a> {
             opts: None,
         }
     }
+
+    /// The request is binary if it is a [`RequestTypeOut::Broadcast`] or [`RequestTypeOut::BroadcastWithAck`]
+    /// with a binary payload.
+    pub fn is_binary(&self) -> bool {
+        match self.r#type {
+            RequestTypeOut::Broadcast(p) | RequestTypeOut::BroadcastWithAck(p) => {
+                p.inner.is_binary()
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Custom implementation to serialize enum variant as u8.
@@ -280,6 +291,14 @@ impl<D> Response<D> {
             ResponseType::FetchSockets(sockets) => Some(sockets),
             _ => None,
         }
+    }
+
+    /// The response is binary if it is a [`ResponseType::BroadcastAck`] with a binary payload.
+    pub fn is_binary(&self) -> bool {
+        matches!(
+            self.r#type,
+            ResponseType::BroadcastAck((_, Ok(Value::Bytes(_) | Value::Str(_, Some(_)))))
+        )
     }
 }
 

@@ -219,6 +219,8 @@ pub trait SocketEmitter: Send + Sync + 'static {
     fn parser(&self) -> impl Parse;
     /// Get the unique server id.
     fn server_id(&self) -> Uid;
+    /// Get the default configured ack timeout.
+    fn ack_timeout(&self) -> Duration;
 }
 
 /// For static namespaces, the init response will be managed by the user.
@@ -536,6 +538,10 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
     pub fn server_id(&self) -> Uid {
         self.emitter.server_id()
     }
+    /// Get the default configured ack timeout.
+    pub fn ack_timeout(&self) -> Duration {
+        self.emitter.ack_timeout()
+    }
 }
 
 /// The default broadcast iterator.
@@ -588,8 +594,11 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
         let mut except = get_except_sids(&opts.except, rooms);
         // In case of broadcast flag + if the sender is set,
         // we should not broadcast to it.
-        if is_broadcast && opts.sid.is_some() {
-            except.insert(opts.sid.unwrap());
+        if is_broadcast {
+            //FIXME(1.88): switch to if let chains when available
+            if let Some(sid) = opts.sid {
+                except.insert(sid);
+            }
         }
 
         if !opts.rooms.is_empty() {
@@ -789,6 +798,9 @@ mod test {
         }
         fn server_id(&self) -> Uid {
             Uid::ZERO
+        }
+        fn ack_timeout(&self) -> Duration {
+            Duration::ZERO
         }
     }
 

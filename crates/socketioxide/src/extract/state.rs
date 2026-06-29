@@ -35,6 +35,42 @@ use socketioxide_core::Value;
 ///     state.add_user();
 ///     println!("User count: {}", state.user_cnt.load(Ordering::SeqCst));
 /// });
+/// ```
+///
+/// ### Accessing the state from a custom extractor
+///
+/// Extractors are composable: rather than reaching into the socket internals,
+/// a custom extractor can simply call another extractor — such as [`State`] —
+/// inside its own implementation. Because [`State`] derefs to the inner value,
+/// no manual `get_state` plumbing is required.
+///
+/// ```
+/// # use socketioxide::handler::{FromConnectParts, Value};
+/// # use socketioxide::extract::State;
+/// # use socketioxide::adapter::Adapter;
+/// # use socketioxide::socket::Socket;
+/// # use socketioxide::SocketIo;
+/// # use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+/// /// A custom extractor that yields the index of the current connection,
+/// /// derived from a counter held in the shared application state.
+/// struct ConnIndex(usize);
+///
+/// impl<A: Adapter> FromConnectParts<A> for ConnIndex {
+///     type Error = std::convert::Infallible;
+///     fn from_connect_parts(s: &Arc<Socket<A>>, auth: &Option<Value>) -> Result<Self, Self::Error> {
+///         // Reuse the `State` extractor instead of calling `s.get_io().get_state()` directly.
+///         let idx = State::<Arc<AtomicUsize>>::from_connect_parts(s, auth)
+///             .map(|cnt| cnt.fetch_add(1, Ordering::SeqCst))
+///             .unwrap_or(0);
+///         Ok(ConnIndex(idx))
+///     }
+/// }
+///
+/// let (_, io) = SocketIo::builder()
+///     .with_state(Arc::new(AtomicUsize::new(0)))
+///     .build_svc();
+/// io.ns("/", async |idx: ConnIndex| println!("connection #{}", idx.0));
+/// ```
 pub struct State<T>(pub T);
 
 /// It was impossible to find the given state and therefore the handler won't be called.

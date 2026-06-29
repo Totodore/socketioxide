@@ -41,7 +41,6 @@ impl ParserConfig {
     }
 
     /// Use a [`MsgPackParser`] to parse incoming and outgoing socket.io packets
-    #[cfg_attr(docsrs, doc(cfg(feature = "msgpack")))]
     #[cfg(feature = "msgpack")]
     pub fn msgpack() -> Self {
         ParserConfig(Parser::MsgPack(MsgPackParser))
@@ -134,6 +133,16 @@ impl<A: Adapter> SocketIoBuilder<A> {
     #[inline]
     pub fn ping_timeout(mut self, ping_timeout: Duration) -> Self {
         self.engine_config_builder = self.engine_config_builder.ping_timeout(ping_timeout);
+        self
+    }
+
+    /// The amount of time the server will wait for a transport upgrade (HTTP long-polling to
+    /// WebSocket) to complete before aborting it and reclaiming the session.
+    ///
+    /// Defaults to 10 seconds.
+    #[inline]
+    pub fn upgrade_timeout(mut self, upgrade_timeout: Duration) -> Self {
+        self.engine_config_builder = self.engine_config_builder.upgrade_timeout(upgrade_timeout);
         self
     }
 
@@ -236,7 +245,6 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// You can set any number of states as long as they have different types.
     /// The state must be cloneable, therefore it is recommended to wrap it in an `Arc` if you want shared state.
     #[inline]
-    #[cfg_attr(docsrs, doc(cfg(feature = "state")))]
     #[cfg(feature = "state")]
     pub fn with_state<S: Clone + Send + Sync + 'static>(self, state: S) -> Self {
         self.state.set(state);

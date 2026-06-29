@@ -1,7 +1,7 @@
 [package]
 name = "socketioxide-redis"
 description = "Redis adapter for the socket.io protocol"
-version = "0.2.2"
+version = "0.4.1"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -19,7 +19,7 @@ fred = ["dep:fred"]
 default = ["redis"]
 
 [dependencies]
-socketioxide-core = { version = "0.17", path = "../socketioxide-core", features = [
+socketioxide-core = { version = "0.18", path = "../socketioxide-core", features = [
     "remote-adapter",
 ] }
 futures-core.workspace = true
@@ -39,7 +39,7 @@ fred = { version = "10", features = [
     "subscriber-client",
     "i-pubsub",
 ], default-features = false, optional = true }
-redis = { version = "0.32", features = [
+redis = { version = "1", features = [
     "aio",
     "tokio-comp",
     "streams",
@@ -55,9 +55,13 @@ socketioxide = { path = "../socketioxide", features = [
     "tracing",
     "__test_harness",
 ] }
+engineioxide = { path = "../engineioxide" }
 tracing-subscriber.workspace = true
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true

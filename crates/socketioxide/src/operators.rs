@@ -244,10 +244,9 @@ impl<A: Adapter> BroadcastOperators<A> {
                 .adapter
                 .broadcast(packet?, self.opts)
                 .await
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     #[cfg(feature = "tracing")]
-                    tracing::debug!("broadcast error: {e}");
-                    e
+                    tracing::debug!("broadcast error: {_e}");
                 })?;
             Ok(())
         }

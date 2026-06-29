@@ -101,6 +101,10 @@ pub async fn v4_encoder(
     if data.is_empty() {
         let packets = recv_packet(rx.as_mut()).await;
         for packet in packets {
+            if !data.is_empty() {
+                data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
+            }
+
             let packet: String = packet.into();
             data.push_str(&packet);
         }
@@ -158,7 +162,7 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
     let packet: String = packet.into();
     let packet = format!(
         "{}{}{}",
-        packet.chars().count(),
+        packet.encode_utf16().count(), // The protocol uses in UTF16 code points for packet size because of JS
         STRING_PACKET_SEPARATOR_V3 as char,
         packet
     );
@@ -211,16 +215,13 @@ pub async fn v3_binary_encoder(
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
         let packets = recv_packet(rx.as_mut()).await;
+        has_binary = packets.iter().any(|p| p.is_binary());
         for packet in packets {
-            match packet {
-                Packet::BinaryV3(_) | Packet::Binary(_) => {
-                    v3_bin_packet_encoder(packet, &mut data);
-                    has_binary = true;
-                }
-                packet => {
-                    v3_string_packet_encoder(packet, &mut data);
-                }
-            };
+            if has_binary {
+                v3_bin_packet_encoder(packet, &mut data);
+            } else {
+                v3_string_packet_encoder(packet, &mut data);
+            }
         }
     }
 
@@ -244,9 +245,12 @@ pub async fn v3_string_encoder(
     const PUNCTUATION_LEN: usize = 2;
     // number of digits of the max packet size, used to approximate the payload size
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
-    // Current size of the payload
-    let current_size = data.len() + PUNCTUATION_LEN + max_packet_size_len;
-    while let Some(packets) = try_recv_packet(rx.as_mut(), current_size, max_payload, true) {
+    while let Some(packets) = try_recv_packet(
+        rx.as_mut(),
+        data.len() + PUNCTUATION_LEN + max_packet_size_len,
+        max_payload,
+        true,
+    ) {
         for packet in packets {
             v3_string_packet_encoder(packet, &mut data);
         }
@@ -287,6 +291,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn encode_v4_payload_parked_poll_multi_packet_batch() {
+        const PAYLOAD: &str = "4hello€\x1ebAQIDBA==";
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
+        let rx = std::pin::pin!(rx.peekable());
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tx.try_send(smallvec::smallvec![
+                Packet::Message("hello€".into()),
+                Packet::Binary(Bytes::from_static(&[1, 2, 3, 4]))
+            ])
+            .unwrap();
+        });
+        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await;
+        assert_eq!(data, PAYLOAD.as_bytes());
+    }
+
+    #[tokio::test]
     async fn max_payload_v4() {
         const MAX_PAYLOAD: u64 = 10;
 
@@ -311,6 +333,20 @@ mod tests {
             let Payload { data, .. } = v4_encoder(rx.as_mut(), MAX_PAYLOAD + 10).await;
             assert_eq!(data, "4hello€".as_bytes());
         }
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn encode_v3_string_payload_utf16_length() {
+        // Length must be the number of UTF-16 code units to match the
+        // engine.io v3 JS reference implementation. The message "4𝕊"
+        // (packet type '4' + non-BMP codepoint U+1D54A) has 2 codepoints
+        // but 3 UTF-16 code units.
+        const PAYLOAD: &str = "3:4𝕊";
+        let rx = stream::iter([smallvec![Packet::Message("𝕊".into())]]);
+        let rx = std::pin::pin!(rx.peekable());
+        let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await;
+        assert_eq!(data, PAYLOAD.as_bytes());
     }
 
     #[cfg(feature = "v3")]
@@ -366,6 +402,35 @@ mod tests {
         let rx = std::pin::pin!(rx.peekable());
 
         let Payload { data, has_binary } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
+        assert_eq!(*data, PAYLOAD);
+        assert!(has_binary);
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn encode_v3binary_payload_parked_poll_multi_packet_batch() {
+        // When the v3 binary encoder is parked on an empty buffer and a
+        // multi-packet batch arrives, every packet must be encoded with the
+        // same framing (binary framing if any packet in the batch is binary).
+        // Otherwise the payload mixes string- and binary-framed packets while
+        // being flagged as binary.
+        const PAYLOAD: [u8; 20] = [
+            0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
+        ];
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
+        let rx = std::pin::pin!(rx.peekable());
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tx.try_send(smallvec::smallvec![
+                Packet::Message("hello€".into()),
+                Packet::BinaryV3(Bytes::from_static(&[1, 2, 3, 4]))
+            ])
+            .unwrap();
+        });
+        let Payload {
+            data, has_binary, ..
+        } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }

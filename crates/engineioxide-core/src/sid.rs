@@ -1,7 +1,7 @@
 use std::{fmt, str::FromStr};
 
 use base64::Engine;
-use rand::Rng;
+use rand::RngExt;
 
 /// A 128 bit session id type representing a base64 16 char string
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

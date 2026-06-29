@@ -9,15 +9,15 @@ pub mod ws;
 
 fn make_open_packet(transport: TransportType, id: Sid, config: &EngineIoConfig) -> OpenPacket {
     let upgrades = if transport == TransportType::Polling {
-        vec!["websocket".to_string()]
+        smallvec::smallvec![TransportType::Websocket]
     } else {
-        vec![]
+        smallvec::smallvec![]
     };
     OpenPacket {
         sid: id,
         upgrades,
-        ping_timeout: config.ping_timeout.as_millis() as u64,
-        ping_interval: config.ping_interval.as_millis() as u64,
+        ping_timeout: config.ping_timeout,
+        ping_interval: config.ping_interval,
         max_payload: config.max_payload,
     }
 }

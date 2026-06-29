@@ -1,3 +1,10 @@
+# socketioxide-core 0.18.1
+* feat: add a `is_binary` method to `Packet` to check if the packet is binary.
+* MSRV: rust-version is now 1.94
+
+# socketioxide-core 0.18.0
+* feat(*breaking*): expose global configured ack timeout to adapter implementations
+
 # socketioxide-core 0.17.0
 * feat(*breaking*): remote-adapter packets are now refactored in the core crate. Any adapter implementation can use
 it through the `remote-adapter` flag.

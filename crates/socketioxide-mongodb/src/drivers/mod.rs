@@ -37,6 +37,7 @@ impl Item {
             data,
             origin,
             ns: ns.to_string(),
+            #[cfg(feature = "ttl-index")]
             created_at: None,
         })
     }

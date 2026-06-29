@@ -298,7 +298,6 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     ///
     /// **Note**: This is not the same data as the `extensions` field on the [`http::Request::extensions()`](http::Request) struct.
     /// If you want to extract extensions from the http request, you should use the [`HttpExtension`](crate::extract::HttpExtension) extractor.
-    #[cfg_attr(docsrs, doc(cfg(feature = "extensions")))]
     #[cfg(feature = "extensions")]
     pub extensions: Extensions,
     esocket: Arc<engineioxide::Socket<SocketData<A>>>,
@@ -444,6 +443,11 @@ impl<A: Adapter> Socket<A> {
 
     /// # Register a disconnect handler.
     /// You can register only one disconnect handler per socket. If you register multiple handlers, only the last one will be used.
+    ///
+    /// This implementation is slightly different to the socket.io spec.
+    /// The difference being that [`rooms`](Self::rooms) are still available in this handler
+    /// and only cleaned up AFTER the execution of this handler.
+    /// Therefore you must not indefinitely stall/hang this handler, for example by entering an endless loop.
     ///
     /// _It is recommended for code clarity to define your handler as top level function rather than closures._
     ///
@@ -743,25 +747,21 @@ impl<A: Adapter> Socket<A> {
 
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
-        permit.send(packet, self.parser);
+        // insert ack channel before to avoid race condition
         self.ack_message.lock().unwrap().insert(ack, tx);
+        permit.send(packet, self.parser);
         rx
     }
 
-    pub(crate) fn send_with_ack(&self, mut packet: Packet) -> Receiver<AckResult<Value>> {
-        let (tx, rx) = oneshot::channel();
-
-        let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        packet.inner.set_ack_id(ack);
-        match self.send(packet) {
-            Ok(()) => {
-                self.ack_message.lock().unwrap().insert(ack, tx);
-            }
-            Err(e) => {
-                tx.send(Err(AckError::Socket(e))).ok();
+    pub(crate) fn send_with_ack(&self, packet: Packet) -> Receiver<AckResult<Value>> {
+        match self.reserve() {
+            Ok(permit) => self.send_with_ack_permit(packet, permit),
+            Err(err) => {
+                let (tx, rx) = oneshot::channel();
+                tx.send(Err(AckError::Socket(err))).ok();
+                rx
             }
         }
-        rx
     }
 
     /// Called when the socket is gracefully disconnected from the server or the client
@@ -770,15 +770,16 @@ impl<A: Adapter> Socket<A> {
     pub(crate) fn close(self: Arc<Self>, reason: DisconnectReason) {
         self.set_connected(false);
 
-        let handler = { self.disconnect_handler.lock().unwrap().take() };
-        if let Some(handler) = handler {
+        let disconnect_handler = { self.disconnect_handler.lock().unwrap().take() };
+
+        if let Some(handler) = disconnect_handler {
             #[cfg(feature = "tracing")]
             tracing::trace!(?reason, ?self.id, "spawning disconnect handler");
 
-            handler.call(self.clone(), reason);
+            handler.call_with_defer(self.clone(), reason, |s| s.ns.remove_socket(s.id));
+        } else {
+            self.ns.remove_socket(self.id);
         }
-
-        self.ns.remove_socket(self.id);
     }
 
     /// Receive data from client

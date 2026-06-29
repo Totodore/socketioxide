@@ -1,5 +1,5 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
-use rand::Rng;
+use rand::RngExt;
 use socketioxide::extensions::Extensions;
 
 fn bench_extensions(c: &mut Criterion) {

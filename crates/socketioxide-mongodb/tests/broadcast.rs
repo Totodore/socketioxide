@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use engineioxide::{Packet, ProtocolVersion};
 use socketioxide::{adapter::Adapter, extract::SocketRef};
 mod fixture;
 
@@ -97,7 +98,7 @@ pub async fn broadcast_with_ack() {
     timeout_rcv!(&mut rx2); // Connect "/" packet
 
     assert_eq!(timeout_rcv!(&mut rx2), r#"421["test","bar"]"#);
-    let packet_res = r#"431["foo"]"#.to_string().try_into().unwrap();
+    let packet_res = Packet::parse(ProtocolVersion::V4, r#"431["foo"]"#).unwrap();
     tx2.try_send(packet_res).unwrap();
     assert_eq!(timeout_rcv!(&mut rx1), r#"42["ack_res",{"Ok":"foo"}]"#);
 
@@ -108,11 +109,14 @@ pub async fn broadcast_with_ack() {
 #[tokio::test]
 pub async fn broadcast_with_ack_timeout() {
     use futures_util::StreamExt;
-    const TIMEOUT: Duration = Duration::from_millis(50);
+    const REQ_TIMEOUT: Duration = Duration::from_millis(50);
+    const ACK_TIMEOUT: Duration = Duration::from_millis(50);
+    const TIMEOUT: Duration = Duration::from_millis(100);
 
     async fn handler<A: Adapter>(socket: SocketRef<A>) {
         socket
             .broadcast()
+            .timeout(ACK_TIMEOUT)
             .emit_with_ack::<_, String>("test", "bar")
             .await
             .unwrap()
@@ -124,7 +128,7 @@ pub async fn broadcast_with_ack_timeout() {
         socket.emit("ack_res", "timeout").unwrap();
     }
 
-    let [io1, io2] = fixture::spawn_buggy_servers(TIMEOUT);
+    let [io1, io2] = fixture::spawn_buggy_servers(REQ_TIMEOUT);
 
     io1.ns("/", handler).await.unwrap();
     io2.ns("/", async || ()).await.unwrap();

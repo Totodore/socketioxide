@@ -126,7 +126,10 @@ where
 
         let res = self.svc.call(req).await;
         let body = res.unwrap().collect().await.unwrap();
-        let packet = Packet::try_from(String::from_utf8(body.to_bytes().to_vec()).unwrap())?;
+        let packet = Packet::parse(
+            ProtocolVersion::V4,
+            String::from_utf8(body.to_bytes().to_vec()).unwrap(),
+        )?;
 
         match packet {
             Packet::Open(open) => {

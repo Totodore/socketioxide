@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = redis::Client::open("redis://127.0.0.1:6379?protocol=resp3")?;
     let adapter = RedisAdapterCtr::new_with_redis(&client).await?;
-    let conn = client.get_multiplexed_tokio_connection().await?;
+    let conn = client.get_multiplexed_async_connection().await?;
 
     let (layer, io) = SocketIo::builder()
         .with_state(RemoteUserCnt::new(conn))

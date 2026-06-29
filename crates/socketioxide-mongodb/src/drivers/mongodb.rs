@@ -4,13 +4,9 @@ use crate::MessageExpirationStrategy;
 
 use super::{Driver, Item};
 use futures_core::Stream;
-use mongodb::{
-    IndexModel,
-    change_stream::{
-        ChangeStream,
-        event::{ChangeStreamEvent, OperationType},
-    },
-    options::IndexOptions,
+use mongodb::change_stream::{
+    ChangeStream,
+    event::{ChangeStreamEvent, OperationType},
 };
 use socketioxide_core::Uid;
 
@@ -42,13 +38,14 @@ impl MongoDbDriver {
                     .await?;
                 db.collection(collection)
             }
+            #[cfg(feature = "ttl-index")]
             MessageExpirationStrategy::TtlIndex(ttl) => {
                 tracing::debug!(?ttl, "configuring TTL index as an expiration strategy");
-                let options = IndexOptions::builder()
+                let options = mongodb::options::IndexOptions::builder()
                     .expire_after(*ttl)
                     .background(true)
                     .build();
-                let index = IndexModel::builder()
+                let index = mongodb::IndexModel::builder()
                     .keys(mongodb::bson::doc! { "createdAt": 1 })
                     .options(options)
                     .build();

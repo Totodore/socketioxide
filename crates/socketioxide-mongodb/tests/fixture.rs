@@ -25,6 +25,14 @@ pub fn spawn_servers<const N: usize>() -> [SocketIo<CustomMongoDbAdapter<Emitter
     spawn_inner(sync_buff, MongoDbAdapterConfig::default())
 }
 
+pub fn spawn_servers_with_request_timeout<const N: usize>(
+    request_timeout: Duration,
+) -> [SocketIo<CustomMongoDbAdapter<Emitter, StubDriver>>; N] {
+    let sync_buff = Arc::new(RwLock::new(Vec::with_capacity(N)));
+    let config = MongoDbAdapterConfig::default().with_request_timeout(request_timeout);
+    spawn_inner(sync_buff, config)
+}
+
 pub fn spawn_buggy_servers<const N: usize>(
     timeout: Duration,
 ) -> [SocketIo<CustomMongoDbAdapter<Emitter, StubDriver>>; N] {

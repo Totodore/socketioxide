@@ -26,13 +26,15 @@ jobs:
             path: crates/socketioxide-redis
           - crate: socketioxide_mongodb
             path: crates/socketioxide-mongodb
+          - crate: socketioxide_postgres
+            path: crates/socketioxide-postgres
     steps:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Get releasing version
         working-directory: ${{ matrix.package.path }}

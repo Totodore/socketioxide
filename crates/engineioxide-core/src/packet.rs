@@ -1,14 +1,14 @@
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use base64::{Engine, engine::general_purpose};
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::SmallVec;
 
-use crate::{Sid, Str};
+use crate::{ProtocolVersion, Sid, Str, TransportType};
 
 /// A Packet type to use when receiving and sending data from the client
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Packet {
     /// Open packet used to initiate a connection
     Open(OpenPacket),
@@ -210,16 +210,19 @@ impl From<Packet> for String {
 }
 
 /// Deserialize a [Packet] from a [String] according to the Engine.IO protocol
-impl TryFrom<Str> for Packet {
-    type Error = PacketParseError;
-    fn try_from(value: Str) -> Result<Self, Self::Error> {
+impl Packet {
+    /// Parses a packet from a string value using the specified protocol version.
+    pub fn parse(
+        protocol: ProtocolVersion,
+        value: impl Into<Str>,
+    ) -> Result<Self, PacketParseError> {
+        let value = value.into();
         let packet_type = value
             .as_bytes()
             .first()
             .ok_or(PacketParseError::InvalidPacketType(None))?;
         let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
         let res = match packet_type {
-            b'0' => Packet::Open(serde_json::from_str(value.slice(1..).as_str())?),
             b'1' => Packet::Close,
             b'2' if is_upgrade => Packet::PingUpgrade,
             b'2' => Packet::Ping,
@@ -228,7 +231,7 @@ impl TryFrom<Str> for Packet {
             b'4' => Packet::Message(value.slice(1..)),
             b'5' => Packet::Upgrade,
             b'6' => Packet::Noop,
-            b'b' if value.as_bytes().get(1) == Some(&b'4') => Packet::BinaryV3(
+            b'b' if protocol == ProtocolVersion::V3 => Packet::BinaryV3(
                 general_purpose::STANDARD
                     .decode(value.slice(2..).as_bytes())?
                     .into(),
@@ -244,28 +247,51 @@ impl TryFrom<Str> for Packet {
     }
 }
 
-impl TryFrom<String> for Packet {
-    type Error = PacketParseError;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Packet::try_from(Str::from(value))
-    }
-}
-
 /// An OpenPacket is used to initiate a connection
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenPacket {
     /// The session ID.
     pub sid: Sid,
+
     /// The list of available transport upgrades.
-    pub upgrades: Vec<String>,
-    /// The ping interval, used in the heartbeat mechanism (in milliseconds).
-    pub ping_interval: u64,
-    /// The ping timeout, used in the heartbeat mechanism (in milliseconds).
-    pub ping_timeout: u64,
+    pub upgrades: SmallVec<[TransportType; 1]>,
+
+    /// The ping interval, used in the heartbeat mechanism.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_from_millis"
+    )]
+    pub ping_interval: Duration,
+
+    /// The ping timeout, used in the heartbeat mechanism.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_from_millis"
+    )]
+    pub ping_timeout: Duration,
+
     /// The maximum number of bytes per chunk, used by the client to
     /// aggregate packets into payloads.
     pub max_payload: u64,
+}
+
+/// Helper to serialize a duration as milliseconds
+pub fn serialize_duration_millis<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // serialize_u128 is not supported so we need to cast it to u64, see https://github.com/serde-rs/json/issues/846
+    serializer.serialize_u64(duration.as_millis() as u64)
+}
+
+/// Helper to deserialize a duration from milliseconds
+pub fn deserialize_duration_from_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let millis = u64::deserialize(deserializer)?;
+    Ok(Duration::from_millis(millis))
 }
 
 /// This default implementation should only be used for testing purposes.
@@ -273,9 +299,9 @@ impl Default for OpenPacket {
     fn default() -> Self {
         Self {
             sid: Sid::ZERO,
-            upgrades: vec!["websocket".to_string()],
-            ping_interval: 25000,
-            ping_timeout: 20000,
+            upgrades: smallvec::smallvec![TransportType::Websocket],
+            ping_interval: Duration::from_millis(25000),
+            ping_timeout: Duration::from_millis(20000),
             max_payload: 100000,
         }
     }
@@ -292,16 +318,16 @@ pub type PacketBuf = SmallVec<[Packet; 2]>;
 mod tests {
 
     use super::*;
-    use std::{convert::TryInto, time::Duration};
+    use std::time::Duration;
 
     #[test]
     fn test_open_packet() {
         let sid = Sid::new();
         let packet = Packet::Open(OpenPacket {
             sid,
-            upgrades: vec!["websocket".to_string()],
-            ping_interval: Duration::from_millis(25000).as_millis() as u64,
-            ping_timeout: Duration::from_millis(20000).as_millis() as u64,
+            upgrades: smallvec::smallvec![TransportType::Websocket],
+            ping_interval: Duration::from_millis(25000),
+            ping_timeout: Duration::from_millis(20000),
             max_payload: 100000,
         });
         let packet_str: String = packet.into();
@@ -314,34 +340,10 @@ mod tests {
     }
 
     #[test]
-    fn test_open_packet_deserialize() {
-        let sid = Sid::new();
-        let ref_packet = OpenPacket {
-            sid,
-            upgrades: vec!["websocket".to_string()],
-            ping_interval: Duration::from_millis(25000).as_millis() as u64,
-            ping_timeout: Duration::from_millis(20000).as_millis() as u64,
-            max_payload: 100000,
-        };
-        let packet_str = format!(
-            "0{{\"sid\":\"{sid}\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":100000}}"
-        );
-        let packet = Packet::try_from(packet_str).unwrap();
-        assert!(matches!(packet, Packet::Open(p) if p == ref_packet));
-    }
-
-    #[test]
     fn test_message_packet() {
         let packet = Packet::Message("hello".into());
         let packet_str: String = packet.into();
         assert_eq!(packet_str, "4hello");
-    }
-
-    #[test]
-    fn test_message_packet_deserialize() {
-        let packet_str = "4hello".to_string();
-        let packet: Packet = packet_str.try_into().unwrap();
-        assert_eq!(packet, Packet::Message("hello".into()));
     }
 
     #[test]
@@ -352,10 +354,14 @@ mod tests {
     }
 
     #[test]
-    fn test_binary_packet_deserialize() {
-        let packet_str = "bAQID".to_string();
-        let packet: Packet = packet_str.try_into().unwrap();
-        assert_eq!(packet, Packet::Binary(vec![1, 2, 3].into()));
+    fn test_binary_packet_v4_deserialize_payload_starting_with_4() {
+        let data = vec![0xE0, 0xE1, 0xE2];
+        // Sanity check: the base64 encoding indeed starts with '4'.
+        let packet_str: String = Packet::Binary(data.clone().into()).into();
+        assert_eq!(packet_str, "b4OHi");
+
+        let packet = Packet::parse(ProtocolVersion::V4, packet_str).unwrap();
+        assert_eq!(packet, Packet::Binary(data.into()));
     }
 
     #[test]
@@ -366,21 +372,14 @@ mod tests {
     }
 
     #[test]
-    fn test_binary_packet_v3_deserialize() {
-        let packet_str = "b4AQID".to_string();
-        let packet: Packet = packet_str.try_into().unwrap();
-        assert_eq!(packet, Packet::BinaryV3(vec![1, 2, 3].into()));
-    }
-
-    #[test]
     fn test_packet_get_size_hint() {
         // Max serialized packet
         let open = OpenPacket {
             sid: Sid::new(),
-            ping_interval: u64::MAX,
-            ping_timeout: u64::MAX,
+            ping_interval: Duration::MAX,
+            ping_timeout: Duration::MAX,
             max_payload: u64::MAX,
-            upgrades: vec!["websocket".to_string()],
+            upgrades: smallvec::smallvec![TransportType::Websocket],
         };
         let size = serde_json::to_string(&open).unwrap().len();
         let packet = Packet::Open(open);

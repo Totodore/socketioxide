@@ -25,6 +25,8 @@ pub enum Error {
     HeartbeatTimeout,
     #[error("upgrade error")]
     Upgrade,
+    #[error("multiple ws upgrade requests")]
+    MultipleWebsocketRequests,
 
     #[error("multiple http polling error")]
     MultipleHttpPolling,

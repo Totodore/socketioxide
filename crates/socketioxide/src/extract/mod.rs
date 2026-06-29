@@ -35,6 +35,11 @@
 //! If you want to deserialize the [`Value`](socketioxide_core::Value) data you must manually call
 //! the `Data` extractor to deserialize it.
 //!
+//! Extractors are composable: inside your own extractor you can call the existing extractors
+//! (for example [`State`] to read shared state set with
+//! [`SocketIoBuilder::with_state`](crate::io::SocketIoBuilder)) rather than reaching into the
+//! socket internals. See the [`State`] documentation for a worked example.
+//!
 //! [`FromConnectParts`]: crate::handler::FromConnectParts
 //! [`FromMessageParts`]: crate::handler::FromMessageParts
 //! [`FromMessage`]: crate::handler::FromMessage
@@ -107,14 +112,12 @@ mod extensions;
 mod socket;
 
 #[cfg(feature = "state")]
-#[cfg_attr(docsrs, doc(cfg(feature = "state")))]
 mod state;
 
 pub use data::*;
 pub use extensions::*;
 pub use socket::*;
 #[cfg(feature = "state")]
-#[cfg_attr(docsrs, doc(cfg(feature = "state")))]
 pub use state::*;
 
 /// Private API.

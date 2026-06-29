@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 /// The type of `transport` used to connect to the client/server.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TransportType {
@@ -18,16 +20,6 @@ impl From<u8> for TransportType {
         }
     }
 }
-
-/// Cannot determine the transport type to connect to the client/server.
-#[derive(Debug, Copy, Clone)]
-pub struct UnknownTransportError;
-impl std::fmt::Display for UnknownTransportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "unknown transport type")
-    }
-}
-impl std::error::Error for UnknownTransportError {}
 
 impl FromStr for TransportType {
     type Err = UnknownTransportError;
@@ -56,6 +48,37 @@ impl From<TransportType> for String {
         }
     }
 }
+
+impl Serialize for TransportType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str((*self).into())
+    }
+}
+
+impl<'de> Deserialize<'de> for TransportType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Cannot determine the transport type to connect to the client/server.
+#[derive(Debug, Copy, Clone)]
+pub struct UnknownTransportError;
+impl std::fmt::Display for UnknownTransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown transport type")
+    }
+}
+impl std::error::Error for UnknownTransportError {}
+
+/// == ProtocolVersion ==
 
 #[derive(Debug)]
 pub struct UnknownProtocolVersionError;

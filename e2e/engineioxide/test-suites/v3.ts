@@ -21,7 +21,7 @@ function decodePayload(payload: string) {
 async function initLongPollingSession(supportsBinary = false) {
   const response = await fetch(
     `${POLLING_URL}/engine.io/?EIO=3&transport=polling` +
-      (supportsBinary ? "" : "&b64=1"),
+    (supportsBinary ? "" : "&b64=1"),
   );
   const text = await response.text();
   const [, content] = decodePayload(text);
@@ -120,7 +120,7 @@ describe("Engine.IO protocol", () => {
           `${WS_URL}/engine.io/?transport=websocket`,
         );
 
-        socket.on("error", () => {});
+        socket.on("error", () => { });
 
         waitForEvent(socket, "close");
 
@@ -128,7 +128,7 @@ describe("Engine.IO protocol", () => {
           `${WS_URL}/engine.io/?EIO=abc&transport=websocket`,
         );
 
-        socket2.on("error", () => {});
+        socket2.on("error", () => { });
 
         waitForEvent(socket2, "close");
       });
@@ -136,7 +136,7 @@ describe("Engine.IO protocol", () => {
       it("fails with an invalid 'transport' query parameter", async () => {
         const socket = new WebSocketStream(`${WS_URL}/engine.io/?EIO=3`);
 
-        socket.on("error", () => {});
+        socket.on("error", () => { });
 
         waitForEvent(socket, "close");
 
@@ -144,7 +144,7 @@ describe("Engine.IO protocol", () => {
           `${WS_URL}/engine.io/?EIO=3&transport=abc`,
         );
 
-        socket2.on("error", () => {});
+        socket2.on("error", () => { });
 
         waitForEvent(socket2, "close");
       });
@@ -537,6 +537,40 @@ describe("Engine.IO protocol", () => {
 
       socket.send("4hello");
 
+      const data = await waitForMessage(socket);
+
+      assert.deepStrictEqual(data, "4hello");
+    });
+
+
+    it("should NOOP all polling requests while upgrading", async () => {
+      const sid = await initLongPollingSession();
+
+      const res = await fetch(`${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`, {
+        method: "POST",
+        body: "1:2"
+      });
+      assert.deepStrictEqual(res.status, 200);
+      assert.deepStrictEqual(await res.text(), "ok");
+
+      const socket = new WebSocketStream(
+        `${WS_URL}/engine.io/?EIO=3&transport=websocket&sid=${sid}`,
+      );
+      await waitForEvent(socket, "open");
+      for (let i = 0; i < 5; i++) {
+        const res = await fetch(`${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`);
+        assert.deepStrictEqual(res.status, 200);
+        const body = await res.text();
+        assert.deepStrictEqual(body, "1:6");
+      }
+
+      socket.send("2probe");
+      socket.send("5");
+
+      socket.send("4hello");
+
+      await waitForMessage(socket); // 3
+      await waitForMessage(socket); // 3probe
       const data = await waitForMessage(socket);
 
       assert.deepStrictEqual(data, "4hello");
