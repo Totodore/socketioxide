@@ -304,7 +304,6 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
                 map_fn!(item);
             }
         }
-        tx.flush().await.ok();
 
         // Check volatile channel after main is drained.
         // `has_changed` is non-blocking; if no volatile data is
@@ -315,9 +314,9 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
                 for item in packets {
                     map_fn!(item);
                 }
-                tx.flush().await.ok();
             }
         }
+        tx.flush().await.ok();
     }
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
