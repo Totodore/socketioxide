@@ -550,7 +550,6 @@ where
             data: D::default(),
             req_parts: http::Request::<()>::default().into_parts().0,
 
-            #[cfg(feature = "v3")]
             supports_binary: true,
         };
         let sock = Arc::new(sock);
