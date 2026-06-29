@@ -122,6 +122,17 @@ pub async fn v4_encoder(
             let packet: String = packet.into();
             data.push_str(&packet);
         }
+
+        // Check for volatile packets that arrived during the parked recv
+        let mut volatile_data = String::new();
+        encode_volatile_packets_v4(&mut volatile_data, volatile_rx);
+        if !volatile_data.is_empty() {
+            if !data.is_empty() {
+                volatile_data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
+            }
+            volatile_data.push_str(&data);
+            data = volatile_data;
+        }
     }
 
     Ok(Payload::new(data.into(), false))
@@ -263,11 +274,11 @@ pub async fn v3_binary_encoder(
     }
 
     if has_binary {
-        for packet in packet_buffer {
+        for packet in packet_buffer.drain(..) {
             v3_bin_packet_encoder(packet, &mut data);
         }
     } else {
-        for packet in packet_buffer {
+        for packet in packet_buffer.drain(..) {
             v3_string_packet_encoder(packet, &mut data);
         }
     }
@@ -275,7 +286,24 @@ pub async fn v3_binary_encoder(
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
         let packets = recv_packet(&mut rx).await?;
-        has_binary = packets.iter().any(|p| p.is_binary());
+        has_binary = packets.iter().any(|p| p.is_binary()) || has_binary;
+
+        // Check for volatile that arrived during the park
+        buffer_volatile_packets(
+            &mut packet_buffer,
+            &mut estimated_size,
+            &mut has_binary,
+            max_packet_size_len,
+            volatile_rx,
+        );
+
+        for packet in packet_buffer.drain(..) {
+            if has_binary {
+                v3_bin_packet_encoder(packet, &mut data);
+            } else {
+                v3_string_packet_encoder(packet, &mut data);
+            }
+        }
         for packet in packets {
             if has_binary {
                 v3_bin_packet_encoder(packet, &mut data);
@@ -359,6 +387,13 @@ pub async fn v3_string_encoder(
         let packets = recv_packet(&mut rx).await?;
         for packet in packets {
             v3_string_packet_encoder(packet, &mut data);
+        }
+
+        let mut volatile_data = bytes::BytesMut::new();
+        encode_volatile_v3_string(&mut volatile_data, volatile_rx);
+        if !volatile_data.is_empty() {
+            volatile_data.unsplit(data);
+            data = volatile_data;
         }
     }
 
@@ -875,12 +910,13 @@ mod tests {
 
         let rx = mutex.lock().await;
         let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
-        assert_eq!(data, "4normal".as_bytes());
+        // After the fix: volatile arrived during park, now captured same payload
+        assert_eq!(data, "4volatile\x1e4normal".as_bytes());
 
         drop(tx);
         let rx = mutex.lock().await;
-        let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
-        assert_eq!(data, "4volatile".as_bytes());
+        let result = v4_encoder(rx, MAX_PAYLOAD, &mut vr).await;
+        assert!(result.is_err()); // no more data
     }
 
     #[tokio::test]
@@ -927,12 +963,12 @@ mod tests {
 
         let rx = mutex.lock().await;
         let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
-        assert_eq!(data, "2:4n".as_bytes());
+        assert_eq!(data, "2:4v2:4n".as_bytes());
 
         drop(tx);
         let rx = mutex.lock().await;
-        let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
-        assert_eq!(data, "2:4v".as_bytes());
+        let result = v3_string_encoder(rx, MAX_PAYLOAD, &mut vr).await;
+        assert!(result.is_err());
     }
 
     #[cfg(feature = "v3")]
@@ -987,16 +1023,18 @@ mod tests {
         let Payload {
             data, has_binary, ..
         } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
-        assert!(!has_binary);
-        assert_eq!(&data[..], "2:4n".as_bytes());
+        // After fix: volatile binary + normal message both captured, has_binary=true
+        assert!(has_binary);
+        // Volatile binary: 0x01 0x03 0xFF 0x04 0x01 0x02 (6 bytes)
+        // Normal message in binary frame: 0x00 0x02 0xFF 0x34 0x6E (5 bytes)
+        assert_eq!(data.len(), 11);
+        assert_eq!(&data[..6], &[0x01, 0x03, 0xff, 0x04, 0x01, 0x02][..]);
+        assert_eq!(&data[6..], &[0x00, 0x02, 0xff, 0x34, 0x6e][..]);
 
         drop(tx);
         let rx = mutex.lock().await;
-        let Payload {
-            data, has_binary, ..
-        } = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await.unwrap();
-        assert!(has_binary);
-        assert_eq!(&data[..6], &[0x01, 0x03, 0xff, 0x04, 0x01, 0x02][..]);
+        let result = v3_binary_encoder(rx, MAX_PAYLOAD, &mut vr).await;
+        assert!(result.is_err());
     }
 
     #[cfg(feature = "v3")]

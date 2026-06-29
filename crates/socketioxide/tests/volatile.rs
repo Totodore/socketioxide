@@ -1,8 +1,11 @@
 //! Integration tests for volatile events on socketioxide.
 //! Verifies the volatile operator API and that volatile emits
 //! silently drop errors rather than propagating them.
+mod fixture;
 mod utils;
 
+use fixture::{create_polling_connection, create_server, send_req};
+use http::Method;
 use socketioxide::{SocketIo, extract::SocketRef};
 
 #[tokio::test]
@@ -79,4 +82,75 @@ async fn volatile_emit_on_disconnected_socket_returns_ok() {
 
     io.new_dummy_sock("/test", ()).await;
     assert!(rx2.recv().unwrap().is_ok());
+}
+
+#[tokio::test]
+async fn volatile_broadcast_arrives_via_polling_transport() {
+    let (svc, io) = create_server().await;
+
+    io.ns("/", |s: SocketRef| async move {
+        s.on(
+            "drawing",
+            |s: SocketRef, socketioxide::extract::Data::<serde_json::Value>(data)| async move {
+                s.broadcast().volatile().emit("drawing", &data).await.ok();
+            },
+        );
+    });
+
+    let sender_sid = create_polling_connection(&svc).await;
+    let receiver_sid = create_polling_connection(&svc).await;
+
+    // Drain any queued handshake data from the connections
+    send_req(
+        &svc,
+        format!("transport=polling&sid={sender_sid}"),
+        Method::GET,
+        None,
+    )
+    .await;
+    send_req(
+        &svc,
+        format!("transport=polling&sid={receiver_sid}"),
+        Method::GET,
+        None,
+    )
+    .await;
+    // Respond to pings to keep sessions alive
+    send_req(
+        &svc,
+        format!("transport=polling&sid={sender_sid}"),
+        Method::POST,
+        Some("3".into()),
+    )
+    .await;
+    send_req(
+        &svc,
+        format!("transport=polling&sid={receiver_sid}"),
+        Method::POST,
+        Some("3".into()),
+    )
+    .await;
+
+    // Send drawing event from sender
+    send_req(
+        &svc,
+        format!("transport=polling&sid={sender_sid}"),
+        Method::POST,
+        Some("42[\"drawing\",\"hello\"]".into()),
+    )
+    .await;
+
+    // Poll receiver — should receive the volatile broadcast
+    let response = send_req(
+        &svc,
+        format!("transport=polling&sid={receiver_sid}"),
+        Method::GET,
+        None,
+    )
+    .await;
+    // send_req skips first char (engine.io message type '4')
+    assert!(
+        response.contains("drawing"),
+        "Expected volatile broadcast with 'drawing', got: {response}"
+    );
 }

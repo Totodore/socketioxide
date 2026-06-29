@@ -311,6 +311,8 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
         if volatile_rx.has_changed().unwrap_or(false) {
             let val = volatile_rx.borrow_and_update().clone();
             if let Some(packets) = val {
+                #[cfg(feature = "tracing")]
+                tracing::info!(sid = ?socket.id, "ws volatile check: flushing {:?}", &packets);
                 for item in packets {
                     map_fn!(item);
                 }
