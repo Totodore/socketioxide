@@ -2,13 +2,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc = include_str!("../README.md")]
 
-pub use engineioxide_core::Str;
-pub use service::{ProtocolVersion, TransportType};
+pub use engineioxide_core::{ProtocolVersion, Str, TransportType};
 pub use socket::{DisconnectReason, Socket};
 
 #[doc(hidden)]
 #[cfg(feature = "__test_harness")]
-pub use packet::*;
+pub use engineioxide_core::{OpenPacket, Packet, PacketParseError};
 
 pub mod config;
 pub mod handler;
@@ -25,6 +24,4 @@ pub mod sid {
 mod body;
 mod engine;
 mod errors;
-mod packet;
-mod peekable;
 mod transport;

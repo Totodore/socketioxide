@@ -2,25 +2,18 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use engineioxide_core::payload::{self, Payload};
 use futures_util::StreamExt;
-use http::{Request, Response, StatusCode};
+use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
 use http_body::Body;
 use http_body_util::Full;
 
-use engineioxide_core::Sid;
+use engineioxide_core::{Packet, ProtocolVersion, Sid, TransportType};
 
 use crate::{
-    DisconnectReason,
-    body::ResponseBody,
-    engine::EngineIo,
-    errors::Error,
-    handler::EngineIoHandler,
-    packet::{OpenPacket, Packet},
-    service::{ProtocolVersion, TransportType},
-    transport::polling::payload::Payload,
+    DisconnectReason, body::ResponseBody, engine::EngineIo, errors::Error,
+    handler::EngineIoHandler, transport::make_open_packet,
 };
-
-mod payload;
 
 /// Create a response for http request
 fn http_response<B, D>(
@@ -48,7 +41,7 @@ pub fn open_req<H, B, R>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     req: Request<R>,
-    #[cfg(feature = "v3")] supports_binary: bool,
+    supports_binary: bool,
 ) -> Result<Response<ResponseBody<B>>, Error>
 where
     H: EngineIoHandler,
@@ -58,11 +51,10 @@ where
         protocol,
         TransportType::Polling,
         req.into_parts().0,
-        #[cfg(feature = "v3")]
         supports_binary,
     );
 
-    let packet = OpenPacket::new(TransportType::Polling, socket.id, &engine.config);
+    let packet = make_open_packet(TransportType::Polling, socket.id, &engine.config);
 
     socket.spawn_heartbeat(engine.config.ping_interval, engine.config.ping_timeout);
 
@@ -106,10 +98,7 @@ where
         #[cfg(feature = "tracing")]
         tracing::debug!(?sid, "socket is upgrading, sending NOOP packet");
 
-        #[cfg(feature = "v3")]
         let data = payload::packet_encoder(Packet::Noop, socket.protocol, socket.supports_binary);
-        #[cfg(not(feature = "v3"))]
-        let data = payload::packet_encoder(Packet::Noop, socket.protocol);
 
         let is_binary = false; // The noop packet is guaranteed to be serialized as text
         return Ok(http_response(StatusCode::OK, data, is_binary)?);
@@ -117,27 +106,29 @@ where
 
     // If the socket is already locked, it means that the socket is being used by another request
     // In case of multiple http polling, session should be closed
-    let rx = match socket.internal_rx.try_lock() {
+    let mut rx = match socket.internal_rx.try_lock() {
         Ok(s) => s,
         Err(_) => {
             socket.close(DisconnectReason::MultipleHttpPollingError);
-            return Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST));
+            return Err(Error::MultipleHttpPolling);
         }
     };
 
+    //TODO: handle closing channel packet better than in %the encoding process.
+
     #[cfg(feature = "tracing")]
-    tracing::debug!("[sid={sid}] polling request");
+    tracing::debug!(%sid, %protocol, supports_binary = socket.supports_binary, "polling request");
 
     let max_payload = engine.config.max_payload;
 
-    #[cfg(feature = "v3")]
+    let rx = rx_stream::ReceiverStream::new(&mut rx);
+
     let Payload { data, has_binary } =
-        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await?;
-    #[cfg(not(feature = "v3"))]
-    let Payload { data, has_binary } = payload::encoder(rx, protocol, max_payload).await?;
+        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await;
 
     #[cfg(feature = "tracing")]
-    tracing::debug!("[sid={sid}] sending data: {:?}", data);
+    tracing::trace!(%sid, %protocol, supports_binary = socket.supports_binary, "sending data: {:?}", data);
+
     Ok(http_response(StatusCode::OK, data, has_binary)?)
 }
 
@@ -148,7 +139,7 @@ pub async fn post_req<R, B, H>(
     engine: Arc<EngineIo<H>>,
     protocol: ProtocolVersion,
     sid: Sid,
-    body: Request<R>,
+    req: Request<R>,
 ) -> Result<Response<ResponseBody<B>>, Error>
 where
     H: EngineIoHandler,
@@ -162,7 +153,9 @@ where
         return Err(Error::TransportMismatch);
     }
 
-    let packets = payload::decoder(body, protocol, engine.config.max_payload);
+    let (parts, body) = req.into_parts();
+    let content_type = parts.headers.get(CONTENT_TYPE);
+    let packets = payload::decoder(body, content_type, protocol, engine.config.max_payload);
     futures_util::pin_mut!(packets);
 
     while let Some(packet) = packets.next().await {
@@ -195,9 +188,39 @@ where
                 #[cfg(feature = "tracing")]
                 tracing::debug!("[sid={sid}] error parsing packet: {:?}", e);
                 engine.close_session(sid, DisconnectReason::PacketParsingError);
-                return Err(e);
+                return Err(e.into());
             }
         }?;
     }
     Ok(http_response(StatusCode::OK, "ok", false)?)
+}
+
+mod rx_stream {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use futures_core::Stream;
+    use tokio::sync::mpsc::Receiver;
+
+    /// [`ReceiverStream`] is a stream that wraps a tokio::sync::mpsc::Receiver by reference.
+    /// Allowing to use it as a stream even if it is behind a mutex.
+    pub struct ReceiverStream<'a, T> {
+        inner: &'a mut Receiver<T>,
+    }
+
+    impl<'a, T> ReceiverStream<'a, T> {
+        pub fn new(inner: &'a mut Receiver<T>) -> Self {
+            Self { inner }
+        }
+    }
+
+    impl<'a, T> Stream for ReceiverStream<'a, T> {
+        type Item = T;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.inner.poll_recv(cx)
+        }
+    }
 }

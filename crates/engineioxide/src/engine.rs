@@ -3,13 +3,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use engineioxide_core::Sid;
+use engineioxide_core::{ProtocolVersion, Sid, TransportType};
 use http::request::Parts;
 
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
-    service::{ProtocolVersion, TransportType},
     socket::{DisconnectReason, Socket},
 };
 
@@ -45,7 +44,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         protocol: ProtocolVersion,
         transport: TransportType,
         req: Parts,
-        #[cfg(feature = "v3")] supports_binary: bool,
+        supports_binary: bool,
     ) -> Arc<Socket<H::Data>> {
         let engine = self.clone();
         let close_fn = Box::new(move |sid, reason| engine.close_session(sid, reason));
@@ -56,7 +55,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
             &self.config,
             req,
             close_fn,
-            #[cfg(feature = "v3")]
             supports_binary,
         );
         let socket = Arc::new(socket);

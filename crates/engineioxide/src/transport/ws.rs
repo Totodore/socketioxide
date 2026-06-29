@@ -15,24 +15,17 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
-        Message,
+        self, Message,
         handshake::derive_accept_key,
         protocol::{Role, WebSocketConfig},
     },
 };
 
-use engineioxide_core::{Sid, Str};
+use engineioxide_core::{Packet, ProtocolVersion, Sid, Str, TransportType};
 
 use crate::{
-    DisconnectReason, Socket,
-    body::ResponseBody,
-    config::EngineIoConfig,
-    engine::EngineIo,
-    errors::Error,
-    handler::EngineIoHandler,
-    packet::{OpenPacket, Packet},
-    service::ProtocolVersion,
-    service::TransportType,
+    DisconnectReason, Socket, body::ResponseBody, config::EngineIoConfig, engine::EngineIo,
+    errors::Error, handler::EngineIoHandler, transport::make_open_packet,
 };
 
 /// Create a response for websocket upgrade
@@ -66,7 +59,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     let ws_key = parts
         .headers
         .get("Sec-WebSocket-Key")
-        .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
+        .ok_or(Error::InvalidWebSocketKey)?
         .clone();
 
     tokio::spawn(async move {
@@ -147,13 +140,7 @@ where
             }
         }
     } else {
-        let socket = engine.create_session(
-            protocol,
-            TransportType::Websocket,
-            req_data,
-            #[cfg(feature = "v3")]
-            false,
-        );
+        let socket = engine.create_session(protocol, TransportType::Websocket, req_data, false);
 
         #[cfg(feature = "tracing")]
         tracing::debug!("new websocket connection");
@@ -203,8 +190,13 @@ where
 {
     while let Some(msg) = rx.try_next().await? {
         match msg {
-            Message::Text(msg) => match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
-                Packet::Close => break,
+            Message::Text(msg) => match Packet::parse(socket.protocol, ws_bytes_to_str(msg))? {
+                Packet::Close => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("[sid={}] closing session", socket.id);
+                    engine.close_session(socket.id, DisconnectReason::TransportClose);
+                    break;
+                }
                 Packet::Pong | Packet::Ping => socket
                     .heartbeat_tx
                     .try_send(())
@@ -311,7 +303,8 @@ async fn init_handshake<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, config));
+    let packet = Packet::Open(make_open_packet(TransportType::Websocket, sid, config));
+    let packet: String = packet.into();
     ws.send(Message::Text(packet.into())).await?;
     Ok(())
 }
@@ -369,13 +362,13 @@ where
         Some(Ok(Message::Text(d))) => d,
         _ => Err(Error::Upgrade)?,
     };
-    match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
+    match Packet::parse(socket.protocol, ws_bytes_to_str(msg))? {
         Packet::PingUpgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("received first ping upgrade");
-
             // Respond with a PongUpgrade packet
-            ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
+            ws.send(Message::Text(String::from(Packet::PongUpgrade).into()))
+                .await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
@@ -394,7 +387,7 @@ where
             Err(Error::Upgrade)?
         }
     };
-    match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
+    match Packet::parse(socket.protocol, ws_bytes_to_str(msg))? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("ws upgraded successfully")
@@ -406,7 +399,8 @@ where
     Ok(())
 }
 
-fn utf8_bytes_to_str(bytes: tokio_tungstenite::tungstenite::Utf8Bytes) -> Str {
-    // SAFETY: the bytes are guaranteed to be valid UTF-8 by the tungstenite parser
+fn ws_bytes_to_str(bytes: tungstenite::Utf8Bytes) -> Str {
+    // SAFETY: We are converting a valid UTF-8 byte slice
+    // to a string without checking its validity.
     unsafe { Str::from_bytes_unchecked(bytes.into()) }
 }

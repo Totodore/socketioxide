@@ -33,20 +33,14 @@ tokio-util.workspace = true
 tower-service.workspace = true
 tower-layer.workspace = true
 hyper.workspace = true
-tokio-tungstenite.workspace = true
+tokio-tungstenite = { workspace = true, features = ["handshake"] }
 http-body-util.workspace = true
 pin-project-lite.workspace = true
 smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
-base64 = "0.22"
-
 # Tracing
 tracing = { workspace = true, optional = true }
-
-# Engine.io V3 payload
-itoa = { workspace = true, optional = true }
-memchr = { version = "2.7", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
@@ -55,8 +49,10 @@ hyper = { workspace = true, features = ["server", "http1"] }
 criterion.workspace = true
 axum.workspace = true
 tokio-stream.workspace = true
+tokio-util.workspace = true
+
 [features]
-v3 = ["memchr", "itoa"]
+v3 = ["engineioxide-core/v3"]
 tracing = ["dep:tracing"]
 __test_harness = []
 

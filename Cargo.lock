@@ -815,7 +815,6 @@ name = "engineioxide"
 version = "0.17.5"
 dependencies = [
  "axum",
- "base64",
  "bytes",
  "codspeed-criterion-compat",
  "engineioxide-core",
@@ -826,8 +825,6 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "itoa",
- "memchr",
  "pin-project-lite",
  "serde",
  "serde_json",
@@ -849,8 +846,20 @@ version = "0.2.1"
 dependencies = [
  "base64",
  "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "itoa",
+ "memchr",
+ "pin-project-lite",
  "rand 0.10.1",
  "serde",
+ "serde_json",
+ "smallvec",
+ "tokio",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]
