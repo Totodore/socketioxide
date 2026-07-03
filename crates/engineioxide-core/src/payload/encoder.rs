@@ -384,7 +384,12 @@ mod tests {
         }
         {
             let Payload { data, .. } = v3_string_encoder(rx.as_mut(), MAX_PAYLOAD + 10).await;
-            assert_eq!(data, "10:b4AQIDBA==7:4hello€7:4hello€".as_bytes());
+            assert_eq!(data, "10:b4AQIDBA==".as_bytes());
+        }
+        {
+            // Next call drains one of the remaining Message packets.
+            let Payload { data, .. } = v3_string_encoder(rx.as_mut(), MAX_PAYLOAD + 10).await;
+            assert_eq!(data, "7:4hello€".as_bytes());
         }
     }
 

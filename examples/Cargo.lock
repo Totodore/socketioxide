@@ -1081,9 +1081,8 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.17.3"
+version = "0.17.5"
 dependencies = [
- "base64",
  "bytes",
  "engineioxide-core",
  "futures-core",
@@ -1112,8 +1111,15 @@ version = "0.2.1"
 dependencies = [
  "base64",
  "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "pin-project-lite",
  "rand 0.10.1",
  "serde",
+ "serde_json",
+ "smallvec",
 ]
 
 [[package]]
@@ -3789,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.18.3"
+version = "0.18.4"
 dependencies = [
  "bytes",
  "engineioxide",
@@ -3814,7 +3820,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-core"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "arbitrary",
  "bytes",
