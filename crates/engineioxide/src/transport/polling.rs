@@ -7,6 +7,7 @@ use futures_util::StreamExt;
 use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
 use http_body::Body;
 use http_body_util::Full;
+use tokio_util::future::FutureExt as _;
 
 use engineioxide_core::{Packet, ProtocolVersion, Sid, TransportType};
 
@@ -121,8 +122,17 @@ where
 
     let rx = rx_stream::ReceiverStream::new(&mut rx);
 
-    let Payload { data, has_binary } =
-        payload::encoder(rx, protocol, socket.supports_binary, max_payload).await;
+    // Stop waiting for the next packet as soon as the session is closed. The combinator is biased
+    // towards the encoder completion, so any buffered close packet is still flushed to the client.
+    let payload = payload::encoder(rx, protocol, socket.supports_binary, max_payload)
+        .with_cancellation_token(&socket.cancellation_token)
+        .await;
+
+    let Some(Payload { data, has_binary }) = payload else {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(%sid, "session closed while polling, returning empty payload");
+        return Ok(http_response(StatusCode::OK, "", false)?);
+    };
 
     #[cfg(feature = "tracing")]
     tracing::trace!(%sid, %protocol, supports_binary = socket.supports_binary, "sending data: {:?}", data);

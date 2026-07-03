@@ -269,12 +269,13 @@ pub async fn server_ws_closing() {
         .await
         .expect("timeout waiting for server closing");
     let packets = futures_util::future::join_all(streams.iter_mut().map(async |s| {
-        (s.next().await, s.next().await) // Closing packet / None
+        (s.next().await, s.next().await, s.next().await) // Closing packet / Closing WS msg / None
     }))
     .await;
     for packet in packets {
-        assert!(matches!(packet.0.unwrap().unwrap(), Message::Close(_)));
-        assert!(packet.1.is_none());
+        assert!(matches!(packet.0.unwrap().unwrap(), Message::Text(_)));
+        assert!(matches!(packet.1.unwrap().unwrap(), Message::Close(_)));
+        assert!(packet.2.is_none());
     }
 }
 

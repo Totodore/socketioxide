@@ -88,11 +88,23 @@ impl<H: EngineIoHandler> EngineIo<H> {
             return;
         };
 
-        // Try to close the internal channel if it is available
-        // E.g. with polling transport the channel is not always locked so it is necessary to close it here
-        socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
+        // Notify every transport task listening on this token to stop. Cancellation-aware
+        // transports (the ws `forward_to_socket` task and pending polling requests) will release
+        // the `internal_rx` lock as soon as they observe the cancellation.
         socket.cancellation_token.cancel();
-        self.handler.on_disconnect(socket, reason);
+
+        let handler = self.handler.clone();
+        tokio::spawn(async move {
+            // Wait for the cancelled transport task to yield the `internal_rx` lock, then close the
+            // channel so that `Socket::closed` resolves and no more packets can be buffered.
+            // When no transport holds the lock (e.g. polling between requests) this resolves
+            // immediately.
+            socket.internal_rx.lock().await.close();
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = ?socket.id, "session closed, notifying handler");
+            handler.on_disconnect(socket, reason);
+        });
 
         #[cfg(feature = "tracing")]
         tracing::debug!(

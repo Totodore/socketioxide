@@ -20,6 +20,7 @@ use tokio_tungstenite::{
         protocol::{Role, WebSocketConfig},
     },
 };
+use tokio_util::future::FutureExt as _;
 
 use engineioxide_core::{Packet, ProtocolVersion, Sid, Str, TransportType};
 
@@ -122,17 +123,22 @@ where
             Some(socket) if socket.is_ws() => return Err(Error::MultipleWebsocketRequests),
             Some(socket) => {
                 let mut ws = ws_init().await;
-                match tokio::time::timeout(
-                    engine.config.upgrade_timeout,
-                    upgrade_handshake::<H, S>(&socket, &mut ws),
-                )
-                .await
+
+                let upgrade_fut = upgrade_handshake::<H, S>(&socket, &mut ws);
+                match tokio::time::timeout(engine.config.upgrade_timeout, upgrade_fut)
+                    .with_cancellation_token(&socket.cancellation_token)
+                    .await
                 {
-                    Ok(res) => res?,
-                    Err(_) => {
+                    Some(Ok(res)) => res?,
+                    Some(Err(_)) => {
                         #[cfg(feature = "tracing")]
                         tracing::debug!(?sid, "ws upgrade timed out, closing session");
                         engine.close_session(socket.id, DisconnectReason::TransportError);
+                        return Err(Error::Upgrade);
+                    }
+                    None => {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(?sid, "socket is being closed");
                         return Err(Error::Upgrade);
                     }
                 }
@@ -154,28 +160,27 @@ where
     };
     let (tx, rx) = ws.split();
 
-    // Pipe between websocket and internal socket channel
-    let cancel_token = socket.cancellation_token.clone();
-    tokio::spawn(
-        cancel_token
-            .clone()
-            .run_until_cancelled_owned(forward_to_socket::<H, S>(socket.clone(), tx)),
-    );
+    // Pipe between websocket and internal socket channel.
+    tokio::spawn(forward_to_socket::<H, S>(socket.clone(), tx));
 
     // pipe between internal socket channel and websocket
-    cancel_token
-        .run_until_cancelled_owned(async move {
-            if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("error when handling packet: {:?}", e);
-                if let Some(reason) = e.into() {
-                    engine.close_session(socket.id, reason);
-                }
-            } else {
-                engine.close_session(socket.id, DisconnectReason::TransportClose);
-            }
-        })
-        .await;
+    match forward_to_handler(&engine, rx, &socket)
+        .with_cancellation_token(&socket.cancellation_token)
+        .await
+    {
+        Some(Err(ref e)) => {
+            let reason =
+                Option::<DisconnectReason>::from(e).unwrap_or(DisconnectReason::TransportError);
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!("error when handling packet: {:?}", e);
+            engine.close_session(socket.id, reason);
+        }
+        None | Some(Ok(_)) => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = %socket.id, "socket closed");
+        }
+    }
     Ok(())
 }
 
@@ -275,7 +280,12 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
             };
         }
 
-    while let Some(items) = internal_rx.recv().await {
+    // Forward buffered packets until the channel is closed or the session is cancelled.
+    while let Some(Some(items)) = internal_rx
+        .recv()
+        .with_cancellation_token(&socket.cancellation_token)
+        .await
+    {
         for item in items {
             map_fn!(item);
         }
@@ -288,6 +298,15 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
 
         tx.flush().await.ok();
     }
+
+    // Flush any remaining buffered packets before closing the websocket.
+    while let Ok(items) = internal_rx.try_recv() {
+        for item in items {
+            map_fn!(item);
+        }
+    }
+    tx.flush().await.ok();
+    tx.close().await.ok();
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
 async fn init_handshake<S>(

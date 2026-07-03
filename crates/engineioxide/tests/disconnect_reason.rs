@@ -52,6 +52,81 @@ impl EngineIoHandler for MyHandler {
     }
 }
 
+/// A handler that forwards every connected socket to the test so it can drive its lifecycle.
+#[derive(Debug, Clone)]
+struct CloseHandler {
+    socket_tx: mpsc::Sender<Arc<Socket<()>>>,
+}
+
+impl EngineIoHandler for CloseHandler {
+    type Data = ();
+
+    fn on_connect(self: Arc<Self>, socket: Arc<Socket<()>>) {
+        self.socket_tx.try_send(socket).unwrap();
+    }
+    fn on_disconnect(&self, _socket: Arc<Socket<()>>, _reason: DisconnectReason) {}
+    fn on_message(self: &Arc<Self>, _msg: Str, _socket: Arc<Socket<()>>) {}
+    fn on_binary(self: &Arc<Self>, _data: Bytes, _socket: Arc<Socket<()>>) {}
+}
+
+/// Closing a websocket session should resolve [`Socket::closed`].
+#[tokio::test]
+pub async fn ws_server_closing() {
+    let (socket_tx, mut socket_rx) = mpsc::channel(1);
+    let mut svc = create_server(CloseHandler { socket_tx }).await;
+    let _stream = create_ws_connection(&mut svc).await;
+
+    let socket = socket_rx.recv().await.unwrap();
+    socket.close(DisconnectReason::ClosingServer);
+
+    tokio::time::timeout(Duration::from_millis(100), socket.closed())
+        .await
+        .expect("timeout: ws session did not close while the forward task held the channel lock");
+    assert!(socket.is_closed());
+}
+
+/// Same as [`ws_server_closing`] but for polling with a long-poll request in-flight.
+#[tokio::test]
+pub async fn polling_server_closing_pending_poll() {
+    let (socket_tx, mut socket_rx) = mpsc::channel(1);
+    let mut svc = create_server(CloseHandler { socket_tx }).await;
+    let sid = create_polling_connection(&mut svc).await;
+    let socket = socket_rx.recv().await.unwrap();
+
+    // Drain the first buffered ping so the next poll actually blocks.
+    send_req(
+        &mut svc,
+        format!("transport=polling&sid={sid}"),
+        http::Method::GET,
+        None,
+    )
+    .await;
+
+    // Start a long-poll: the buffer is empty so it blocks waiting for the next packet while holding
+    // the internal channel lock.
+    let poll = tokio::spawn(send_req(
+        &mut svc,
+        format!("transport=polling&sid={sid}"),
+        http::Method::GET,
+        None,
+    ));
+    // Give the poll time to acquire the internal channel lock before closing.
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    socket.close(DisconnectReason::ClosingServer);
+
+    tokio::time::timeout(Duration::from_millis(100), socket.closed())
+        .await
+        .expect("timeout: polling session did not close while a poll held the channel lock");
+    assert!(socket.is_closed());
+
+    // The pending poll should return rather than hang.
+    tokio::time::timeout(Duration::from_millis(100), poll)
+        .await
+        .expect("timeout: the pending poll never returned")
+        .unwrap();
+}
+
 #[tokio::test]
 pub async fn polling_heartbeat_timeout() {
     let (disconnect_tx, mut rx) = mpsc::channel(10);
