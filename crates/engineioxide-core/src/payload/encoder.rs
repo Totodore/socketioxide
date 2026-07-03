@@ -14,17 +14,9 @@ use smallvec::smallvec;
 
 use crate::{Packet, packet::PacketBuf, payload::Payload};
 
-/// Try to immediately poll a new packet buf from the rx channel and check that the new packet can be added to the payload
-///
-/// Manually close the channel if the packet is a close packet
-/// It will allow to notify the [`Socket`](crate::socket::Socket) that the session is closed
-///
-/// ## Arguments
-/// * `rx` - The channel to poll
-/// * `payload_len` - The current payload length
-/// * `max_payload` - The maximum payload length
-/// * `b64` - If binary packets should be encoded in base64
-fn try_recv_packet(
+/// Try to immediately poll a new packet buf from the rx channel and check
+/// that the new packet can be added to the payload without exceeding the max payload size
+fn try_poll_packet(
     mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>,
     payload_len: usize,
     max_payload: u64,
@@ -41,29 +33,15 @@ fn try_recv_packet(
 
     let packets = rx.next().now_or_never().flatten();
 
-    // if Some(&Packet::Close) == packets.as_ref().and_then(|p| p.first()) {
-    //     #[cfg(feature = "tracing")]
-    //     tracing::debug!("Received close packet, closing channel");
-    //     rx.try_recv().ok();
-    //     rx.close();
-    // }
-
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", packets);
     packets
 }
 
-/// Same as [`try_recv_packet`]
+/// Same as [`try_poll_packet`]
 /// but wait for a new packet if there is no packet in the buffer
-async fn recv_packet(mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>) -> PacketBuf {
+async fn poll_packet(mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>) -> PacketBuf {
     let packet = rx.next().await.unwrap_or(smallvec![]);
-
-    if Some(&Packet::Close) == packet.first() {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Received close packet, closing channel");
-
-        // rx.close();
-    }
 
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", packet);
@@ -85,7 +63,7 @@ pub async fn v4_encoder(
     // Send all packets in the buffer
     const PUNCTUATION_LEN: usize = 1;
     while let Some(packets) =
-        try_recv_packet(rx.as_mut(), data.len() + PUNCTUATION_LEN, max_payload, true)
+        try_poll_packet(rx.as_mut(), data.len() + PUNCTUATION_LEN, max_payload, true)
     {
         for packet in packets {
             let packet: String = packet.into();
@@ -99,7 +77,7 @@ pub async fn v4_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(rx.as_mut()).await;
+        let packets = poll_packet(rx.as_mut()).await;
         for packet in packets {
             if !data.is_empty() {
                 data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
@@ -189,7 +167,7 @@ pub async fn v3_binary_encoder(
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
 
-    while let Some(packets) = try_recv_packet(rx.as_mut(), estimated_size, max_payload, false) {
+    while let Some(packets) = try_poll_packet(rx.as_mut(), estimated_size, max_payload, false) {
         for packet in packets {
             if packet.is_binary() {
                 has_binary = true;
@@ -214,7 +192,7 @@ pub async fn v3_binary_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(rx.as_mut()).await;
+        let packets = poll_packet(rx.as_mut()).await;
         has_binary = packets.iter().any(|p| p.is_binary());
         for packet in packets {
             if has_binary {
@@ -245,7 +223,7 @@ pub async fn v3_string_encoder(
     const PUNCTUATION_LEN: usize = 2;
     // number of digits of the max packet size, used to approximate the payload size
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
-    while let Some(packets) = try_recv_packet(
+    while let Some(packets) = try_poll_packet(
         rx.as_mut(),
         data.len() + PUNCTUATION_LEN + max_packet_size_len,
         max_payload,
@@ -258,7 +236,7 @@ pub async fn v3_string_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(rx.as_mut()).await;
+        let packets = poll_packet(rx.as_mut()).await;
         for packet in packets {
             v3_string_packet_encoder(packet, &mut data);
         }

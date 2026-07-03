@@ -259,11 +259,6 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
                             tx.feed(Message::Binary(bin)).await
                         }
                     }
-                    Packet::Close => {
-                        tx.send(Message::Close(None)).await.ok();
-                        internal_rx.close();
-                        break;
-                    },
                     // A Noop Packet maybe sent by the server to upgrade from a polling connection
                     // In the case that the packet was not poll in time it will remain in the buffer and therefore
                     // it should be discarded here

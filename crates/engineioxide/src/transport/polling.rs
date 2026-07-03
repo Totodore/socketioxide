@@ -114,8 +114,6 @@ where
         }
     };
 
-    //TODO: handle closing channel packet better than in %the encoding process.
-
     #[cfg(feature = "tracing")]
     tracing::debug!(%sid, %protocol, supports_binary = socket.supports_binary, "polling request");
 
