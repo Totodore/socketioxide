@@ -20,11 +20,6 @@ struct Payload<B: Body + Unpin> {
     buffer: BufList<B::Data>,
     end_of_stream: bool,
     current_payload_size: u64,
-
-    /// counter to detect if packets have already been
-    /// yielded or if the poller needs to wait
-    #[cfg(feature = "v3")]
-    yield_packets: u32,
 }
 
 impl<B: Body + Unpin> Payload<B> {
@@ -34,8 +29,6 @@ impl<B: Body + Unpin> Payload<B> {
             buffer: BufList::new(),
             end_of_stream: false,
             current_payload_size: 0,
-            #[cfg(feature = "v3")]
-            yield_packets: 0,
         }
     }
 }
@@ -219,12 +212,8 @@ where
                     _ => Err(PacketParseError::InvalidPacketLen),
                 };
 
-                state.yield_packets += 1;
                 break Some((packet, state));
-            } else if state.end_of_stream
-                && state.buffer.remaining() == 0
-                && state.yield_packets > 0
-            {
+            } else if state.end_of_stream && state.buffer.remaining() == 0 {
                 break None;
             } else if state.end_of_stream {
                 // EOS reached with leftover bytes that cannot form a complete
@@ -282,10 +271,8 @@ pub fn v3_string_decoder(
             {
                 break Some((Err(e), state));
             }
-            if state.end_of_stream && state.buffer.remaining() == 0 && state.yield_packets > 0 {
+            if state.end_of_stream && state.buffer.remaining() == 0 {
                 break None; // Reached end of stream with no more data, end the stream
-            } else if state.end_of_stream && state.buffer.remaining() == 0 {
-                return Some((Err(PacketParseError::InvalidPacketLen), state));
             }
 
             let mut reader = (&mut state.buffer).reader();
@@ -385,7 +372,6 @@ pub fn v3_string_decoder(
                     let packet = unsafe { String::from_utf8_unchecked(packet_buf) };
                     let packet = Packet::parse(ProtocolVersion::V3, packet)
                         .map_err(|_| PacketParseError::InvalidPacketLen);
-                    state.yield_packets += 1;
                     break Some((packet, state)); // Emit the packet and the updated state
                 }
             } else if state.end_of_stream && state.buffer.remaining() == 0 {
