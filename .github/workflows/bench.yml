@@ -14,14 +14,14 @@ jobs:
     if: ${{ github.event.inputs.heaptrack == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/

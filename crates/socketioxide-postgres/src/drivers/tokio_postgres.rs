@@ -9,7 +9,7 @@ use tokio_postgres::{AsyncMessage, Client, Config, Socket, tls::MakeTlsConnect};
 
 use crate::stream::ChanStream;
 
-use super::Driver;
+use super::{Driver, INIT_LOCK_KEY};
 
 pub use tokio_postgres as tokio_postgres_client;
 
@@ -87,15 +87,20 @@ impl Driver for TokioPostgresDriver {
     type NotificationStream = ChanStream<Self::Notification>;
 
     async fn init(&self, table: &str) -> Result<(), Self::Error> {
-        let st = &format!(
-            r#"CREATE TABLE IF NOT EXISTS "{table}" (
+        // syslock to avoid concurrent CREATE TABLE issues when starting
+        // multiple node at the same time.
+        let st = format!(
+            r#"BEGIN;
+            SELECT pg_advisory_xact_lock({INIT_LOCK_KEY});
+            CREATE TABLE IF NOT EXISTS "{table}" (
                 id BIGSERIAL UNIQUE,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 payload BYTEA
-            )"#
+            );
+            COMMIT;"#
         );
 
-        self.client.execute(st, &[]).await?;
+        self.client.batch_execute(&st).await?;
 
         Ok(())
     }

@@ -162,7 +162,7 @@ pub fn v3_string_packet_encoder(packet: Packet, data: &mut bytes::BytesMut) {
     let packet: String = packet.into();
     let packet = format!(
         "{}{}{}",
-        packet.chars().count(),
+        packet.encode_utf16().count(), // The protocol uses in UTF16 code points for packet size because of JS
         STRING_PACKET_SEPARATOR_V3 as char,
         packet
     );
@@ -343,6 +343,23 @@ mod tests {
             let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD + 10).await.unwrap();
             assert_eq!(data, "4hello€".as_bytes());
         }
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn encode_v3_string_payload_utf16_length() {
+        // Length must be the number of UTF-16 code units to match the
+        // engine.io v3 JS reference implementation. The message "4𝕊"
+        // (packet type '4' + non-BMP codepoint U+1D54A) has 2 codepoints
+        // but 3 UTF-16 code units.
+        const PAYLOAD: &str = "3:4𝕊";
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
+        let mutex = Mutex::new(PeekableReceiver::new(rx));
+        let rx = mutex.lock().await;
+        tx.try_send(smallvec::smallvec![Packet::Message("𝕊".into())])
+            .unwrap();
+        let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await.unwrap();
+        assert_eq!(data, PAYLOAD.as_bytes());
     }
 
     #[cfg(feature = "v3")]

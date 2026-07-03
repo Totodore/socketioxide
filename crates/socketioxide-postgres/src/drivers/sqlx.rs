@@ -7,7 +7,7 @@ use sqlx::{
     postgres::{PgListener, PgNotification},
 };
 
-use super::Driver;
+use super::{Driver, INIT_LOCK_KEY};
 
 pub use sqlx as sqlx_client;
 
@@ -32,6 +32,15 @@ impl Driver for SqlxDriver {
     type NotificationStream = BoxStream<'static, Self::Notification>;
 
     async fn init(&self, table: &str) -> Result<(), Self::Error> {
+        let mut tx = self.client.begin().await?;
+
+        // syslock to avoid concurrent CREATE TABLE issues when starting
+        // multiple node at the same time.
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(INIT_LOCK_KEY)
+            .execute(&mut *tx)
+            .await?;
+
         sqlx::query(AssertSqlSafe(format!(
             r#"CREATE TABLE IF NOT EXISTS "{table}" (
                 id BIGSERIAL UNIQUE,
@@ -39,8 +48,10 @@ impl Driver for SqlxDriver {
                 payload BYTEA
         )"#,
         )))
-        .execute(&self.client)
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         Ok(())
     }

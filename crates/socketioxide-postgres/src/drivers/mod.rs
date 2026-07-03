@@ -14,6 +14,11 @@ pub mod sqlx;
 #[cfg(feature = "tokio-postgres")]
 pub mod tokio_postgres;
 
+/// Fixed, application-wide 64-bit key for the transaction-scoped advisory lock
+/// taken around `CREATE TABLE IF NOT EXISTS` in every driver's [`Driver::init`].
+#[cfg(any(feature = "sqlx", feature = "tokio-postgres"))]
+pub(crate) const INIT_LOCK_KEY: i64 = 0x5_0C10_01DE;
+
 /// The driver trait can be used to support different LISTEN/NOTIFY backends.
 /// It must share handlers/connection between its clones.
 pub trait Driver: Clone + Send + Sync + 'static {
