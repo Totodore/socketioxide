@@ -12,7 +12,10 @@ use std::pin::Pin;
 use futures_util::{FutureExt, Stream, StreamExt, stream::Peekable};
 use smallvec::smallvec;
 
-use crate::{Packet, packet::PacketBuf, payload::Payload};
+use crate::{packet::PacketBuf, payload::Payload};
+
+#[cfg(feature = "v3")]
+use crate::Packet;
 
 /// Try to immediately poll a new packet buf from the rx channel and check
 /// that the new packet can be added to the payload without exceeding the max payload size
