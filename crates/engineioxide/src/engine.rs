@@ -102,7 +102,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             socket.internal_rx.lock().await.close();
 
             #[cfg(feature = "tracing")]
-            tracing::debug!(sid = ?socket.id, "session closed, notifying handler");
+            tracing::debug!(sid = %socket.id, "session closed, notifying handler");
             handler.on_disconnect(socket, reason);
         });
 

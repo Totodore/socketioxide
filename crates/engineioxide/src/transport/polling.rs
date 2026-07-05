@@ -17,11 +17,7 @@ use crate::{
 };
 
 /// Create a response for http request
-fn http_response<B, D>(
-    code: StatusCode,
-    data: D,
-    is_binary: bool,
-) -> Result<Response<ResponseBody<B>>, http::Error>
+fn http_response<B, D>(code: StatusCode, data: D, is_binary: bool) -> Response<ResponseBody<B>>
 where
     D: Into<Bytes>,
 {
@@ -36,6 +32,7 @@ where
         res.header(CONTENT_TYPE, "text/plain; charset=UTF-8")
     }
     .body(ResponseBody::custom_response(Full::new(body)))
+    .unwrap()
 }
 
 pub fn open_req<H, B, R>(
@@ -74,7 +71,7 @@ where
         #[cfg(not(feature = "v3"))]
         packet
     };
-    http_response(StatusCode::OK, packet, false).map_err(Error::Http)
+    Ok(http_response(StatusCode::OK, packet, false))
 }
 
 /// Handle http polling request
@@ -102,7 +99,7 @@ where
         let data = payload::packet_encoder(Packet::Noop, socket.protocol, socket.supports_binary);
 
         let is_binary = false; // The noop packet is guaranteed to be serialized as text
-        return Ok(http_response(StatusCode::OK, data, is_binary)?);
+        return Ok(http_response(StatusCode::OK, data, is_binary));
     }
 
     // If the socket is already locked, it means that the socket is being used by another request
@@ -131,13 +128,13 @@ where
     let Some(Payload { data, has_binary }) = payload else {
         #[cfg(feature = "tracing")]
         tracing::debug!(%sid, "session closed while polling, returning empty payload");
-        return Ok(http_response(StatusCode::OK, "", false)?);
+        return Ok(http_response(StatusCode::OK, "", false));
     };
 
     #[cfg(feature = "tracing")]
     tracing::trace!(%sid, %protocol, supports_binary = socket.supports_binary, "sending data: {:?}", data);
 
-    Ok(http_response(StatusCode::OK, data, has_binary)?)
+    Ok(http_response(StatusCode::OK, data, has_binary))
 }
 
 /// Handle http polling post request
@@ -170,8 +167,8 @@ where
         match packet {
             Ok(Packet::Close) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("[sid={sid}] closing session");
-                socket.send(Packet::Noop)?;
+                tracing::debug!(%sid, "received close packet, closing session");
+                socket.send(Packet::Noop).ok(); // if the send fails, let's forcefully close the socket
                 engine.close_session(sid, DisconnectReason::TransportClose);
                 break;
             }
@@ -189,18 +186,18 @@ where
             }
             Ok(p) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("[sid={sid}] bad packet received: {:?}", &p);
+                tracing::debug!(%sid, "invalid packet received: {:?}", &p);
                 Err(Error::BadPacket(p))
             }
             Err(e) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("[sid={sid}] error parsing packet: {:?}", e);
+                tracing::debug!(%sid, "could not parse packet: {e}");
                 engine.close_session(sid, DisconnectReason::PacketParsingError);
                 return Err(e.into());
             }
         }?;
     }
-    Ok(http_response(StatusCode::OK, "ok", false)?)
+    Ok(http_response(StatusCode::OK, "ok", false))
 }
 
 mod rx_stream {

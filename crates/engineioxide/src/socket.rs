@@ -192,7 +192,7 @@ where
     pub(crate) internal_rx: Mutex<Receiver<PacketBuf>>,
 
     /// Channel to send [PacketBuf] to the internal connection
-    internal_tx: mpsc::Sender<PacketBuf>,
+    pub(crate) internal_tx: mpsc::Sender<PacketBuf>,
 
     /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task

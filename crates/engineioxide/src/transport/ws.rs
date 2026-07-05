@@ -11,6 +11,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
 };
 use http::{HeaderValue, Request, Response, StatusCode, request::Parts};
+use smallvec::smallvec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     WebSocketStream,
@@ -30,7 +31,7 @@ use crate::{
 };
 
 /// Create a response for websocket upgrade
-fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
+fn ws_response<B>(ws_key: &HeaderValue) -> Response<ResponseBody<B>> {
     let derived = derive_accept_key(ws_key.as_bytes());
     let sec = derived.parse::<HeaderValue>().unwrap();
     Response::builder()
@@ -42,6 +43,7 @@ fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, htt
         )
         .header(http::header::SEC_WEBSOCKET_ACCEPT, sec)
         .body(ResponseBody::empty_response())
+        .unwrap() // we are only using constants
 }
 
 /// Upgrade a websocket request to create a websocket connection.
@@ -93,7 +95,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         }
     });
 
-    Ok(ws_response(&ws_key)?)
+    Ok(ws_response(&ws_key))
 }
 
 /// Handle a websocket connection upgrade
@@ -365,7 +367,11 @@ where
     socket.start_upgrade();
 
     // We send a last Noop request to close a potential waiting polling request.
-    socket.send(Packet::Noop)?;
+    socket
+        .internal_tx
+        .send(smallvec![Packet::Noop])
+        .await
+        .map_err(|_| Error::Upgrade)?;
 
     // wait for any current polling connection to finish by waiting for the socket to be unlocked
     // All other polling connection will be immediately closed with a NOOP packet.

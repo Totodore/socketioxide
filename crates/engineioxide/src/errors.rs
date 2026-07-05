@@ -1,5 +1,4 @@
 use http::{Response, StatusCode};
-use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 
 use crate::body::ResponseBody;
@@ -11,16 +10,10 @@ pub use engineioxide_core::PacketParseError;
 pub enum Error {
     #[error("error decoding packet from request: {0}")]
     PacketParse(#[from] PacketParseError),
-    #[error("bad packet received")]
+    #[error("invalid packet received: {0:?}")]
     BadPacket(Packet),
     #[error("ws transport error: {0}")]
     WsTransport(#[from] Box<tungstenite::Error>),
-    #[error("http error: {0}")]
-    Http(#[from] http::Error),
-    #[error("internal channel error: {0}")]
-    SendChannel(#[from] mpsc::error::TrySendError<Packet>),
-    #[error("internal channel error: {0}")]
-    RecvChannel(#[from] mpsc::error::TryRecvError),
     #[error("heartbeat timeout")]
     HeartbeatTimeout,
     #[error("upgrade error")]
