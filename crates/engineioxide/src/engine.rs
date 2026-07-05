@@ -99,7 +99,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
             // channel so that `Socket::closed` resolves and no more packets can be buffered.
             // When no transport holds the lock (e.g. polling between requests) this resolves
             // immediately.
-            socket.internal_rx.lock().await.close();
+            socket.internal_rx.lock().await.rx.close();
 
             #[cfg(feature = "tracing")]
             tracing::debug!(sid = %socket.id, "session closed, notifying handler");

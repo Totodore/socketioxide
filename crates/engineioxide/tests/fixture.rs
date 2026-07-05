@@ -74,6 +74,38 @@ pub fn send_req<H: EngineIoHandler>(
     }
 }
 
+/// Same as [`send_req`] but returns the full response body without stripping the
+/// leading packet-type byte. Useful to assert on raw polling payloads.
+pub fn send_req_raw<H: EngineIoHandler>(
+    svc: &mut EngineIoService<H>,
+    params: String,
+    method: http::Method,
+    body: Option<String>,
+) -> impl Future<Output = String> + 'static {
+    let body = match body {
+        Some(b) => Either::Left(Full::new(VecDeque::from(b.into_bytes()))),
+        None => Either::Right(Empty::<VecDeque<u8>>::new()),
+    };
+
+    let req = Request::builder()
+        .method(method)
+        .uri(format!("http://127.0.0.1/engine.io/?EIO=4&{params}"))
+        .body(body)
+        .unwrap();
+    let res = svc.call(req);
+    async move {
+        let body = res
+            .await
+            .unwrap()
+            .body_mut()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        String::from_utf8(body.to_vec()).unwrap()
+    }
+}
+
 pub async fn create_polling_connection<H: EngineIoHandler>(svc: &mut EngineIoService<H>) -> String {
     let body = send_req(
         svc,

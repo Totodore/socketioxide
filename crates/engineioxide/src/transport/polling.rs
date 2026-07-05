@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use engineioxide_core::payload::{self, Payload};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, stream};
 use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
 use http_body::Body;
 use http_body_util::Full;
@@ -117,19 +117,30 @@ where
 
     let max_payload = engine.config.max_payload;
 
-    let rx = rx_stream::ReceiverStream::new(&mut rx);
+    // Prepend the packet peeked during the previous
+    // polling request so it is encoded first, ahead of the newly received packets.
+    let rx_stream = stream::iter(rx.peeked.take()).chain(rx_stream::ReceiverStream::new(&mut rx));
 
     // Stop waiting for the next packet as soon as the session is closed. The combinator is biased
     // towards the encoder completion, so any buffered close packet is still flushed to the client.
-    let payload = payload::encoder(rx, protocol, socket.supports_binary, max_payload)
+    let payload = payload::encoder(rx_stream, protocol, socket.supports_binary, max_payload)
         .with_cancellation_token(&socket.cancellation_token)
         .await;
 
-    let Some(Payload { data, has_binary }) = payload else {
+    let Some(Payload {
+        data,
+        has_binary,
+        peeked,
+    }) = payload
+    else {
         #[cfg(feature = "tracing")]
         tracing::debug!(%sid, "session closed while polling, returning empty payload");
         return Ok(http_response(StatusCode::OK, "", false));
     };
+
+    // set back the peeked packet so it can be read again
+    // on the next polling request
+    rx.peeked = peeked;
 
     #[cfg(feature = "tracing")]
     tracing::trace!(%sid, %protocol, supports_binary = socket.supports_binary, "sending data: {:?}", data);

@@ -56,6 +56,8 @@
 //! ```
 use std::{
     collections::VecDeque,
+    fmt::Debug,
+    ops::{Deref, DerefMut},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -152,6 +154,29 @@ impl Permit<'_> {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct InternalRx {
+    pub rx: Receiver<PacketBuf>,
+    pub peeked: Option<PacketBuf>,
+}
+impl InternalRx {
+    fn new(rx: Receiver<PacketBuf>) -> Self {
+        Self { rx, peeked: None }
+    }
+}
+impl Deref for InternalRx {
+    type Target = Receiver<PacketBuf>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.rx
+    }
+}
+impl DerefMut for InternalRx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.rx
+    }
+}
+
 /// A [`Socket`] represents a client connection to the server.
 /// It is agnostic to the [`TransportType`].
 ///
@@ -189,7 +214,7 @@ where
     /// Closing behavior is driven by the [`Socket::cancellation_token`].
     ///
     /// The channel is made of a [`SmallVec`] of [`Packet`]s so that adjacent packets can be sent atomically.
-    pub(crate) internal_rx: Mutex<Receiver<PacketBuf>>,
+    pub(crate) internal_rx: Mutex<InternalRx>,
 
     /// Channel to send [PacketBuf] to the internal connection
     pub(crate) internal_tx: mpsc::Sender<PacketBuf>,
@@ -237,7 +262,7 @@ where
             transport: AtomicU8::new(transport as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(internal_rx),
+            internal_rx: Mutex::new(InternalRx::new(internal_rx)),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
@@ -535,7 +560,7 @@ where
             transport: AtomicU8::new(TransportType::Websocket as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(internal_rx),
+            internal_rx: Mutex::new(InternalRx::new(internal_rx)),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),

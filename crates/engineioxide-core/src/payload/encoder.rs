@@ -9,10 +9,13 @@
 
 use std::pin::Pin;
 
-use futures_util::{FutureExt, Stream, StreamExt, stream::Peekable};
+use futures_util::{FutureExt, Stream, StreamExt};
 use smallvec::smallvec;
 
-use crate::{packet::PacketBuf, payload::Payload};
+use crate::{
+    packet::PacketBuf,
+    payload::{Payload, peekable::Peekable},
+};
 
 #[cfg(feature = "v3")]
 use crate::Packet;
@@ -265,7 +268,7 @@ mod tests {
             smallvec![Packet::Binary(Bytes::from_static(&[1, 2, 3, 4]))],
             smallvec![Packet::Message("hello€".into())],
         ]);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
 
         let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
@@ -276,7 +279,7 @@ mod tests {
         const PAYLOAD: &str = "4hello€\x1ebAQIDBA==";
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             tx.try_send(smallvec::smallvec![
@@ -300,7 +303,7 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
         ]);
 
-        let mut rx = std::pin::pin!(rx.peekable());
+        let mut rx = std::pin::pin!(Peekable::new(rx));
 
         {
             let Payload { data, .. } = v4_encoder(rx.as_mut(), MAX_PAYLOAD).await;
@@ -325,7 +328,7 @@ mod tests {
         // but 3 UTF-16 code units.
         const PAYLOAD: &str = "3:4𝕊";
         let rx = stream::iter([smallvec![Packet::Message("𝕊".into())]]);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
         let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
     }
@@ -340,8 +343,10 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
         ]);
 
-        let rx = std::pin::pin!(rx.peekable());
-        let Payload { data, has_binary } = v3_string_encoder(rx, MAX_PAYLOAD).await;
+        let rx = std::pin::pin!(Peekable::new(rx));
+        let Payload {
+            data, has_binary, ..
+        } = v3_string_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
         assert!(!has_binary);
     }
@@ -357,7 +362,7 @@ mod tests {
             smallvec::smallvec![Packet::Message("hello€".into())],
             smallvec::smallvec![Packet::Message("hello€".into())],
         ]);
-        let mut rx = std::pin::pin!(rx.peekable());
+        let mut rx = std::pin::pin!(Peekable::new(rx));
 
         {
             let Payload { data, .. } = v3_string_encoder(rx.as_mut(), MAX_PAYLOAD).await;
@@ -385,9 +390,11 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
             smallvec![Packet::BinaryV3(Bytes::from_static(&[1, 2, 3, 4]))],
         ]);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
 
-        let Payload { data, has_binary } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
+        let Payload {
+            data, has_binary, ..
+        } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }
@@ -405,7 +412,7 @@ mod tests {
         ];
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             tx.try_send(smallvec::smallvec![
@@ -437,7 +444,7 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
             smallvec![Packet::Message("hello€".into())],
         ]);
-        let mut rx = std::pin::pin!(rx.peekable());
+        let mut rx = std::pin::pin!(Peekable::new(rx));
 
         {
             let Payload { data, .. } = v3_binary_encoder(rx.as_mut(), MAX_PAYLOAD).await;
