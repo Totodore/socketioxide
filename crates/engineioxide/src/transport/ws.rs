@@ -420,7 +420,6 @@ where
 }
 
 fn ws_bytes_to_str(bytes: tungstenite::Utf8Bytes) -> Str {
-    // SAFETY: We are converting a valid UTF-8 byte slice
-    // to a string without checking its validity.
+    // SAFETY: the bytes are guaranteed to be valid UTF-8 by the tungstenite parser
     unsafe { Str::from_bytes_unchecked(bytes.into()) }
 }
