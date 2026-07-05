@@ -272,6 +272,12 @@ pub fn v3_string_decoder(
                 break Some((Err(e), state));
             }
             if state.end_of_stream && state.buffer.remaining() == 0 {
+                if !packet_buf.is_empty() {
+                    // Leftover unparsed bytes at end of stream: either a length
+                    // token that never found its `:` separator or a
+                    // truncated packet body.
+                    break Some((Err(PacketParseError::InvalidPacketLen), state));
+                }
                 break None; // Reached end of stream with no more data, end the stream
             }
 
@@ -549,6 +555,18 @@ mod tests {
             ));
             assert!(payload.next().await.is_none());
         }
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn string_invalid_packet_format_v3() {
+        let data = Full::new(Bytes::from_static(b"abc"));
+        let payload = v3_string_decoder(data, MAX_PAYLOAD);
+        futures_util::pin_mut!(payload);
+        assert!(matches!(
+            payload.next().await,
+            Some(Err(crate::PacketParseError::InvalidPacketLen))
+        ));
     }
 
     #[cfg(feature = "v3")]
