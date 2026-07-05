@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     collections::VecDeque,
     future::Future,
