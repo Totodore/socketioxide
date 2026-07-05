@@ -141,7 +141,7 @@ mod peekable {
         task::{Context, Poll},
     };
 
-    use futures_util::{Stream, StreamExt as _, future::FusedFuture, stream::Fuse};
+    use futures_util::{Stream, StreamExt as _, stream::Fuse};
     use pin_project_lite::pin_project;
 
     pin_project! {
@@ -229,12 +229,6 @@ mod peekable {
         #[must_use = "futures do nothing unless polled"]
         pub struct Peek<'a, St: Stream> {
             inner: Option<Pin<&'a mut Peekable<St>>>,
-        }
-    }
-
-    impl<St: Stream> FusedFuture for Peek<'_, St> {
-        fn is_terminated(&self) -> bool {
-            self.inner.is_none()
         }
     }
 

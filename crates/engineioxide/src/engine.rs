@@ -159,7 +159,6 @@ mod tests {
             ProtocolVersion::V4,
             TransportType::Polling,
             Request::<()>::default().into_parts().0,
-            #[cfg(feature = "v3")]
             true,
         );
         assert_eq!(engine.sockets.read().unwrap().len(), 1);
@@ -174,7 +173,6 @@ mod tests {
             ProtocolVersion::V4,
             TransportType::Polling,
             Request::<()>::default().into_parts().0,
-            #[cfg(feature = "v3")]
             true,
         );
         assert_eq!(engine.sockets.read().unwrap().len(), 1);
@@ -189,7 +187,6 @@ mod tests {
             ProtocolVersion::V4,
             TransportType::Polling,
             Request::<()>::default().into_parts().0,
-            #[cfg(feature = "v3")]
             true,
         );
         assert_eq!(engine.sockets.read().unwrap().len(), 1);

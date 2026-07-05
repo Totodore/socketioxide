@@ -178,9 +178,14 @@ where
             tracing::debug!("error when handling packet: {:?}", e);
             engine.close_session(socket.id, reason);
         }
-        None | Some(Ok(_)) => {
+        Some(Ok(())) => {
             #[cfg(feature = "tracing")]
-            tracing::debug!(sid = %socket.id, "socket closed");
+            tracing::debug!(sid = %socket.id, "ws transport was closed");
+            engine.close_session(socket.id, DisconnectReason::TransportClose);
+        }
+        None => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = %socket.id, "socket is closing");
         }
     }
     Ok(())
