@@ -135,7 +135,7 @@ pub fn packet_encoder(
 
 mod peekable {
     //! [`Peekable`] implementation taken from [`futures_util::stream::Peekable`] but
-    //! with an [`Peekable::into_parts`] method to get back a potentially peeked item and the stream.
+    //! with an [`Peekable::take_peeked`] method to get back a potentially peeked item.
     use std::{
         pin::Pin,
         task::{Context, Poll},
