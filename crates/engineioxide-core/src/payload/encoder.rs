@@ -47,7 +47,7 @@ fn try_poll_packet(
 /// Same as [`try_poll_packet`]
 /// but wait for a new packet if there is no packet in the buffer
 async fn poll_packet(mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>) -> PacketBuf {
-    let packet = rx.next().await.unwrap_or(smallvec![]);
+    let packet = rx.next().await.unwrap_or(smallvec![]); // if the channel is closed yield an empty packet
 
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", packet);
