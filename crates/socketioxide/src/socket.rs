@@ -639,23 +639,7 @@ impl<A: Adapter> Socket<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).broadcast()
     }
 
-    /// Returns a [`ConfOperators`] with the volatile flag set, so that any
-    /// subsequent `emit()` will drop the event instead of buffering it if the
-    /// client is not ready to receive it.
-    ///
-    /// # Example
-    /// ```
-    /// # use socketioxide::{SocketIo, extract::SocketRef};
-    /// # use serde::Serialize;
-    /// #[derive(Serialize)]
-    /// struct GameState { x: f64, y: f64 }
-    ///
-    /// let (_, io) = SocketIo::new_svc();
-    /// io.ns("/", async |socket: SocketRef| {
-    ///     socket.volatile().emit("position", &GameState { x: 1.0, y: 2.0 }).ok();
-    ///     socket.volatile().to("room1").emit("update", &42).await.ok();
-    /// });
-    /// ```
+    #[doc = include_str!("../docs/operators/volatile.md")]
     pub fn volatile(&self) -> ConfOperators<'_, A> {
         ConfOperators::new(self).volatile()
     }

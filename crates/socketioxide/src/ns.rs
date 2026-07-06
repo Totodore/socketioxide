@@ -273,11 +273,8 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
 
     fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value) {
         let sockets = self.sockets.read().unwrap();
-        for sid in sids {
-            if let Some(socket) = sockets.get(&sid) {
-                socket.send_raw_volatile(data.clone());
-            }
-        }
+        sids.filter_map(|sid| sockets.get(&sid))
+            .for_each(|socket| socket.send_raw_volatile(data.clone()));
     }
 
     fn send_many_with_ack(

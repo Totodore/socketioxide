@@ -210,9 +210,7 @@ pub trait SocketEmitter: Send + Sync + 'static {
     /// Send data to the list of socket ids with volatile semantics.
     /// Errors are silently discarded; packets may be dropped if the
     /// transport is not ready.
-    fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value) {
-        _ = self.send_many(sids, data);
-    }
+    fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value);
     /// Send data to the list of socket ids and get a stream of acks and the number of expected acks.
     fn send_many_with_ack(
         &self,
@@ -793,6 +791,8 @@ mod test {
         fn send_many(&self, _: BroadcastIter<'_>, _: Value) -> Result<(), Vec<SocketError>> {
             Ok(())
         }
+
+        fn send_many_volatile(&self, _: BroadcastIter<'_>, _: Value) {}
 
         fn send_many_with_ack(
             &self,

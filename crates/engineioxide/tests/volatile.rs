@@ -7,9 +7,10 @@ use engineioxide::{
     socket::{DisconnectReason, Socket},
 };
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message;
 
 mod fixture;
-use fixture::{create_polling_connection, create_server, send_req};
+use fixture::{create_polling_connection, create_server, create_ws_connection, send_req};
 
 #[derive(Debug, Clone)]
 struct VolatileHandler {
@@ -109,4 +110,58 @@ async fn volatile_overwrite_only_latest_survives() {
     .await;
     // After send_req's skip(1): "kept" then \x1e separator then "4normal"
     assert_eq!(response, "kept\x1e4normal");
+}
+
+#[tokio::test]
+async fn volatile_only_arrives_via_polling() {
+    let (socket_tx, mut socket_rx) = mpsc::channel(10);
+    let mut svc = create_server(VolatileHandler { socket_tx }).await;
+    let sid = create_polling_connection(&mut svc).await;
+
+    let socket = socket_rx
+        .recv()
+        .await
+        .expect("socket not received from on_connect");
+
+    assert!(socket.emit_volatile("volatile_only"));
+
+    let response = send_req(
+        &mut svc,
+        format!("transport=polling&sid={sid}"),
+        http::Method::GET,
+        None,
+    )
+    .await;
+    assert_eq!(response, "volatile_only");
+}
+
+#[tokio::test]
+async fn volatile_only_arrives_via_ws() {
+    use std::time::Duration;
+
+    use futures_util::StreamExt;
+
+    let (socket_tx, mut socket_rx) = mpsc::channel(10);
+    let mut svc = create_server(VolatileHandler { socket_tx }).await;
+    let mut stream = create_ws_connection(&mut svc).await;
+
+    let socket = socket_rx
+        .recv()
+        .await
+        .expect("socket not received from on_connect");
+
+    let _open_packet = stream.next().await.unwrap().unwrap();
+
+    let ping = stream.next().await.unwrap().unwrap();
+    assert_eq!(ping, Message::Text("2".into()));
+
+    assert!(socket.emit_volatile("volatile_only"));
+
+    let volatile = tokio::time::timeout(Duration::from_millis(100), stream.next()).await;
+
+    let msg = volatile
+        .expect("timeout: volatile-only packet was never flushed over websocket")
+        .unwrap()
+        .unwrap();
+    assert_eq!(msg, Message::Text("4volatile_only".into()));
 }

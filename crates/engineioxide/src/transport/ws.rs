@@ -290,31 +290,45 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
         }
 
     loop {
-        // Priority: wait for and drain the main channel.
-        // Volatile events are checked after each main-channel cycle.
-        let items = match internal_rx.recv().await {
-            Some(items) => items,
-            None => break,
-        };
-        for item in items {
-            map_fn!(item);
-        }
-        while let Ok(items) = internal_rx.try_recv() {
-            for item in items {
-                map_fn!(item);
+        tokio::select! {
+            items = internal_rx.recv() => {
+                match items {
+                    Some(packets) => {
+                        for item in packets {
+                            map_fn!(item);
+                        }
+                        while let Ok(packets) = internal_rx.try_recv() {
+                            for item in packets {
+                                map_fn!(item);
+                            }
+                        }
+                    }
+                    None => {
+                        // Main channel closed, flush and drain remaining volatile
+                        tx.flush().await.ok();
+                        if volatile_rx.has_changed().unwrap_or(false) {
+                            let val = volatile_rx.borrow_and_update().clone();
+                            if let Some(packets) = val {
+                                for item in packets {
+                                    map_fn!(item);
+                                }
+                                tx.flush().await.ok();
+                            }
+                        }
+                        break;
+                    }
+                }
             }
-        }
-
-        // Check volatile channel after main is drained.
-        // `has_changed` is non-blocking; if no volatile data is
-        // pending we simply go back to waiting for the main channel.
-        if volatile_rx.has_changed().unwrap_or(false) {
-            let val = volatile_rx.borrow_and_update().clone();
-            if let Some(packets) = val {
-                #[cfg(feature = "tracing")]
-                tracing::info!(sid = ?socket.id, "ws volatile check: flushing {:?}", &packets);
-                for item in packets {
-                    map_fn!(item);
+            result = volatile_rx.changed() => {
+                if let Ok(()) = result {
+                    let val = volatile_rx.borrow_and_update().clone();
+                    if let Some(packets) = val {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(sid = ?socket.id, "ws volatile flush: {} packets", packets.len());
+                        for item in packets {
+                            map_fn!(item);
+                        }
+                    }
                 }
             }
         }
