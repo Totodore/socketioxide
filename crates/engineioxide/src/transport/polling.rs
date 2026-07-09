@@ -325,9 +325,14 @@ mod rx_stream {
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             let this = self.project();
-            match this.watch.poll_next(cx) {
-                Poll::Ready(Some(v)) => Poll::Ready(v),
-                Poll::Ready(None) | Poll::Pending => this.rx.poll_next(cx),
+            // low priority: poll the watch stream first, then the rx stream.
+            // same than with ws transport
+            match this.rx.poll_next(cx) {
+                Poll::Ready(v) => Poll::Ready(v),
+                Poll::Pending => match this.watch.poll_next(cx) {
+                    Poll::Ready(Some(v)) => Poll::Ready(v),
+                    Poll::Ready(None) | Poll::Pending => Poll::Pending,
+                },
             }
         }
     }

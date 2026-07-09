@@ -1,7 +1,8 @@
-# Set the volatile flag for the emit. When set, the event may be dropped
-if the client is not ready to receive it (e.g. the connection is buffering
-or not connected). This is useful for events that are not critical, such
-as position updates in a game.
+# Emit a message with volatile behavior
+
+When set, the emitted event may be dropped if the client is not ready to receive it
+(e.g. the connection is buffering or not connected). This is useful for events
+that are not critical, such as position updates in a game.
 
 Because volatile events use a separate channel that bypasses the main
 mpsc buffer, they may arrive **out of order** relative to regular events

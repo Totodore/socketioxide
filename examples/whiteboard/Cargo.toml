@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-socketioxide = { workspace = true, features = ["tracing", "msgpack"] }
+socketioxide = { workspace = true, features = ["tracing", "msgpack", "state"] }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower-http.workspace = true

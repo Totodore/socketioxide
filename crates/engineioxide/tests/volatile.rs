@@ -83,7 +83,7 @@ async fn mixed_volatile_and_normal_via_polling() {
     .await;
     // Volatile should have priority and appear first, before normal.
     // send_req skips only the first character (the leading '4' of the volatile).
-    assert_eq!(response, "volatile_msg\x1e4normal_msg");
+    assert_eq!(response, "normal_msg\x1e4volatile_msg");
 }
 
 #[tokio::test]
@@ -109,7 +109,7 @@ async fn volatile_overwrite_only_latest_survives() {
     )
     .await;
     // After send_req's skip(1): "kept" then \x1e separator then "4normal"
-    assert_eq!(response, "kept\x1e4normal");
+    assert_eq!(response, "normal\x1e4kept");
 }
 
 #[tokio::test]
