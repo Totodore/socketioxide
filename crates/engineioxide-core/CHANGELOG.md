@@ -1,3 +1,7 @@
+# engineioxide-core 0.2.2
+* refactor: move polling payload encoder/decoder to `core`.
+* chore(deps): bump cmov from 0.5.3 to 0.5.4
+
 # engineioxide-core 0.2.1
 * deps: bump rand from 0.9.1 to 0.10.0
 
