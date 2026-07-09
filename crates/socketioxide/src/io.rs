@@ -591,6 +591,12 @@ impl<A: Adapter> SocketIo<A> {
         self.get_default_op()
     }
 
+    #[doc = include_str!("../docs/operators/volatile.md")]
+    #[inline]
+    pub fn volatile(&self) -> BroadcastOperators<A> {
+        self.get_default_op().volatile()
+    }
+
     #[cfg(feature = "state")]
     pub(crate) fn get_state<T: Clone + 'static>(&self) -> Option<T> {
         self.0.state.try_get::<T>().cloned()

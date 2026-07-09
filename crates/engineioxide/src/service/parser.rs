@@ -34,15 +34,8 @@ where
             sid: None,
             transport: TransportType::Polling,
             method: Method::GET,
-            #[cfg(feature = "v3")]
             b64,
-        }) => ResponseFuture::ready(polling::open_req(
-            engine,
-            protocol,
-            req,
-            #[cfg(feature = "v3")]
-            !b64,
-        )),
+        }) => ResponseFuture::ready(polling::open_req(engine, protocol, req, !b64)),
         Ok(RequestInfo {
             protocol,
             sid: Some(sid),
@@ -134,7 +127,6 @@ pub struct RequestInfo {
     /// The request method.
     pub method: Method,
     /// If the client asked for base64 encoding only.
-    #[cfg(feature = "v3")]
     pub b64: bool,
 }
 
@@ -175,6 +167,9 @@ impl RequestInfo {
             .map(|v| v == "1" || v == "true")
             .unwrap_or_default();
 
+        #[cfg(not(feature = "v3"))]
+        let b64: bool = false;
+
         let method = req.method().clone();
         if !matches!(method, Method::GET) && sid.is_none() {
             Err(BadHandshakeMethod)
@@ -184,7 +179,6 @@ impl RequestInfo {
                 sid,
                 transport,
                 method,
-                #[cfg(feature = "v3")]
                 b64,
             })
         }

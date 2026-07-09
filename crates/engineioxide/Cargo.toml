@@ -1,7 +1,7 @@
 [package]
 name = "engineioxide"
 description = "Engine IO server implementation as a Tower Service."
-version = "0.17.5"
+version = "0.17.6"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -19,7 +19,7 @@ features = ["v3"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-engineioxide-core = { path = "../engineioxide-core", version = "0.2" }
+engineioxide-core = { path = "../engineioxide-core", version = "0.2.2" }
 bytes.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
@@ -28,7 +28,7 @@ http-body.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "time"] }
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
 tokio-util.workspace = true
 tower-service.workspace = true
 tower-layer.workspace = true
@@ -53,7 +53,7 @@ tokio-util.workspace = true
 
 [features]
 v3 = ["engineioxide-core/v3"]
-tracing = ["dep:tracing"]
+tracing = ["dep:tracing", "engineioxide-core/tracing"]
 __test_harness = []
 
 [[bench]]

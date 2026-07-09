@@ -42,6 +42,28 @@ describe("adapter tests", { timeout: 60000 }, () => {
       }
     });
 
+    it("should broadcast a volatile packet sent from a socket to all other sockets", async (ctx) => {
+      const sockets: Socket[] = (ctx as any).sockets;
+      for (const socket of sockets) {
+        let msgs: string[] = [];
+        const prom = new Promise((resolve) => {
+          for (const socket of sockets) {
+            socket.once("volatile_broadcast", (data: string) => {
+              msgs.push(data);
+              if (msgs.length === sockets.length) resolve(null);
+            });
+          }
+        });
+
+        socket.emit("volatile_broadcast");
+        await prom;
+        assert.equal(Object.values(msgs).length, sockets.length);
+        for (const msg of msgs) {
+          assert.deepStrictEqual(msg, `hello from ${socket.id}`);
+        }
+      }
+    });
+
     it("should broadcast a packet sent from a socket to all other sockets and get an ack from each socket", async (ctx) => {
       const sockets: Socket[] = (ctx as any).sockets;
       const expected = sockets.map((s) => `ack from ${s.id}`).sort();

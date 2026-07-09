@@ -20,9 +20,6 @@ struct Payload<B: Body + Unpin> {
     buffer: BufList<B::Data>,
     end_of_stream: bool,
     current_payload_size: u64,
-
-    #[cfg(feature = "v3")]
-    yield_packets: u32,
 }
 
 impl<B: Body + Unpin> Payload<B> {
@@ -32,8 +29,6 @@ impl<B: Body + Unpin> Payload<B> {
             buffer: BufList::new(),
             end_of_stream: false,
             current_payload_size: 0,
-            #[cfg(feature = "v3")]
-            yield_packets: 0,
         }
     }
 }
@@ -276,10 +271,14 @@ pub fn v3_string_decoder(
             {
                 break Some((Err(e), state));
             }
-            if state.end_of_stream && state.buffer.remaining() == 0 && state.yield_packets > 0 {
+            if state.end_of_stream && state.buffer.remaining() == 0 {
+                if !packet_buf.is_empty() {
+                    // Leftover unparsed bytes at end of stream: either a length
+                    // token that never found its `:` separator or a
+                    // truncated packet body.
+                    break Some((Err(PacketParseError::InvalidPacketLen), state));
+                }
                 break None; // Reached end of stream with no more data, end the stream
-            } else if state.end_of_stream && state.buffer.remaining() == 0 {
-                return Some((Err(PacketParseError::InvalidPacketLen), state));
             }
 
             let mut reader = (&mut state.buffer).reader();
@@ -379,7 +378,6 @@ pub fn v3_string_decoder(
                     let packet = unsafe { String::from_utf8_unchecked(packet_buf) };
                     let packet = Packet::parse(ProtocolVersion::V3, packet)
                         .map_err(|_| PacketParseError::InvalidPacketLen);
-                    state.yield_packets += 1;
                     break Some((packet, state)); // Emit the packet and the updated state
                 }
             } else if state.end_of_stream && state.buffer.remaining() == 0 {
@@ -557,6 +555,18 @@ mod tests {
             ));
             assert!(payload.next().await.is_none());
         }
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
+    async fn string_invalid_packet_format_v3() {
+        let data = Full::new(Bytes::from_static(b"abc"));
+        let payload = v3_string_decoder(data, MAX_PAYLOAD);
+        futures_util::pin_mut!(payload);
+        assert!(matches!(
+            payload.next().await,
+            Some(Err(crate::PacketParseError::InvalidPacketLen))
+        ));
     }
 
     #[cfg(feature = "v3")]

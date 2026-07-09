@@ -9,22 +9,20 @@
 
 use std::pin::Pin;
 
-use futures_util::{FutureExt, Stream, StreamExt, stream::Peekable};
+use futures_util::{FutureExt, Stream, StreamExt};
 use smallvec::smallvec;
 
-use crate::{Packet, packet::PacketBuf, payload::Payload};
+use crate::{
+    packet::PacketBuf,
+    payload::{Payload, peekable::Peekable},
+};
 
-/// Try to immediately poll a new packet buf from the rx channel and check that the new packet can be added to the payload
-///
-/// Manually close the channel if the packet is a close packet
-/// It will allow to notify the [`Socket`](crate::socket::Socket) that the session is closed
-///
-/// ## Arguments
-/// * `rx` - The channel to poll
-/// * `payload_len` - The current payload length
-/// * `max_payload` - The maximum payload length
-/// * `b64` - If binary packets should be encoded in base64
-fn try_recv_packet(
+#[cfg(feature = "v3")]
+use crate::Packet;
+
+/// Try to immediately poll a new packet buf from the rx channel and check
+/// that the new packet can be added to the payload without exceeding the max payload size
+fn try_poll_packet(
     mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>,
     payload_len: usize,
     max_payload: u64,
@@ -41,29 +39,15 @@ fn try_recv_packet(
 
     let packets = rx.next().now_or_never().flatten();
 
-    // if Some(&Packet::Close) == packets.as_ref().and_then(|p| p.first()) {
-    //     #[cfg(feature = "tracing")]
-    //     tracing::debug!("Received close packet, closing channel");
-    //     rx.try_recv().ok();
-    //     rx.close();
-    // }
-
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", packets);
     packets
 }
 
-/// Same as [`try_recv_packet`]
+/// Same as [`try_poll_packet`]
 /// but wait for a new packet if there is no packet in the buffer
-async fn recv_packet(mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>) -> PacketBuf {
-    let packet = rx.next().await.unwrap_or(smallvec![]);
-
-    if Some(&Packet::Close) == packet.first() {
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Received close packet, closing channel");
-
-        // rx.close();
-    }
+async fn poll_packet(mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>) -> PacketBuf {
+    let packet = rx.next().await.unwrap_or(smallvec![]); // if the channel is closed yield an empty packet
 
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", packet);
@@ -85,7 +69,7 @@ pub async fn v4_encoder(
     // Send all packets in the buffer
     const PUNCTUATION_LEN: usize = 1;
     while let Some(packets) =
-        try_recv_packet(rx.as_mut(), data.len() + PUNCTUATION_LEN, max_payload, true)
+        try_poll_packet(rx.as_mut(), data.len() + PUNCTUATION_LEN, max_payload, true)
     {
         for packet in packets {
             let packet: String = packet.into();
@@ -99,7 +83,7 @@ pub async fn v4_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(rx.as_mut()).await;
+        let packets = poll_packet(rx.as_mut()).await;
         for packet in packets {
             if !data.is_empty() {
                 data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
@@ -189,7 +173,7 @@ pub async fn v3_binary_encoder(
     // buffer all packets to find if there is binary packets
     let mut has_binary = false;
 
-    while let Some(packets) = try_recv_packet(rx.as_mut(), estimated_size, max_payload, false) {
+    while let Some(packets) = try_poll_packet(rx.as_mut(), estimated_size, max_payload, false) {
         for packet in packets {
             if packet.is_binary() {
                 has_binary = true;
@@ -214,7 +198,7 @@ pub async fn v3_binary_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(rx.as_mut()).await;
+        let packets = poll_packet(rx.as_mut()).await;
         has_binary = packets.iter().any(|p| p.is_binary());
         for packet in packets {
             if has_binary {
@@ -245,7 +229,7 @@ pub async fn v3_string_encoder(
     const PUNCTUATION_LEN: usize = 2;
     // number of digits of the max packet size, used to approximate the payload size
     let max_packet_size_len = max_payload.checked_ilog10().unwrap_or(0) as usize + 1;
-    while let Some(packets) = try_recv_packet(
+    while let Some(packets) = try_poll_packet(
         rx.as_mut(),
         data.len() + PUNCTUATION_LEN + max_packet_size_len,
         max_payload,
@@ -258,7 +242,7 @@ pub async fn v3_string_encoder(
 
     // If there is no packet in the buffer, wait for the next packet
     if data.is_empty() {
-        let packets = recv_packet(rx.as_mut()).await;
+        let packets = poll_packet(rx.as_mut()).await;
         for packet in packets {
             v3_string_packet_encoder(packet, &mut data);
         }
@@ -284,7 +268,7 @@ mod tests {
             smallvec![Packet::Binary(Bytes::from_static(&[1, 2, 3, 4]))],
             smallvec![Packet::Message("hello€".into())],
         ]);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
 
         let Payload { data, .. } = v4_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
@@ -295,7 +279,7 @@ mod tests {
         const PAYLOAD: &str = "4hello€\x1ebAQIDBA==";
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             tx.try_send(smallvec::smallvec![
@@ -319,7 +303,7 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
         ]);
 
-        let mut rx = std::pin::pin!(rx.peekable());
+        let mut rx = std::pin::pin!(Peekable::new(rx));
 
         {
             let Payload { data, .. } = v4_encoder(rx.as_mut(), MAX_PAYLOAD).await;
@@ -344,7 +328,7 @@ mod tests {
         // but 3 UTF-16 code units.
         const PAYLOAD: &str = "3:4𝕊";
         let rx = stream::iter([smallvec![Packet::Message("𝕊".into())]]);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
         let Payload { data, .. } = v3_string_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
     }
@@ -359,8 +343,10 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
         ]);
 
-        let rx = std::pin::pin!(rx.peekable());
-        let Payload { data, has_binary } = v3_string_encoder(rx, MAX_PAYLOAD).await;
+        let rx = std::pin::pin!(Peekable::new(rx));
+        let Payload {
+            data, has_binary, ..
+        } = v3_string_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(data, PAYLOAD.as_bytes());
         assert!(!has_binary);
     }
@@ -376,7 +362,7 @@ mod tests {
             smallvec::smallvec![Packet::Message("hello€".into())],
             smallvec::smallvec![Packet::Message("hello€".into())],
         ]);
-        let mut rx = std::pin::pin!(rx.peekable());
+        let mut rx = std::pin::pin!(Peekable::new(rx));
 
         {
             let Payload { data, .. } = v3_string_encoder(rx.as_mut(), MAX_PAYLOAD).await;
@@ -384,7 +370,12 @@ mod tests {
         }
         {
             let Payload { data, .. } = v3_string_encoder(rx.as_mut(), MAX_PAYLOAD + 10).await;
-            assert_eq!(data, "10:b4AQIDBA==7:4hello€7:4hello€".as_bytes());
+            assert_eq!(data, "10:b4AQIDBA==".as_bytes());
+        }
+        {
+            // Next call drains one of the remaining Message packets.
+            let Payload { data, .. } = v3_string_encoder(rx.as_mut(), MAX_PAYLOAD + 10).await;
+            assert_eq!(data, "7:4hello€".as_bytes());
         }
     }
 
@@ -399,9 +390,11 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
             smallvec![Packet::BinaryV3(Bytes::from_static(&[1, 2, 3, 4]))],
         ]);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
 
-        let Payload { data, has_binary } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
+        let Payload {
+            data, has_binary, ..
+        } = v3_binary_encoder(rx, MAX_PAYLOAD).await;
         assert_eq!(*data, PAYLOAD);
         assert!(has_binary);
     }
@@ -419,7 +412,7 @@ mod tests {
         ];
         let (tx, rx) = tokio::sync::mpsc::channel::<PacketBuf>(10);
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
-        let rx = std::pin::pin!(rx.peekable());
+        let rx = std::pin::pin!(Peekable::new(rx));
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             tx.try_send(smallvec::smallvec![
@@ -451,7 +444,7 @@ mod tests {
             smallvec![Packet::Message("hello€".into())],
             smallvec![Packet::Message("hello€".into())],
         ]);
-        let mut rx = std::pin::pin!(rx.peekable());
+        let mut rx = std::pin::pin!(Peekable::new(rx));
 
         {
             let Payload { data, .. } = v3_binary_encoder(rx.as_mut(), MAX_PAYLOAD).await;
