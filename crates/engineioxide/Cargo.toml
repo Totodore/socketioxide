@@ -28,7 +28,7 @@ http-body.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "time"] }
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
 tokio-util.workspace = true
 tower-service.workspace = true
 tower-layer.workspace = true

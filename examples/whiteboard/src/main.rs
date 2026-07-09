@@ -23,7 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     io.ns("/", async |s: SocketRef| {
         s.on("drawing", async |s: SocketRef, Data::<Value>(data)| {
-            s.broadcast().emit("drawing", &data).await.unwrap();
+            info!("Drawing event received, broadcasting with volatile");
+            s.broadcast()
+                .volatile()
+                .emit("drawing", &data)
+                .await
+                .unwrap();
+            info!("Volatile broadcast completed");
         });
     });
 

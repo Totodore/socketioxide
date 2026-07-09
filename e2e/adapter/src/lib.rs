@@ -22,6 +22,7 @@ pub async fn handler<A: Adapter>(s: SocketRef<A>) {
 
     // "Broadcast" tests
     s.on("broadcast", broadcast);
+    s.on("volatile_broadcast", volatile_broadcast);
     s.on("fetch_sockets", fetch_sockets);
     s.on("broadcast_with_ack", broadcast_with_ack);
     s.on("disconnect_socket", disconnect_socket);
@@ -43,6 +44,12 @@ pub async fn handler<A: Adapter>(s: SocketRef<A>) {
 
 async fn broadcast<A: Adapter>(io: SocketIo<A>, s: SocketRef<A>) {
     io.emit("broadcast", &format!("hello from {}", s.id))
+        .await
+        .unwrap();
+}
+async fn volatile_broadcast<A: Adapter>(io: SocketIo<A>, s: SocketRef<A>) {
+    io.volatile()
+        .emit("volatile_broadcast", &format!("hello from {}", s.id))
         .await
         .unwrap();
 }

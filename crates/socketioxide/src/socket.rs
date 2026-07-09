@@ -639,6 +639,11 @@ impl<A: Adapter> Socket<A> {
         BroadcastOperators::from_sock(self.ns.clone(), self.id, self.parser).broadcast()
     }
 
+    #[doc = include_str!("../docs/operators/volatile.md")]
+    pub fn volatile(&self) -> ConfOperators<'_, A> {
+        ConfOperators::new(self).volatile()
+    }
+
     /// # Get the [`SocketIo`] context related to this socket
     ///
     /// # Panics
@@ -736,6 +741,20 @@ impl<A: Adapter> Socket<A> {
         let permit = self.reserve()?;
         permit.send_raw(value);
         Ok(())
+    }
+
+    pub(crate) fn send_raw_volatile(&self, value: Value) {
+        match value {
+            Value::Str(msg, None) => {
+                self.esocket.emit_volatile(msg);
+            }
+            Value::Str(msg, Some(bin_payloads)) => {
+                self.esocket.emit_many_volatile(msg, bin_payloads);
+            }
+            Value::Bytes(bin) => {
+                self.esocket.emit_binary_volatile(bin);
+            }
+        }
     }
 
     pub(crate) fn send_with_ack_permit(

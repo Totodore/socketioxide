@@ -13,7 +13,7 @@ use engineioxide_core::{Packet, ProtocolVersion, Sid, TransportType};
 
 use crate::{
     DisconnectReason, body::ResponseBody, engine::EngineIo, errors::Error,
-    handler::EngineIoHandler, transport::make_open_packet,
+    handler::EngineIoHandler, socket::InternalRx, transport::make_open_packet,
 };
 
 /// Create a response for http request
@@ -116,16 +116,24 @@ where
     tracing::debug!(%sid, %protocol, supports_binary = socket.supports_binary, "polling request");
 
     let max_payload = engine.config.max_payload;
+    let payload = {
+        let InternalRx {
+            buffered_rx,
+            volatile_rx,
+            peeked_packet,
+        } = &mut *rx;
 
-    // Prepend the packet peeked during the previous
-    // polling request so it is encoded first, ahead of the newly received packets.
-    let rx_stream = stream::iter(rx.peeked.take()).chain(rx_stream::ReceiverStream::new(&mut rx));
+        // Prepend the packet peeked during the previous
+        // polling request so it is encoded first, ahead of the newly received packets.
+        let rx_stream = stream::iter(peeked_packet.take())
+            .chain(rx_stream::EncoderStream::new(buffered_rx, volatile_rx));
 
-    // Stop waiting for the next packet as soon as the session is closed. The combinator is biased
-    // towards the encoder completion, so any buffered close packet is still flushed to the client.
-    let payload = payload::encoder(rx_stream, protocol, socket.supports_binary, max_payload)
-        .with_cancellation_token(&socket.cancellation_token)
-        .await;
+        // Stop waiting for the next packet as soon as the session is closed. The combinator is biased
+        // towards the encoder completion, so any buffered close packet is still flushed to the client.
+        payload::encoder(rx_stream, protocol, socket.supports_binary, max_payload)
+            .with_cancellation_token(&socket.cancellation_token)
+            .await
+    };
 
     let Some(Payload {
         data,
@@ -140,7 +148,7 @@ where
 
     // set back the peeked packet so it can be read again
     // on the next polling request
-    rx.peeked = peeked;
+    rx.peeked_packet = peeked;
 
     #[cfg(feature = "tracing")]
     tracing::trace!(%sid, %protocol, supports_binary = socket.supports_binary, "sending data: {:?}", data);
@@ -214,20 +222,22 @@ where
 mod rx_stream {
     use std::{
         pin::Pin,
-        task::{Context, Poll},
+        task::{Context, Poll, ready},
     };
 
     use futures_core::Stream;
-    use tokio::sync::mpsc::Receiver;
+    use pin_project_lite::pin_project;
+    use tokio::sync::{mpsc, watch};
+    use tokio_util::sync::ReusableBoxFuture;
 
-    /// [`ReceiverStream`] is a stream that wraps a tokio::sync::mpsc::Receiver by reference.
+    /// [`ReceiverStream`] is a stream that wraps a [`mpsc::Receiver`] by reference.
     /// Allowing to use it as a stream even if it is behind a mutex.
     pub struct ReceiverStream<'a, T> {
-        inner: &'a mut Receiver<T>,
+        inner: &'a mut mpsc::Receiver<T>,
     }
 
     impl<'a, T> ReceiverStream<'a, T> {
-        pub fn new(inner: &'a mut Receiver<T>) -> Self {
+        pub fn new(inner: &'a mut mpsc::Receiver<T>) -> Self {
             Self { inner }
         }
     }
@@ -237,6 +247,93 @@ mod rx_stream {
 
         fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             self.inner.poll_recv(cx)
+        }
+    }
+
+    type WatchFutOutput<'a, T> = (
+        Result<(), watch::error::RecvError>,
+        &'a mut watch::Receiver<T>,
+    );
+
+    /// Wraps a [`watch::Receiver`] into a [`Stream`] by reference.
+    /// Allowing to use it as a stream even if it is behind a mutex.
+    ///
+    /// Inspired by <https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.WatchStream.html>
+    pub struct WatchStream<'a, T> {
+        inner: ReusableBoxFuture<'a, WatchFutOutput<'a, T>>,
+    }
+    impl<'a, T: Send + Sync + 'static> WatchStream<'a, T> {
+        pub fn new(rx: &'a mut watch::Receiver<T>) -> Self {
+            Self {
+                inner: ReusableBoxFuture::new(make_future(rx)),
+            }
+        }
+    }
+
+    async fn make_future<T>(
+        rx: &mut watch::Receiver<T>,
+    ) -> (Result<(), watch::error::RecvError>, &mut watch::Receiver<T>) {
+        let result = rx.changed().await;
+        (result, rx)
+    }
+
+    impl<'a, T: Clone + Send + Sync + 'static> Stream for WatchStream<'a, T> {
+        type Item = T;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let (result, rx) = ready!(self.inner.poll(cx));
+            match result {
+                Ok(_) => {
+                    let received = (*rx.borrow_and_update()).clone();
+                    self.inner.set(make_future(rx));
+                    Poll::Ready(Some(received))
+                }
+                Err(_) => {
+                    self.inner.set(make_future(rx));
+                    Poll::Ready(None)
+                }
+            }
+        }
+    }
+
+    impl<T> Unpin for WatchStream<'_, T> {}
+
+    pin_project! {
+        /// Combines a [`WatchStream`] and a [`ReceiverStream`] into a single [`Stream`].
+        pub struct EncoderStream<'a, T> {
+            #[pin]
+            watch: WatchStream<'a, Option<T>>,
+            #[pin]
+            rx: ReceiverStream<'a, T>,
+        }
+    }
+
+    impl<'a, T: Clone + Send + Sync + 'static> EncoderStream<'a, T> {
+        pub fn new(
+            rx: &'a mut mpsc::Receiver<T>,
+            watch: &'a mut watch::Receiver<Option<T>>,
+        ) -> Self {
+            Self {
+                rx: ReceiverStream::new(rx),
+                watch: WatchStream::new(watch),
+            }
+        }
+    }
+
+    impl<'a, T: Clone + Send + Sync + 'static> Stream for EncoderStream<'a, T> {
+        type Item = T;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let this = self.project();
+            // low priority: poll the watch stream first, then the rx stream.
+            // same than with ws transport
+            match this.rx.poll_next(cx) {
+                Poll::Ready(v) => Poll::Ready(v),
+                Poll::Pending => match this.watch.poll_next(cx) {
+                    Poll::Ready(Some(v)) => Poll::Ready(v),
+                    Poll::Ready(None) | Poll::Pending => Poll::Pending,
+                },
+            }
         }
     }
 }

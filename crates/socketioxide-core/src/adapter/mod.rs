@@ -38,6 +38,11 @@ pub enum BroadcastFlags {
     Local = 0x01,
     /// Broadcast to all clients except the sender
     Broadcast = 0x02,
+    /// The event may be dropped if the client is not ready to receive it
+    /// (e.g. the connection is buffering or not connected).
+    /// This is useful for events that are not critical, like position updates in a game.
+    /// See [socket.io volatile events](https://socket.io/docs/v4/emitting-events/#volatile-events).
+    Volatile = 0x04,
 }
 
 /// Options that can be used to modify the behavior of the broadcast methods.
@@ -202,6 +207,10 @@ pub trait SocketEmitter: Send + Sync + 'static {
     fn get_remote_sockets(&self, sids: BroadcastIter<'_>) -> Vec<RemoteSocketData>;
     /// Send data to the list of socket ids.
     fn send_many(&self, sids: BroadcastIter<'_>, data: Value) -> Result<(), Vec<SocketError>>;
+    /// Send data to the list of socket ids with volatile semantics.
+    /// Errors are silently discarded; packets may be dropped if the
+    /// transport is not ready.
+    fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value);
     /// Send data to the list of socket ids and get a stream of acks and the number of expected acks.
     fn send_many_with_ack(
         &self,
@@ -430,8 +439,14 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
             return Ok(());
         }
 
+        let is_volatile = opts.has_flag(BroadcastFlags::Volatile);
         let data = self.emitter.parser().encode(packet);
-        self.emitter.send_many(sids, data)
+        if is_volatile {
+            self.emitter.send_many_volatile(sids, data);
+            Ok(())
+        } else {
+            self.emitter.send_many(sids, data)
+        }
     }
 
     /// Broadcasts the packet to the sockets that match the [`BroadcastOptions`] and return a stream of ack responses.
@@ -776,6 +791,8 @@ mod test {
         fn send_many(&self, _: BroadcastIter<'_>, _: Value) -> Result<(), Vec<SocketError>> {
             Ok(())
         }
+
+        fn send_many_volatile(&self, _: BroadcastIter<'_>, _: Value) {}
 
         fn send_many_with_ack(
             &self,

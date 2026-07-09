@@ -27,7 +27,7 @@ use engineioxide_core::{Packet, ProtocolVersion, Sid, Str, TransportType};
 
 use crate::{
     DisconnectReason, Socket, body::ResponseBody, config::EngineIoConfig, engine::EngineIo,
-    errors::Error, handler::EngineIoHandler, transport::make_open_packet,
+    errors::Error, handler::EngineIoHandler, socket::InternalRx, transport::make_open_packet,
 };
 
 /// Create a response for websocket upgrade
@@ -253,6 +253,11 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+    let InternalRx {
+        buffered_rx,
+        volatile_rx,
+        ..
+    } = &mut *internal_rx;
 
     // map a packet to a websocket message
     // It is declared as a macro rather than a closure to avoid ownership issues
@@ -288,30 +293,45 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
         }
 
     // Forward buffered packets until the channel is closed or the session is cancelled.
-    while let Some(Some(items)) = internal_rx
-        .recv()
-        .with_cancellation_token(&socket.cancellation_token)
-        .await
-    {
-        for item in items {
-            map_fn!(item);
-        }
-        // For every available packet we continue to send until the channel is drained
-        while let Ok(items) = internal_rx.try_recv() {
-            for item in items {
-                map_fn!(item);
+    loop {
+        tokio::select! {
+            biased;
+            items = buffered_rx.recv() => {
+                match items {
+                    Some(packets) => {
+                        for item in packets {
+                            map_fn!(item);
+                        }
+                        while let Ok(packets) = buffered_rx.try_recv() {
+                            for item in packets {
+                                map_fn!(item);
+                            }
+                        }
+                    }
+                    None => break
+                }
             }
+            _ = socket.cancellation_token.cancelled() => break,
+            Ok(()) = volatile_rx.changed() => {
+                let val = volatile_rx.borrow_and_update().clone();
+                if let Some(packets) = val {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!(sid = ?socket.id, "ws volatile flush: {} packets", packets.len());
+                    for item in packets {
+                        map_fn!(item);
+                    }
+                }
+            },
         }
 
+        #[cfg(feature = "tracing")]
+        tracing::trace!(sid = %socket.id, "ws flush");
         tx.flush().await.ok();
     }
 
-    // Flush any remaining buffered packets before closing the websocket.
-    while let Ok(items) = internal_rx.try_recv() {
-        for item in items {
-            map_fn!(item);
-        }
-    }
+    #[cfg(feature = "tracing")]
+    tracing::trace!(sid = %socket.id, "ws closing flush");
+
     tx.flush().await.ok();
     tx.close().await.ok();
 }
