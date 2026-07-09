@@ -295,10 +295,6 @@ mod rx_stream {
     impl<T> Unpin for WatchStream<'_, T> {}
 
     pin_project! {
-        /// An [`EncoderStream`] that wraps a [`WatchStream`] and a [`ReceiverStream`].
-        /// It will poll the [`WatchStream`] first, and then the [`ReceiverStream`].
-        ///
-        /// This allow to have a priority on classic mpsc chan before polling volatile packets.
         pub struct EncoderStream<'a, T> {
             #[pin]
             watch: WatchStream<'a, Option<T>>,
