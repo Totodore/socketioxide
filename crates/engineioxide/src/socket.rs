@@ -462,7 +462,7 @@ where
 
     /// Immediately closes the socket and the underlying connection.
     /// The socket will be removed from the `Engine` and the [`Handler`](crate::handler::EngineIoHandler) will be notified.
-    #[tracing::instrument(skip(self))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub fn close(&self, reason: DisconnectReason) {
         // Try to send a close packet is the connection is still operational.
         self.send(Packet::Close).ok();
