@@ -1,3 +1,6 @@
+# engineioxide 0.17.6
+* feat: add `emit_{binary,many}_volatile` methods to `Socket` to emit volatile packets.
+
 # engineioxide 0.17.5
 fix: v3 packet header in polling payload should have a size in utf-16 code points.
 

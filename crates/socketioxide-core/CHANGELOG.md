@@ -1,3 +1,6 @@
+# socketioxide-core 0.18.2
+* feat: add new `Volatile` broadcast flag 
+
 # socketioxide-core 0.18.1
 * feat: add a `is_binary` method to `Packet` to check if the packet is binary.
 * MSRV: rust-version is now 1.94

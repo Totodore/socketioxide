@@ -1,3 +1,8 @@
+# socketioxide 0.18.5
+* feat: add `volatile()` flags to emit without guaranteeing delivery, this allows to avoid filling internal
+buffers and improve performance [#602](https://github.com/Totodore/socketioxide/issues/602).
+* chore(deps): bump cmov from 0.5.3 to 0.5.4
+
 # socketioxide 0.18.4
 * docs: document accessing state from custom extractors
 * MSRV: rust-version is now 1.94
