@@ -255,6 +255,10 @@ mod rx_stream {
         &'a mut watch::Receiver<T>,
     );
 
+    /// Wraps a [`watch::Receiver`] into a [`Stream`] by reference.
+    /// Allowing to use it as a stream even if it is behind a mutex.
+    ///
+    /// Inspired by <https://docs.rs/tokio-stream/latest/tokio_stream/wrappers/struct.WatchStream.html>
     pub struct WatchStream<'a, T> {
         inner: ReusableBoxFuture<'a, WatchFutOutput<'a, T>>,
     }
@@ -295,6 +299,7 @@ mod rx_stream {
     impl<T> Unpin for WatchStream<'_, T> {}
 
     pin_project! {
+        /// Combines a [`WatchStream`] and a [`ReceiverStream`] into a single [`Stream`].
         pub struct EncoderStream<'a, T> {
             #[pin]
             watch: WatchStream<'a, Option<T>>,
