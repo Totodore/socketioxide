@@ -32,6 +32,6 @@ io.ns("/", async |socket: SocketRef| {
 
     
     // Same than without volatile.
-    socket.volatile().to("game_room").emit_with_ack("update", &42).await.ok();
+    socket.volatile().to("game_room").emit_with_ack::<_, ()>("update", &42).await.ok();
 });
 ```
