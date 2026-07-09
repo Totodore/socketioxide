@@ -112,23 +112,19 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<(), SendError> {
-        if self.volatile {
-            if !self.socket.connected() {
-                return Ok(());
-            }
-            let Ok(packet) = self.get_packet(event, data) else {
-                return Ok(());
-            };
-            self.socket
-                .send_raw_volatile(self.socket.parser.encode(packet));
-            return Ok(());
-        }
-
         use crate::SocketError;
         use crate::socket::PermitExt;
         if !self.socket.connected() {
             return Err(SendError::Socket(SocketError::Closed));
         }
+
+        if self.volatile {
+            let packet = self.get_packet(event, data)?;
+            self.socket
+                .send_raw_volatile(self.socket.parser.encode(packet));
+            return Ok(());
+        }
+
         let permit = match self.socket.reserve() {
             Ok(permit) => permit,
             Err(e) => {

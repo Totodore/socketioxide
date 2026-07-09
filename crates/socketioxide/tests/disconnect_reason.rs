@@ -273,11 +273,8 @@ pub async fn server_ws_closing() {
     }))
     .await;
     for packet in packets {
-        assert!(matches!(dbg!(packet.0.unwrap().unwrap()), Message::Text(_)));
-        assert!(matches!(
-            dbg!(packet.1.unwrap().unwrap()),
-            Message::Close(_)
-        ));
+        assert!(matches!(packet.0.unwrap().unwrap(), Message::Text(_)));
+        assert!(matches!(packet.1.unwrap().unwrap(), Message::Close(_)));
         assert!(packet.2.is_none());
     }
 }
