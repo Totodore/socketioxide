@@ -3,13 +3,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use engineioxide_core::Sid;
+use engineioxide_core::{ProtocolVersion, Sid, TransportType};
 use http::request::Parts;
 
 use crate::{
     config::EngineIoConfig,
     handler::EngineIoHandler,
-    service::{ProtocolVersion, TransportType},
     socket::{DisconnectReason, Socket},
 };
 
@@ -45,7 +44,7 @@ impl<H: EngineIoHandler> EngineIo<H> {
         protocol: ProtocolVersion,
         transport: TransportType,
         req: Parts,
-        #[cfg(feature = "v3")] supports_binary: bool,
+        supports_binary: bool,
     ) -> Arc<Socket<H::Data>> {
         let engine = self.clone();
         let close_fn = Box::new(move |sid, reason| engine.close_session(sid, reason));
@@ -56,7 +55,6 @@ impl<H: EngineIoHandler> EngineIo<H> {
             &self.config,
             req,
             close_fn,
-            #[cfg(feature = "v3")]
             supports_binary,
         );
         let socket = Arc::new(socket);
@@ -90,11 +88,23 @@ impl<H: EngineIoHandler> EngineIo<H> {
             return;
         };
 
-        // Try to close the internal channel if it is available
-        // E.g. with polling transport the channel is not always locked so it is necessary to close it here
-        socket.internal_rx.try_lock().map(|mut rx| rx.close()).ok();
+        // Notify every transport task listening on this token to stop. Cancellation-aware
+        // transports (the ws `forward_to_socket` task and pending polling requests) will release
+        // the `internal_rx` lock as soon as they observe the cancellation.
         socket.cancellation_token.cancel();
-        self.handler.on_disconnect(socket, reason);
+
+        let handler = self.handler.clone();
+        tokio::spawn(async move {
+            // Wait for the cancelled transport task to yield the `internal_rx` lock, then close the
+            // channel so that `Socket::closed` resolves and no more packets can be buffered.
+            // When no transport holds the lock (e.g. polling between requests) this resolves
+            // immediately.
+            socket.internal_rx.lock().await.rx.close();
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = %socket.id, "session closed, notifying handler");
+            handler.on_disconnect(socket, reason);
+        });
 
         #[cfg(feature = "tracing")]
         tracing::debug!(
@@ -149,7 +159,6 @@ mod tests {
             ProtocolVersion::V4,
             TransportType::Polling,
             Request::<()>::default().into_parts().0,
-            #[cfg(feature = "v3")]
             true,
         );
         assert_eq!(engine.sockets.read().unwrap().len(), 1);
@@ -164,7 +173,6 @@ mod tests {
             ProtocolVersion::V4,
             TransportType::Polling,
             Request::<()>::default().into_parts().0,
-            #[cfg(feature = "v3")]
             true,
         );
         assert_eq!(engine.sockets.read().unwrap().len(), 1);
@@ -179,7 +187,6 @@ mod tests {
             ProtocolVersion::V4,
             TransportType::Polling,
             Request::<()>::default().into_parts().0,
-            #[cfg(feature = "v3")]
             true,
         );
         assert_eq!(engine.sockets.read().unwrap().len(), 1);

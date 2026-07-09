@@ -269,12 +269,66 @@ pub async fn server_ws_closing() {
         .await
         .expect("timeout waiting for server closing");
     let packets = futures_util::future::join_all(streams.iter_mut().map(async |s| {
-        (s.next().await, s.next().await) // Closing packet / None
+        (s.next().await, s.next().await, s.next().await) // Closing packet / Closing WS msg / None
     }))
     .await;
     for packet in packets {
-        assert!(matches!(packet.0.unwrap().unwrap(), Message::Close(_)));
-        assert!(packet.1.is_none());
+        assert!(matches!(packet.0.unwrap().unwrap(), Message::Text(_)));
+        assert!(matches!(packet.1.unwrap().unwrap(), Message::Close(_)));
+        assert!(packet.2.is_none());
+    }
+}
+
+/// Same as [`server_http_closing`] but with a long-polling request in-flight while the server closes
+#[tokio::test]
+pub async fn server_http_closing_pending_poll() {
+    let (svc, io) = create_server().await;
+    let _rx = attach_handler(&io, 100);
+    let sids =
+        futures_util::future::join_all((0..100).map(|_| create_polling_connection(&svc))).await;
+
+    // Flush the buffered socket.io open packet so the next poll will actually block.
+    futures_util::future::join_all(sids.iter().map(|s| {
+        send_req(
+            &svc,
+            format!("transport=polling&sid={s}"),
+            http::Method::GET,
+            None,
+        )
+    }))
+    .await;
+
+    // Start a long-polling request for each session. As the buffer is now empty, each request blocks
+    // waiting for the next packet while holding the internal channel lock.
+    let pending_polls = sids
+        .iter()
+        .map(|s| {
+            let svc = svc.clone();
+            let sid = s.clone();
+            tokio::spawn(async move {
+                send_req(
+                    &svc,
+                    format!("transport=polling&sid={sid}"),
+                    http::Method::GET,
+                    None,
+                )
+                .await
+            })
+        })
+        .collect::<Vec<_>>();
+
+    // Give the pending polls time to acquire the internal channel lock before closing.
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    tokio::time::timeout(Duration::from_millis(100), io.close())
+        .await
+        .expect("timeout waiting for server closing");
+
+    // The pending polls should return (with the close packet) rather than hang.
+    // The engine.io close packet is `1`; its packet-type char is stripped by `send_req`.
+    let packets = futures_util::future::join_all(pending_polls).await;
+    for packet in packets {
+        assert_eq!(packet.unwrap(), "");
     }
 }
 

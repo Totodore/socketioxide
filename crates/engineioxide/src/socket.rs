@@ -56,6 +56,8 @@
 //! ```
 use std::{
     collections::VecDeque,
+    fmt::Debug,
+    ops::{Deref, DerefMut},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -63,15 +65,9 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    config::EngineIoConfig,
-    errors::Error,
-    packet::Packet,
-    peekable::PeekableReceiver,
-    service::{ProtocolVersion, TransportType},
-};
+use crate::{config::EngineIoConfig, errors::Error};
 use bytes::Bytes;
-use engineioxide_core::Str;
+use engineioxide_core::{Packet, PacketBuf, ProtocolVersion, Str, TransportType};
 use futures_util::FutureExt;
 use http::request::Parts;
 use smallvec::{SmallVec, smallvec};
@@ -108,9 +104,8 @@ impl From<&Error> for Option<DisconnectReason> {
     fn from(err: &Error) -> Self {
         use Error::*;
         match err {
-            WsTransport(_) | Io(_) => Some(DisconnectReason::TransportError),
-            BadPacket(_) | Base64(_) | StrUtf8(_) | PayloadTooLarge | InvalidPacketLength
-            | InvalidPacketType(_) => Some(DisconnectReason::PacketParsingError),
+            WsTransport(_) => Some(DisconnectReason::TransportError),
+            BadPacket(_) | PacketParse(_) => Some(DisconnectReason::PacketParsingError),
             HeartbeatTimeout => Some(DisconnectReason::HeartbeatTimeout),
             _ => None,
         }
@@ -159,12 +154,28 @@ impl Permit<'_> {
     }
 }
 
-/// Buffered packets to send to the client.
-/// It is used to ensure atomicity when sending multiple packets to the client.
-///
-/// The [`PacketBuf`] stack size will impact the dynamically allocated buffer
-/// of the internal mpsc channel.
-pub(crate) type PacketBuf = SmallVec<[Packet; 2]>;
+#[derive(Debug)]
+pub(crate) struct InternalRx {
+    pub rx: Receiver<PacketBuf>,
+    pub peeked: Option<PacketBuf>,
+}
+impl InternalRx {
+    fn new(rx: Receiver<PacketBuf>) -> Self {
+        Self { rx, peeked: None }
+    }
+}
+impl Deref for InternalRx {
+    type Target = Receiver<PacketBuf>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.rx
+    }
+}
+impl DerefMut for InternalRx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.rx
+    }
+}
 
 /// A [`Socket`] represents a client connection to the server.
 /// It is agnostic to the [`TransportType`].
@@ -200,17 +211,13 @@ where
     /// * In case of polling transport it will be locked and released for each request
     /// * In case of websocket transport it will always be locked until the connection is closed
     ///
-    /// It will be closed when a [`Close`](Packet::Close) packet is received:
-    /// * From the [encoder](crate::service::encoder) if the transport is polling
-    /// * From the fn [`on_ws_req_init`](crate::engine::EngineIo) if the transport is websocket
-    /// * Automatically via the [`close_session fn`](crate::engine::EngineIo::close_session) as a fallback.
-    ///   Because with polling transport, if the client is not currently polling then the encoder will never be able to close the channel
+    /// Closing behavior is driven by the [`Socket::cancellation_token`].
     ///
     /// The channel is made of a [`SmallVec`] of [`Packet`]s so that adjacent packets can be sent atomically.
-    pub(crate) internal_rx: Mutex<PeekableReceiver<PacketBuf>>,
+    pub(crate) internal_rx: Mutex<InternalRx>,
 
     /// Channel to send [PacketBuf] to the internal connection
-    internal_tx: mpsc::Sender<PacketBuf>,
+    pub(crate) internal_tx: mpsc::Sender<PacketBuf>,
 
     /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task
@@ -231,7 +238,6 @@ where
     pub req_parts: Parts,
 
     /// If the client supports binary packets (via polling XHR2)
-    #[cfg(feature = "v3")]
     pub(crate) supports_binary: bool,
 }
 
@@ -245,7 +251,7 @@ where
         config: &EngineIoConfig,
         req_parts: Parts,
         close_fn: Box<dyn Fn(Sid, DisconnectReason) + Send + Sync>,
-        #[cfg(feature = "v3")] supports_binary: bool,
+        supports_binary: bool,
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
@@ -256,7 +262,7 @@ where
             transport: AtomicU8::new(transport as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
+            internal_rx: Mutex::new(InternalRx::new(internal_rx)),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
@@ -268,7 +274,6 @@ where
             data: D::default(),
             req_parts,
 
-            #[cfg(feature = "v3")]
             supports_binary,
         }
     }
@@ -555,7 +560,7 @@ where
             transport: AtomicU8::new(TransportType::Websocket as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(PeekableReceiver::new(internal_rx)),
+            internal_rx: Mutex::new(InternalRx::new(internal_rx)),
             internal_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
@@ -566,7 +571,6 @@ where
             data: D::default(),
             req_parts: http::Request::<()>::default().into_parts().0,
 
-            #[cfg(feature = "v3")]
             supports_binary: true,
         };
         let sock = Arc::new(sock);

@@ -11,32 +11,27 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
 };
 use http::{HeaderValue, Request, Response, StatusCode, request::Parts};
+use smallvec::smallvec;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
-        Message,
+        self, Message,
         handshake::derive_accept_key,
         protocol::{Role, WebSocketConfig},
     },
 };
+use tokio_util::future::FutureExt as _;
 
-use engineioxide_core::{Sid, Str};
+use engineioxide_core::{Packet, ProtocolVersion, Sid, Str, TransportType};
 
 use crate::{
-    DisconnectReason, Socket,
-    body::ResponseBody,
-    config::EngineIoConfig,
-    engine::EngineIo,
-    errors::Error,
-    handler::EngineIoHandler,
-    packet::{OpenPacket, Packet},
-    service::ProtocolVersion,
-    service::TransportType,
+    DisconnectReason, Socket, body::ResponseBody, config::EngineIoConfig, engine::EngineIo,
+    errors::Error, handler::EngineIoHandler, transport::make_open_packet,
 };
 
 /// Create a response for websocket upgrade
-fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, http::Error> {
+fn ws_response<B>(ws_key: &HeaderValue) -> Response<ResponseBody<B>> {
     let derived = derive_accept_key(ws_key.as_bytes());
     let sec = derived.parse::<HeaderValue>().unwrap();
     Response::builder()
@@ -48,6 +43,7 @@ fn ws_response<B>(ws_key: &HeaderValue) -> Result<Response<ResponseBody<B>>, htt
         )
         .header(http::header::SEC_WEBSOCKET_ACCEPT, sec)
         .body(ResponseBody::empty_response())
+        .unwrap() // we are only using constants
 }
 
 /// Upgrade a websocket request to create a websocket connection.
@@ -66,7 +62,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
     let ws_key = parts
         .headers
         .get("Sec-WebSocket-Key")
-        .ok_or(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))?
+        .ok_or(Error::InvalidWebSocketKey)?
         .clone();
 
     tokio::spawn(async move {
@@ -99,7 +95,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         }
     });
 
-    Ok(ws_response(&ws_key)?)
+    Ok(ws_response(&ws_key))
 }
 
 /// Handle a websocket connection upgrade
@@ -129,17 +125,22 @@ where
             Some(socket) if socket.is_ws() => return Err(Error::MultipleWebsocketRequests),
             Some(socket) => {
                 let mut ws = ws_init().await;
-                match tokio::time::timeout(
-                    engine.config.upgrade_timeout,
-                    upgrade_handshake::<H, S>(&socket, &mut ws),
-                )
-                .await
+
+                let upgrade_fut = upgrade_handshake::<H, S>(&socket, &mut ws);
+                match tokio::time::timeout(engine.config.upgrade_timeout, upgrade_fut)
+                    .with_cancellation_token(&socket.cancellation_token)
+                    .await
                 {
-                    Ok(res) => res?,
-                    Err(_) => {
+                    Some(Ok(res)) => res?,
+                    Some(Err(_)) => {
                         #[cfg(feature = "tracing")]
                         tracing::debug!(?sid, "ws upgrade timed out, closing session");
                         engine.close_session(socket.id, DisconnectReason::TransportError);
+                        return Err(Error::Upgrade);
+                    }
+                    None => {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(?sid, "socket is being closed");
                         return Err(Error::Upgrade);
                     }
                 }
@@ -147,13 +148,7 @@ where
             }
         }
     } else {
-        let socket = engine.create_session(
-            protocol,
-            TransportType::Websocket,
-            req_data,
-            #[cfg(feature = "v3")]
-            false,
-        );
+        let socket = engine.create_session(protocol, TransportType::Websocket, req_data, false);
 
         #[cfg(feature = "tracing")]
         tracing::debug!("new websocket connection");
@@ -167,28 +162,32 @@ where
     };
     let (tx, rx) = ws.split();
 
-    // Pipe between websocket and internal socket channel
-    let cancel_token = socket.cancellation_token.clone();
-    tokio::spawn(
-        cancel_token
-            .clone()
-            .run_until_cancelled_owned(forward_to_socket::<H, S>(socket.clone(), tx)),
-    );
+    // Pipe between websocket and internal socket channel.
+    tokio::spawn(forward_to_socket::<H, S>(socket.clone(), tx));
 
     // pipe between internal socket channel and websocket
-    cancel_token
-        .run_until_cancelled_owned(async move {
-            if let Err(ref e) = forward_to_handler(&engine, rx, &socket).await {
-                #[cfg(feature = "tracing")]
-                tracing::debug!("error when handling packet: {:?}", e);
-                if let Some(reason) = e.into() {
-                    engine.close_session(socket.id, reason);
-                }
-            } else {
-                engine.close_session(socket.id, DisconnectReason::TransportClose);
-            }
-        })
-        .await;
+    match forward_to_handler(&engine, rx, &socket)
+        .with_cancellation_token(&socket.cancellation_token)
+        .await
+    {
+        Some(Err(ref e)) => {
+            let reason =
+                Option::<DisconnectReason>::from(e).unwrap_or(DisconnectReason::TransportError);
+
+            #[cfg(feature = "tracing")]
+            tracing::debug!("error when handling packet: {:?}", e);
+            engine.close_session(socket.id, reason);
+        }
+        Some(Ok(())) => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = %socket.id, "ws transport was closed");
+            engine.close_session(socket.id, DisconnectReason::TransportClose);
+        }
+        None => {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = %socket.id, "socket is closing");
+        }
+    }
     Ok(())
 }
 
@@ -203,8 +202,13 @@ where
 {
     while let Some(msg) = rx.try_next().await? {
         match msg {
-            Message::Text(msg) => match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
-                Packet::Close => break,
+            Message::Text(msg) => match Packet::parse(socket.protocol, ws_bytes_to_str(msg))? {
+                Packet::Close => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("[sid={}] closing session", socket.id);
+                    engine.close_session(socket.id, DisconnectReason::TransportClose);
+                    break;
+                }
                 Packet::Pong | Packet::Ping => socket
                     .heartbeat_tx
                     .try_send(())
@@ -267,11 +271,6 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
                             tx.feed(Message::Binary(bin)).await
                         }
                     }
-                    Packet::Close => {
-                        tx.send(Message::Close(None)).await.ok();
-                        internal_rx.close();
-                        break;
-                    },
                     // A Noop Packet maybe sent by the server to upgrade from a polling connection
                     // In the case that the packet was not poll in time it will remain in the buffer and therefore
                     // it should be discarded here
@@ -288,7 +287,12 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
             };
         }
 
-    while let Some(items) = internal_rx.recv().await {
+    // Forward buffered packets until the channel is closed or the session is cancelled.
+    while let Some(Some(items)) = internal_rx
+        .recv()
+        .with_cancellation_token(&socket.cancellation_token)
+        .await
+    {
         for item in items {
             map_fn!(item);
         }
@@ -301,6 +305,15 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
 
         tx.flush().await.ok();
     }
+
+    // Flush any remaining buffered packets before closing the websocket.
+    while let Ok(items) = internal_rx.try_recv() {
+        for item in items {
+            map_fn!(item);
+        }
+    }
+    tx.flush().await.ok();
+    tx.close().await.ok();
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
 async fn init_handshake<S>(
@@ -311,7 +324,8 @@ async fn init_handshake<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let packet = Packet::Open(OpenPacket::new(TransportType::Websocket, sid, config));
+    let packet = Packet::Open(make_open_packet(TransportType::Websocket, sid, config));
+    let packet: String = packet.into();
     ws.send(Message::Text(packet.into())).await?;
     Ok(())
 }
@@ -358,7 +372,11 @@ where
     socket.start_upgrade();
 
     // We send a last Noop request to close a potential waiting polling request.
-    socket.send(Packet::Noop)?;
+    socket
+        .internal_tx
+        .send(smallvec![Packet::Noop])
+        .await
+        .map_err(|_| Error::Upgrade)?;
 
     // wait for any current polling connection to finish by waiting for the socket to be unlocked
     // All other polling connection will be immediately closed with a NOOP packet.
@@ -369,13 +387,13 @@ where
         Some(Ok(Message::Text(d))) => d,
         _ => Err(Error::Upgrade)?,
     };
-    match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
+    match Packet::parse(socket.protocol, ws_bytes_to_str(msg))? {
         Packet::PingUpgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("received first ping upgrade");
-
             // Respond with a PongUpgrade packet
-            ws.send(Message::Text(Packet::PongUpgrade.into())).await?;
+            ws.send(Message::Text(String::from(Packet::PongUpgrade).into()))
+                .await?;
         }
         p => Err(Error::BadPacket(p))?,
     };
@@ -394,7 +412,7 @@ where
             Err(Error::Upgrade)?
         }
     };
-    match Packet::parse(socket.protocol, utf8_bytes_to_str(msg))? {
+    match Packet::parse(socket.protocol, ws_bytes_to_str(msg))? {
         Packet::Upgrade => {
             #[cfg(feature = "tracing")]
             tracing::debug!("ws upgraded successfully")
@@ -406,7 +424,7 @@ where
     Ok(())
 }
 
-fn utf8_bytes_to_str(bytes: tokio_tungstenite::tungstenite::Utf8Bytes) -> Str {
+fn ws_bytes_to_str(bytes: tungstenite::Utf8Bytes) -> Str {
     // SAFETY: the bytes are guaranteed to be valid UTF-8 by the tungstenite parser
     unsafe { Str::from_bytes_unchecked(bytes.into()) }
 }

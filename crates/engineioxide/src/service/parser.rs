@@ -1,11 +1,10 @@
 //! A Parser module to parse any `EngineIo` query
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{future::Future, str::FromStr, sync::Arc};
+use std::{future::Future, sync::Arc};
 
 use http::{Method, Request, Response};
 
-use engineioxide_core::Sid;
+use engineioxide_core::{ProtocolVersion, Sid, TransportType};
 
 use crate::{
     body::ResponseBody,
@@ -35,15 +34,8 @@ where
             sid: None,
             transport: TransportType::Polling,
             method: Method::GET,
-            #[cfg(feature = "v3")]
             b64,
-        }) => ResponseFuture::ready(polling::open_req(
-            engine,
-            protocol,
-            req,
-            #[cfg(feature = "v3")]
-            !b64,
-        )),
+        }) => ResponseFuture::ready(polling::open_req(engine, protocol, req, !b64)),
         Ok(RequestInfo {
             protocol,
             sid: Some(sid),
@@ -118,102 +110,6 @@ impl<B> From<ParseError> for Response<ResponseBody<B>> {
     }
 }
 
-/// The engine.io protocol version
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum ProtocolVersion {
-    /// The protocol version 3
-    V3 = 3,
-    /// The protocol version 4
-    V4 = 4,
-}
-
-impl FromStr for ProtocolVersion {
-    type Err = ParseError;
-
-    #[cfg(feature = "v3")]
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "3" => Ok(ProtocolVersion::V3),
-            "4" => Ok(ProtocolVersion::V4),
-            _ => Err(ParseError::UnsupportedProtocolVersion),
-        }
-    }
-
-    #[cfg(not(feature = "v3"))]
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "4" => Ok(ProtocolVersion::V4),
-            _ => Err(ParseError::UnsupportedProtocolVersion),
-        }
-    }
-}
-
-/// The type of `transport` used by the client.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub enum TransportType {
-    /// Polling transport
-    Polling = 0x01,
-    /// Websocket transport
-    Websocket = 0x02,
-}
-
-impl Serialize for TransportType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str((*self).into())
-    }
-}
-
-impl<'de> Deserialize<'de> for TransportType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
-impl From<u8> for TransportType {
-    fn from(t: u8) -> Self {
-        match t {
-            0x01 => TransportType::Polling,
-            0x02 => TransportType::Websocket,
-            _ => panic!("unknown transport type"),
-        }
-    }
-}
-
-impl FromStr for TransportType {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "websocket" => Ok(TransportType::Websocket),
-            "polling" => Ok(TransportType::Polling),
-            _ => Err(ParseError::UnknownTransport),
-        }
-    }
-}
-impl From<TransportType> for &'static str {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling",
-            TransportType::Websocket => "websocket",
-        }
-    }
-}
-impl From<TransportType> for String {
-    fn from(t: TransportType) -> Self {
-        match t {
-            TransportType::Polling => "polling".into(),
-            TransportType::Websocket => "websocket".into(),
-        }
-    }
-}
-
 /// The request information extracted from the request URI.
 #[derive(Debug)]
 pub struct RequestInfo {
@@ -226,7 +122,6 @@ pub struct RequestInfo {
     /// The request method.
     pub method: Method,
     /// If the client asked for base64 encoding only.
-    #[cfg(feature = "v3")]
     pub b64: bool,
 }
 
@@ -240,8 +135,8 @@ impl RequestInfo {
             .split('&')
             .find(|s| s.starts_with("EIO="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(UnsupportedProtocolVersion)
-            .and_then(|t| t.parse())?;
+            .and_then(|t| t.parse().ok())
+            .ok_or(UnsupportedProtocolVersion)?;
 
         let sid = query
             .split('&')
@@ -253,8 +148,8 @@ impl RequestInfo {
             .split('&')
             .find(|s| s.starts_with("transport="))
             .and_then(|s| s.split('=').nth(1))
-            .ok_or(UnknownTransport)
-            .and_then(|t| t.parse())?;
+            .and_then(|t| t.parse().ok())
+            .ok_or(UnknownTransport)?;
 
         if !config.allowed_transport(transport) {
             return Err(TransportMismatch);
@@ -267,6 +162,9 @@ impl RequestInfo {
             .map(|v| v == "1" || v == "true")
             .unwrap_or_default();
 
+        #[cfg(not(feature = "v3"))]
+        let b64: bool = false;
+
         let method = req.method().clone();
         if !matches!(method, Method::GET) && sid.is_none() {
             Err(BadHandshakeMethod)
@@ -276,7 +174,6 @@ impl RequestInfo {
                 sid,
                 transport,
                 method,
-                #[cfg(feature = "v3")]
                 b64,
             })
         }

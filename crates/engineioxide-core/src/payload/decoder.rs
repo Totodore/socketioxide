@@ -5,11 +5,9 @@
 //! - v3_decoder: Decodes the payload stream according to the [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
 //!
 
-use futures_core::Stream;
-use futures_util::StreamExt;
-use http::StatusCode;
+use crate::{Packet, PacketParseError, ProtocolVersion};
+use futures_util::{Stream, StreamExt};
 
-use crate::{ProtocolVersion, errors::Error, packet::Packet};
 use bytes::Buf;
 use http_body::Body;
 use http_body_util::BodyStream;
@@ -22,9 +20,6 @@ struct Payload<B: Body + Unpin> {
     buffer: BufList<B::Data>,
     end_of_stream: bool,
     current_payload_size: u64,
-
-    #[cfg(feature = "v3")]
-    yield_packets: u32,
 }
 
 impl<B: Body + Unpin> Payload<B> {
@@ -34,15 +29,13 @@ impl<B: Body + Unpin> Payload<B> {
             buffer: BufList::new(),
             end_of_stream: false,
             current_payload_size: 0,
-            #[cfg(feature = "v3")]
-            yield_packets: 0,
         }
     }
 }
 
 /// Polls the body stream for data and adds it to the chunk list in the state
 /// Returns an error if the packet length exceeds the maximum allowed payload size
-async fn poll_body<B, E>(state: &mut Payload<B>, max_payload: u64) -> Result<(), Error>
+async fn poll_body<B, E>(state: &mut Payload<B>, max_payload: u64) -> Result<(), PacketParseError>
 where
     B: Body<Error = E> + Unpin,
     E: std::fmt::Debug,
@@ -59,7 +52,7 @@ where
         Err(_e) => {
             #[cfg(feature = "tracing")]
             tracing::debug!("error reading body stream: {:?}", _e);
-            Err(Error::HttpErrorResponse(StatusCode::BAD_REQUEST))
+            Err(PacketParseError::InvalidPacketPayload)
         }
     }?;
     if state.current_payload_size + (data.remaining() as u64) <= max_payload {
@@ -67,11 +60,14 @@ where
         state.buffer.push(data);
         Ok(())
     } else {
-        Err(Error::PayloadTooLarge)
+        Err(PacketParseError::PayloadTooLarge { max: max_payload })
     }
 }
 
-pub fn v4_decoder<B, E>(body: B, max_payload: u64) -> impl Stream<Item = Result<Packet, Error>>
+pub fn v4_decoder<B, E>(
+    body: B,
+    max_payload: u64,
+) -> impl Stream<Item = Result<Packet, PacketParseError>>
 where
     B: Body<Error = E> + Unpin,
     E: std::fmt::Debug,
@@ -93,11 +89,14 @@ where
             }
 
             // Read from the buffer until the packet separator is found
-            if let Err(e) = (&mut state.buffer)
+            if let Err(_err) = (&mut state.buffer)
                 .reader()
                 .read_until(PACKET_SEPARATOR_V4, &mut packet_buf)
             {
-                break Some((Err(Error::Io(e)), state));
+                #[cfg(feature = "tracing")]
+                tracing::debug!("failed to read packet payload: {_err}");
+
+                break Some((Err(PacketParseError::InvalidPacketPayload), state));
             }
 
             let separator_found = packet_buf.ends_with(&[PACKET_SEPARATOR_V4]);
@@ -111,7 +110,7 @@ where
                 || (state.end_of_stream && state.buffer.remaining() == 0 && !packet_buf.is_empty())
             {
                 let packet = String::from_utf8(packet_buf)
-                    .map_err(|_| Error::InvalidPacketLength)
+                    .map_err(PacketParseError::from)
                     .and_then(|v| Packet::parse(ProtocolVersion::V4, v)); // Convert the packet buffer to a Packet object
                 break Some((packet, state)); // Emit the packet and the updated state
             } else if state.end_of_stream && state.buffer.remaining() == 0 {
@@ -125,14 +124,14 @@ where
 pub fn v3_binary_decoder<B, E>(
     body: B,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, Error>>
+) -> impl Stream<Item = Result<Packet, PacketParseError>>
 where
     B: Body<Error = E> + Unpin,
     E: std::fmt::Debug,
 {
     use std::io::Read;
 
-    use crate::transport::polling::payload::{
+    use crate::payload::{
         BINARY_PACKET_IDENTIFIER_V3, BINARY_PACKET_SEPARATOR_V3, STRING_PACKET_IDENTIFIER_V3,
     };
 
@@ -156,11 +155,14 @@ where
             // If there is no packet_type found
             if packet_type.is_none() && state.buffer.remaining() > 0 {
                 // Read from the buffer until the packet separator is found
-                if let Err(e) = (&mut state.buffer)
+                if let Err(_err) = (&mut state.buffer)
                     .reader()
                     .read_until(BINARY_PACKET_SEPARATOR_V3, &mut packet_buf)
                 {
-                    break Some((Err(Error::Io(e)), state));
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("failed to read packet payload: {_err}");
+
+                    break Some((Err(PacketParseError::InvalidPacketPayload), state));
                 }
 
                 // Extract packet_type and packet_size
@@ -173,11 +175,11 @@ where
                         Some(&STRING_PACKET_IDENTIFIER_V3) => {
                             packet_type = Some(STRING_PACKET_IDENTIFIER_V3)
                         }
-                        _ => break Some((Err(Error::InvalidPacketLength), state)),
+                        _ => break Some((Err(PacketParseError::InvalidPacketLen), state)),
                     }
 
                     if packet_buf.len() > 9 {
-                        break Some((Err(Error::InvalidPacketLength), state));
+                        break Some((Err(PacketParseError::InvalidPacketLen), state));
                     }
 
                     let size_str = &packet_buf[1..]
@@ -187,7 +189,7 @@ where
                     if let Ok(size) = size_str.parse() {
                         packet_size = size;
                     } else {
-                        break Some((Err(Error::InvalidPacketLength), state));
+                        break Some((Err(PacketParseError::InvalidPacketLen), state));
                     }
                     packet_buf.clear();
                 }
@@ -204,10 +206,10 @@ where
                 // Read the packet data
                 let packet = match packet_type.unwrap() {
                     STRING_PACKET_IDENTIFIER_V3 => String::from_utf8(packet_buf)
-                        .map_err(|_| Error::InvalidPacketLength)
+                        .map_err(PacketParseError::from)
                         .and_then(|v| Packet::parse(ProtocolVersion::V3, v)), // Convert the packet buffer to a Packet object
                     BINARY_PACKET_IDENTIFIER_V3 => Ok(Packet::BinaryV3(packet_buf.into())),
-                    _ => Err(Error::InvalidPacketLength),
+                    _ => Err(PacketParseError::InvalidPacketLen),
                 };
 
                 break Some((packet, state));
@@ -216,7 +218,7 @@ where
             } else if state.end_of_stream {
                 // EOS reached with leftover bytes that cannot form a complete
                 // packet (truncated header or truncated body).
-                break Some((Err(Error::InvalidPacketLength), state));
+                break Some((Err(PacketParseError::InvalidPacketLen), state));
             }
         }
     })
@@ -250,10 +252,10 @@ fn utf16_len(s: &str) -> usize {
 pub fn v3_string_decoder(
     body: impl Body<Error = impl std::fmt::Debug> + Unpin,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, Error>> {
+) -> impl Stream<Item = Result<Packet, PacketParseError>> {
     use std::io::ErrorKind;
 
-    use crate::transport::polling::payload::STRING_PACKET_SEPARATOR_V3;
+    use crate::payload::STRING_PACKET_SEPARATOR_V3;
 
     #[cfg(feature = "tracing")]
     tracing::debug!("decoding payload with v3 string decoder");
@@ -269,10 +271,14 @@ pub fn v3_string_decoder(
             {
                 break Some((Err(e), state));
             }
-            if state.end_of_stream && state.buffer.remaining() == 0 && state.yield_packets > 0 {
+            if state.end_of_stream && state.buffer.remaining() == 0 {
+                if !packet_buf.is_empty() {
+                    // Leftover unparsed bytes at end of stream: either a length
+                    // token that never found its `:` separator or a
+                    // truncated packet body.
+                    break Some((Err(PacketParseError::InvalidPacketLen), state));
+                }
                 break None; // Reached end of stream with no more data, end the stream
-            } else if state.end_of_stream && state.buffer.remaining() == 0 {
-                return Some((Err(Error::InvalidPacketLength), state));
             }
 
             let mut reader = (&mut state.buffer).reader();
@@ -285,7 +291,12 @@ pub fn v3_string_decoder(
                         let available = match reader.fill_buf() {
                             Ok(n) => n,
                             Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
-                            Err(e) => return Some((Err(Error::Io(e)), state)),
+                            Err(_err) => {
+                                #[cfg(feature = "tracing")]
+                                tracing::debug!("failed to read packet payload: {_err}");
+
+                                return Some((Err(PacketParseError::InvalidPacketPayload), state));
+                            }
                         };
                         let old_len = packet_buf.len();
                         packet_buf.extend_from_slice(available);
@@ -294,9 +305,10 @@ pub fn v3_string_decoder(
                             Some(i) => {
                                 // Extract the packet length from the available data
                                 packet_utf16_len = match std::str::from_utf8(&packet_buf[..i])
-                                    .map_err(|_| Error::InvalidPacketLength)
+                                    .map_err(PacketParseError::from)
                                     .and_then(|s| {
-                                        s.parse::<usize>().map_err(|_| Error::InvalidPacketLength)
+                                        s.parse::<usize>()
+                                            .map_err(|_| PacketParseError::InvalidPacketLen)
                                     }) {
                                     Ok(size) => size,
                                     Err(e) => return Some((Err(e), state)),
@@ -306,7 +318,7 @@ pub fn v3_string_decoder(
                                 (true, i + 1 - old_len) // Mark as done and set the used bytes count
                             }
                             None if state.end_of_stream && remaining - available.len() == 0 => {
-                                return Some((Err(Error::InvalidPacketLength), state));
+                                return Some((Err(PacketParseError::InvalidPacketLen), state));
                             } // Reached end of stream and end of bufferered chunks without finding the separator
                             None => (false, available.len()), // Continue reading more data
                         }
@@ -365,8 +377,7 @@ pub fn v3_string_decoder(
                     // SAFETY: packet_buf is a valid utf8 string checkd above
                     let packet = unsafe { String::from_utf8_unchecked(packet_buf) };
                     let packet = Packet::parse(ProtocolVersion::V3, packet)
-                        .map_err(|_| Error::InvalidPacketLength);
-                    state.yield_packets += 1;
+                        .map_err(|_| PacketParseError::InvalidPacketLen);
                     break Some((packet, state)); // Emit the packet and the updated state
                 }
             } else if state.end_of_stream && state.buffer.remaining() == 0 {
@@ -383,8 +394,6 @@ mod tests {
     use futures_util::StreamExt;
     use http_body::Frame;
     use http_body_util::{Full, StreamBody};
-
-    use crate::packet::Packet;
 
     use super::*;
 
@@ -450,7 +459,10 @@ mod tests {
             let payload = v4_decoder(stream, MAX_PAYLOAD);
             futures_util::pin_mut!(payload);
             let packet = payload.next().await.unwrap();
-            assert!(matches!(packet, Err(Error::PayloadTooLarge)));
+            assert!(matches!(
+                packet,
+                Err(PacketParseError::PayloadTooLarge { max: MAX_PAYLOAD })
+            ));
         }
     }
 
@@ -547,6 +559,18 @@ mod tests {
 
     #[cfg(feature = "v3")]
     #[tokio::test]
+    async fn string_invalid_packet_format_v3() {
+        let data = Full::new(Bytes::from_static(b"abc"));
+        let payload = v3_string_decoder(data, MAX_PAYLOAD);
+        futures_util::pin_mut!(payload);
+        assert!(matches!(
+            payload.next().await,
+            Some(Err(crate::PacketParseError::InvalidPacketLen))
+        ));
+    }
+
+    #[cfg(feature = "v3")]
+    #[tokio::test]
     async fn binary_payload_stream_v3() {
         const PAYLOAD: &[u8] = &[
             0, 9, 255, 52, 104, 101, 108, 108, 111, 226, 130, 172, 1, 5, 255, 4, 1, 2, 3, 4,
@@ -607,7 +631,10 @@ mod tests {
             let payload = v3_binary_decoder(stream, MAX_PAYLOAD);
             futures_util::pin_mut!(payload);
             let packet = payload.next().await.unwrap();
-            assert!(matches!(packet, Err(Error::PayloadTooLarge)));
+            assert!(matches!(
+                packet,
+                Err(PacketParseError::PayloadTooLarge { max: MAX_PAYLOAD })
+            ));
         }
         for i in 1..DATA.len() {
             let stream = StreamBody::new(futures_util::stream::iter(
@@ -618,7 +645,10 @@ mod tests {
             let payload = v3_string_decoder(stream, MAX_PAYLOAD);
             futures_util::pin_mut!(payload);
             let packet = payload.next().await.unwrap();
-            assert!(matches!(packet, Err(Error::PayloadTooLarge)));
+            assert!(matches!(
+                packet,
+                Err(PacketParseError::PayloadTooLarge { max: MAX_PAYLOAD })
+            ));
         }
     }
 

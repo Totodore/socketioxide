@@ -1,15 +1,11 @@
 use bytes::Bytes;
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
-use engineioxide::{OpenPacket, Packet, TransportType, config::EngineIoConfig, socket::Sid};
+use engineioxide::{OpenPacket, Packet};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("engineio_packet/encode");
     group.bench_function("Encode packet open", |b| {
-        let packet = Packet::Open(OpenPacket::new(
-            black_box(TransportType::Polling),
-            black_box(Sid::ZERO),
-            &EngineIoConfig::default(),
-        ));
+        let packet = Packet::Open(OpenPacket::default());
         b.iter_batched(
             || packet.clone(),
             TryInto::<String>::try_into,
