@@ -4,14 +4,15 @@ use socketioxide::{extract::SocketRef, SocketIo};
 use std::{net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 
-fn on_connect(socket: SocketRef) {
-    socket.on("ping", |s: SocketRef| {
-        s.emit("pong", ()).ok();
+async fn on_connect(socket: SocketRef) {
+    socket.on("ping", async |s: SocketRef| {
+        s.emit("pong", &()).ok();
     });
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt::init();
     let (svc, io) = SocketIo::new_svc();
 
     io.ns("/", on_connect);

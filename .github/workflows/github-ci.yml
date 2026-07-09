@@ -5,31 +5,27 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - main
 
 jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-        - uses: actions/checkout@v4
-        - uses: dtolnay/rust-toolchain@master
-          with:
-            toolchain: stable
-            components: rustfmt
-        - run: cargo fmt --all -- --check
-          env:
-            RUSTFLAGS: --cfg=socketioxide_test
-    
-  test:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
-      - uses: actions/cache@v4
+          toolchain: 1.94.0
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -37,22 +33,23 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo test --tests --all-features --workspace
-        env:
-          RUSTFLAGS: --cfg=socketioxide_test
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+      - run: cargo test --all-features --workspace
+
   udeps:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
 
       - name: Install cargo-udeps
         uses: taiki-e/install-action@cargo-udeps
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -60,21 +57,21 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-nightly
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-nightly
       - name: Check unused dependencies on default features
-        run: cargo udeps --workspace
+        run: RUSTFLAGS="--cfg fuzzing" cargo udeps
 
       - name: Check unused dependencies on all features
-        run: cargo udeps --all-features --workspace
+        run: RUSTFLAGS="--cfg fuzzing" cargo udeps --all-features
 
   msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Get MSRV from package metadata
         id: msrv
         run: grep rust-version Cargo.toml | cut -d'"' -f2 | sed 's/^/version=/' >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -82,30 +79,27 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ steps.msrv.outputs.version }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-${{ steps.msrv.outputs.version }}
       - uses: dtolnay/rust-toolchain@master
         with:
-            toolchain: ${{ steps.msrv.outputs.version }}
-            components: rustfmt, clippy
+          toolchain: ${{ steps.msrv.outputs.version }}
+          components: rustfmt, clippy
 
       - name: check crates
-        run: cargo check -p socketioxide -p engineioxide --all-features
-        env:
-          RUSTFLAGS: --cfg=socketioxide_test
+        run: cargo check --all-features
 
   feature_set:
     runs-on: ubuntu-latest
-    needs: [test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: 1.94.0
 
       - name: Install cargo-hack
         run: cargo install cargo-hack
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -113,19 +107,25 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
       - name: check --feature-powerset
-        run: cargo hack check --feature-powerset --no-dev-deps -p socketioxide -p engineioxide
+        run: |
+          cargo hack check --feature-powerset --no-dev-deps \
+          -p socketioxide \
+          -p engineioxide \
+          -p socketioxide-redis \
+          -p socketioxide-mongodb \
+          -p socketioxide-postgres
 
   examples:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
-      - uses: actions/cache@v4
+          toolchain: 1.94.0
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -133,26 +133,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             examples/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-examples
+          key: ${{ runner.os }}-cargo-${{ hashFiles('examples/Cargo.lock') }}-examples
       - run: cd examples && cargo check --all-features
-
-  doctest:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo test --doc --all-features
 
   rust-clippy-analyze:
     runs-on: ubuntu-latest
@@ -162,14 +144,14 @@ jobs:
       actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: 1.94.0
           components: clippy
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -177,26 +159,24 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-clippy
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-clippy
 
-      - name: Install required cargo
+      - name: Install required cargo                                                                                                                                                                                                      │
         run: cargo install clippy-sarif sarif-fmt || true
 
       - name: Run rust-clippy
-        run:
-          cargo clippy
+        run: cargo clippy
           --all-features
+          --tests
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
-        env:
-          RUSTFLAGS: --cfg=socketioxide_test
 
       - name: Upload analysis results to GitHub
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
-    
+
   engine_io:
     runs-on: ubuntu-latest
     needs: [test]
@@ -204,20 +184,15 @@ jobs:
       matrix:
         engineio-version: [v3, v4]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
-      - uses: actions/checkout@v4
+          toolchain: 1.94.0
+      - uses: actions/setup-node@v6
         with:
-          repository: totodore/engine.io-protocol
-          path: engine.io-protocol
-          ref: ${{ matrix.engineio-version }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16
+          node-version: 22
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -225,39 +200,35 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
-      - name: Install deps & run tests 
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-release
+      - name: Install deps & run tests
         run: |
-          cd engine.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release
-          cargo run -p engineioxide-e2e --bin engineioxide-e2e --features ${{ matrix.engineio-version }} --release > server.txt & npm --prefix engine.io-protocol/test-suite test > client.txt
+          cd e2e/engineioxide/test-suites && npm install && cd ../../..
+          cargo build -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r
+          cargo run -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r > server.txt && sleep 1 & \
+          node --test --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
       - name: Client output
         if: always()
-        run:  cat client.txt
+        run: cat client.txt
 
   socket_io:
     runs-on: ubuntu-latest
     needs: [test]
     strategy:
       matrix:
-        socketio-version: [v4, v5]
+        socketio-version: [v4, v5, v5-msgpack]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
-      - uses: actions/checkout@v4
+          toolchain: 1.94.0
+      - uses: actions/setup-node@v6
         with:
-          repository: totodore/socket.io-protocol
-          ref: ${{ matrix.socketio-version }}
-          path: socket.io-protocol
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16
-      - uses: actions/cache@v4
+          node-version: 22
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -265,15 +236,66 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-release
-      - name: Install deps & run tests 
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-release
+      - name: Install deps & run tests
         run: |
-          cd socket.io-protocol/test-suite && npm install && cd ../..
-          cargo build -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e --features ${{ matrix.socketio-version }} --release > server.txt & npm --prefix socket.io-protocol/test-suite test > client.txt
+          PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
+          VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
+          cd e2e/socketioxide/test-suites && npm install && cd ../../..
+          cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt && sleep 1 & \
+          node --test --test-reporter=spec --experimental-strip-types e2e/socketioxide/test-suites/${{ matrix.socketio-version }}.ts > client.txt
       - name: Server output
         if: always()
         run: cat server.txt
       - name: Client output
         if: always()
-        run:  cat client.txt
+        run: cat client.txt
+
+  adapter:
+    runs-on: ubuntu-latest
+    needs: [socket_io, engine_io]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-adapter
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: install adapter infra
+        uses: hoverkraft-tech/compose-action@v3.0.0
+        with:
+          compose-file: ./.github/workflows/adapter-ci/docker-compose.yml
+      - run: cd e2e/adapter && npm install
+
+      - name: Run all adapter tests
+        run: |
+          cargo build -p adapter-e2e
+          cargo run -p adapter-e2e --bin main
+
+      - name: Upload server output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-logs
+          path: e2e/adapter/logs/*.log
+
+  all_passed:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      [adapter, feature_set, format, udeps, msrv, examples, rust-clippy-analyze]
+    steps:
+      - uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}

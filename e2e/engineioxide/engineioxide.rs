@@ -1,14 +1,14 @@
-//! This a end to end test server used with this [test suite](https://github.com/socketio/engine.io-protocol)
+//! This is a end-to-end test server used with this [test suite](https://github.com/socketio/engine.io-protocol)
 
 use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use engineioxide::{
+    Str,
     config::EngineIoConfig,
     handler::EngineIoHandler,
     service::EngineIoService,
     socket::{DisconnectReason, Socket},
-    Str,
 };
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
@@ -25,16 +25,17 @@ impl EngineIoHandler for MyHandler {
     fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>) {
         println!("socket connect {}", socket.id);
     }
+
     fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
         println!("socket disconnect {}: {:?}", socket.id, reason);
     }
 
-    fn on_message(&self, msg: Str, socket: Arc<Socket<Self::Data>>) {
+    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>) {
         println!("Ping pong message {:?}", msg);
         socket.emit(msg).ok();
     }
 
-    fn on_binary(&self, data: Bytes, socket: Arc<Socket<Self::Data>>) {
+    fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<Socket<Self::Data>>) {
         println!("Ping pong binary message {:?}", data);
         socket.emit_binary(data).ok();
     }
@@ -44,7 +45,7 @@ impl EngineIoHandler for MyHandler {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
         .with_line_number(true)
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::TRACE)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 

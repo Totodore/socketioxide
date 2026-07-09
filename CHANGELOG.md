@@ -1,3 +1,36 @@
+# Starting from v0.16.0 all changelogs are in each crate subfolder:
+* [socketioxide-core](./crates/socketioxide-core/CHANGELOG.md)
+* [engineioxide-core](./crates/engineioxide-core/CHANGELOG.md)
+* [parser-common](./crates/parser-common/CHANGELOG.md)
+* [parser-msgpack](./crates/parser-msgpack/CHANGELOG.md)
+* [socketioxide-redis](./crates/socketioxide-redis/CHANGELOG.md)
+* [socketioxide-mongodb](./crates/socketioxide-mongodb/CHANGELOG.md)
+* [socketioxide](./crates/socketioxide/CHANGELOG.md)
+* [engineioxide](./crates/engineioxide/CHANGELOG.md)
+
+# 0.15.2
+## socketioxide
+* fix: issue [#527](https://github.com/Totodore/socketioxide/issues/527). Socketioxide failed to build with the `tracing` flag enable and with `tracing-attributes` set to `v0.1.28`.
+
+# 0.15.1
+## socketioxide
+* deps: remove smallvec deps
+* doc: fix some links
+
+## engineioxide
+* fix: issue [#390](https://github.com/Totodore/socketioxide/issues/390). First ping was sent twice because of tokio interval behavior defaulting to bursting when interval tick is missed.
+
+# 0.15.0
+## socketioxide
+* **(Breaking)**: New parsing system. You can now serialize and deserialize binary data inside your own types.
+It also improve performances by avoiding unnecessary allocations.
+* fix: missing extractor error logs for async message handlers.
+* feat: add custom compiler error for unimplemented handler traits.
+* deps: switch from `tower` to `tower-service` and `tower-layer` subcrates.
+* deps: bump `tokio` to 1.40.
+* deps: bump `http` to 1.1.
+* deps: bump `hyper` to 1.5.
+
 # 0.14.0
 
 ## socketioxide

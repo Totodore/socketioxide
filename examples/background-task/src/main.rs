@@ -1,4 +1,4 @@
-use serde_json::Value;
+use rmpv::Value;
 use socketioxide::{
     extract::{Data, SocketRef},
     SocketIo,
@@ -13,9 +13,9 @@ async fn background_task(io: SocketIo) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         info!("Background task");
-        let cnt = io.of("/").unwrap().sockets().unwrap().len();
+        let cnt = io.of("/").unwrap().sockets().len();
         let msg = format!("{}s, {} socket connected", i, cnt);
-        io.emit("tic tac !", msg).unwrap();
+        io.emit("tic tac !", &msg).await.unwrap();
 
         i += 1;
     }
@@ -31,9 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    io.ns("/", |s: SocketRef, Data::<Value>(data)| {
+    io.ns("/", async |s: SocketRef, Data::<Value>(data)| {
         info!("Received: {:?}", data);
-        s.emit("welcome", data).ok();
+        s.emit("welcome", &data).ok();
     });
 
     tokio::spawn(background_task(io));

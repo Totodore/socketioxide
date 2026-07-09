@@ -1,0 +1,70 @@
+[package]
+name = "engineioxide"
+description = "Engine IO server implementation as a Tower Service."
+version = "0.17.6"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme = "README.md"
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+features = ["v3"]
+# Special configuration for docs.rs build
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+engineioxide-core = { path = "../engineioxide-core", version = "0.2.2" }
+bytes.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
+tokio-util.workspace = true
+tower-service.workspace = true
+tower-layer.workspace = true
+hyper.workspace = true
+tokio-tungstenite = { workspace = true, features = ["handshake"] }
+http-body-util.workspace = true
+pin-project-lite.workspace = true
+smallvec.workspace = true
+hyper-util = { workspace = true, features = ["tokio"] }
+
+# Tracing
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "parking_lot"] }
+tracing-subscriber.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
+criterion.workspace = true
+axum.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+
+[features]
+v3 = ["engineioxide-core/v3"]
+tracing = ["dep:tracing", "engineioxide-core/tracing"]
+__test_harness = []
+
+[[bench]]
+name = "packet_encode"
+path = "benches/packet_encode.rs"
+harness = false
+
+[[bench]]
+name = "packet_decode"
+path = "benches/packet_decode.rs"
+harness = false
+
+[lints]
+workspace = true

@@ -27,18 +27,18 @@ async fn on_connect(socket: SocketRef) {
 
     socket.on(
         "join",
-        |socket: SocketRef, Data::<String>(room), store: State<state::MessageStore>| async move {
+        async |socket: SocketRef, Data::<String>(room), store: State<state::MessageStore>| {
             info!("Received join: {:?}", room);
-            let _ = socket.leave_all();
-            let _ = socket.join(room.clone());
+            socket.leave_all();
+            socket.join(room.clone());
             let messages = store.get(&room).await;
-            let _ = socket.emit("messages", Messages { messages });
+            let _ = socket.emit("messages", &Messages { messages });
         },
     );
 
     socket.on(
         "message",
-        |socket: SocketRef, Data::<MessageIn>(data), store: State<state::MessageStore>| async move {
+        async |socket: SocketRef, Data::<MessageIn>(data), store: State<state::MessageStore>| {
             info!("Received message: {:?}", data);
 
             let response = state::Message {
@@ -49,14 +49,14 @@ async fn on_connect(socket: SocketRef) {
 
             store.insert(&data.room, response.clone()).await;
 
-            let _ = socket.within(data.room).emit("message", response);
+            let _ = socket.within(data.room).emit("message", &response).await;
         },
     )
 }
 
 async fn handler(axum::extract::State(io): axum::extract::State<SocketIo>) {
     info!("handler called");
-    let _ = io.emit("hello", "world");
+    let _ = io.emit("hello", "world").await;
 }
 
 #[tokio::main]

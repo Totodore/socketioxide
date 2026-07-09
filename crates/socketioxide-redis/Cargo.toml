@@ -1,0 +1,67 @@
+[package]
+name = "socketioxide-redis"
+description = "Redis adapter for the socket.io protocol"
+version = "0.4.1"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[features]
+redis = ["dep:redis"]
+redis-cluster = ["redis", "redis/cluster-async"]
+fred = ["dep:fred"]
+default = ["redis"]
+
+[dependencies]
+socketioxide-core = { version = "0.18", path = "../socketioxide-core", features = [
+    "remote-adapter",
+] }
+futures-core.workspace = true
+futures-util.workspace = true
+pin-project-lite.workspace = true
+serde.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
+tokio = { workspace = true, features = ["macros", "time", "rt", "sync"] }
+rmp-serde.workspace = true
+rmp.workspace = true
+bytes.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+# Redis implementation
+fred = { version = "10", features = [
+    "subscriber-client",
+    "i-pubsub",
+], default-features = false, optional = true }
+redis = { version = "1", features = [
+    "aio",
+    "tokio-comp",
+    "streams",
+], default-features = false, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = [
+    "macros",
+    "parking_lot",
+    "rt-multi-thread",
+] }
+socketioxide = { path = "../socketioxide", features = [
+    "tracing",
+    "__test_harness",
+] }
+engineioxide = { path = "../engineioxide" }
+tracing-subscriber.workspace = true
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true

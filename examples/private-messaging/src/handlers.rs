@@ -16,26 +16,26 @@ pub struct Auth {
 
 /// Request/Response Types
 #[derive(Debug, Serialize, Clone)]
-struct UserConnectedRes {
+struct UserConnectedRes<'a> {
     #[serde(rename = "userID")]
-    user_id: Uuid,
-    username: String,
+    user_id: &'a Uuid,
+    username: &'a String,
     connected: bool,
     messages: Vec<Message>,
 }
 
 #[derive(Debug, Serialize, Clone)]
-struct UserDisconnectedRes {
+struct UserDisconnectedRes<'a> {
     #[serde(rename = "userID")]
-    user_id: Uuid,
-    username: String,
+    user_id: &'a Uuid,
+    username: &'a str,
 }
 
-impl UserConnectedRes {
-    fn new(session: &Session, messages: Vec<Message>) -> Self {
+impl<'a> UserConnectedRes<'a> {
+    fn new(session: &'a Session, messages: Vec<Message>) -> Self {
         Self {
-            user_id: session.user_id,
-            username: session.username.clone(),
+            user_id: &session.user_id,
+            username: &session.username,
             connected: session.connected.load(Ordering::SeqCst),
             messages,
         }
@@ -47,31 +47,31 @@ struct PrivateMessageReq {
     content: String,
 }
 
-pub fn on_connection(
+pub async fn on_connection(
     s: SocketRef,
     Extension::<Arc<Session>>(session): Extension<Arc<Session>>,
     State(sessions): State<Sessions>,
     State(msgs): State<Messages>,
 ) {
-    s.emit("session", (*session).clone()).unwrap();
+    s.emit("session", &*session).unwrap();
 
-    let users = sessions
-        .get_all_other_sessions(session.user_id)
-        .into_iter()
+    let other_sessions = sessions.get_all_other_sessions(session.user_id);
+    let users = other_sessions
+        .iter()
         .map(|session| {
             let messages = msgs.get_all_for_user(session.user_id);
-            UserConnectedRes::new(&session, messages)
+            UserConnectedRes::new(session, messages)
         })
         .collect::<Vec<_>>();
 
-    s.emit("users", [users]).unwrap();
+    s.emit("users", &users).unwrap();
 
     let res = UserConnectedRes::new(&session, vec![]);
-    s.broadcast().emit("user connected", res).unwrap();
+    s.broadcast().emit("user connected", &res).await.unwrap();
 
     s.on(
         "private message",
-        |s: SocketRef,
+        async |s: SocketRef,
          Data(PrivateMessageReq { to, content }),
          State::<Messages>(msgs),
          Extension::<Arc<Session>>(session)| {
@@ -80,30 +80,29 @@ pub fn on_connection(
                 to,
                 content,
             };
-            msgs.add(message.clone());
             s.within(to.to_string())
-                .emit("private message", message)
+                .emit("private message", &message)
+                .await
                 .ok();
+            msgs.add(message);
         },
     );
 
-    s.on_disconnect(|s: SocketRef, Extension::<Arc<Session>>(session)| {
-        session.set_connected(false);
-        s.broadcast()
-            .emit(
-                "user disconnected",
-                UserDisconnectedRes {
-                    user_id: session.user_id,
-                    username: session.username.clone(),
-                },
-            )
-            .ok();
-    });
+    s.on_disconnect(
+        async |s: SocketRef, Extension::<Arc<Session>>(session)| {
+            session.set_connected(false);
+            let res = UserDisconnectedRes {
+                user_id: &session.user_id,
+                username: &session.username,
+            };
+            s.broadcast().emit("user disconnected", &res).await.ok();
+        },
+    );
 }
 
 /// Handles the connection of a new user.
 /// Be careful to not emit anything to the user before the authentication is done.
-pub fn authenticate_middleware(
+pub async fn authenticate_middleware(
     s: SocketRef,
     Data(auth): Data<Auth>,
     State(sessions): State<Sessions>,
@@ -120,7 +119,7 @@ pub fn authenticate_middleware(
         session
     };
 
-    s.join(session.user_id.to_string())?;
+    s.join(session.user_id.to_string());
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 [package]
 name = "engineioxide-e2e"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -13,7 +13,7 @@ publish = false
 
 [dependencies]
 bytes.workspace = true
-engineioxide = { path = "../../engineioxide", default-features = false, features = [
+engineioxide = { path = "../../crates/engineioxide", default-features = false, features = [
     "tracing",
 ] }
 hyper-util = { workspace = true, features = ["tokio"] }

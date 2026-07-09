@@ -6,15 +6,45 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-socketioxide = { path = "../../socketioxide", features = [
-    "extensions",
-    "state",
-] }
+socketioxide = { workspace = true, features = ["extensions", "state"] }
+socketioxide-redis.workspace = true
+socketioxide-mongodb.workspace = true
+socketioxide-postgres.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tower-http = { version = "0.5.0", features = ["cors", "fs"] }
+tower-http.workspace = true
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# We can't depend on the fred re-export as we need more features
+fred = { version = "10.0.3", features = ["i-keys"] }
+
+[[bin]]
+name = "default"
+path = "src/main.rs"
+
+[[bin]]
+name = "redis-adapter"
+path = "src/redis/redis.rs"
+[[bin]]
+name = "redis-adapter-fred"
+path = "src/redis/redis_fred.rs"
+[[bin]]
+name = "redis-adapter-cluster"
+path = "src/redis/redis_cluster.rs"
+
+[[bin]]
+name = "mongodb-adapter-capped"
+path = "src/mongodb/mongodb_capped.rs"
+[[bin]]
+name = "mongodb-adapter-ttl"
+path = "src/mongodb/mongodb_ttl.rs"
+
+[[bin]]
+name = "postgres-adapter-sqlx"
+path = "src/postgres/sqlx.rs"
+
+[[bin]]
+name = "postgres-adapter-tokio-postgres"
+path = "src/postgres/tokio_postgres.rs"

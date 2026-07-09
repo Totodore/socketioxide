@@ -33,14 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(Todos::default())
         .build_layer();
 
-    io.ns("/", |s: SocketRef, State(Todos(todos))| {
+    io.ns("/", async |s: SocketRef, State(Todos(todos))| {
         info!("New connection: {}", s.id);
 
         let todos = todos.lock().unwrap().clone();
 
-        // Because variadic args are not supported, array arguments are flattened.
-        // Therefore to send a json array (required for the todomvc app) we need to wrap it in another array.
-        s.emit("todos", [todos]).unwrap();
+        s.emit("todos", &todos).unwrap();
 
         s.on(
             "update-store",
@@ -50,14 +48,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut todos = todos.lock().unwrap();
                 todos.clear();
                 todos.extend_from_slice(&new_todos);
-
-                s.broadcast().emit("update-store", [new_todos]).unwrap();
+                async move {
+                    s.broadcast()
+                        .emit("update-store", &new_todos)
+                        .await
+                        .unwrap();
+                }
             },
         );
     });
 
     let app = axum::Router::new()
-        .nest_service("/", ServeDir::new("dist"))
+        .fallback_service(ServeDir::new("dist"))
         .layer(
             ServiceBuilder::new()
                 .layer(CorsLayer::permissive()) // Enable CORS policy

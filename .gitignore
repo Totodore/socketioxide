@@ -1,6 +1,6 @@
 target
-Cargo.lock
 .env
 .vscode
 *.gz
 .zed
+*.log

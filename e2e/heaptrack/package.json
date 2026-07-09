@@ -1,0 +1,10 @@
+{
+  "name": "heaptrack-bench",
+  "type": "module",
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.10"
+  }
+}
