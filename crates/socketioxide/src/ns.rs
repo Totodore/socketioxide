@@ -227,6 +227,9 @@ trait InnerEmitter: Send + Sync + 'static {
     fn get_all_sids(&self, filter: &dyn Fn(&Sid) -> bool) -> Vec<Sid>;
     /// Send data to the list of socket ids.
     fn send_many(&self, sids: BroadcastIter<'_>, data: Value) -> Result<(), Vec<SocketError>>;
+    /// Send data to the list of socket ids with volatile semantics.
+    /// Errors are silently discarded.
+    fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value);
     /// Send data to the list of socket ids and get a stream of acks.
     fn send_many_with_ack(
         &self,
@@ -266,6 +269,12 @@ impl<A: Adapter> InnerEmitter for Namespace<A> {
             .filter_map(|socket| socket.send_raw(data.clone()).err())
             .collect();
         if errs.is_empty() { Ok(()) } else { Err(errs) }
+    }
+
+    fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value) {
+        let sockets = self.sockets.read().unwrap();
+        sids.filter_map(|sid| sockets.get(&sid))
+            .for_each(|socket| socket.send_raw_volatile(data.clone()));
     }
 
     fn send_many_with_ack(
@@ -351,6 +360,12 @@ impl SocketEmitter for Emitter {
         match self.ns.upgrade() {
             Some(ns) => ns.send_many(sids, data),
             None => Ok(()),
+        }
+    }
+
+    fn send_many_volatile(&self, sids: BroadcastIter<'_>, data: Value) {
+        if let Some(ns) = self.ns.upgrade() {
+            ns.send_many_volatile(sids, data);
         }
     }
 

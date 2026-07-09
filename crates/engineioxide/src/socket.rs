@@ -74,6 +74,7 @@ use smallvec::{SmallVec, smallvec};
 use tokio::sync::{
     Mutex,
     mpsc::{self, Receiver, error::TrySendError},
+    watch,
 };
 
 pub use engineioxide_core::Sid;
@@ -219,6 +220,13 @@ where
     /// Channel to send [PacketBuf] to the internal connection
     pub(crate) internal_tx: mpsc::Sender<PacketBuf>,
 
+    /// Channel to send volatile [PacketBuf]s that bypass the internal buffer.
+    /// Uses a [`watch`](tokio::sync::watch) channel so only the latest volatile
+    /// message is retained; subsequent volatile sends overwrite the previous one.
+    volatile_tx: watch::Sender<Option<PacketBuf>>,
+    /// Receiver for the volatile channel, read by the transport with priority.
+    pub(crate) volatile_rx: watch::Receiver<Option<PacketBuf>>,
+
     /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task
     heartbeat_rx: Mutex<Receiver<()>>,
@@ -255,6 +263,7 @@ where
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel(config.max_buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
+        let (volatile_tx, volatile_rx) = watch::channel(None);
 
         Self {
             id: Sid::new(),
@@ -264,6 +273,9 @@ where
 
             internal_rx: Mutex::new(InternalRx::new(internal_rx)),
             internal_tx,
+
+            volatile_rx,
+            volatile_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,
@@ -457,6 +469,7 @@ where
 
     /// Immediately closes the socket and the underlying connection.
     /// The socket will be removed from the `Engine` and the [`Handler`](crate::handler::EngineIoHandler) will be notified.
+    #[tracing::instrument(skip(self))]
     pub fn close(&self, reason: DisconnectReason) {
         // Try to send a close packet is the connection is still operational.
         self.send(Packet::Close).ok();
@@ -492,6 +505,55 @@ where
             TrySendError::Full(p) => TrySendError::Full(p.into_binary()),
             TrySendError::Closed(p) => TrySendError::Closed(p.into_binary()),
         })
+    }
+
+    /// Try to send a volatile message bypassing the internal buffer channel.
+    /// Volatile messages may be dropped if the transport is not ready to
+    /// receive them.
+    ///
+    /// Because volatile messages bypass the main mpsc buffer queue, they may
+    /// arrive out of order relative to regular messages.
+    ///
+    /// Returns `true` if the message was queued for sending, `false` if it
+    /// was dropped (channel full or transport shutting down).
+    #[inline]
+    pub fn emit_volatile(&self, msg: impl Into<Str>) -> bool {
+        self.send_volatile(smallvec![Packet::Message(msg.into())])
+    }
+
+    /// Try to send a volatile binary message bypassing the internal buffer channel.
+    /// Volatile messages may be dropped if the transport is not ready to
+    /// receive them.
+    ///
+    /// Returns `true` if the message was queued for sending, `false` if it
+    /// was dropped.
+    #[inline]
+    pub fn emit_binary_volatile<B: Into<Bytes>>(&self, data: B) -> bool {
+        if self.protocol == ProtocolVersion::V3 {
+            self.send_volatile(smallvec![Packet::BinaryV3(data.into())])
+        } else {
+            self.send_volatile(smallvec![Packet::Binary(data.into())])
+        }
+    }
+
+    /// Try to send a volatile message with multiple adjacent binary payloads.
+    /// The message and all binary payloads are sent atomically as a single
+    /// volatile write.
+    ///
+    /// Returns `true` if the message was queued for sending, `false` if it
+    /// was dropped.
+    #[inline]
+    pub fn emit_many_volatile(&self, msg: Str, data: VecDeque<Bytes>) -> bool {
+        let mut packets = SmallVec::with_capacity(1 + data.len());
+        packets.push(Packet::Message(msg));
+        for bin in data {
+            packets.push(Packet::Binary(bin));
+        }
+        self.send_volatile(packets)
+    }
+
+    pub(crate) fn send_volatile(&self, packets: PacketBuf) -> bool {
+        self.volatile_tx.send(Some(packets)).is_ok()
     }
 }
 
@@ -553,6 +615,7 @@ where
     ) -> (Arc<Socket<D>>, tokio::sync::mpsc::Receiver<Packet>) {
         let (internal_tx, internal_rx) = mpsc::channel(buffer_size);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
+        let (volatile_tx, volatile_rx) = watch::channel(None);
 
         let sock = Self {
             id: sid,
@@ -562,6 +625,9 @@ where
 
             internal_rx: Mutex::new(InternalRx::new(internal_rx)),
             internal_tx,
+
+            volatile_rx,
+            volatile_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
             heartbeat_tx,

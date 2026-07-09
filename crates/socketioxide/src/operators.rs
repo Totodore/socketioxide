@@ -30,6 +30,7 @@ use socketioxide_core::{
 /// Chainable operators to configure the message to be sent.
 pub struct ConfOperators<'a, A: Adapter = LocalAdapter> {
     timeout: Option<Duration>,
+    volatile: bool,
     socket: &'a Socket<A>,
 }
 /// Chainable operators to select sockets to send a message to and to configure the message to be sent.
@@ -42,7 +43,10 @@ pub struct BroadcastOperators<A: Adapter = LocalAdapter> {
 
 impl<A: Adapter> From<ConfOperators<'_, A>> for BroadcastOperators<A> {
     fn from(conf: ConfOperators<'_, A>) -> Self {
-        let opts = BroadcastOptions::new(conf.socket.id);
+        let mut opts = BroadcastOptions::new(conf.socket.id);
+        if conf.volatile {
+            opts.add_flag(BroadcastFlags::Volatile);
+        }
         Self {
             timeout: conf.timeout,
             ns: conf.socket.ns.clone(),
@@ -57,6 +61,7 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
     pub(crate) fn new(sender: &'a Socket<A>) -> Self {
         Self {
             timeout: None,
+            volatile: false,
             socket: sender,
         }
     }
@@ -91,6 +96,12 @@ impl<'a, A: Adapter> ConfOperators<'a, A> {
         self.timeout = Some(timeout);
         self
     }
+
+    #[doc = include_str!("../docs/operators/volatile.md")]
+    pub fn volatile(mut self) -> Self {
+        self.volatile = true;
+        self
+    }
 }
 
 // ==== impl ConfOperators consume fns ====
@@ -101,6 +112,18 @@ impl<A: Adapter> ConfOperators<'_, A> {
         event: impl AsRef<str>,
         data: &T,
     ) -> Result<(), SendError> {
+        if self.volatile {
+            if !self.socket.connected() {
+                return Ok(());
+            }
+            let Ok(packet) = self.get_packet(event, data) else {
+                return Ok(());
+            };
+            self.socket
+                .send_raw_volatile(self.socket.parser.encode(packet));
+            return Ok(());
+        }
+
         use crate::SocketError;
         use crate::socket::PermitExt;
         if !self.socket.connected() {
@@ -228,6 +251,12 @@ impl<A: Adapter> BroadcastOperators<A> {
         self.timeout = Some(timeout);
         self
     }
+
+    #[doc = include_str!("../docs/operators/volatile.md")]
+    pub fn volatile(mut self) -> Self {
+        self.opts.add_flag(BroadcastFlags::Volatile);
+        self
+    }
 }
 
 // ==== impl BroadcastOperators consume fns ====
@@ -336,6 +365,7 @@ impl<'a, A: Adapter> Clone for ConfOperators<'a, A> {
     fn clone(&self) -> Self {
         Self {
             timeout: self.timeout,
+            volatile: self.volatile,
             socket: self.socket,
         }
     }

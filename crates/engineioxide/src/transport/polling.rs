@@ -119,7 +119,10 @@ where
 
     // Prepend the packet peeked during the previous
     // polling request so it is encoded first, ahead of the newly received packets.
-    let rx_stream = stream::iter(rx.peeked.take()).chain(rx_stream::ReceiverStream::new(&mut rx));
+    let rx_stream = stream::iter(rx.peeked.take()).chain(rx_stream::EncoderStream::new(
+        &mut rx,
+        socket.volatile_rx.clone(), //TODO: do we loose any state from cloning volatile_rx?
+    ));
 
     // Stop waiting for the next packet as soon as the session is closed. The combinator is biased
     // towards the encoder completion, so any buffered close packet is still flushed to the client.
@@ -214,20 +217,22 @@ where
 mod rx_stream {
     use std::{
         pin::Pin,
-        task::{Context, Poll},
+        task::{Context, Poll, ready},
     };
 
     use futures_core::Stream;
-    use tokio::sync::mpsc::Receiver;
+    use pin_project_lite::pin_project;
+    use tokio::sync::{mpsc, watch};
+    use tokio_util::sync::ReusableBoxFuture;
 
-    /// [`ReceiverStream`] is a stream that wraps a tokio::sync::mpsc::Receiver by reference.
+    /// [`ReceiverStream`] is a stream that wraps a [`mpsc::Receiver`] by reference.
     /// Allowing to use it as a stream even if it is behind a mutex.
     pub struct ReceiverStream<'a, T> {
-        inner: &'a mut Receiver<T>,
+        inner: &'a mut mpsc::Receiver<T>,
     }
 
     impl<'a, T> ReceiverStream<'a, T> {
-        pub fn new(inner: &'a mut Receiver<T>) -> Self {
+        pub fn new(inner: &'a mut mpsc::Receiver<T>) -> Self {
             Self { inner }
         }
     }
@@ -237,6 +242,80 @@ mod rx_stream {
 
         fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             self.inner.poll_recv(cx)
+        }
+    }
+
+    pub struct WatchStream<T> {
+        inner:
+            ReusableBoxFuture<'static, (Result<(), watch::error::RecvError>, watch::Receiver<T>)>,
+    }
+    impl<T: Send + Sync + 'static> WatchStream<T> {
+        pub fn new(rx: watch::Receiver<T>) -> Self {
+            Self {
+                inner: ReusableBoxFuture::new(make_future(rx)),
+            }
+        }
+    }
+
+    async fn make_future<T>(
+        mut rx: watch::Receiver<T>,
+    ) -> (Result<(), watch::error::RecvError>, watch::Receiver<T>) {
+        let result = rx.changed().await;
+        (result, rx)
+    }
+
+    impl<T: Clone + Send + Sync + 'static> Stream for WatchStream<T> {
+        type Item = T;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let (result, mut rx) = ready!(self.inner.poll(cx));
+            match result {
+                Ok(_) => {
+                    let received = (*rx.borrow_and_update()).clone();
+                    self.inner.set(make_future(rx));
+                    Poll::Ready(Some(received))
+                }
+                Err(_) => {
+                    self.inner.set(make_future(rx));
+                    Poll::Ready(None)
+                }
+            }
+        }
+    }
+
+    impl<T> Unpin for WatchStream<T> {}
+
+    pin_project! {
+        /// An [`EncoderStream`] that wraps a [`WatchStream`] and a [`ReceiverStream`].
+        /// It will poll the [`ReceiverStream`] first, and then the [`WatchStream`].
+        ///
+        /// This allow to have a priority on classic mpsc chan before polling volatile packets.
+        pub struct EncoderStream<'a, T> {
+            #[pin]
+            watch: WatchStream<Option<T>>,
+            #[pin]
+            rx: ReceiverStream<'a, T>,
+        }
+    }
+
+    impl<'a, T: Clone + Send + Sync + 'static> EncoderStream<'a, T> {
+        pub fn new(rx: &'a mut mpsc::Receiver<T>, watch: watch::Receiver<Option<T>>) -> Self {
+            Self {
+                rx: ReceiverStream::new(rx),
+                watch: WatchStream::new(watch),
+            }
+        }
+    }
+
+    impl<'a, T: Clone + Send + Sync + 'static> Stream for EncoderStream<'a, T> {
+        type Item = T;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let this = self.project();
+            match this.watch.poll_next(cx) {
+                Poll::Ready(Some(v)) => Poll::Ready(v),
+                Poll::Ready(None) | Poll::Pending => this.rx.poll_next(cx),
+            }
         }
     }
 }
