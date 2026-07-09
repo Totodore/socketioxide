@@ -11,6 +11,10 @@ regular events is not important.
 
 See [socket.io volatile events](https://socket.io/docs/v4/emitting-events/#volatile-events).
 
+<div class="warning">
+The volatile operator wont have any effect if you use it with <code>emit_with_ack()</code>.
+</div>
+
 # Example
 ```rust
 # use socketioxide::{SocketIo, extract::*};
@@ -25,5 +29,9 @@ io.ns("/", async |socket: SocketRef| {
 
     // Volatile broadcast to a room
     socket.volatile().to("game_room").emit("update", &42).await.ok();
+
+    
+    // Same than without volatile.
+    socket.volatile().to("game_room").emit_with_ack("update", &42).await.ok();
 });
 ```
