@@ -27,7 +27,7 @@ use engineioxide_core::{Packet, ProtocolVersion, Sid, Str, TransportType};
 
 use crate::{
     DisconnectReason, Socket, body::ResponseBody, config::EngineIoConfig, engine::EngineIo,
-    errors::Error, handler::EngineIoHandler, transport::make_open_packet,
+    errors::Error, handler::EngineIoHandler, socket::InternalRx, transport::make_open_packet,
 };
 
 /// Create a response for websocket upgrade
@@ -253,7 +253,11 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut internal_rx = socket.internal_rx.try_lock().unwrap();
-    let mut volatile_rx = socket.volatile_rx.clone();
+    let InternalRx {
+        buffered_rx,
+        volatile_rx,
+        ..
+    } = &mut *internal_rx;
 
     // map a packet to a websocket message
     // It is declared as a macro rather than a closure to avoid ownership issues
@@ -292,13 +296,13 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
     loop {
         tokio::select! {
             biased;
-            items = internal_rx.recv() => {
+            items = buffered_rx.recv() => {
                 match items {
                     Some(packets) => {
                         for item in packets {
                             map_fn!(item);
                         }
-                        while let Ok(packets) = internal_rx.try_recv() {
+                        while let Ok(packets) = buffered_rx.try_recv() {
                             for item in packets {
                                 map_fn!(item);
                             }

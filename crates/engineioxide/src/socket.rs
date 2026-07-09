@@ -57,7 +57,6 @@
 use std::{
     collections::VecDeque,
     fmt::Debug,
-    ops::{Deref, DerefMut},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -157,24 +156,21 @@ impl Permit<'_> {
 
 #[derive(Debug)]
 pub(crate) struct InternalRx {
-    pub rx: Receiver<PacketBuf>,
-    pub peeked: Option<PacketBuf>,
+    pub buffered_rx: Receiver<PacketBuf>,
+    pub peeked_packet: Option<PacketBuf>,
+    pub volatile_rx: watch::Receiver<Option<PacketBuf>>,
 }
-impl InternalRx {
-    fn new(rx: Receiver<PacketBuf>) -> Self {
-        Self { rx, peeked: None }
-    }
-}
-impl Deref for InternalRx {
-    type Target = Receiver<PacketBuf>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.rx
-    }
-}
-impl DerefMut for InternalRx {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.rx
+impl InternalRx {
+    fn new(
+        buffered_rx: Receiver<PacketBuf>,
+        volatile_rx: watch::Receiver<Option<PacketBuf>>,
+    ) -> Self {
+        Self {
+            buffered_rx,
+            peeked_packet: None,
+            volatile_rx,
+        }
     }
 }
 
@@ -224,8 +220,6 @@ where
     /// Uses a [`watch`](tokio::sync::watch) channel so only the latest volatile
     /// message is retained; subsequent volatile sends overwrite the previous one.
     volatile_tx: watch::Sender<Option<PacketBuf>>,
-    /// Receiver for the volatile channel, read by the transport with priority.
-    pub(crate) volatile_rx: watch::Receiver<Option<PacketBuf>>,
 
     /// Internal channel to receive Pong [`Packets`](Packet) (v4 protocol) or Ping (v3 protocol) in the heartbeat job
     /// which is running in a separate task
@@ -271,10 +265,9 @@ where
             transport: AtomicU8::new(transport as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(InternalRx::new(internal_rx)),
+            internal_rx: Mutex::new(InternalRx::new(internal_rx, volatile_rx)),
             internal_tx,
 
-            volatile_rx,
             volatile_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
@@ -623,10 +616,9 @@ where
             transport: AtomicU8::new(TransportType::Websocket as u8),
             upgrading: AtomicBool::new(false),
 
-            internal_rx: Mutex::new(InternalRx::new(internal_rx)),
+            internal_rx: Mutex::new(InternalRx::new(internal_rx, volatile_rx)),
             internal_tx,
 
-            volatile_rx,
             volatile_tx,
 
             heartbeat_rx: Mutex::new(heartbeat_rx),
@@ -645,7 +637,7 @@ where
         let sock_clone = sock.clone();
         tokio::spawn(async move {
             let mut internal_rx = sock_clone.internal_rx.try_lock().unwrap();
-            while let Some(packets) = internal_rx.recv().await {
+            while let Some(packets) = internal_rx.buffered_rx.recv().await {
                 for packet in packets {
                     tx.send(packet).await.unwrap();
                 }
