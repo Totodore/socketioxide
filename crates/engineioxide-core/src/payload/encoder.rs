@@ -7,14 +7,21 @@
 //!    * binary encoder (used when there are binary packets and the client supports binary)
 //!
 
-use std::pin::Pin;
+use std::{
+    convert::Infallible,
+    pin::Pin,
+    task::{Poll, ready},
+};
 
+use bytes::Bytes;
 use futures_util::{FutureExt, Stream, StreamExt};
+use http_body::Body;
+use pin_project_lite::pin_project;
 use smallvec::smallvec;
 
 use crate::{
     packet::PacketBuf,
-    payload::{Payload, peekable::Peekable},
+    payload::{PACKET_SEPARATOR_V4, Payload, peekable::Peekable},
 };
 
 #[cfg(feature = "v3")]
@@ -52,6 +59,111 @@ async fn poll_packet(mut rx: Pin<&mut Peekable<impl Stream<Item = PacketBuf>>>) 
     #[cfg(feature = "tracing")]
     tracing::debug!("sending packet: {:?}", packet);
     packet
+}
+
+pin_project! {
+    pub struct V4StreamEncoder<S: Stream<Item = PacketBuf>> {
+        #[pin]
+        rx: Peekable<S>,
+        max_payload: u64,
+        sent_bytes: u64
+    }
+}
+
+impl<S: Stream<Item = PacketBuf>> V4StreamEncoder<S> {
+    pub fn new(rx: Peekable<S>, max_payload: u64) -> Self {
+        Self {
+            rx,
+            max_payload,
+            sent_bytes: 0,
+        }
+    }
+}
+
+impl<S: Stream<Item = PacketBuf>> V4StreamEncoder<S> {
+    fn encode_packets(packets: PacketBuf, size: u64, sent_bytes: &mut u64) -> Option<Bytes> {
+        let mut data = String::with_capacity(size as usize);
+        if packets.is_empty() {
+            return None;
+        }
+
+        for packet in packets {
+            let packet: String = packet.into();
+
+            if *sent_bytes > 0 {
+                data.push(std::char::from_u32(PACKET_SEPARATOR_V4 as u32).unwrap());
+            }
+            data.push_str(&packet);
+        }
+
+        *sent_bytes += data.len() as u64 + PACKET_SEPARATOR_V4 as u64;
+
+        Some(data.into())
+    }
+
+    fn validate_payload_size(
+        packets: &PacketBuf,
+        sent_bytes: &u64,
+        max_payload: &u64,
+    ) -> Option<u64> {
+        const PUNCTUATION_LEN: u64 = 1;
+        let size = packets
+            .iter()
+            .map(|p| p.get_size_hint(false))
+            .sum::<usize>() as u64
+            + PUNCTUATION_LEN;
+
+        if *sent_bytes + size > *max_payload {
+            None
+        } else {
+            Some(size)
+        }
+    }
+}
+
+impl<S: Stream<Item = PacketBuf>> Stream for V4StreamEncoder<S> {
+    type Item = Bytes;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        match this.rx.as_mut().poll_peek(cx) {
+            Poll::Ready(Some(v))
+                if let Some(size) =
+                    Self::validate_payload_size(v, this.sent_bytes, this.max_payload) =>
+            {
+                *this.sent_bytes += size as u64;
+                let packets = ready!(this.rx.poll_next(cx)).expect("we just peeked Some packets");
+                Poll::Ready(Self::encode_packets(packets, size, this.sent_bytes))
+            }
+            Poll::Ready(Some(_)) => {
+                #[cfg(feature = "tracing")]
+                tracing::debug!("payload too big, stopping encoding for this payload");
+                Poll::Ready(None)
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending if *this.sent_bytes == 0 => Poll::Pending,
+            Poll::Pending => Poll::Ready(None),
+        }
+    }
+}
+
+impl<S: Stream<Item = PacketBuf>> Body for V4StreamEncoder<S> {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        match ready!(self.poll_next(cx)) {
+            Some(frame) => Poll::Ready(Some(Ok(http_body::Frame::data(frame)))),
+            None => Poll::Ready(None),
+        }
+    }
 }
 
 /// Encode multiple packets into a string payload according to the

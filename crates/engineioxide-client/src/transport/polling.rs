@@ -1,10 +1,13 @@
 use std::collections::VecDeque;
+use std::convert::Infallible;
 use std::fmt;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
+use std::task::ready;
 
 use bytes::Bytes;
+use bytes::BytesMut;
 use engineioxide_core::OpenPacket;
 use engineioxide_core::Packet;
 use engineioxide_core::PacketBuf;
@@ -12,7 +15,6 @@ use engineioxide_core::PacketParseError;
 use engineioxide_core::ProtocolVersion;
 use engineioxide_core::Sid;
 use engineioxide_core::payload;
-use engineioxide_core::payload::Payload;
 use futures_core::Stream;
 use futures_util::Sink;
 use futures_util::StreamExt;
@@ -22,20 +24,21 @@ use http::Response;
 use http::StatusCode;
 use http_body_util::BodyExt;
 use http_body_util::Full;
+use http_body_util::combinators::BoxBody;
 use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
 use smallvec::smallvec;
 
-use crate::poll;
-
-pub trait PollingSvc: HyperSvc<Request<Full<Bytes>>, Response = Response<Self::Body>> {
+pub trait PollingSvc:
+    HyperSvc<Request<BoxBody<Bytes, Infallible>>, Response = Response<Self::Body>>
+{
     type Body: hyper::body::Body + 'static;
 }
 
 impl<B, S> PollingSvc for S
 where
-    S: HyperSvc<Request<Full<Bytes>>, Response = Response<B>>,
-    <S as HyperSvc<Request<Full<Bytes>>>>::Error: fmt::Debug,
+    S: HyperSvc<Request<BoxBody<Bytes, Infallible>>, Response = Response<B>>,
+    <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Error: fmt::Debug,
     B: hyper::body::Body + 'static,
     <B as hyper::body::Body>::Error: std::fmt::Debug + 'static,
     <B as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
@@ -64,11 +67,8 @@ pin_project! {
     enum PostState<F> {
         /// TODO: Ideally the queue should gradually encode packets in an async fashion
         Queuing {
-            queue: VecDeque<PacketBuf>
-        },
-        Encoding {
-            #[pin]
-            fut: Pin<Box<dyn Future<Output = Payload>>>,
+            // queue: VecDeque<PacketBuf>
+            bytes: BytesMut,
         },
         Pending {
             #[pin]
@@ -80,7 +80,7 @@ pin_project! {
 impl<F> Default for PostState<F> {
     fn default() -> Self {
         PostState::Queuing {
-            queue: VecDeque::new(),
+            bytes: BytesMut::new(),
         }
     }
 }
@@ -115,13 +115,12 @@ where
     }
 
     pub async fn handshake(&mut self) -> Result<OpenPacket, PacketParseError> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(?self, "handshake request");
 
         let req = Request::builder()
             .method("GET")
             .uri("http://localhost:3000/engine.io?EIO=4&transport=polling")
-            .body(Full::default())
+            .body(BoxBody::new(Full::default()))
             .unwrap();
 
         let res = self.svc.call(req).await;
@@ -149,7 +148,6 @@ where
     type Item = Result<Packet, PacketParseError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(poll_state = ?self.poll_state, "polling");
 
         let mut poll_state_proj = self.as_mut().project().poll_state.project();
@@ -158,14 +156,16 @@ where
                 let id = self.sid.unwrap();
                 let uri =
                     format!("http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}");
-                let req = Request::get(uri).body(Full::new(Bytes::new())).unwrap();
+                let req = Request::get(uri)
+                    .body(BoxBody::new(Full::default()))
+                    .unwrap();
                 let fut = self.svc.call(req);
                 self.project().poll_state.set(PollState::Pending { fut });
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
             PollStateProj::Pending { ref mut fut } => {
-                match poll!(fut.as_mut().poll(cx)) {
+                match ready!(fut.as_mut().poll(cx)) {
                     Ok(res) => {
                         let (parts, body) = res.into_parts();
                         dbg!(&parts);
@@ -183,14 +183,13 @@ where
                         Poll::Pending
                     }
                     Err(err) => {
-                        #[cfg(feature = "tracing")]
                         tracing::debug!(?err, "got body error");
                         Poll::Ready(Some(Err(PacketParseError::InvalidPacketPayload)))
                     }
                 }
             }
             PollStateProj::Decoding { ref mut stream } => {
-                if let Some(packet) = poll!(stream.poll_next_unpin(cx)) {
+                if let Some(packet) = ready!(stream.poll_next_unpin(cx)) {
                     dbg!(&packet);
                     Poll::Ready(Some(packet))
                 } else {
@@ -215,7 +214,6 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
     }
 
     fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(post_state = ?self.post_state, "sending packet");
 
         match self.project().post_state.project() {
@@ -227,38 +225,26 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        #[cfg(feature = "tracing")]
         tracing::trace!(post_state = ?self.post_state, "flushing");
 
         match self.as_mut().project().post_state.project() {
             PostStateProj::Queuing { queue } if queue.is_empty() => Poll::Ready(Ok(())),
             PostStateProj::Queuing { queue } => {
-                let fut = payload::encoder(
-                    stream::iter(queue.clone()),
-                    ProtocolVersion::V4,
-                    true,
-                    102400000,
-                );
-                self.project()
-                    .post_state
-                    .set(PostState::Encoding { fut: Box::pin(fut) });
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-            PostStateProj::Encoding { fut } => {
-                let body = poll!(fut.poll(cx));
+                let queue = std::mem::take(queue);
+                let body = payload::encoder_2(stream::iter(queue), 9999999);
                 let req = Request::post(
                     "http://localhost:3000/engine.io?EIO=4&transport=polling&sid={id}",
                 )
-                .body(Full::new(body.data)) //TODO: fix cloning
+                .body(BoxBody::new(body))
                 .unwrap();
+
                 let fut = self.svc.call(req);
                 self.project().post_state.set(PostState::Pending { fut });
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
             PostStateProj::Pending { fut } => {
-                match poll!(fut.poll(cx)) {
+                match ready!(fut.poll(cx)) {
                     Ok(res) => {
                         assert!(res.status().is_success());
                         self.project().post_state.set(PostState::default());
@@ -290,7 +276,6 @@ impl<F> fmt::Debug for PollState<F> {
 impl<F> fmt::Debug for PostState<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Encoding { .. } => f.debug_struct("Encoding").finish(),
             Self::Pending { .. } => write!(f, "Pending"),
             Self::Queuing { .. } => write!(f, "Queuing"),
         }

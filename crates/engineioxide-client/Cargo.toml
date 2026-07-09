@@ -31,7 +31,7 @@ smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
 # Tracing
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true } # TODO: make optional
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "parking_lot"] }
@@ -40,5 +40,5 @@ engineioxide = { path = "../engineioxide", features = ["tracing", "v3"] }
 
 [features]
 v3 = ["engineioxide-core/v3"]
-tracing = ["dep:tracing", "engineioxide-core/tracing"]
+# tracing = ["dep:tracing", "engineioxide-core/tracing"]
 __test_harness = []

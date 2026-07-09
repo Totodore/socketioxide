@@ -223,6 +223,7 @@ impl Packet {
             .ok_or(PacketParseError::InvalidPacketType(None))?;
         let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
         let res = match packet_type {
+            b'0' => Packet::Open(serde_json::from_slice(&value.as_bytes()[1..])?),
             b'1' => Packet::Close,
             b'2' if is_upgrade => Packet::PingUpgrade,
             b'2' => Packet::Ping,

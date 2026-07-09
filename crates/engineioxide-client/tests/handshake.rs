@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +7,7 @@ use engineioxide::{DisconnectReason, service::EngineIoService};
 use engineioxide::{Socket, Str};
 use engineioxide_client::{Client, HttpClient};
 use engineioxide_core::{Packet, Sid};
-use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
