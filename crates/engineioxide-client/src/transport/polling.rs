@@ -15,20 +15,28 @@ use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
 
 pub trait PollingSvc:
-    HyperSvc<Request<BoxBody<Bytes, Infallible>>, Response = Response<Self::Body>>
+    HyperSvc<
+        Request<BoxBody<Bytes, Infallible>>,
+        Response = Response<Self::Body>,
+        Error = <Self as PollingSvc>::Error,
+    >
 {
-    type Body: hyper::body::Body + 'static;
+    type Body: http_body::Body<Error = Self::ResBodyError> + 'static;
+    type Error: fmt::Debug + std::error::Error;
+    type ResBodyError: fmt::Debug + std::error::Error + 'static;
 }
 
 impl<B, S> PollingSvc for S
 where
     S: HyperSvc<Request<BoxBody<Bytes, Infallible>>, Response = Response<B>>,
-    <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Error: fmt::Debug,
-    B: hyper::body::Body + 'static,
-    <B as hyper::body::Body>::Error: std::fmt::Debug + 'static,
-    <B as hyper::body::Body>::Data: Send + std::fmt::Debug + 'static,
+    <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Error: fmt::Debug + std::error::Error,
+    B: http_body::Body + 'static,
+    <B as http_body::Body>::Error: fmt::Debug + std::error::Error + 'static,
+    <B as http_body::Body>::Data: Send + fmt::Debug + 'static,
 {
     type Body = B;
+    type Error = <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Error;
+    type ResBodyError = <B as http_body::Body>::Error;
 }
 
 pin_project! {
@@ -78,8 +86,18 @@ impl<F> PollState<F> {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum PollingTransportError<S: PollingSvc> {
+    #[error("polling error: {0}")]
+    Polling(<S as PollingSvc>::Error),
+    #[error("polling body error: {0}")]
+    PollingBody(<S as PollingSvc>::ResBodyError),
+    #[error("packet error: {0}")]
+    Packet(#[from] PacketParseError),
+}
+
 pin_project! {
-    pub struct HttpClient<S: PollingSvc>
+    pub struct PollingTransport<S: PollingSvc>
     {
         svc: S,
 
@@ -93,12 +111,8 @@ pin_project! {
     }
 }
 
-impl<S: PollingSvc> HttpClient<S>
-where
-    S::Error: fmt::Debug,
-    <S::Body as http_body::Body>::Error: fmt::Debug,
-{
-    pub async fn connect(svc: S) -> Result<(Self, OpenPacket), PacketParseError> {
+impl<S: PollingSvc> PollingTransport<S> {
+    pub async fn connect(svc: S) -> Result<(Self, OpenPacket), PollingTransportError<S>> {
         tracing::trace!("handshake request");
 
         let req = Request::builder()
@@ -107,8 +121,15 @@ where
             .body(BoxBody::new(Full::default()))
             .unwrap();
 
-        let res = svc.call(req).await;
-        let body = res.unwrap().collect().await.unwrap();
+        let res = svc
+            .call(req)
+            .await
+            .map_err(PollingTransportError::Polling)?;
+        let body = res
+            .collect()
+            .await
+            .map_err(PollingTransportError::PollingBody)?;
+
         let packet = Packet::parse(
             ProtocolVersion::V4,
             String::from_utf8(body.to_bytes().to_vec()).unwrap(),
@@ -117,26 +138,24 @@ where
         match packet {
             Packet::Open(open) => {
                 let poll_state = PollState::new_request(&svc, open.sid);
-                let client = HttpClient {
+                let transport = PollingTransport {
                     svc,
                     poll_state,
                     post_state: PostState::default(),
                     sid: open.sid,
                 };
 
-                Ok((client, open))
+                Ok((transport, open))
             }
-            _ => Err(PacketParseError::InvalidPacketType(Some('1'))),
+            _ => Err(PollingTransportError::Packet(
+                PacketParseError::InvalidPacketType(None),
+            )),
         }
     }
 }
 
-impl<S: PollingSvc> Stream for HttpClient<S>
-where
-    S::Error: fmt::Debug,
-    <S::Body as http_body::Body>::Error: fmt::Debug,
-{
-    type Item = Result<Packet, PacketParseError>;
+impl<S: PollingSvc> Stream for PollingTransport<S> {
+    type Item = Result<Packet, PollingTransportError<S>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         tracing::trace!(poll_state = ?self.poll_state, "polling");
@@ -162,13 +181,13 @@ where
                     }
                     Err(err) => {
                         tracing::debug!(?err, "got body error");
-                        Poll::Ready(Some(Err(PacketParseError::InvalidPacketPayload)))
+                        Poll::Ready(Some(Err(PacketParseError::InvalidPacketPayload.into())))
                     }
                 }
             }
             PollStateProj::Decoding { ref mut stream } => {
                 if let Some(packet) = ready!(stream.poll_next_unpin(cx)) {
-                    Poll::Ready(Some(packet))
+                    Poll::Ready(Some(packet.map_err(PollingTransportError::from)))
                 } else {
                     let request = PollState::new_request(&self.svc, self.sid);
                     self.project().poll_state.set(request);
@@ -181,8 +200,8 @@ where
     }
 }
 
-impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
-    type Error = S::Error;
+impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
+    type Error = PollingTransportError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -203,9 +222,9 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
             PostStateProj::Queuing { bytes } => {
                 let body = std::mem::take(bytes).freeze();
                 //TODO: handle max body size from open packet
+                let sid = self.sid;
                 let req = Request::post(format!(
-                    "http://localhost:3000/engine.io?EIO=4&transport=polling&sid={}",
-                    self.sid // TODO: unwrap
+                    "http://localhost:3000/engine.io?EIO=4&transport=polling&sid={sid}",
                 ))
                 .body(BoxBody::new(Full::new(body)))
                 .unwrap();
@@ -227,7 +246,7 @@ impl<S: PollingSvc> Sink<Packet> for HttpClient<S> {
                     }
                     Err(err) => {
                         self.project().post_state.set(PostState::default());
-                        Poll::Ready(Err(err))
+                        Poll::Ready(Err(PollingTransportError::Polling(err)))
                     }
                 }
             }
@@ -272,9 +291,9 @@ impl<F> fmt::Debug for PostState<F> {
         }
     }
 }
-impl<S: PollingSvc> fmt::Debug for HttpClient<S> {
+impl<S: PollingSvc> fmt::Debug for PollingTransport<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("HttpClient")
+        f.debug_struct("PollingTransport")
             .field("poll_state", &self.poll_state)
             .field("post_state", &self.post_state)
             .field("sid", &self.sid)

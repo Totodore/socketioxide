@@ -16,6 +16,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
+mod fixture;
+
 #[derive(Debug, PartialEq, Eq)]
 enum Event {
     Connect(Sid),
@@ -81,6 +83,42 @@ impl EngineIoHandler for Handler {
 async fn round_trip() {
     let (svc, mut rx) = service();
     let client = Client::connect(svc).await.unwrap();
+    let sid = client.sid;
+    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
+    let (mut ctx, mut crx) = client.split::<Packet>();
+
+    ctx.send(Packet::Message("Hello".into())).await.unwrap();
+    ctx.send(Packet::Binary(Bytes::from_static(b"Hello")))
+        .await
+        .unwrap();
+
+    // The server observes both packets.
+    assert_eq!(
+        rx.recv().await.unwrap(),
+        Event::Message(sid, "Hello".into())
+    );
+    assert_eq!(
+        rx.recv().await.unwrap(),
+        Event::Binary(sid, Bytes::from_static(b"Hello"))
+    );
+
+    // And echoes them back through the read half, in order.
+    match crx.next().await {
+        Some(Ok(Packet::Message(msg))) => assert_eq!(msg, "Hello"),
+        other => panic!("expected echoed message, got {other:?}"),
+    }
+    match crx.next().await {
+        Some(Ok(Packet::Binary(data))) => assert_eq!(data, Bytes::from_static(b"Hello")),
+        other => panic!("expected echoed binary, got {other:?}"),
+    }
+}
+
+/// Packets sent through the write half must reach the server, and the packets
+/// the handler echoes back must be surfaced in order through the read half.
+#[tokio::test]
+async fn round_trip_ws() {
+    let (svc, mut rx) = service();
+    let client = fixture::client_ws_connect(svc).await;
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<Packet>();

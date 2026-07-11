@@ -12,4 +12,6 @@ mod client;
 mod io;
 mod transport;
 pub use crate::client::Client;
-pub use crate::transport::HttpClient;
+pub use crate::transport::PollingTransport;
+
+pub use transport::{noop_impl, tungstenite_impl};

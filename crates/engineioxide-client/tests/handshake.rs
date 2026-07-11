@@ -4,7 +4,7 @@ use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{DisconnectReason, service::EngineIoService};
 use engineioxide::{Socket, Str};
-use engineioxide_client::HttpClient;
+use engineioxide_client::PollingTransport;
 use engineioxide_core::Sid;
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -73,6 +73,6 @@ impl EngineIoHandler for Handler {
 #[tokio::test]
 async fn handshake() {
     let (svc, mut rx) = service();
-    let (_, open) = HttpClient::connect(svc).await.unwrap();
+    let (_, open) = PollingTransport::connect(svc).await.unwrap();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(open.sid));
 }

@@ -4,29 +4,24 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use engineioxide_core::{Packet, PacketParseError, Sid};
+use engineioxide_core::{Packet, Sid};
 use futures_core::Stream;
 use futures_util::{
     Sink, StreamExt,
     stream::{SplitSink, SplitStream},
 };
 
-use crate::transport::{HttpClient, PollingSvc, Transport};
-
-#[derive(Debug, thiserror::Error)]
-pub enum ClientError<S: PollingSvc> {
-    #[error("packet parse error")]
-    PacketParse(#[from] PacketParseError),
-    #[error("transport error")]
-    Transport(S::Error),
-}
+use crate::transport::{
+    PollingSvc, PollingTransport, PollingTransportError, Transport, TransportError, WebSocket,
+    WsTransport, WsTransportError, noop_impl::NoopWebSocket,
+};
 
 pin_project_lite::pin_project! {
-    pub struct Client<S: PollingSvc> {
+    pub struct Client<S: PollingSvc, WS > {
         #[pin]
-        pub transport_rx: SplitStream<Transport<S>>,
+        pub transport_rx: SplitStream<Transport<S, WS>>,
         #[pin]
-        pub transport_tx: SplitSink<Transport<S>, Packet>,
+        pub transport_tx: SplitSink<Transport<S, WS>, Packet>,
 
         should_send_pong: bool,
         should_flush: bool,
@@ -34,13 +29,26 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<S: PollingSvc> Client<S>
-where
-    S::Error: fmt::Debug,
-    <S::Body as http_body::Body>::Error: fmt::Debug,
-{
-    pub async fn connect(svc: S) -> Result<Self, PacketParseError> {
-        let (inner, open) = HttpClient::connect(svc).await?;
+impl<S: PollingSvc, WS: WebSocket> Client<S, WS> {
+    pub async fn connect_ws(ws: impl Into<WS>) -> Result<Self, WsTransportError<WS>> {
+        let (inner, open) = WsTransport::connect(ws).await?;
+        let transport = Transport::Websocket { inner };
+        let (transport_tx, transport_rx) = transport.split();
+        let client = Client {
+            transport_tx,
+            transport_rx,
+            sid: open.sid,
+
+            should_flush: false,
+            should_send_pong: false,
+        };
+
+        Ok(client)
+    }
+}
+impl<S: PollingSvc> Client<S, NoopWebSocket> {
+    pub async fn connect(svc: S) -> Result<Self, PollingTransportError<S>> {
+        let (inner, open) = PollingTransport::connect(svc).await?;
         let transport = Transport::Polling { inner };
         let (transport_tx, transport_rx) = transport.split();
         let client = Client {
@@ -55,13 +63,13 @@ where
         Ok(client)
     }
 }
-impl<S: PollingSvc> Client<S>
-where
-    S::Error: fmt::Debug,
-    <S::Body as http_body::Body>::Error: fmt::Debug,
-{
+
+impl<S: PollingSvc, WS: WebSocket> Client<S, WS> {
     #[tracing::instrument(skip(cx))]
-    fn heartbeat(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), S::Error>> {
+    fn heartbeat(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), TransportError<S, WS>>> {
         let mut proj = self.project();
         ready!(proj.transport_tx.as_mut().poll_ready(cx))?;
         proj.transport_tx.as_mut().start_send(Packet::Pong)?;
@@ -72,7 +80,10 @@ where
     }
 
     #[tracing::instrument(skip(cx))]
-    fn flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), S::Error>> {
+    fn flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), TransportError<S, WS>>> {
         let mut proj = self.project();
         ready!(proj.transport_tx.as_mut().poll_flush(cx))?;
         *proj.should_flush = false;
@@ -80,21 +91,17 @@ where
     }
 }
 
-impl<S: PollingSvc> Stream for Client<S>
-where
-    S::Error: fmt::Debug,
-    <S::Body as http_body::Body>::Error: fmt::Debug,
-{
-    type Item = Result<Packet, ClientError<S>>;
+impl<S: PollingSvc, WS: WebSocket> Stream for Client<S, WS> {
+    type Item = Result<Packet, TransportError<S, WS>>;
 
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.should_send_pong {
-            ready!(self.as_mut().heartbeat(cx)).map_err(ClientError::Transport)?;
+            ready!(self.as_mut().heartbeat(cx))?;
         }
 
         if self.should_flush {
-            ready!(self.as_mut().flush(cx)).map_err(ClientError::Transport)?;
+            ready!(self.as_mut().flush(cx))?;
         }
 
         match ready!(self.as_mut().project().transport_rx.poll_next(cx)) {
@@ -105,18 +112,14 @@ where
                 self.poll_next(cx)
             }
             Some(Ok(packet)) => Poll::Ready(Some(Ok(packet))),
-            Some(Err(e)) => Poll::Ready(Some(Err(e.into()))),
+            Some(Err(e)) => Poll::Ready(Some(Err(e))),
             None => Poll::Ready(None),
         }
     }
 }
 
-impl<S: PollingSvc> Sink<Packet> for Client<S>
-where
-    S::Error: fmt::Debug,
-    <S::Body as http_body::Body>::Error: fmt::Debug,
-{
-    type Error = <Transport<S> as Sink<Packet>>::Error;
+impl<S: PollingSvc, WS: WebSocket> Sink<Packet> for Client<S, WS> {
+    type Error = <Transport<S, WS> as Sink<Packet>>::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().transport_tx.poll_ready(cx)
@@ -135,7 +138,7 @@ where
     }
 }
 
-impl<S: PollingSvc> fmt::Debug for Client<S> {
+impl<S: PollingSvc, WS: WebSocket> fmt::Debug for Client<S, WS> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("should_send_pong", &self.should_send_pong)
