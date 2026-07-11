@@ -110,10 +110,10 @@ use socketioxide_core::{
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
+        stream::{AckStream, ChanStream, DropStream, ResponseHandlers},
     },
     packet::Packet,
 };
-use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
 use drivers::{Driver, Item, ItemHeader};
@@ -303,8 +303,6 @@ impl<R: Driver> From<Error<R>> for AdapterError {
     }
 }
 
-pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Item>>;
-
 /// The mongodb adapter with the [mongodb](drivers::mongodb::mongodb_client) driver.
 #[cfg(feature = "mongodb")]
 pub type MongoDbAdapter<E> = CustomMongoDbAdapter<E, drivers::mongodb::MongoDbDriver>;
@@ -326,14 +324,14 @@ pub struct CustomMongoDbAdapter<E, D> {
     /// A map of nodes liveness, with the last time remote nodes were seen alive.
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
     /// A map of response handlers used to await for responses from the remote servers.
-    responses: Arc<Mutex<ResponseHandlers>>,
+    responses: Arc<Mutex<ResponseHandlers<Item>>>,
 }
 
 impl<E, D> DefinedAdapter for CustomMongoDbAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> {
     type Error = Error<D>;
     type State = MongoDbAdapterCtr<D>;
-    type AckStream = AckStream<E::AckStream>;
+    type AckStream = AckStream<E::AckStream, ChanStream<Item>, Item, E::AckError>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -429,7 +427,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_local(local);
+            let stream = AckStream::new_empty_remote(local, ChanStream::<Item>::new(mpsc::channel::<Item>(1).1), stream::decode_mongodb_ack);
             return Ok(stream);
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
@@ -451,7 +449,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
         Ok(AckStream::new(
             local,
-            rx,
+            ChanStream::new(rx),
+            stream::decode_mongodb_ack,
             timeout,
             remote_serv_cnt,
             req_id,

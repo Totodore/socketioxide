@@ -2617,11 +2617,15 @@ dependencies = [
  "bytes",
  "engineioxide-core",
  "futures-core",
+ "futures-util",
+ "pin-project-lite",
  "rmp-serde",
  "serde",
  "serde_json",
  "smallvec",
  "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

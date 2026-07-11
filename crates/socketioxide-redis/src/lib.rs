@@ -165,7 +165,7 @@ use socketioxide_core::{
     },
     packet::Packet,
 };
-use stream::{AckStream, DropStream};
+use socketioxide_core::adapter::stream::{AckStream, DropStream, ResponseHandlers};
 use tokio::{sync::mpsc, time};
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
@@ -346,8 +346,6 @@ impl<R: Driver> RedisAdapterCtr<R> {
     }
 }
 
-pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Vec<u8>>>;
-
 /// The redis adapter with the fred driver.
 #[cfg(feature = "fred")]
 pub type FredAdapter<E> = CustomRedisAdapter<E, drivers::fred::FredDriver>;
@@ -378,14 +376,14 @@ pub struct CustomRedisAdapter<E, R> {
     /// format: `{prefix}-request#{path}#`.
     req_chan: String,
     /// A map of response handlers used to await for responses from the remote servers.
-    responses: Arc<Mutex<ResponseHandlers>>,
+    responses: Arc<Mutex<ResponseHandlers<Vec<u8>>>>,
 }
 
 impl<E, R> DefinedAdapter for CustomRedisAdapter<E, R> {}
 impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     type Error = Error<R>;
     type State = RedisAdapterCtr<R>;
-    type AckStream = AckStream<E::AckStream>;
+    type AckStream = AckStream<E::AckStream, MessageStream<Vec<u8>>, Vec<u8>, E::AckError>;
     type InitRes = InitRes<R>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -504,7 +502,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_local(local);
+            let stream = AckStream::new_empty_remote(local, MessageStream::<Vec<u8>>::new_empty(), stream::decode_redis_ack);
             return Ok(stream);
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
@@ -528,6 +526,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         Ok(AckStream::new(
             local,
             remote,
+            stream::decode_redis_ack,
             timeout,
             remote_serv_cnt,
             req_id,
@@ -959,6 +958,7 @@ pub fn read_req_id(data: &[u8]) -> Option<Sid> {
 mod tests {
     use super::*;
     use futures_util::stream::{self, FusedStream, StreamExt};
+    use crate::stream::decode_redis_ack;
     use socketioxide_core::{Str, Value, adapter::AckStreamItem};
     use std::convert::Infallible;
 
@@ -990,10 +990,11 @@ mod tests {
     fn new_stub_ack_stream(
         remote: MessageStream<Vec<u8>>,
         timeout: Duration,
-    ) -> AckStream<stream::Empty<AckStreamItem<()>>> {
+    ) -> AckStream<stream::Empty<AckStreamItem<()>>, MessageStream<Vec<u8>>, Vec<u8>, ()> {
         AckStream::new(
             stream::empty::<AckStreamItem<()>>(),
             remote,
+            decode_redis_ack,
             timeout,
             2,
             Sid::new(),
@@ -1063,9 +1064,10 @@ mod tests {
         let handlers = Arc::new(Mutex::new(HashMap::new()));
         let id = Sid::new();
         handlers.lock().unwrap().insert(id, tx);
-        let stream = AckStream::new(
+        let stream: AckStream<_, _, Vec<u8>, ()> = AckStream::new(
             stream::empty::<AckStreamItem<()>>(),
             remote,
+            decode_redis_ack,
             Duration::from_secs(10),
             2,
             id,
