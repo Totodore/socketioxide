@@ -10,8 +10,8 @@ use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{DisconnectReason, service::EngineIoService};
 use engineioxide::{Socket, Str};
-use engineioxide_client::Client;
-use engineioxide_core::{Packet, Sid};
+use engineioxide_client::{Client, EioEvent};
+use engineioxide_core::Sid;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -85,10 +85,10 @@ async fn round_trip() {
     let client = Client::connect(svc).await.unwrap();
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    let (mut ctx, mut crx) = client.split::<Packet>();
+    let (mut ctx, mut crx) = client.split::<EioEvent>();
 
-    ctx.send(Packet::Message("Hello".into())).await.unwrap();
-    ctx.send(Packet::Binary(Bytes::from_static(b"Hello")))
+    ctx.send(EioEvent::Message("Hello".into())).await.unwrap();
+    ctx.send(EioEvent::Binary(Bytes::from_static(b"Hello")))
         .await
         .unwrap();
 
@@ -104,11 +104,11 @@ async fn round_trip() {
 
     // And echoes them back through the read half, in order.
     match crx.next().await {
-        Some(Ok(Packet::Message(msg))) => assert_eq!(msg, "Hello"),
+        Some(Ok(EioEvent::Message(msg))) => assert_eq!(msg, "Hello"),
         other => panic!("expected echoed message, got {other:?}"),
     }
     match crx.next().await {
-        Some(Ok(Packet::Binary(data))) => assert_eq!(data, Bytes::from_static(b"Hello")),
+        Some(Ok(EioEvent::Binary(data))) => assert_eq!(data, Bytes::from_static(b"Hello")),
         other => panic!("expected echoed binary, got {other:?}"),
     }
 }
@@ -121,10 +121,10 @@ async fn round_trip_ws() {
     let client = fixture::client_ws_connect(svc).await;
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    let (mut ctx, mut crx) = client.split::<Packet>();
+    let (mut ctx, mut crx) = client.split::<EioEvent>();
 
-    ctx.send(Packet::Message("Hello".into())).await.unwrap();
-    ctx.send(Packet::Binary(Bytes::from_static(b"Hello")))
+    ctx.send(EioEvent::Message("Hello".into())).await.unwrap();
+    ctx.send(EioEvent::Binary(Bytes::from_static(b"Hello")))
         .await
         .unwrap();
 
@@ -140,11 +140,11 @@ async fn round_trip_ws() {
 
     // And echoes them back through the read half, in order.
     match crx.next().await {
-        Some(Ok(Packet::Message(msg))) => assert_eq!(msg, "Hello"),
+        Some(Ok(EioEvent::Message(msg))) => assert_eq!(msg, "Hello"),
         other => panic!("expected echoed message, got {other:?}"),
     }
     match crx.next().await {
-        Some(Ok(Packet::Binary(data))) => assert_eq!(data, Bytes::from_static(b"Hello")),
+        Some(Ok(EioEvent::Binary(data))) => assert_eq!(data, Bytes::from_static(b"Hello")),
         other => panic!("expected echoed binary, got {other:?}"),
     }
 }

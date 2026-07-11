@@ -16,8 +16,8 @@ use engineioxide::config::EngineIoConfig;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::service::EngineIoService;
 use engineioxide::{DisconnectReason, Socket, Str};
-use engineioxide_client::Client;
-use engineioxide_core::{Packet, Sid};
+use engineioxide_client::{Client, EioEvent};
+use engineioxide_core::Sid;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -123,14 +123,14 @@ async fn heartbeat_keeps_connection_alive() {
 
     // The connection survived several ping cycles: prove it is still healthy
     // by round-tripping a message (the handler echoes it back).
-    client.send(Packet::Message("hb".into())).await.unwrap();
+    client.send(EioEvent::Message("hb".into())).await.unwrap();
     assert_eq!(
         rx.recv().await.unwrap(),
         Event::Message(sid, "hb".into()),
         "server should still receive messages after the heartbeat window",
     );
     match client.next().await {
-        Some(Ok(Packet::Message(msg))) => {
+        Some(Ok(EioEvent::Message(msg))) => {
             assert_eq!(msg, "hb")
         }
         // Ignore any other packet (should not happen, `Ping` is internal).
@@ -172,14 +172,14 @@ async fn heartbeat_keeps_connection_alive_websocket() {
 
     // The connection survived several ping cycles: prove it is still healthy
     // by round-tripping a message (the handler echoes it back).
-    client.send(Packet::Message("hb".into())).await.unwrap();
+    client.send(EioEvent::Message("hb".into())).await.unwrap();
     assert_eq!(
         rx.recv().await.unwrap(),
         Event::Message(sid, "hb".into()),
         "server should still receive messages after the heartbeat window",
     );
     match client.next().await {
-        Some(Ok(Packet::Message(msg))) => {
+        Some(Ok(EioEvent::Message(msg))) => {
             assert_eq!(msg, "hb")
         }
         // Ignore any other packet (should not happen, `Ping` is internal).
