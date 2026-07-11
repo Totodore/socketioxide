@@ -49,7 +49,7 @@ where
     }
 }
 impl<S: PollingSvc> Sink<Packet> for Transport<S> {
-    type Error = ();
+    type Error = <HttpClient<S> as Sink<Packet>>::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {

@@ -7,7 +7,7 @@ use std::{
 use engineioxide_core::{Packet, PacketParseError, Sid};
 use futures_core::Stream;
 use futures_util::{
-    Sink, SinkExt, StreamExt,
+    Sink, StreamExt,
     stream::{SplitSink, SplitStream},
 };
 
@@ -16,36 +16,24 @@ use crate::{
     transport::{Transport, polling::PollingSvc},
 };
 
-type SendPongFut<S> = Pin<
-    Box<
-        dyn Future<Output = Result<(), <SplitSink<Transport<S>, Packet> as Sink<Packet>>::Error>>
-            + 'static,
-    >,
->;
-
 #[derive(Debug, thiserror::Error)]
-pub enum ClientError {
+pub enum ClientError<S: PollingSvc> {
     #[error("packet parse error")]
     PacketParse(#[from] PacketParseError),
     #[error("transport error")]
-    Transport(#[from] Box<dyn std::error::Error>),
+    Transport(S::Error),
 }
 
 pin_project_lite::pin_project! {
     pub struct Client<S: PollingSvc> {
         #[pin]
         pub transport_rx: SplitStream<Transport<S>>,
-        // TODO: is this the right implementation? We need something that can be driven itself.
-        // Otherwise we need a way to drive the transport_tx. Normally it should be driven by the user.
-        // But what if we need to send a PONG packet from the inner lib?
         #[pin]
         pub transport_tx: SplitSink<Transport<S>, Packet>,
 
         should_send_pong: bool,
         should_flush: bool,
         pub sid: Sid,
-        // pub tx: mpsc::Sender<PacketBuf>,
-        // pub(crate) rx: Mutex<mpsc::Receiver<PacketBuf>>,
     }
 }
 
@@ -55,15 +43,13 @@ where
     <S::Body as http_body::Body>::Error: fmt::Debug,
 {
     pub async fn connect(svc: S) -> Result<Self, PacketParseError> {
-        let mut inner = HttpClient::new(svc);
-        let packet = inner.handshake().await?;
-
+        let (inner, open) = HttpClient::connect(svc).await?;
         let transport = Transport::Polling { inner };
         let (transport_tx, transport_rx) = transport.split();
         let client = Client {
             transport_tx,
             transport_rx,
-            sid: packet.sid,
+            sid: open.sid,
 
             should_flush: false,
             should_send_pong: false,
@@ -80,17 +66,24 @@ where
     #[tracing::instrument(skip(cx))]
     fn heartbeat(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), S::Error>> {
         let mut this = self.project();
-        ready!(this.transport_tx.as_mut().poll_ready(cx));
-        let res = this.transport_tx.as_mut().start_send(Packet::Pong);
+        if let Err(e) = ready!(this.transport_tx.as_mut().poll_ready(cx)) {
+            return Poll::Ready(Err(e));
+        }
+        if let Err(e) = this.transport_tx.as_mut().start_send(Packet::Pong) {
+            return Poll::Ready(Err(e));
+        }
+
         *this.should_send_pong = false;
         *this.should_flush = true;
-        Poll::Ready(Ok(res.unwrap()))
+        Poll::Ready(Ok(()))
     }
 
     #[tracing::instrument(skip(cx))]
     fn flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), S::Error>> {
         let mut this = self.project();
-        ready!(this.transport_tx.as_mut().poll_flush(cx));
+        if let Err(e) = ready!(this.transport_tx.as_mut().poll_flush(cx)) {
+            return Poll::Ready(Err(e));
+        }
         *this.should_flush = false;
         Poll::Ready(Ok(()))
     }
@@ -101,24 +94,27 @@ where
     S::Error: fmt::Debug,
     <S::Body as http_body::Body>::Error: fmt::Debug,
 {
-    type Item = Result<Packet, ClientError>;
+    type Item = Result<Packet, ClientError<S>>;
 
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.should_send_pong {
             //TODO: ret err
-            self.as_mut().heartbeat(cx);
+            if let Err(e) = ready!(self.as_mut().heartbeat(cx)) {
+                return Poll::Ready(Some(Err(ClientError::Transport(e))));
+            }
         }
 
         if self.should_flush {
             //TODO: ret err
-            self.as_mut().flush(cx);
+            if let Err(e) = ready!(self.as_mut().flush(cx)) {
+                return Poll::Ready(Some(Err(ClientError::Transport(e))));
+            }
         }
 
         match ready!(self.as_mut().project().transport_rx.poll_next(cx)) {
             Some(Ok(Packet::Ping)) => {
-                dbg!("got ping packet");
-                if let Poll::Pending = self.as_mut().heartbeat(cx) {
+                if self.as_mut().heartbeat(cx).is_pending() {
                     self.should_send_pong = true;
                 }
                 self.poll_next(cx)
@@ -135,7 +131,7 @@ where
     S::Error: fmt::Debug,
     <S::Body as http_body::Body>::Error: fmt::Debug,
 {
-    type Error = ();
+    type Error = <Transport<S> as Sink<Packet>>::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().transport_tx.poll_ready(cx)
