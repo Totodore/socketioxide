@@ -11,10 +11,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
 };
 
-use crate::{
-    HttpClient,
-    transport::{Transport, polling::PollingSvc},
-};
+use crate::transport::{HttpClient, PollingSvc, Transport};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError<S: PollingSvc> {

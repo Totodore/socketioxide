@@ -8,9 +8,10 @@ use engineioxide_core::{Packet, PacketParseError, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
 
-use crate::{HttpClient, transport::polling::PollingSvc};
+pub use crate::transport::polling::{HttpClient, PollingSvc};
 
-pub mod polling;
+mod polling;
+mod ws;
 
 pin_project_lite::pin_project! {
     #[project = TransportProj]
