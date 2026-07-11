@@ -20,6 +20,9 @@ use crate::adapter::remote_packet::{Response, ResponseType};
 /// A map of request IDs to response senders, used to route responses to the correct awaiting stream.
 pub type ResponseHandlers<T> = HashMap<Sid, mpsc::Sender<T>>;
 
+/// Decoder function that converts a raw remote payload item into a [`Response`].
+pub type AckDecoder<E, I> = fn(I) -> Result<Response<E>, Box<dyn std::error::Error + Send>>;
+
 pin_project! {
     /// A [`Stream`] that wraps an [`mpsc::Receiver`].
     pub struct ChanStream<T> {
@@ -96,7 +99,7 @@ pin_project! {
         local: S,
         #[pin]
         remote: DropStream<TakeUntil<R, time::Sleep>, T>,
-        decode: fn(R::Item) -> Result<Response<E>, Box<dyn std::error::Error + Send>>,
+        decode: AckDecoder<E, R::Item>,
         ack_cnt: u32,
         total_ack_cnt: usize,
         serv_cnt: u16,
@@ -108,7 +111,7 @@ impl<S, R: Stream, T, E> AckStream<S, R, T, E> {
     pub fn new(
         local: S,
         remote: R,
-        decode: fn(R::Item) -> Result<Response<E>, Box<dyn std::error::Error + Send>>,
+        decode: AckDecoder<E, R::Item>,
         timeout: Duration,
         serv_cnt: u16,
         req_id: Sid,
@@ -127,7 +130,7 @@ impl<S, R: Stream, T, E> AckStream<S, R, T, E> {
     }
 
     /// Create a new `AckStream` for local-only use, with an empty remote stream.
-    pub fn new_empty_remote(local: S, empty_remote: R, decode: fn(R::Item) -> Result<Response<E>, Box<dyn std::error::Error + Send>>) -> Self {
+    pub fn new_empty_remote(local: S, empty_remote: R, decode: AckDecoder<E, R::Item>) -> Self {
         let handlers = Arc::new(Mutex::new(ResponseHandlers::<T>::new()));
         let remote = empty_remote.take_until(time::sleep(Duration::ZERO));
         let remote = DropStream::new(remote, handlers, Sid::ZERO);
