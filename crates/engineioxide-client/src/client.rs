@@ -65,26 +65,20 @@ where
 {
     #[tracing::instrument(skip(cx))]
     fn heartbeat(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), S::Error>> {
-        let mut this = self.project();
-        if let Err(e) = ready!(this.transport_tx.as_mut().poll_ready(cx)) {
-            return Poll::Ready(Err(e));
-        }
-        if let Err(e) = this.transport_tx.as_mut().start_send(Packet::Pong) {
-            return Poll::Ready(Err(e));
-        }
+        let mut proj = self.project();
+        ready!(proj.transport_tx.as_mut().poll_ready(cx))?;
+        proj.transport_tx.as_mut().start_send(Packet::Pong)?;
 
-        *this.should_send_pong = false;
-        *this.should_flush = true;
+        *proj.should_send_pong = false;
+        *proj.should_flush = true;
         Poll::Ready(Ok(()))
     }
 
     #[tracing::instrument(skip(cx))]
     fn flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), S::Error>> {
-        let mut this = self.project();
-        if let Err(e) = ready!(this.transport_tx.as_mut().poll_flush(cx)) {
-            return Poll::Ready(Err(e));
-        }
-        *this.should_flush = false;
+        let mut proj = self.project();
+        ready!(proj.transport_tx.as_mut().poll_flush(cx))?;
+        *proj.should_flush = false;
         Poll::Ready(Ok(()))
     }
 }
@@ -99,17 +93,11 @@ where
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.should_send_pong {
-            //TODO: ret err
-            if let Err(e) = ready!(self.as_mut().heartbeat(cx)) {
-                return Poll::Ready(Some(Err(ClientError::Transport(e))));
-            }
+            ready!(self.as_mut().heartbeat(cx)).map_err(ClientError::Transport)?;
         }
 
         if self.should_flush {
-            //TODO: ret err
-            if let Err(e) = ready!(self.as_mut().flush(cx)) {
-                return Poll::Ready(Some(Err(ClientError::Transport(e))));
-            }
+            ready!(self.as_mut().flush(cx)).map_err(ClientError::Transport)?;
         }
 
         match ready!(self.as_mut().project().transport_rx.poll_next(cx)) {
