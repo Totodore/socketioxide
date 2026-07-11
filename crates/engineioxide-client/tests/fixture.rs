@@ -21,6 +21,7 @@ pin_project_lite::pin_project! {
         rx: StreamReader<UnboundedReceiverStream<Result<Bytes, io::Error>>, Bytes>,
     }
 }
+
 impl StreamImpl {
     pub fn new(
         tx: mpsc::UnboundedSender<Result<Bytes, io::Error>>,
@@ -65,9 +66,9 @@ impl AsyncWrite for StreamImpl {
     }
 }
 
-pub async fn client_ws_connect<H: EngineIoHandler>(
+pub async fn tungstenite_client<H: EngineIoHandler>(
     svc: EngineIoService<H>,
-) -> Client<EngineIoService<H>, TokioTungsteniteWebSocket<StreamImpl>> {
+) -> tokio_tungstenite::WebSocketStream<StreamImpl> {
     let (tx, rx) = mpsc::unbounded_channel();
     let (tx1, rx1) = mpsc::unbounded_channel();
 
@@ -84,19 +85,26 @@ pub async fn client_ws_connect<H: EngineIoHandler>(
         .into_parts()
         .0;
 
-    let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
-        StreamImpl::new(tx1, rx),
-        Role::Client,
-        Default::default(),
-    )
-    .await;
-
-    tokio::spawn(svc.ws_init(
+    svc.ws_init(
         StreamImpl::new(tx, rx1),
         engineioxide::ProtocolVersion::V4,
         None,
         parts,
-    ));
+    )
+    .await
+    .unwrap();
 
+    tokio_tungstenite::WebSocketStream::from_raw_socket(
+        StreamImpl::new(tx1, rx),
+        Role::Client,
+        Default::default(),
+    )
+    .await
+}
+
+pub async fn client_ws_connect<H: EngineIoHandler>(
+    svc: EngineIoService<H>,
+) -> Client<EngineIoService<H>, TokioTungsteniteWebSocket<StreamImpl>> {
+    let ws = tungstenite_client(svc).await;
     Client::connect_ws(ws).await.unwrap()
 }

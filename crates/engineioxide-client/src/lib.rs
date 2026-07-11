@@ -10,10 +10,9 @@
 
 mod client;
 mod event;
-mod io;
 mod transport;
+
 pub use crate::client::Client;
 pub use crate::event::EioEvent;
 pub use crate::transport::PollingTransport;
-
-pub use transport::{noop_impl, tungstenite_impl};
+pub use transport::{WsTransport, noop_impl, tungstenite_impl};

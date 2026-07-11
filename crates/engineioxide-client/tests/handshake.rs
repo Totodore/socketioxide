@@ -4,10 +4,15 @@ use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{DisconnectReason, service::EngineIoService};
 use engineioxide::{Socket, Str};
-use engineioxide_client::PollingTransport;
+use engineioxide_client::tungstenite_impl::TokioTungsteniteWebSocket;
+use engineioxide_client::{PollingTransport, WsTransport};
 use engineioxide_core::Sid;
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
+
+use crate::fixture::tungstenite_client;
+
+mod fixture;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Event {
@@ -71,8 +76,18 @@ impl EngineIoHandler for Handler {
 }
 
 #[tokio::test]
-async fn handshake() {
+async fn handshake_polling() {
     let (svc, mut rx) = service();
     let (_, open) = PollingTransport::connect(svc).await.unwrap();
+    assert_eq!(rx.recv().await.unwrap(), Event::Connect(open.sid));
+}
+
+#[tokio::test]
+async fn handshake_websocket() {
+    let (svc, mut rx) = service();
+    let ws = tungstenite_client(svc).await;
+    let (_, open) = WsTransport::<TokioTungsteniteWebSocket<_>>::connect(ws)
+        .await
+        .unwrap();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(open.sid));
 }

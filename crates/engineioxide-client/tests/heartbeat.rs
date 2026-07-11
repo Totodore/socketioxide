@@ -22,8 +22,6 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
-use crate::fixture::client_ws_connect;
-
 mod fixture;
 
 const PING_INTERVAL: Duration = Duration::from_millis(100);
@@ -147,7 +145,7 @@ async fn heartbeat_keeps_connection_alive() {
 async fn heartbeat_keeps_connection_alive_websocket() {
     let (svc, mut rx) = service();
 
-    let mut client = client_ws_connect(svc).await;
+    let mut client = fixture::client_ws_connect(svc).await;
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
 
