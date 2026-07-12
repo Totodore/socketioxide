@@ -1,3 +1,6 @@
+//! Shared stream constructs ([`AckStream`], [`DropStream`], [`ResponseHandlers`])
+//! for remote adapters.
+
 use std::{
     collections::HashMap,
     fmt,
@@ -247,11 +250,50 @@ impl<S, R: Stream, T, E> fmt::Debug for AckStream<S, R, T, E> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Sid, Value};
-    use futures_core::FusedStream;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use crate::adapter::AckStreamItem;
+    use crate::adapter::remote_packet::{Response, ResponseType};
+    use crate::{Sid, Uid, Value};
+    use futures_core::{FusedStream, Stream};
     use futures_util::StreamExt;
 
     use super::AckStream;
+
+    type MockError = Box<dyn std::error::Error + Send>;
+
+    fn identity<E>(item: Result<Response<E>, MockError>) -> Result<Response<E>, MockError> {
+        item
+    }
+
+    fn mock_ack_count(count: u32) -> Result<Response<()>, MockError> {
+        Ok(Response {
+            node_id: Uid::ZERO,
+            r#type: ResponseType::BroadcastAckCount(count),
+        })
+    }
+
+    fn mock_ack(sid: Sid, msg: &'static str) -> Result<Response<()>, MockError> {
+        Ok(Response {
+            node_id: Uid::ZERO,
+            r#type: ResponseType::BroadcastAck((sid, Ok(Value::Str(msg.into(), None)))),
+        })
+    }
+
+    fn mock_all_rooms() -> Result<Response<()>, MockError> {
+        Ok(Response {
+            node_id: Uid::ZERO,
+            r#type: ResponseType::AllRooms(Default::default()),
+        })
+    }
+
+    fn decode_error() -> Result<Response<()>, MockError> {
+        Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "decode failure",
+        )))
+    }
 
     #[tokio::test]
     async fn local_ack_stream_should_have_a_closed_remote() {
@@ -272,5 +314,297 @@ mod tests {
         );
         assert_eq!(stream.next().await, None);
         assert!(stream.is_terminated());
+    }
+
+    #[tokio::test]
+    async fn remote_broadcast_ack_count_updates_counters() {
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let remote = futures_util::stream::once(async { mock_ack_count(3) });
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            1,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        assert_eq!(stream.serv_cnt, 1);
+        let item = stream.next().await;
+        assert!(
+            item.is_none(),
+            "BroadcastAckCount should not yield to stream"
+        );
+        assert_eq!(stream.serv_cnt, 0);
+        assert_eq!(stream.ack_cnt, 3);
+        assert_eq!(stream.total_ack_cnt, 3);
+    }
+
+    #[tokio::test]
+    async fn remote_broadcast_ack_yields_item() {
+        let sid = Sid::new();
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+
+        // First item: BroadcastAckCount(1), second: BroadcastAck
+        let remote = futures_util::stream::iter([mock_ack_count(1), mock_ack(sid, "ack")]);
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            1,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        // First poll: BroadcastAckCount is consumed internally
+        // Second poll: BroadcastAck is yielded
+        let data = stream.next().await;
+        assert!(matches!(data, Some((id, Ok(Value::Str(msg, None)))) if id == sid && msg == "ack"));
+    }
+
+    #[tokio::test]
+    async fn mixed_local_and_remote_yields_local_first() {
+        let local_sid = Sid::new();
+        let remote_sid = Sid::new();
+        let local = futures_util::stream::once(async move {
+            (local_sid, Ok::<_, ()>(Value::Str("local".into(), None)))
+        });
+        let remote =
+            futures_util::stream::iter([mock_ack_count(1), mock_ack(remote_sid, "remote")]);
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            1,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        let first = stream.next().await;
+        assert!(
+            matches!(first, Some((id, Ok(Value::Str(msg, None)))) if id == local_sid && msg == "local")
+        );
+
+        let second = stream.next().await;
+        assert!(
+            matches!(second, Some((id, Ok(Value::Str(msg, None)))) if id == remote_sid && msg == "remote")
+        );
+    }
+
+    #[tokio::test]
+    async fn unexpected_response_type_is_skipped() {
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let remote = futures_util::stream::once(async { mock_all_rooms() });
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            1,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        let result = stream.next().await;
+        assert!(
+            result.is_none(),
+            "Unexpected response type should not yield"
+        );
+    }
+
+    #[tokio::test]
+    async fn decode_error_is_skipped() {
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let remote = futures_util::stream::once(async { decode_error() });
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            1,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        let result = stream.next().await;
+        assert!(result.is_none(), "Decode error should not yield");
+    }
+
+    #[tokio::test]
+    async fn terminated_when_counters_zero_and_local_exhausted() {
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let remote = futures_util::stream::pending::<Result<Response<()>, MockError>>();
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            0,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        assert!(
+            stream.is_terminated(),
+            "Should be terminated when local exhausted, serv_cnt==0, ack_cnt==0"
+        );
+    }
+
+    #[tokio::test]
+    async fn size_hint_incorporates_remote_acks() {
+        let sid = Sid::new();
+        let local = futures_util::stream::once(async move {
+            (sid, Ok::<_, ()>(Value::Str("local".into(), None)))
+        });
+        let remote = futures_util::stream::empty();
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let mut stream = AckStream::new(
+            local,
+            remote,
+            |_: Result<Response<()>, MockError>| unreachable!(),
+            Duration::from_secs(5),
+            0,
+            Sid::new(),
+            handlers,
+        );
+        stream.total_ack_cnt = 5;
+
+        let (lower, upper) = stream.size_hint();
+        assert_eq!(lower, 1);
+        assert_eq!(upper, Some(6));
+    }
+
+    #[tokio::test]
+    async fn broadcast_ack_not_yielded_when_ack_cnt_zero() {
+        let sid = Sid::new();
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let remote = futures_util::stream::once(async { mock_ack(sid, "ack") });
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            1,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        let result = stream.next().await;
+        assert!(
+            result.is_none(),
+            "BroadcastAck should not yield when ack_cnt is 0"
+        );
+    }
+
+    #[tokio::test]
+    async fn multiple_broadcast_acks_delivered_in_order() {
+        let sid1 = Sid::new();
+        let sid2 = Sid::new();
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let remote = futures_util::stream::iter([
+            mock_ack_count(2),
+            mock_ack(sid1, "first"),
+            mock_ack(sid2, "second"),
+        ]);
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            1,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        let first = stream.next().await;
+        assert!(
+            matches!(first, Some((id, Ok(Value::Str(msg, None)))) if id == sid1 && msg == "first")
+        );
+
+        let second = stream.next().await;
+        assert!(
+            matches!(second, Some((id, Ok(Value::Str(msg, None)))) if id == sid2 && msg == "second")
+        );
+
+        assert_eq!(stream.next().await, None);
+    }
+
+    #[tokio::test]
+    async fn broadcast_ack_count_guard_ignores_when_serv_cnt_zero() {
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let remote = futures_util::stream::once(async { mock_ack_count(5) });
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            0,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        let result = stream.next().await;
+        assert!(
+            result.is_none(),
+            "BroadcastAckCount should be ignored when serv_cnt is 0"
+        );
+        assert_eq!(stream.ack_cnt, 0);
+    }
+
+    #[tokio::test]
+    async fn serv_cnt_decremented_for_each_server() {
+        let local = futures_util::stream::empty::<AckStreamItem<()>>();
+        let handlers = Arc::new(Mutex::new(super::ResponseHandlers::<()>::new()));
+
+        let remote =
+            futures_util::stream::iter([mock_ack_count(1), mock_ack_count(1), mock_ack_count(1)]);
+
+        let stream = AckStream::new(
+            local,
+            remote,
+            identity::<()>,
+            Duration::from_secs(5),
+            3,
+            Sid::new(),
+            handlers,
+        );
+        futures_util::pin_mut!(stream);
+
+        assert_eq!(stream.serv_cnt, 3);
+        let _ = stream.next().await;
+        assert_eq!(stream.serv_cnt, 0);
+        assert_eq!(stream.ack_cnt, 3);
+        assert_eq!(stream.total_ack_cnt, 3);
     }
 }
