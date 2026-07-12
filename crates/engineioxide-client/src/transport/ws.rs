@@ -1,7 +1,7 @@
 use std::{
     fmt,
     pin::Pin,
-    task::{Context, Poll, Waker, ready},
+    task::{Context, Poll, ready},
 };
 
 use bytes::Bytes;
@@ -12,6 +12,7 @@ use http::Request;
 use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
 use tokio_tungstenite::tungstenite::{self, Message, Utf8Bytes, handshake::client::generate_key};
+use tracing::Level;
 
 pin_project! {
     pub struct WsTransport<S: WsSvc> {
@@ -19,7 +20,6 @@ pin_project! {
 
         #[pin]
         state: WsTransportState<S>,
-        sink_waker: Option<Waker>,
     }
 }
 
@@ -110,7 +110,6 @@ impl<S: WsSvc> WsTransport<S> {
         let fut = svc.call(req);
         Self {
             svc,
-            sink_waker: None,
             state: WsTransportState::Connecting { fut },
         }
     }
@@ -141,7 +140,6 @@ impl<S: WsSvc> WsTransport<S> {
 
         let ws = Self {
             svc,
-            sink_waker: None,
             state: WsTransportState::Stream {
                 stream,
                 upgrade: UpgradeHandshakeState::Done,
@@ -203,7 +201,7 @@ fn parse_packet<S: WsSvc>(msg: WsMessage) -> Result<Packet, WsTransportError<S>>
     }
 }
 
-#[tracing::instrument(skip(cx, stream), ret)]
+#[tracing::instrument(level = Level::TRACE, skip(cx, stream), ret)]
 fn poll_upgrade<S: WsSvc>(
     cx: &mut Context<'_>,
     mut stream: Pin<&mut S::WebSocket>,
@@ -290,9 +288,6 @@ impl<S: WsSvc> Stream for WsTransport<S> {
                         *upgrade = UpgradeHandshakeState::Done;
                         tracing::debug!("upgrade done, switching in nominal state");
                         cx.waker().wake_by_ref();
-                        if let Some(waker) = self.as_mut().project().sink_waker.take() {
-                            waker.wake();
-                        };
                         Poll::Ready(Some(Ok(Packet::Upgrade)))
                     }
                     Ok(next) => {
@@ -312,23 +307,13 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
     type Error = WsTransportError<S>;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        dbg!("ready ws");
         match self.as_mut().project().state.project() {
             WsTransportStateProj::Stream {
                 stream,
                 upgrade: UpgradeHandshakeState::Done,
                 ..
             } => stream.poll_ready(cx).map_err(WsTransportError::Websocket),
-            _ => {
-                // save sink waker so that when stream status change we can wake
-                // task that are waiting for polling.
-                self.as_mut()
-                    .project()
-                    .sink_waker
-                    .replace(cx.waker().clone());
-
-                Poll::Pending
-            }
+            _ => Poll::Pending,
         }
     }
 

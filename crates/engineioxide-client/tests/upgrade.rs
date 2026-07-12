@@ -20,39 +20,32 @@ async fn upgrade() {
     );
 
     assert_eq!(client.transport(), TransportType::Websocket);
-    dbg!("a");
     client
         .send(EioEvent::Message("Hello".into()))
         .await
         .unwrap();
-    dbg!("a");
     client
         .send(EioEvent::Binary(Bytes::from_static(b"Hello")))
         .await
         .unwrap();
-    dbg!("a");
 
     // The server observes both packets.
     assert_eq!(
         rx.recv().await.unwrap(),
         Event::Message(sid, "Hello".into())
     );
-    dbg!("a");
     assert_eq!(
         rx.recv().await.unwrap(),
         Event::Binary(sid, Bytes::from_static(b"Hello"))
     );
 
-    dbg!("a");
     // And echoes them back through the read half, in order.
     match client.next().await {
         Some(Ok(EioEvent::Message(msg))) => assert_eq!(msg, "Hello"),
         other => panic!("expected echoed message, got {other:?}"),
     }
-    dbg!("a");
     match client.next().await {
         Some(Ok(EioEvent::Binary(data))) => assert_eq!(data, Bytes::from_static(b"Hello")),
         other => panic!("expected echoed binary, got {other:?}"),
     }
-    dbg!("a");
 }

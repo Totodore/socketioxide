@@ -79,10 +79,8 @@ impl<S: TransportSvc> Transport<S> {
             }
 
             TransportProj::Websocket { inner } => match ready!(inner.poll_next(cx)) {
-                Some(Ok(packet)) => {
-                    dbg!(packet);
-                    Poll::Ready(Some(Ok(())))
-                }
+                Some(Ok(Packet::Upgrade)) => Poll::Ready(Some(Ok(()))),
+                Some(Ok(p)) => todo!("handle err: {p:?}"),
                 Some(Err(err)) => Poll::Ready(Some(Err(TransportError::Websocket(err)))),
                 None => Poll::Ready(None),
             },
