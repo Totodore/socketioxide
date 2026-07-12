@@ -322,12 +322,6 @@ pub mod tungstenite_impl {
             #[pin]
             inner: tokio_tungstenite::WebSocketStream<S>,
         }
-
-        impl<S> PinnedDrop for TokioTungsteniteWS<S> {
-            fn drop(this: Pin<&mut Self>) {
-                tracing::error!("dropping TokioTungsteniteWS");
-            }
-        }
     }
 
     impl<S> From<tokio_tungstenite::WebSocketStream<S>> for TokioTungsteniteWS<S>

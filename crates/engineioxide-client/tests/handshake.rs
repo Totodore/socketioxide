@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
@@ -77,13 +78,31 @@ impl EngineIoHandler for Handler {
 #[tokio::test]
 async fn handshake_polling() {
     let (svc, mut rx) = service();
-    let (_, open) = PollingTransport::connect(svc).await.unwrap();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(open.sid));
+    let (_transport, open) =
+        tokio::time::timeout(Duration::from_secs(1), PollingTransport::connect(svc))
+            .await
+            .expect("timeout while initializing polling transport conn")
+            .unwrap();
+
+    let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+        .await
+        .expect("timeout while receiving server connect event");
+
+    assert_eq!(event, Some(Event::Connect(open.sid)));
 }
 
 #[tokio::test]
 async fn handshake_websocket() {
     let (svc, mut rx) = service();
-    let (_, open) = WsTransport::connect(svc).await.unwrap();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(open.sid));
+    let (_transport, open) =
+        tokio::time::timeout(Duration::from_secs(1), WsTransport::connect(svc))
+            .await
+            .expect("timeout while initializing polling transport conn")
+            .unwrap();
+
+    let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+        .await
+        .expect("timeout while receiving server connect event");
+
+    assert_eq!(event, Some(Event::Connect(open.sid)));
 }

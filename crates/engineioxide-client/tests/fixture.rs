@@ -18,7 +18,16 @@ use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::protocol::Role;
 use tokio_util::io::StreamReader;
 
+/// Create a stub TCP Stream implemented with two unbounded channels
+fn duplex_stream() -> (StreamImpl, StreamImpl) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx1, rx1) = mpsc::unbounded_channel();
+    (StreamImpl::new(tx, rx1), StreamImpl::new(tx1, rx))
+}
+
 pin_project_lite::pin_project! {
+    /// Half of a full-duplex bytes stream used to fake
+    /// a TCP stream to use [`tokio_tungstenite`] in local.
     pub struct StreamImpl {
         tx: mpsc::UnboundedSender<Result<Bytes, io::Error>>,
         #[pin]
@@ -87,6 +96,7 @@ impl<H: EngineIoHandler> From<EngineIoService<H>> for EngineIoTestSvc<H> {
     }
 }
 
+/// HTTP Service implementation
 impl<H: EngineIoHandler> hyper::service::Service<http::Request<BoxBody<Bytes, Infallible>>>
     for EngineIoTestSvc<H>
 {
@@ -99,33 +109,31 @@ impl<H: EngineIoHandler> hyper::service::Service<http::Request<BoxBody<Bytes, In
         async move { svc.call(req).await.map(|r| r.map(BoxBody::new)) }.boxed()
     }
 }
+
+/// Websocket service implementation
 impl<H: EngineIoHandler> hyper::service::Service<http::Request<()>> for EngineIoTestSvc<H> {
     type Response = TokioTungsteniteWS<StreamImpl>;
     type Error = tungstenite::Error;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn call(&self, req: http::Request<()>) -> Self::Future {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let (tx1, rx1) = mpsc::unbounded_channel();
-
         let (parts, _) = req.into_parts();
         let svc = self.inner.clone();
+        let (client, server) = duplex_stream();
+        tracing::debug!("initializing duplex stream");
         async move {
-            svc.ws_init(
-                StreamImpl::new(tx, rx1),
-                engineioxide::ProtocolVersion::V4,
-                None,
-                parts,
-            )
-            .await
-            .unwrap();
+            tokio::spawn(svc.ws_init(server, engineioxide::ProtocolVersion::V4, None, parts));
+
+            tracing::debug!("server connected, wiring websocket client");
 
             let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
-                StreamImpl::new(tx1, rx),
+                client,
                 Role::Client,
                 Default::default(),
             )
             .await;
+
+            tracing::debug!("stub ws client wired up");
 
             Ok(TokioTungsteniteWS::from(ws))
         }

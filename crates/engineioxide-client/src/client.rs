@@ -15,6 +15,7 @@ use crate::{
         WsTransport, WsTransportError,
     },
 };
+
 pin_project_lite::pin_project! {
     pub struct Client<S: TransportSvc> {
         #[pin]
@@ -24,7 +25,7 @@ pin_project_lite::pin_project! {
         should_flush: bool,
         closing: bool,
         pub sid: Sid,
-        pub should_upgrade: bool,
+        should_upgrade: bool,
     }
 }
 
