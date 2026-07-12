@@ -966,6 +966,9 @@ mod tests {
     use socketioxide_core::{Str, Value, adapter::AckStreamItem};
     use std::convert::Infallible;
 
+    type TestAckStream =
+        AckStream<stream::Empty<AckStreamItem<()>>, MessageStream<Vec<u8>>, Vec<u8>, ()>;
+
     #[derive(Clone)]
     struct StubDriver;
     impl Driver for StubDriver {
@@ -991,10 +994,7 @@ mod tests {
             Ok(0)
         }
     }
-    fn new_stub_ack_stream(
-        remote: MessageStream<Vec<u8>>,
-        timeout: Duration,
-    ) -> AckStream<stream::Empty<AckStreamItem<()>>, MessageStream<Vec<u8>>, Vec<u8>, ()> {
+    fn new_stub_ack_stream(remote: MessageStream<Vec<u8>>, timeout: Duration) -> TestAckStream {
         AckStream::new(
             stream::empty::<AckStreamItem<()>>(),
             remote,

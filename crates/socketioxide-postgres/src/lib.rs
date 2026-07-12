@@ -1232,6 +1232,7 @@ impl ResponsePacket {
         self.node_id == node_id
     }
 }
+/// A response payload received from the postgres NOTIFY channel.
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ResponsePayload {
     Data(Box<RawValue>),
