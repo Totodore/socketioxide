@@ -174,6 +174,11 @@ impl From<Packet> for Bytes {
         String::from(value).into()
     }
 }
+impl From<Packet> for Str {
+    fn from(value: Packet) -> Self {
+        Str::from(String::from(value))
+    }
+}
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
 impl From<Packet> for String {

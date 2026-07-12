@@ -69,6 +69,10 @@ impl<S: TransportSvc> Client<S> {
 
         Ok(client)
     }
+
+    pub fn transport(&self) -> TransportType {
+        self.transport.transport_type()
+    }
 }
 
 impl<S: TransportSvc> Client<S> {
@@ -113,8 +117,10 @@ impl<S: TransportSvc> Stream for Client<S> {
 
         if self.should_upgrade {
             let sid = self.sid;
+            tracing::debug!(%sid, "transport should upgrade");
             return match ready!(self.as_mut().project().transport.upgrade(cx, sid)) {
                 Some(Ok(())) => {
+                    tracing::debug!(%sid, "transport upgraded");
                     *self.as_mut().project().should_upgrade = false;
                     cx.waker().wake_by_ref();
                     Poll::Pending
@@ -147,6 +153,11 @@ impl<S: TransportSvc> Stream for Client<S> {
             }
             Some(Ok(Packet::Message(v))) => Poll::Ready(Some(Ok(EioEvent::Message(v)))),
             Some(Ok(Packet::Binary(v))) => Poll::Ready(Some(Ok(EioEvent::Binary(v)))),
+            Some(Ok(Packet::Upgrade)) => {
+                dbg!(self.should_upgrade);
+                *self.as_mut().project().should_upgrade = false;
+                Poll::Ready(Some(Ok(EioEvent::Upgrade(self.transport()))))
+            }
             Some(Ok(v)) => unreachable!("unexpected msg {v:?}"),
             Some(Err(e)) => Poll::Ready(Some(Err(e))),
             None => Poll::Ready(None),
@@ -158,14 +169,15 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
     type Error = <Transport<S> as Sink<Packet>>::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.should_upgrade || self.closing {
+        if dbg!(self.should_upgrade || self.closing) {
             return Poll::Pending;
         }
 
-        self.project().transport.poll_ready(cx)
+        dbg!(self.project().transport.poll_ready(cx))
     }
 
     fn start_send(self: Pin<&mut Self>, event: EioEvent) -> Result<(), Self::Error> {
+        dbg!("send");
         if let Some(packet) = event.into() {
             self.project().transport.start_send(packet)?;
         }
@@ -173,6 +185,7 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        dbg!("flush");
         self.project().transport.poll_flush(cx)
     }
 

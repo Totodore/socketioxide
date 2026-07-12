@@ -8,95 +8,31 @@
 //! The pong is emitted transparently by `Client::poll_next`: a `Ping` is
 //! intercepted, a `Pong` is sent and the `Ping` is never surfaced to the user.
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
 use engineioxide::config::EngineIoConfig;
-use engineioxide::handler::EngineIoHandler;
-use engineioxide::service::EngineIoService;
-use engineioxide::{DisconnectReason, Socket, Str};
 use engineioxide_client::{Client, EioEvent};
-use engineioxide_core::Sid;
 use futures_util::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
-use tracing_subscriber::EnvFilter;
 
-use crate::fixture::EngineIoTestSvc;
+use crate::fixture::{Event, service_with_config};
 
 mod fixture;
 
 const PING_INTERVAL: Duration = Duration::from_millis(100);
 const PING_TIMEOUT: Duration = Duration::from_millis(100);
 
-#[derive(Debug, PartialEq, Eq)]
-enum Event {
-    Connect(Sid),
-    Disconnect(Sid, DisconnectReason),
-    Message(Sid, Str),
-}
-
-#[derive(Debug)]
-struct Handler {
-    tx: mpsc::Sender<Event>,
-}
-
-impl Handler {
-    fn new() -> (Self, mpsc::Receiver<Event>) {
-        let (tx, rx) = mpsc::channel(100);
-        (Self { tx }, rx)
-    }
-}
-
-impl EngineIoHandler for Handler {
-    type Data = ();
-    fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>) {
-        self.tx.try_send(Event::Connect(socket.id)).unwrap();
-    }
-
-    fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
-        self.tx
-            .try_send(Event::Disconnect(socket.id, reason))
-            .unwrap();
-    }
-
-    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>) {
-        self.tx
-            .try_send(Event::Message(socket.id, msg.clone()))
-            .unwrap();
-        // Echo the message back so the client can observe liveness.
-        socket.emit(msg).unwrap();
-    }
-
-    fn on_binary(self: &Arc<Self>, _data: Bytes, _socket: Arc<Socket<Self::Data>>) {}
-}
-
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init()
-        .ok();
-}
-
-/// Build an [`EngineIoService`] with a short ping interval/timeout so the
-/// heartbeat fires quickly during tests.
-fn service() -> (EngineIoTestSvc<Handler>, mpsc::Receiver<Event>) {
-    init_tracing();
-    let (handler, rx) = Handler::new();
-    let config = EngineIoConfig::builder()
+fn config() -> EngineIoConfig {
+    EngineIoConfig::builder()
         .ping_interval(PING_INTERVAL)
         .ping_timeout(PING_TIMEOUT)
-        .build();
-    let svc = EngineIoService::with_config(Arc::new(handler), config);
-    (svc.into(), rx)
+        .build()
 }
-
 /// A [`Client`] that is continuously polled must auto-respond to the server's
 /// `Ping`s with `Pong`s, keeping the connection alive across several ping
 /// cycles. The connection must also still be usable afterwards.
 #[tokio::test]
 async fn heartbeat_keeps_connection_alive() {
-    let (svc, mut rx) = service();
+    let (svc, mut rx) = service_with_config(config());
 
     let mut client = Client::connect_polling(svc).await.unwrap();
     let sid = client.sid;
@@ -145,7 +81,7 @@ async fn heartbeat_keeps_connection_alive() {
 /// cycles. The connection must also still be usable afterwards.
 #[tokio::test]
 async fn heartbeat_keeps_connection_alive_websocket() {
-    let (svc, mut rx) = service();
+    let (svc, mut rx) = service_with_config(config());
 
     let mut client = Client::connect_ws(svc).await.unwrap();
     let sid = client.sid;

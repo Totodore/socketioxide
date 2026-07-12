@@ -4,80 +4,13 @@
 //! [`Client::split`]: packets sent through the sink must reach the server and
 //! the echoed packets must be surfaced back through the stream.
 
-use std::sync::Arc;
-
 use bytes::Bytes;
-use engineioxide::handler::EngineIoHandler;
-use engineioxide::{DisconnectReason, service::EngineIoService};
-use engineioxide::{Socket, Str};
 use engineioxide_client::{Client, EioEvent};
-use engineioxide_core::Sid;
 use futures_util::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
-use tracing_subscriber::EnvFilter;
 
-use crate::fixture::EngineIoTestSvc;
+use crate::fixture::{Event, service};
 
 mod fixture;
-
-#[derive(Debug, PartialEq, Eq)]
-enum Event {
-    Connect(Sid),
-    Disconnect(Sid, DisconnectReason),
-    Message(Sid, Str),
-    Binary(Sid, Bytes),
-}
-
-#[derive(Debug)]
-struct Handler {
-    tx: mpsc::UnboundedSender<Event>,
-}
-
-impl Handler {
-    fn new() -> (Self, mpsc::UnboundedReceiver<Event>) {
-        let (tx, rx) = mpsc::unbounded_channel();
-        (Self { tx }, rx)
-    }
-}
-
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init()
-        .ok();
-}
-
-fn service() -> (EngineIoTestSvc<Handler>, mpsc::UnboundedReceiver<Event>) {
-    init_tracing();
-    let (handler, rx) = Handler::new();
-    let svc = EngineIoService::new(Arc::new(handler));
-    (svc.into(), rx)
-}
-
-impl EngineIoHandler for Handler {
-    type Data = ();
-    fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>) {
-        self.tx.send(Event::Connect(socket.id)).unwrap();
-    }
-
-    fn on_disconnect(&self, socket: Arc<Socket<Self::Data>>, reason: DisconnectReason) {
-        self.tx.send(Event::Disconnect(socket.id, reason)).unwrap();
-    }
-
-    fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<Socket<Self::Data>>) {
-        self.tx
-            .send(Event::Message(socket.id, msg.clone()))
-            .unwrap();
-        socket.emit(msg).unwrap();
-    }
-
-    fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<Socket<Self::Data>>) {
-        self.tx
-            .send(Event::Binary(socket.id, data.clone()))
-            .unwrap();
-        socket.emit_binary(data).unwrap();
-    }
-}
 
 /// Packets sent through the write half must reach the server, and the packets
 /// the handler echoes back must be surfaced in order through the read half.
