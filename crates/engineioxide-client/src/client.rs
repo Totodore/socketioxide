@@ -42,8 +42,8 @@ impl<S: TransportSvc> Client<S> {
 
             should_flush: false,
             should_send_pong: false,
-            closing: false,
             should_upgrade: false,
+            closing: false,
         };
 
         Ok(client)
