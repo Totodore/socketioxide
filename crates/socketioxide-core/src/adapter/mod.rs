@@ -28,7 +28,7 @@ pub mod errors;
 #[cfg(feature = "remote-adapter")]
 pub mod remote_packet;
 #[cfg(feature = "remote-adapter")]
-#[doc = "Shared stream constructs (`AckStream`, `DropStream`, `ResponseHandlers`) for remote adapters."]
+//! Shared stream constructs (`AckStream`, `DropStream`, `ResponseHandlers`) for remote adapters.
 pub mod stream;
 
 /// A room identifier
