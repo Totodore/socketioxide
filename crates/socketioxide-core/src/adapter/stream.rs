@@ -289,10 +289,7 @@ mod tests {
     }
 
     fn decode_error() -> Result<Response<()>, MockError> {
-        Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "decode failure",
-        )))
+        Err(Box::new(std::io::Error::other("decode failure")))
     }
 
     #[tokio::test]
