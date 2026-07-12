@@ -82,10 +82,7 @@ use std::{
 };
 use tokio::{sync::mpsc, task::AbortHandle};
 
-use crate::{
-    drivers::Notification,
-    stream::AckPayload,
-};
+use crate::{drivers::Notification, stream::AckPayload};
 
 pub mod drivers;
 mod stream;
@@ -360,7 +357,8 @@ impl<E, D: Driver> DefinedAdapter for CustomPostgresAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D> {
     type Error = Error<D>;
     type State = PostgresAdapterCtr<D>;
-    type AckStream = AckStream<E::AckStream, BoxStream<'static, AckPayload>, ResponsePayload, E::AckError>;
+    type AckStream =
+        AckStream<E::AckStream, BoxStream<'static, AckPayload>, ResponsePayload, E::AckError>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -493,7 +491,11 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         if opts.is_local(self.local.server_id()) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_empty_remote(local, futures_util::stream::empty::<AckPayload>().boxed(), stream::decode_postgres_ack);
+            let stream = AckStream::new_empty_remote(
+                local,
+                futures_util::stream::empty::<AckPayload>().boxed(),
+                stream::decode_postgres_ack,
+            );
             return Ok(stream);
         }
         let req = RequestOut::new(

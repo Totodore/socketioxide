@@ -1,10 +1,7 @@
 use std::fmt;
 
 use serde::de::DeserializeOwned;
-use socketioxide_core::{
-    Sid,
-    adapter::remote_packet::Response,
-};
+use socketioxide_core::{Sid, adapter::remote_packet::Response};
 
 /// Decode a msgpack-encoded `(Sid, Response<E>)` tuple from raw bytes.
 pub fn decode_redis_ack<E: DeserializeOwned + fmt::Debug>(
@@ -31,7 +28,11 @@ mod tests {
         let local = futures_util::stream::once(async move {
             (sid, Ok::<_, ()>(Value::Str("local".into(), None)))
         });
-        let stream: AckStream<_, _, Vec<u8>, ()> = AckStream::new_empty_remote(local, MessageStream::<Vec<u8>>::new_empty(), decode_redis_ack::<()>);
+        let stream: AckStream<_, _, Vec<u8>, ()> = AckStream::new_empty_remote(
+            local,
+            MessageStream::<Vec<u8>>::new_empty(),
+            decode_redis_ack::<()>,
+        );
         futures_util::pin_mut!(stream);
         assert!(!FusedStream::is_terminated(&stream));
         let data = stream.next().await;

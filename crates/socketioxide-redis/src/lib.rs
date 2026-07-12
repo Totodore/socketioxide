@@ -156,6 +156,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::adapter::remote_packet::{
     RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
 };
+use socketioxide_core::adapter::stream::{AckStream, DropStream, ResponseHandlers};
 use socketioxide_core::{
     Sid, Uid,
     adapter::errors::{AdapterError, BroadcastError},
@@ -165,7 +166,6 @@ use socketioxide_core::{
     },
     packet::Packet,
 };
-use socketioxide_core::adapter::stream::{AckStream, DropStream, ResponseHandlers};
 use tokio::{sync::mpsc, time};
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
@@ -502,7 +502,11 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_empty_remote(local, MessageStream::<Vec<u8>>::new_empty(), stream::decode_redis_ack);
+            let stream = AckStream::new_empty_remote(
+                local,
+                MessageStream::<Vec<u8>>::new_empty(),
+                stream::decode_redis_ack,
+            );
             return Ok(stream);
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
@@ -957,8 +961,8 @@ pub fn read_req_id(data: &[u8]) -> Option<Sid> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_util::stream::{self, FusedStream, StreamExt};
     use crate::stream::decode_redis_ack;
+    use futures_util::stream::{self, FusedStream, StreamExt};
     use socketioxide_core::{Str, Value, adapter::AckStreamItem};
     use std::convert::Infallible;
 

@@ -30,7 +30,8 @@ mod tests {
             (sid, Ok::<_, ()>(Value::Str("local".into(), None)))
         });
         let (_, rx) = mpsc::channel::<crate::drivers::Item>(1);
-        let stream: AckStream<_, _, crate::drivers::Item, ()> = AckStream::new_empty_remote(local, ChanStream::new(rx), decode_mongodb_ack::<()>);
+        let stream: AckStream<_, _, crate::drivers::Item, ()> =
+            AckStream::new_empty_remote(local, ChanStream::new(rx), decode_mongodb_ack::<()>);
         futures_util::pin_mut!(stream);
         assert!(!FusedStream::is_terminated(&stream));
         let data = stream.next().await;

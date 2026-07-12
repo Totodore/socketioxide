@@ -427,7 +427,11 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_empty_remote(local, ChanStream::<Item>::new(mpsc::channel::<Item>(1).1), stream::decode_mongodb_ack);
+            let stream = AckStream::new_empty_remote(
+                local,
+                ChanStream::<Item>::new(mpsc::channel::<Item>(1).1),
+                stream::decode_mongodb_ack,
+            );
             return Ok(stream);
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);

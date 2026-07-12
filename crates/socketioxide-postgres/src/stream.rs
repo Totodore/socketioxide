@@ -14,7 +14,9 @@ pub enum AckPayload {
 }
 
 impl AckPayload {
-    fn deserialize<'de, T: Deserialize<'de>>(&'de self) -> Result<T, Box<dyn std::error::Error + Send>> {
+    fn deserialize<'de, T: Deserialize<'de>>(
+        &'de self,
+    ) -> Result<T, Box<dyn std::error::Error + Send>> {
         match &self {
             AckPayload::Json(rv) => serde_json::from_str::<T>(rv.get())
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>),
@@ -48,7 +50,8 @@ mod tests {
         });
         let empty: futures_core::stream::BoxStream<'static, AckPayload> =
             futures_util::stream::empty().boxed();
-        let stream: AckStream<_, _, crate::ResponsePayload, ()> = AckStream::new_empty_remote(local, empty, decode_postgres_ack::<()>);
+        let stream: AckStream<_, _, crate::ResponsePayload, ()> =
+            AckStream::new_empty_remote(local, empty, decode_postgres_ack::<()>);
         futures_util::pin_mut!(stream);
         assert!(!FusedStream::is_terminated(&stream));
         let data = stream.next().await;

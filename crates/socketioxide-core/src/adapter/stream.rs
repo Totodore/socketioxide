@@ -247,9 +247,9 @@ impl<S, R: Stream, T, E> fmt::Debug for AckStream<S, R, T, E> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{Sid, Value};
     use futures_core::FusedStream;
     use futures_util::StreamExt;
-    use crate::{Sid, Value};
 
     use super::AckStream;
 
@@ -260,7 +260,8 @@ mod tests {
             (sid, Ok::<_, ()>(Value::Str("local".into(), None)))
         });
         let empty_remote = futures_util::stream::empty::<()>();
-        let stream: AckStream<_, _, (), ()> = AckStream::new_empty_remote(local, empty_remote, |_| unreachable!());
+        let stream: AckStream<_, _, (), ()> =
+            AckStream::new_empty_remote(local, empty_remote, |_| unreachable!());
         futures_util::pin_mut!(stream);
         assert_eq!(stream.ack_cnt, 0);
         assert_eq!(stream.total_ack_cnt, 0);
