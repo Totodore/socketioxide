@@ -1,32 +1,30 @@
 use std::{
     fmt,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
-use engineioxide_core::{Packet, TransportType};
+use engineioxide_core::{Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
 
 pub use crate::transport::polling::{PollingSvc, PollingTransport, PollingTransportError};
-pub use crate::transport::ws::{
-    WebSocket, WsTransport, WsTransportError, noop_impl, tungstenite_impl,
-};
+pub use crate::transport::ws::{WsSvc, WsTransport, WsTransportError, noop_impl, tungstenite_impl};
 
 mod polling;
 mod ws;
 
-pub enum TransportError<S: PollingSvc, WS: WebSocket> {
+pub enum TransportError<S: TransportSvc> {
     Polling(PollingTransportError<S>),
-    Websocket(WsTransportError<WS>),
+    Websocket(WsTransportError<S>),
 }
 
-impl<S: PollingSvc, WS: WebSocket> fmt::Debug for TransportError<S, WS> {
+impl<S: TransportSvc> fmt::Debug for TransportError<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
     }
 }
-impl<S: PollingSvc, WS: WebSocket> fmt::Display for TransportError<S, WS> {
+impl<S: TransportSvc> fmt::Display for TransportError<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TransportError::Polling(e) => write!(f, "polling error: {}", e),
@@ -34,23 +32,26 @@ impl<S: PollingSvc, WS: WebSocket> fmt::Display for TransportError<S, WS> {
         }
     }
 }
-impl<S: PollingSvc, WS: WebSocket> std::error::Error for TransportError<S, WS> {}
+impl<S: TransportSvc> std::error::Error for TransportError<S> {}
+
+pub trait TransportSvc: PollingSvc + WsSvc {}
+impl<S: PollingSvc + WsSvc> TransportSvc for S {}
 
 pin_project_lite::pin_project! {
     #[project = TransportProj]
-    pub enum Transport<S: PollingSvc, WS> {
+    pub enum Transport<S: TransportSvc> {
         Polling {
             #[pin]
             inner: PollingTransport<S>
         },
         Websocket {
             #[pin]
-            inner: WsTransport<WS>
+            inner: WsTransport<S>
         }
     }
 }
 
-impl<S: PollingSvc, WS> Transport<S, WS> {
+impl<S: TransportSvc> Transport<S> {
     pub fn transport_type(&self) -> TransportType {
         match self {
             Transport::Polling { .. } => TransportType::Polling,
@@ -58,9 +59,39 @@ impl<S: PollingSvc, WS> Transport<S, WS> {
         }
     }
 }
+impl<S: TransportSvc> Transport<S> {
+    pub fn upgrade(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        sid: Sid,
+    ) -> Poll<Option<Result<(), TransportError<S>>>> {
+        match self.as_mut().project() {
+            TransportProj::Polling { mut inner } => {
+                // start by flushing polling transport to ensure there is no pending data
+                ready!(inner.as_mut().poll_flush(cx)).map_err(TransportError::Polling)?;
+                let svc = inner.svc.clone();
 
-impl<S: PollingSvc, WS: WebSocket> Stream for Transport<S, WS> {
-    type Item = Result<Packet, TransportError<S, WS>>;
+                self.set(Transport::Websocket {
+                    inner: WsTransport::connect_with_upgrade(svc, sid),
+                });
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+
+            TransportProj::Websocket { inner } => match ready!(inner.poll_next(cx)) {
+                Some(Ok(packet)) => {
+                    dbg!(packet);
+                    Poll::Ready(Some(Ok(())))
+                }
+                Some(Err(err)) => Poll::Ready(Some(Err(TransportError::Websocket(err)))),
+                None => Poll::Ready(None),
+            },
+        }
+    }
+}
+
+impl<S: TransportSvc> Stream for Transport<S> {
+    type Item = Result<Packet, TransportError<S>>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project() {
             TransportProj::Polling { inner } => {
@@ -72,8 +103,8 @@ impl<S: PollingSvc, WS: WebSocket> Stream for Transport<S, WS> {
         }
     }
 }
-impl<S: PollingSvc, WS: WebSocket> Sink<Packet> for Transport<S, WS> {
-    type Error = TransportError<S, WS>;
+impl<S: TransportSvc> Sink<Packet> for Transport<S> {
+    type Error = TransportError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {

@@ -22,6 +22,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
+use crate::fixture::EngineIoTestSvc;
+
 mod fixture;
 
 const PING_INTERVAL: Duration = Duration::from_millis(100);
@@ -78,7 +80,7 @@ fn init_tracing() {
 
 /// Build an [`EngineIoService`] with a short ping interval/timeout so the
 /// heartbeat fires quickly during tests.
-fn service() -> (EngineIoService<Handler>, mpsc::Receiver<Event>) {
+fn service() -> (EngineIoTestSvc<Handler>, mpsc::Receiver<Event>) {
     init_tracing();
     let (handler, rx) = Handler::new();
     let config = EngineIoConfig::builder()
@@ -86,7 +88,7 @@ fn service() -> (EngineIoService<Handler>, mpsc::Receiver<Event>) {
         .ping_timeout(PING_TIMEOUT)
         .build();
     let svc = EngineIoService::with_config(Arc::new(handler), config);
-    (svc, rx)
+    (svc.into(), rx)
 }
 
 /// A [`Client`] that is continuously polled must auto-respond to the server's
@@ -96,7 +98,7 @@ fn service() -> (EngineIoService<Handler>, mpsc::Receiver<Event>) {
 async fn heartbeat_keeps_connection_alive() {
     let (svc, mut rx) = service();
 
-    let mut client = Client::connect(svc).await.unwrap();
+    let mut client = Client::connect_polling(svc).await.unwrap();
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
 
@@ -145,7 +147,7 @@ async fn heartbeat_keeps_connection_alive() {
 async fn heartbeat_keeps_connection_alive_websocket() {
     let (svc, mut rx) = service();
 
-    let mut client = fixture::client_ws_connect(svc).await;
+    let mut client = Client::connect_ws(svc).await.unwrap();
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
 

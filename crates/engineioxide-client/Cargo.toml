@@ -22,21 +22,20 @@ http-body.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "time"] }
+tokio = { workspace = true, features = ["rt", "time", "macros", "parking_lot"] }
 hyper = { workspace = true, features = ["client", "http1"] }
 tokio-tungstenite.workspace = true
 http-body-util.workspace = true
 pin-project-lite.workspace = true
 smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
+tokio-stream.workspace = true
+tokio-util.workspace = true
 
 # Tracing
 tracing = { workspace = true } # TODO: make optional
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "parking_lot"] }
-tokio-stream.workspace = true
-tokio-util.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 engineioxide = { path = "../engineioxide", features = [
     "tracing",

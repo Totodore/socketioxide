@@ -4,13 +4,12 @@ use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::{DisconnectReason, service::EngineIoService};
 use engineioxide::{Socket, Str};
-use engineioxide_client::tungstenite_impl::TokioTungsteniteWebSocket;
 use engineioxide_client::{PollingTransport, WsTransport};
 use engineioxide_core::Sid;
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
-use crate::fixture::tungstenite_client;
+use crate::fixture::EngineIoTestSvc;
 
 mod fixture;
 
@@ -43,11 +42,11 @@ fn init_tracing() {
 
 /// Build an [`EngineIoService`] with a short ping interval/timeout so the
 /// heartbeat fires quickly during tests.
-fn service() -> (EngineIoService<Handler>, mpsc::UnboundedReceiver<Event>) {
+fn service() -> (EngineIoTestSvc<Handler>, mpsc::UnboundedReceiver<Event>) {
     init_tracing();
     let (handler, rx) = Handler::new();
     let svc = EngineIoService::new(Arc::new(handler));
-    (svc, rx)
+    (svc.into(), rx)
 }
 
 impl EngineIoHandler for Handler {
@@ -85,9 +84,6 @@ async fn handshake_polling() {
 #[tokio::test]
 async fn handshake_websocket() {
     let (svc, mut rx) = service();
-    let ws = tungstenite_client(svc).await;
-    let (_, open) = WsTransport::<TokioTungsteniteWebSocket<_>>::connect(ws)
-        .await
-        .unwrap();
+    let (_, open) = WsTransport::connect(svc).await.unwrap();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(open.sid));
 }

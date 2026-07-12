@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -5,12 +6,15 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::service::EngineIoService;
-use engineioxide_client::Client;
-use engineioxide_client::tungstenite_impl::TokioTungsteniteWebSocket;
+use engineioxide_client::tungstenite_impl::TokioTungsteniteWS;
+use futures_core::future::BoxFuture;
+use futures_util::FutureExt;
+use http::Response;
+use http_body_util::combinators::BoxBody;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_tungstenite::tungstenite::handshake::client::{Request, generate_key};
+use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::protocol::Role;
 use tokio_util::io::StreamReader;
 
@@ -66,45 +70,65 @@ impl AsyncWrite for StreamImpl {
     }
 }
 
-pub async fn tungstenite_client<H: EngineIoHandler>(
-    svc: EngineIoService<H>,
-) -> tokio_tungstenite::WebSocketStream<StreamImpl> {
-    let (tx, rx) = mpsc::unbounded_channel();
-    let (tx1, rx1) = mpsc::unbounded_channel();
-
-    let parts = Request::builder()
-        .method("GET")
-        .header("Host", "127.0.0.1")
-        .header("Connection", "Upgrade")
-        .header("Upgrade", "websocket")
-        .header("Sec-WebSocket-Version", "13")
-        .header("Sec-WebSocket-Key", generate_key())
-        .uri("ws://127.0.0.1/engine.io/?EIO=4&transport=websocket")
-        .body(http_body_util::Empty::<Bytes>::new())
-        .unwrap()
-        .into_parts()
-        .0;
-
-    svc.ws_init(
-        StreamImpl::new(tx, rx1),
-        engineioxide::ProtocolVersion::V4,
-        None,
-        parts,
-    )
-    .await
-    .unwrap();
-
-    tokio_tungstenite::WebSocketStream::from_raw_socket(
-        StreamImpl::new(tx1, rx),
-        Role::Client,
-        Default::default(),
-    )
-    .await
+#[derive(Debug)]
+pub struct EngineIoTestSvc<H: EngineIoHandler> {
+    inner: EngineIoService<H>,
+}
+impl<H: EngineIoHandler> Clone for EngineIoTestSvc<H> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+impl<H: EngineIoHandler> From<EngineIoService<H>> for EngineIoTestSvc<H> {
+    fn from(inner: EngineIoService<H>) -> Self {
+        Self { inner }
+    }
 }
 
-pub async fn client_ws_connect<H: EngineIoHandler>(
-    svc: EngineIoService<H>,
-) -> Client<EngineIoService<H>, TokioTungsteniteWebSocket<StreamImpl>> {
-    let ws = tungstenite_client(svc).await;
-    Client::connect_ws(ws).await.unwrap()
+impl<H: EngineIoHandler> hyper::service::Service<http::Request<BoxBody<Bytes, Infallible>>>
+    for EngineIoTestSvc<H>
+{
+    type Response = Response<BoxBody<Bytes, Infallible>>;
+    type Error = Infallible;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn call(&self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+        let svc = self.inner.clone();
+        async move { svc.call(req).await.map(|r| r.map(BoxBody::new)) }.boxed()
+    }
+}
+impl<H: EngineIoHandler> hyper::service::Service<http::Request<()>> for EngineIoTestSvc<H> {
+    type Response = TokioTungsteniteWS<StreamImpl>;
+    type Error = tungstenite::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn call(&self, req: http::Request<()>) -> Self::Future {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx1, rx1) = mpsc::unbounded_channel();
+
+        let (parts, _) = req.into_parts();
+        let svc = self.inner.clone();
+        async move {
+            svc.ws_init(
+                StreamImpl::new(tx, rx1),
+                engineioxide::ProtocolVersion::V4,
+                None,
+                parts,
+            )
+            .await
+            .unwrap();
+
+            let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+                StreamImpl::new(tx1, rx),
+                Role::Client,
+                Default::default(),
+            )
+            .await;
+
+            Ok(TokioTungsteniteWS::from(ws))
+        }
+        .boxed()
+    }
 }

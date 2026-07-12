@@ -4,33 +4,36 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use engineioxide_core::{Packet, Sid};
+use engineioxide_core::{Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
 
 use crate::{
     EioEvent,
     transport::{
-        PollingSvc, PollingTransport, PollingTransportError, Transport, TransportError, WebSocket,
-        WsTransport, WsTransportError, noop_impl::NoopWebSocket,
+        PollingTransport, PollingTransportError, Transport, TransportError, TransportSvc,
+        WsTransport, WsTransportError,
     },
 };
-
 pin_project_lite::pin_project! {
-    pub struct Client<S: PollingSvc, WS > {
+    pub struct Client<S: TransportSvc> {
         #[pin]
-        pub transport: Transport<S, WS>,
+        pub transport: Transport<S>,
 
         should_send_pong: bool,
         should_flush: bool,
         closing: bool,
         pub sid: Sid,
+        pub should_upgrade: bool,
     }
 }
 
-impl<S: PollingSvc, WS: WebSocket> Client<S, WS> {
-    pub async fn connect_ws(ws: impl Into<WS>) -> Result<Self, WsTransportError<WS>> {
-        let (inner, open) = WsTransport::connect(ws).await?;
+impl<S: TransportSvc> Client<S> {
+    pub async fn connect_default(svc: S) -> Result<Self, PollingTransportError<S>> {
+        Self::connect(svc, &[TransportType::Polling, TransportType::Websocket]).await
+    }
+    pub async fn connect_ws(svc: S) -> Result<Self, WsTransportError<S>> {
+        let (inner, open) = WsTransport::connect(svc.clone()).await?;
         let transport = Transport::Websocket { inner };
         let client = Client {
             transport,
@@ -39,13 +42,17 @@ impl<S: PollingSvc, WS: WebSocket> Client<S, WS> {
             should_flush: false,
             should_send_pong: false,
             closing: false,
+            should_upgrade: false,
         };
 
         Ok(client)
     }
-}
-impl<S: PollingSvc> Client<S, NoopWebSocket> {
-    pub async fn connect(svc: S) -> Result<Self, PollingTransportError<S>> {
+
+    pub async fn connect(
+        svc: impl Into<S>,
+        transports: &[TransportType],
+    ) -> Result<Self, PollingTransportError<S>> {
+        let svc = svc.into();
         let (inner, open) = PollingTransport::connect(svc).await?;
         let transport = Transport::Polling { inner };
         let client = Client {
@@ -55,18 +62,26 @@ impl<S: PollingSvc> Client<S, NoopWebSocket> {
             should_flush: false,
             should_send_pong: false,
             closing: false,
+            should_upgrade: transports.contains(&TransportType::Websocket)
+                && open.upgrades.contains(&TransportType::Websocket),
         };
 
         Ok(client)
     }
 }
 
-impl<S: PollingSvc, WS: WebSocket> Client<S, WS> {
+impl<S: TransportSvc> Client<S> {
+    pub async fn connect_polling(svc: S) -> Result<Self, PollingTransportError<S>> {
+        Self::connect(svc, &[TransportType::Polling]).await
+    }
+}
+
+impl<S: TransportSvc> Client<S> {
     #[tracing::instrument(skip(cx))]
     fn heartbeat(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<(), TransportError<S, WS>>> {
+    ) -> Poll<Result<(), TransportError<S>>> {
         let mut proj = self.project();
         ready!(proj.transport.as_mut().poll_ready(cx))?;
         proj.transport.as_mut().start_send(Packet::Pong)?;
@@ -77,10 +92,7 @@ impl<S: PollingSvc, WS: WebSocket> Client<S, WS> {
     }
 
     #[tracing::instrument(skip(cx))]
-    fn flush(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), TransportError<S, WS>>> {
+    fn flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), TransportError<S>>> {
         let mut proj = self.project();
         ready!(proj.transport.as_mut().poll_flush(cx))?;
         *proj.should_flush = false;
@@ -88,14 +100,30 @@ impl<S: PollingSvc, WS: WebSocket> Client<S, WS> {
     }
 }
 
-impl<S: PollingSvc, WS: WebSocket> Stream for Client<S, WS> {
-    type Item = Result<EioEvent, TransportError<S, WS>>;
+impl<S: TransportSvc> Stream for Client<S> {
+    type Item = Result<EioEvent, TransportError<S>>;
 
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.closing {
             ready!(self.project().transport.poll_close(cx))?;
             return Poll::Ready(None);
+        }
+
+        if self.should_upgrade {
+            let sid = self.sid;
+            return match ready!(self.as_mut().project().transport.upgrade(cx, sid)) {
+                Some(Ok(())) => {
+                    *self.as_mut().project().should_upgrade = false;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Some(Err(e)) => Poll::Ready(Some(Err(e))),
+                None => {
+                    *self.as_mut().project().should_upgrade = false;
+                    Poll::Ready(None)
+                } // TODO: fallback to polling if upgrade fails,
+            };
         }
 
         if self.should_send_pong {
@@ -125,10 +153,14 @@ impl<S: PollingSvc, WS: WebSocket> Stream for Client<S, WS> {
     }
 }
 
-impl<S: PollingSvc, WS: WebSocket> Sink<EioEvent> for Client<S, WS> {
-    type Error = <Transport<S, WS> as Sink<Packet>>::Error;
+impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
+    type Error = <Transport<S> as Sink<Packet>>::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        if self.should_upgrade || self.closing {
+            return Poll::Pending;
+        }
+
         self.project().transport.poll_ready(cx)
     }
 
@@ -148,7 +180,7 @@ impl<S: PollingSvc, WS: WebSocket> Sink<EioEvent> for Client<S, WS> {
     }
 }
 
-impl<S: PollingSvc, WS: WebSocket> fmt::Debug for Client<S, WS> {
+impl<S: TransportSvc> fmt::Debug for Client<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("should_send_pong", &self.should_send_pong)

@@ -14,6 +14,10 @@ use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
 
+// TODO: rework the polling svc abstraction so that it it is possible to have conn upgrades.
+// or do not support TCP conn upgrades (best option), but in this case I still have a stream issue.
+// Because I cant instantiate an abstract stream from the inner lib. Maybe just drop the dynamic stream entirely except
+// from testing.
 pub trait PollingSvc:
     HyperSvc<
         Request<BoxBody<Bytes, Infallible>>,
@@ -99,7 +103,7 @@ pub enum PollingTransportError<S: PollingSvc> {
 pin_project! {
     pub struct PollingTransport<S: PollingSvc>
     {
-        svc: S,
+        pub(crate) svc: S,
 
         #[pin]
         poll_state: PollState<S::Future>,

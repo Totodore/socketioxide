@@ -16,6 +16,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
+use crate::fixture::EngineIoTestSvc;
+
 mod fixture;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -45,11 +47,11 @@ fn init_tracing() {
         .ok();
 }
 
-fn service() -> (EngineIoService<Handler>, mpsc::UnboundedReceiver<Event>) {
+fn service() -> (EngineIoTestSvc<Handler>, mpsc::UnboundedReceiver<Event>) {
     init_tracing();
     let (handler, rx) = Handler::new();
     let svc = EngineIoService::new(Arc::new(handler));
-    (svc, rx)
+    (svc.into(), rx)
 }
 
 impl EngineIoHandler for Handler {
@@ -82,7 +84,7 @@ impl EngineIoHandler for Handler {
 #[tokio::test]
 async fn round_trip() {
     let (svc, mut rx) = service();
-    let client = Client::connect(svc).await.unwrap();
+    let client = Client::connect_polling(svc).await.unwrap();
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<EioEvent>();
@@ -118,7 +120,7 @@ async fn round_trip() {
 #[tokio::test]
 async fn round_trip_ws() {
     let (svc, mut rx) = service();
-    let client = fixture::client_ws_connect(svc).await;
+    let client = Client::connect_ws(svc).await.unwrap();
     let sid = client.sid;
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<EioEvent>();
