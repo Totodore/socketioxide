@@ -11,7 +11,7 @@ mod fixture;
 async fn upgrade() {
     let (svc, mut rx) = service();
     let mut client = Client::connect_default(svc).await.unwrap();
-    let sid = client.sid;
+    let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
 
     assert_eq!(

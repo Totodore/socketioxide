@@ -35,7 +35,7 @@ async fn heartbeat_keeps_connection_alive() {
     let (svc, mut rx) = service_with_config(config());
 
     let mut client = Client::connect_polling(svc).await.unwrap();
-    let sid = client.sid;
+    let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
 
     // Drive the client for several ping cycles. Any server event during this
@@ -84,7 +84,7 @@ async fn heartbeat_keeps_connection_alive_websocket() {
     let (svc, mut rx) = service_with_config(config());
 
     let mut client = Client::connect_ws(svc).await.unwrap();
-    let sid = client.sid;
+    let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
 
     // Drive the client for several ping cycles. Any server event during this

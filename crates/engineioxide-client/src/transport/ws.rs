@@ -313,13 +313,17 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        match self.as_mut().project().state.project() {
+        let proj = self.as_mut().project();
+        match proj.state.project() {
             WsTransportStateProj::Stream {
                 stream,
                 upgrade: UpgradeHandshakeState::Done,
                 ..
             } => stream.poll_ready(cx).map_err(WsTransportError::Websocket),
-            _ => Poll::Pending,
+            _ => {
+                proj.sink_waker.replace(cx.waker().clone());
+                Poll::Pending
+            }
         }
     }
 

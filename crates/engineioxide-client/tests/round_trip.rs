@@ -18,7 +18,7 @@ mod fixture;
 async fn round_trip() {
     let (svc, mut rx) = service();
     let client = Client::connect_polling(svc).await.unwrap();
-    let sid = client.sid;
+    let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<EioEvent>();
 
@@ -54,7 +54,7 @@ async fn round_trip() {
 async fn round_trip_ws() {
     let (svc, mut rx) = service();
     let client = Client::connect_ws(svc).await.unwrap();
-    let sid = client.sid;
+    let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<EioEvent>();
 

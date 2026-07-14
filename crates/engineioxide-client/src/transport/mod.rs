@@ -63,6 +63,10 @@ impl<S: TransportSvc> Transport<S> {
     }
 }
 impl<S: TransportSvc> Transport<S> {
+    /// Upgrade the current transport to [`WsTransport`].
+    ///
+    /// Starts by flushing the polling transport, once done switch to websocket
+    /// and drive the websocket protocol upgrade.
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     pub fn upgrade(
         mut self: Pin<&mut Self>,
