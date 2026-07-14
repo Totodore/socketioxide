@@ -1,23 +1,20 @@
 use engineioxide_client::{Client, EioEvent};
 use futures_util::{SinkExt, StreamExt};
-use tracing::Level;
-use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = FmtSubscriber::builder()
-        .with_line_number(true)
-        .with_max_level(Level::TRACE)
+        .with_env_filter(EnvFilter::from_default_env())
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
     let client = Client::connect_with_hyper().await?;
     let (mut tx, mut rx) = client.split();
 
-    tx.send(EioEvent::Message("hello".into())).await?;
     while let Some(Ok(event)) = rx.next().await {
         match event {
-            EioEvent::Connect => {
-                println!("socket connect");
+            EioEvent::Connect(sid) => {
+                println!("socket connect {sid}");
             }
             EioEvent::Disconnect => {
                 println!("socket disconnect");

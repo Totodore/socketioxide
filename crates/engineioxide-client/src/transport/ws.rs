@@ -1,7 +1,7 @@
 use std::{
     fmt,
     pin::Pin,
-    task::{Context, Poll, ready},
+    task::{Context, Poll, Waker, ready},
 };
 
 use bytes::Bytes;
@@ -17,6 +17,7 @@ use tracing::Level;
 pin_project! {
     pub struct WsTransport<S: WsSvc> {
         svc: S,
+        sink_waker: Option<Waker>,
 
         #[pin]
         state: WsTransportState<S>,
@@ -102,7 +103,7 @@ impl<S: WsSvc> WsTransport<S> {
             .header("Sec-WebSocket-Version", "13")
             .header("Sec-WebSocket-Key", generate_key())
             .uri(format!(
-                "ws://127.0.0.1/engine.io/?EIO=4&transport=websocket&sid={sid}"
+                "ws://localhost:3000/engine.io/?EIO=4&transport=websocket&sid={sid}"
             ))
             .body(())
             .unwrap();
@@ -110,6 +111,7 @@ impl<S: WsSvc> WsTransport<S> {
         let fut = svc.call(req);
         Self {
             svc,
+            sink_waker: None,
             state: WsTransportState::Connecting { fut },
         }
     }
@@ -125,7 +127,7 @@ impl<S: WsSvc> WsTransport<S> {
             .header("Upgrade", "websocket")
             .header("Sec-WebSocket-Version", "13")
             .header("Sec-WebSocket-Key", generate_key())
-            .uri("ws://127.0.0.1/engine.io/?EIO=4&transport=websocket")
+            .uri("ws://localhost:3000/engine.io/?EIO=4&transport=websocket")
             .body(())
             .unwrap();
 
@@ -140,6 +142,7 @@ impl<S: WsSvc> WsTransport<S> {
 
         let ws = Self {
             svc,
+            sink_waker: None,
             state: WsTransportState::Stream {
                 stream,
                 upgrade: UpgradeHandshakeState::Done,
@@ -253,23 +256,22 @@ fn poll_upgrade<S: WsSvc>(
 impl<S: WsSvc> Stream for WsTransport<S> {
     type Item = Result<Packet, WsTransportError<S>>;
 
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project().state.project() {
             // if we were connecting it means that's an upgrade.
             // TODO: this assertion might be brittle, add a test to prove that.
-            WsTransportStateProj::Connecting { fut } => {
-                match ready!(fut.poll(cx)) {
-                    Ok(stream) => {
-                        self.project().state.set(WsTransportState::Stream {
-                            stream,
-                            upgrade: UpgradeHandshakeState::ShouldSendPingUpgrade,
-                        });
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                    Err(_e) => Poll::Ready(None), // stop everything but find a way to report the error
+            WsTransportStateProj::Connecting { fut } => match ready!(fut.poll(cx)) {
+                Ok(stream) => {
+                    self.project().state.set(WsTransportState::Stream {
+                        stream,
+                        upgrade: UpgradeHandshakeState::ShouldSendPingUpgrade,
+                    });
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
                 }
-            }
+                Err(e) => Poll::Ready(Some(Err(WsTransportError::Websocket(e)))),
+            },
             WsTransportStateProj::Stream {
                 stream,
                 upgrade: UpgradeHandshakeState::Done,
@@ -287,6 +289,9 @@ impl<S: WsSvc> Stream for WsTransport<S> {
                     Ok(UpgradeHandshakeState::Done) => {
                         *upgrade = UpgradeHandshakeState::Done;
                         tracing::debug!("upgrade done, switching in nominal state");
+                        if let Some(waker) = self.project().sink_waker.take() {
+                            waker.wake();
+                        }
                         cx.waker().wake_by_ref();
                         Poll::Ready(Some(Ok(Packet::Upgrade)))
                     }
@@ -306,6 +311,7 @@ impl<S: WsSvc> Stream for WsTransport<S> {
 impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
     type Error = WsTransportError<S>;
 
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.as_mut().project().state.project() {
             WsTransportStateProj::Stream {
@@ -336,6 +342,7 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
         }
     }
 
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project().state.project() {
             WsTransportStateProj::Stream {
@@ -346,11 +353,31 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
         }
     }
 
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project().state.project() {
             WsTransportStateProj::Connecting { .. } => Poll::Ready(Ok(())),
             WsTransportStateProj::Stream { stream, .. } => {
                 stream.poll_close(cx).map_err(WsTransportError::Websocket)
+            }
+        }
+    }
+}
+
+impl<S: WsSvc> fmt::Debug for WsTransport<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WsTransport")
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
+impl<S: WsSvc> fmt::Debug for WsTransportState<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Connecting { .. } => f.debug_struct("Connecting").finish(),
+            Self::Stream { upgrade, .. } => {
+                f.debug_struct("Stream").field("upgrade", upgrade).finish()
             }
         }
     }

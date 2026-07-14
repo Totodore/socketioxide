@@ -1,9 +1,9 @@
 use bytes::Bytes;
-use engineioxide_core::{Packet, Str, TransportType};
+use engineioxide_core::{Packet, Sid, Str, TransportType};
 
 #[derive(Debug, PartialEq)]
 pub enum EioEvent {
-    Connect,
+    Connect(Sid),
     Disconnect,
     Message(Str),
     Binary(Bytes),

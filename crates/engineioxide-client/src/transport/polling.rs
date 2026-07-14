@@ -47,6 +47,7 @@ pin_project! {
             fut: F
         },
         Decoding {
+            #[pin]
             stream: Pin<Box<dyn Stream<Item = Result<Packet, PacketParseError>>>>
         }
     }
@@ -145,6 +146,7 @@ impl<S: PollingSvc> PollingTransport<S> {
                     sid: open.sid,
                 };
 
+                tracing::debug!(?transport, ?open, "polling transport intialized");
                 Ok((transport, open))
             }
             _ => Err(PollingTransportError::Packet(
@@ -160,8 +162,8 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         tracing::trace!(poll_state = ?self.poll_state, "polling");
 
-        let mut poll_state_proj = self.as_mut().project().poll_state.project();
-        match poll_state_proj {
+        let mut proj = self.as_mut().project().poll_state.project();
+        match proj {
             PollStateProj::Pending { ref mut fut } => {
                 match ready!(fut.as_mut().poll(cx)) {
                     Ok(res) => {
@@ -185,10 +187,14 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
                     }
                 }
             }
-            PollStateProj::Decoding { ref mut stream } => {
-                if let Some(packet) = ready!(stream.poll_next_unpin(cx)) {
+            PollStateProj::Decoding { stream } => {
+                if let Some(packet) = ready!(stream.poll_next(cx)) {
                     Poll::Ready(Some(packet.map_err(PollingTransportError::from)))
                 } else {
+                    tracing::debug!(
+                        sid = %self.sid,
+                        "decoding stream ended, new polling req"
+                    );
                     let request = PollState::new_request(&self.svc, self.sid);
                     self.project().poll_state.set(request);
                     //check if wake is needed

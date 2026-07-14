@@ -1,12 +1,13 @@
 use std::{
     fmt,
     pin::Pin,
-    task::{Context, Poll, ready},
+    task::{Context, Poll, Waker, ready},
 };
 
 use engineioxide_core::{Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
+use tracing::Level;
 
 use crate::{
     event::EioEvent,
@@ -22,7 +23,9 @@ pin_project_lite::pin_project! {
     pub struct Client<S: TransportSvc> {
         #[pin]
         transport: Transport<S>,
+        sink_waker: Option<Waker>,
 
+        opened: bool,
         should_send_pong: bool,
         should_flush: bool,
         closing: bool,
@@ -49,7 +52,11 @@ impl<S: TransportSvc> Client<S> {
         let client = Client {
             transport,
             sid: open.sid,
+            sink_waker: None,
 
+            //TODO: refactor this.
+            //TODO: move upgrade to transport.
+            opened: true,
             should_flush: false,
             should_send_pong: false,
             should_upgrade: false,
@@ -69,7 +76,9 @@ impl<S: TransportSvc> Client<S> {
         let client = Client {
             transport,
             sid: open.sid,
+            sink_waker: None,
 
+            opened: true,
             should_flush: false,
             should_send_pong: false,
             closing: false,
@@ -120,6 +129,10 @@ impl<S: TransportSvc> Stream for Client<S> {
 
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.opened {
+            *self.as_mut().project().opened = false;
+            return Poll::Ready(Some(Ok(EioEvent::Connect(self.sid))));
+        }
         if self.closing {
             ready!(self.project().transport.poll_close(cx))?;
             return Poll::Ready(None);
@@ -131,6 +144,11 @@ impl<S: TransportSvc> Stream for Client<S> {
                 Some(Ok(())) => {
                     tracing::debug!(%sid, "websocket transport upgraded");
                     *self.as_mut().project().should_upgrade = false;
+                    if let Some(waker) = self.as_mut().project().sink_waker.take() {
+                        tracing::debug!("waking up sink after end of upgrade");
+                        waker.wake();
+                    }
+
                     cx.waker().wake_by_ref();
                     Poll::Ready(Some(Ok(EioEvent::Upgrade(self.transport()))))
                 }
@@ -172,14 +190,18 @@ impl<S: TransportSvc> Stream for Client<S> {
 impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
     type Error = <Transport<S> as Sink<Packet>>::Error;
 
+    #[tracing::instrument(level = Level::TRACE, ret)]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.should_upgrade || self.closing {
+            // save waker to wake the task when should_upgrade is set to ok.
+            self.project().sink_waker.replace(cx.waker().clone());
             return Poll::Pending;
         }
 
         self.project().transport.poll_ready(cx)
     }
 
+    #[tracing::instrument(level = Level::TRACE, ret)]
     fn start_send(self: Pin<&mut Self>, event: EioEvent) -> Result<(), Self::Error> {
         if let Some(packet) = event.into() {
             self.project().transport.start_send(packet)?;
@@ -187,10 +209,12 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
         Ok(())
     }
 
+    #[tracing::instrument(level = Level::TRACE, ret)]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().transport.poll_flush(cx)
     }
 
+    #[tracing::instrument(level = Level::TRACE, ret)]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().transport.poll_close(cx)
     }

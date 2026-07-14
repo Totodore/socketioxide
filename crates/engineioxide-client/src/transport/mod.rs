@@ -7,6 +7,7 @@ use std::{
 use engineioxide_core::{Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
+use tracing::Level;
 
 use crate::transport::{polling::PollingTransportError, ws::WsTransportError};
 
@@ -62,6 +63,7 @@ impl<S: TransportSvc> Transport<S> {
     }
 }
 impl<S: TransportSvc> Transport<S> {
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     pub fn upgrade(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -92,6 +94,7 @@ impl<S: TransportSvc> Transport<S> {
 
 impl<S: TransportSvc> Stream for Transport<S> {
     type Item = Result<Packet, TransportError<S>>;
+
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project() {
             TransportProj::Polling { inner } => {
@@ -106,6 +109,7 @@ impl<S: TransportSvc> Stream for Transport<S> {
 impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     type Error = TransportError<S>;
 
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
             TransportProj::Polling { inner } => {
@@ -128,6 +132,7 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
         }
     }
 
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
             TransportProj::Polling { inner } => {
@@ -139,6 +144,7 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
         }
     }
 
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
             TransportProj::Polling { inner } => {
@@ -147,6 +153,15 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
             TransportProj::Websocket { inner } => {
                 inner.poll_close(cx).map_err(TransportError::Websocket)
             }
+        }
+    }
+}
+
+impl<S: TransportSvc> fmt::Debug for Transport<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Polling { inner } => f.debug_struct("Polling").field("inner", inner).finish(),
+            Self::Websocket { inner } => f.debug_struct("Websocket").field("inner", inner).finish(),
         }
     }
 }
