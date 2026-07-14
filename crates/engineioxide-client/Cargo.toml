@@ -28,20 +28,22 @@ tokio-tungstenite.workspace = true
 http-body-util.workspace = true
 pin-project-lite.workspace = true
 smallvec.workspace = true
-hyper-util = { workspace = true, features = ["tokio"] }
+hyper-util = { workspace = true, features = ["tokio", "client", "client-pool", "client-legacy", "http1", "http2"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
+
+# Testing
+engineioxide = { path = "../engineioxide", features = [
+    "tracing",
+    "__test_harness",
+] }
 
 # Tracing
 tracing = { workspace = true } # TODO: make optional
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-engineioxide = { path = "../engineioxide", features = [
-    "tracing",
-    "v3",
-    "__test_harness",
-] }
+
 
 [features]
 v3 = ["engineioxide-core/v3"]

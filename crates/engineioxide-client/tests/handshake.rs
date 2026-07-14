@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use engineioxide_client::{PollingTransport, WsTransport};
+use engineioxide_client::transport::{PollingTransport, WsTransport};
 
 use crate::fixture::{Event, service};
 

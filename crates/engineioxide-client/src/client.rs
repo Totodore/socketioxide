@@ -9,23 +9,33 @@ use futures_core::Stream;
 use futures_util::Sink;
 
 use crate::{
-    EioEvent,
+    event::EioEvent,
+    flavors::hyper_tungstenite::HyperTungsteniteFlavor,
     transport::{
-        PollingTransport, PollingTransportError, Transport, TransportError, TransportSvc,
-        WsTransport, WsTransportError,
+        Transport, TransportError, TransportSvc,
+        polling::{PollingTransport, PollingTransportError},
+        ws::{WsTransport, WsTransportError},
     },
 };
 
 pin_project_lite::pin_project! {
     pub struct Client<S: TransportSvc> {
         #[pin]
-        pub transport: Transport<S>,
+        transport: Transport<S>,
 
         should_send_pong: bool,
         should_flush: bool,
         closing: bool,
-        pub sid: Sid,
         should_upgrade: bool,
+        pub sid: Sid,
+    }
+}
+
+impl Client<HyperTungsteniteFlavor> {
+    pub async fn connect_with_hyper() -> Result<Self, PollingTransportError<HyperTungsteniteFlavor>>
+    {
+        let svc = HyperTungsteniteFlavor::new();
+        Self::connect_default(svc).await
     }
 }
 

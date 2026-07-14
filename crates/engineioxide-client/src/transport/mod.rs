@@ -8,11 +8,13 @@ use engineioxide_core::{Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
 
-pub use crate::transport::polling::{PollingSvc, PollingTransport, PollingTransportError};
-pub use crate::transport::ws::{WsSvc, WsTransport, WsTransportError, noop_impl, tungstenite_impl};
+use crate::transport::{polling::PollingTransportError, ws::WsTransportError};
 
-mod polling;
-mod ws;
+pub use polling::{PollingSvc, PollingTransport};
+pub use ws::{WebSocket, WsSvc, WsTransport};
+
+pub mod polling;
+pub mod ws;
 
 pub enum TransportError<S: TransportSvc> {
     Polling(PollingTransportError<S>),

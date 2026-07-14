@@ -10,9 +10,8 @@
 
 mod client;
 mod event;
-mod transport;
+pub mod flavors;
+pub mod transport;
 
 pub use crate::client::Client;
 pub use crate::event::EioEvent;
-pub use crate::transport::PollingTransport;
-pub use transport::{WsTransport, noop_impl, tungstenite_impl};
