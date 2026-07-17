@@ -60,7 +60,8 @@ pub struct EngineIoConfig {
     /// Defaults to 128 packets
     pub max_buffer_size: usize,
 
-    /// The maximum number of bytes that can be received per http request.
+    /// The maximum number of bytes that can be received per http request
+    /// (polling) or per websocket frame/message.
     /// Defaults to 100KB.
     pub max_payload: u64,
 
