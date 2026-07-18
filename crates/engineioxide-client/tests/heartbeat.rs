@@ -37,6 +37,10 @@ async fn heartbeat_keeps_connection_alive() {
     let mut client = Client::connect_polling(svc).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
+    assert_eq!(
+        client.next().await.unwrap().unwrap(),
+        EioEvent::Connect(sid)
+    );
 
     // Drive the client for several ping cycles. Any server event during this
     // window can only be a disconnect (we send nothing), which would mean the
@@ -86,6 +90,10 @@ async fn heartbeat_keeps_connection_alive_websocket() {
     let mut client = Client::connect_ws(svc).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
+    assert_eq!(
+        client.next().await.unwrap().unwrap(),
+        EioEvent::Connect(sid)
+    );
 
     // Drive the client for several ping cycles. Any server event during this
     // window can only be a disconnect (we send nothing), which would mean the

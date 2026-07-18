@@ -28,8 +28,7 @@ pin_project_lite::pin_project! {
         open_packet: OpenPacket,
         available_transports: Vec<TransportType>,
         state: ClientState,
-        should_send_pong: bool,
-        should_flush: bool,
+        pending_pong: bool,
     }
 }
 
@@ -63,10 +62,7 @@ impl<S: TransportSvc> Client<S> {
             state: ClientState::Open,
             open_packet,
             available_transports: vec![], // move to a client config
-
-            //TODO: move upgrade to transport.
-            should_flush: false,
-            should_send_pong: false,
+            pending_pong: false,
         };
 
         Ok(client)
@@ -85,9 +81,7 @@ impl<S: TransportSvc> Client<S> {
             sink_waker: None,
             state: ClientState::Open,
             available_transports: transports.to_vec(),
-
-            should_flush: false,
-            should_send_pong: false,
+            pending_pong: false,
         };
 
         Ok(client)
@@ -101,30 +95,6 @@ impl<S: TransportSvc> Client<S> {
 impl<S: TransportSvc> Client<S> {
     pub async fn connect_polling(svc: S) -> Result<Self, PollingTransportError<S>> {
         Self::connect(svc, &[TransportType::Polling]).await
-    }
-}
-
-impl<S: TransportSvc> Client<S> {
-    #[tracing::instrument(skip(cx))]
-    fn heartbeat(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), TransportError<S>>> {
-        let mut proj = self.project();
-        ready!(proj.transport.as_mut().poll_ready(cx))?;
-        proj.transport.as_mut().start_send(Packet::Pong)?;
-
-        *proj.should_send_pong = false;
-        *proj.should_flush = true;
-        Poll::Ready(Ok(()))
-    }
-
-    #[tracing::instrument(skip(cx))]
-    fn flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), TransportError<S>>> {
-        let mut proj = self.project();
-        ready!(proj.transport.as_mut().poll_flush(cx))?;
-        *proj.should_flush = false;
-        Poll::Ready(Ok(()))
     }
 }
 
@@ -148,13 +118,7 @@ impl<S: TransportSvc> Stream for Client<S> {
 
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.should_send_pong {
-            ready!(self.as_mut().heartbeat(cx))?;
-        }
-
-        if self.should_flush {
-            ready!(self.as_mut().flush(cx))?;
-        }
+        let _ = self.as_mut().poll_heartbeat(cx);
 
         match self.state {
             ClientState::Open => {
@@ -185,8 +149,9 @@ impl<S: TransportSvc> Client<S> {
         let proj = self.as_mut().project();
         match ready!(proj.transport.poll_next(cx)) {
             Some(Ok(Packet::Ping)) => {
-                *proj.should_send_pong = true;
-                self.poll_next(cx)
+                *proj.pending_pong = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Some(Ok(Packet::Close)) => {
                 *proj.state = ClientState::Closing;
@@ -229,6 +194,21 @@ impl<S: TransportSvc> Client<S> {
                 Poll::Ready(None)
             } // TODO: fallback to polling if upgrade fails,
         }
+    }
+
+    fn poll_heartbeat(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), TransportError<S>>> {
+        let mut proj = self.project();
+        if *proj.pending_pong {
+            ready!(proj.transport.as_mut().poll_ready(cx))?;
+            *proj.pending_pong = false;
+            proj.transport.as_mut().start_send(Packet::Pong)?;
+        }
+
+        // idempotent: continues an in-flight flush, or Ready immediately if clean
+        proj.transport.poll_flush(cx)
     }
 }
 
