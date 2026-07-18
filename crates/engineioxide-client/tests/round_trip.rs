@@ -21,7 +21,7 @@ async fn round_trip_polling() {
     let config = EngineIoClientConfig::builder()
         .transports([TransportType::Polling])
         .build();
-    let client = Client::connect_with_config(svc, config).await.unwrap();
+    let client = Client::connect(svc, config).await.unwrap();
     let sid = client.sid();
     let (mut ctx, mut crx) = client.split::<EioEvent>();
 
@@ -63,7 +63,7 @@ async fn round_trip_ws() {
         .transports([TransportType::Websocket])
         .build();
 
-    let client = Client::connect_with_config(svc, config).await.unwrap();
+    let client = Client::connect(svc, config).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<EioEvent>();
