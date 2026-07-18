@@ -143,9 +143,8 @@ impl<S: PollingSvc> PollingTransport<S> {
         svc: S,
         config: &EngineIoClientConfig,
     ) -> Result<(Self, OpenPacket), PollingTransportError<S>> {
-        tracing::trace!("handshake request");
-
         let req = super::build_connect_req(&config.uri, TransportType::Polling);
+        tracing::trace!(?req, "handshake request");
 
         let res = svc
             .call(req)

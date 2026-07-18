@@ -225,7 +225,7 @@ fn with_mandatory_query(base_uri: &Uri, transport: TransportType, sid: Option<Si
     parts.scheme = match (transport, secure) {
         (TransportType::Polling, Some(true)) => Some(Scheme::HTTPS),
         (TransportType::Websocket, Some(true)) => Some("wss".parse().unwrap()),
-        (TransportType::Polling, Some(false)) => Some(Scheme::HTTPS),
+        (TransportType::Polling, Some(false)) => Some(Scheme::HTTP),
         (TransportType::Websocket, Some(false)) => Some("ws".parse().unwrap()),
         (_, None) => None,
     };

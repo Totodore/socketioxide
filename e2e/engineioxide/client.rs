@@ -1,4 +1,4 @@
-use engineioxide_client::{Client, EioEvent};
+use engineioxide_client::{Client, EioEvent, EngineIoClientConfig};
 use futures_util::{SinkExt, StreamExt};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
@@ -8,7 +8,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(EnvFilter::from_default_env())
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
-    let client = Client::connect_with_hyper_ws().await?;
+    let config = EngineIoClientConfig::builder()
+        .uri("http://localhost:3000/engine.io")
+        .build();
+
+    let client = Client::connect_with_hyper_ws(config).await?;
     let (mut tx, mut rx) = client.split();
 
     while let Some(Ok(event)) = rx.next().await {
