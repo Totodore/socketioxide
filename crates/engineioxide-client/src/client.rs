@@ -4,6 +4,7 @@ use std::{
     task::{Context, Poll, Waker, ready},
 };
 
+use engineioxide::{handler::EngineIoHandler, service::EngineIoService};
 use engineioxide_core::{OpenPacket, Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
@@ -11,7 +12,7 @@ use tracing::Level;
 
 use crate::{
     event::EioEvent,
-    flavors::hyper_tungstenite::HyperTungsteniteFlavor,
+    flavors::{hyper_tungstenite::HyperTungsteniteFlavor, testing::TestingFlavor},
     transport::{
         Transport, TransportError, TransportSvc,
         polling::{PollingTransport, PollingTransportError},
@@ -42,9 +43,17 @@ enum ClientState {
 }
 
 impl Client<HyperTungsteniteFlavor> {
-    pub async fn connect_with_hyper() -> Result<Self, PollingTransportError<HyperTungsteniteFlavor>>
-    {
+    pub async fn connect_with_hyper_ws()
+    -> Result<Self, PollingTransportError<HyperTungsteniteFlavor>> {
         let svc = HyperTungsteniteFlavor::new();
+        Self::connect_default(svc).await
+    }
+}
+impl<H: EngineIoHandler> Client<TestingFlavor<H>> {
+    pub async fn connect_with_testbed(
+        svc: EngineIoService<H>,
+    ) -> Result<Self, PollingTransportError<TestingFlavor<H>>> {
+        let svc = TestingFlavor::new(svc);
         Self::connect_default(svc).await
     }
 }

@@ -5,7 +5,7 @@ use engineioxide::config::EngineIoConfig;
 use engineioxide::handler::EngineIoHandler;
 use engineioxide::service::EngineIoService;
 use engineioxide::{DisconnectReason, Socket};
-use engineioxide_client::flavors::testing::EngineIoTestSvc;
+use engineioxide_client::flavors::testing::TestingFlavor;
 use engineioxide_core::{Sid, Str};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -39,7 +39,7 @@ fn init_tracing() {
 
 pub fn service_with_config(
     config: EngineIoConfig,
-) -> (EngineIoTestSvc<EchoHandler>, mpsc::UnboundedReceiver<Event>) {
+) -> (TestingFlavor<EchoHandler>, mpsc::UnboundedReceiver<Event>) {
     init_tracing();
     let (handler, rx) = EchoHandler::new();
     let svc = EngineIoService::with_config(Arc::new(handler), config);
@@ -47,7 +47,7 @@ pub fn service_with_config(
 }
 
 #[allow(unused)]
-pub fn service() -> (EngineIoTestSvc<EchoHandler>, mpsc::UnboundedReceiver<Event>) {
+pub fn service() -> (TestingFlavor<EchoHandler>, mpsc::UnboundedReceiver<Event>) {
     service_with_config(EngineIoConfig::default())
 }
 

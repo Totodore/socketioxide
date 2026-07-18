@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(EnvFilter::from_default_env())
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
-    let client = Client::connect_with_hyper().await?;
+    let client = Client::connect_with_hyper_ws().await?;
     let (mut tx, mut rx) = client.split();
 
     while let Some(Ok(event)) = rx.next().await {

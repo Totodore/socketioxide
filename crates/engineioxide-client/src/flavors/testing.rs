@@ -85,17 +85,22 @@ impl AsyncWrite for StreamImpl {
 }
 
 #[derive(Debug)]
-pub struct EngineIoTestSvc<H: EngineIoHandler> {
+pub struct TestingFlavor<H: EngineIoHandler> {
     inner: EngineIoService<H>,
 }
-impl<H: EngineIoHandler> Clone for EngineIoTestSvc<H> {
+impl<H: EngineIoHandler> TestingFlavor<H> {
+    pub fn new(inner: EngineIoService<H>) -> Self {
+        Self { inner }
+    }
+}
+impl<H: EngineIoHandler> Clone for TestingFlavor<H> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
         }
     }
 }
-impl<H: EngineIoHandler> From<EngineIoService<H>> for EngineIoTestSvc<H> {
+impl<H: EngineIoHandler> From<EngineIoService<H>> for TestingFlavor<H> {
     fn from(inner: EngineIoService<H>) -> Self {
         Self { inner }
     }
@@ -103,7 +108,7 @@ impl<H: EngineIoHandler> From<EngineIoService<H>> for EngineIoTestSvc<H> {
 
 /// HTTP Service implementation
 impl<H: EngineIoHandler> hyper::service::Service<http::Request<BoxBody<Bytes, Infallible>>>
-    for EngineIoTestSvc<H>
+    for TestingFlavor<H>
 {
     type Response = Response<BoxBody<Bytes, Infallible>>;
     type Error = Infallible;
@@ -116,7 +121,7 @@ impl<H: EngineIoHandler> hyper::service::Service<http::Request<BoxBody<Bytes, In
 }
 
 /// Websocket service implementation
-impl<H: EngineIoHandler> hyper::service::Service<http::Request<()>> for EngineIoTestSvc<H> {
+impl<H: EngineIoHandler> hyper::service::Service<http::Request<()>> for TestingFlavor<H> {
     type Response = TokioTungsteniteWS<StreamImpl>;
     type Error = tungstenite::Error;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
