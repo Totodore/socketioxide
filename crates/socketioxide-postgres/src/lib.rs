@@ -54,7 +54,7 @@
 
 use drivers::Driver;
 use futures_core::{Stream, stream::BoxStream};
-use futures_util::{StreamExt, pin_mut};
+use futures_util::{StreamExt, future::Either, pin_mut};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::value::RawValue;
 use socketioxide_core::{
@@ -358,7 +358,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
     type Error = Error<D>;
     type State = PostgresAdapterCtr<D>;
     type AckStream =
-        AckStream<E::AckStream, BoxStream<'static, AckPayload>, ResponsePayload, E::AckError>;
+        Either<E::AckStream, AckStream<E, BoxStream<'static, AckPayload>, ResponsePayload>>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -491,12 +491,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         if opts.is_local(self.local.server_id()) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_empty_remote(
-                local,
-                futures_util::stream::empty::<AckPayload>().boxed(),
-                stream::decode_postgres_ack,
-            );
-            return Ok(stream);
+            return Ok(Either::Left(local));
         }
         let req = RequestOut::new(
             self.local.server_id(),
@@ -533,15 +528,15 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             .filter_map(future::ready)
             .boxed();
 
-        Ok(AckStream::new(
+        Ok(Either::Right(AckStream::new(
             local,
             remote,
-            stream::decode_postgres_ack,
+            decode_postgres_ack,
             timeout,
             remote_serv_cnt,
             req_id,
             self.responses.clone(),
-        ))
+        )))
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
@@ -1237,4 +1232,10 @@ impl ResponsePacket {
 pub enum ResponsePayload {
     Data(Box<RawValue>),
     Attachment { id: i64, is_binary: bool },
+}
+
+fn decode_postgres_ack<E: serde::de::DeserializeOwned + fmt::Debug>(
+    item: AckPayload,
+) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
+    item.deserialize()
 }

@@ -99,7 +99,7 @@ use std::{
 };
 
 use futures_core::{Stream, future::Future};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, future::Either};
 use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::adapter::remote_packet::{
     RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
@@ -121,8 +121,6 @@ use drivers::{Driver, Item, ItemHeader};
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
 pub mod drivers;
-
-mod stream;
 
 /// The configuration of the [`MongoDbAdapter`].
 #[derive(Debug, Clone)]
@@ -331,7 +329,7 @@ impl<E, D> DefinedAdapter for CustomMongoDbAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> {
     type Error = Error<D>;
     type State = MongoDbAdapterCtr<D>;
-    type AckStream = AckStream<E::AckStream, ChanStream<Item>, Item, E::AckError>;
+    type AckStream = Either<E::AckStream, AckStream<E, ChanStream<Item>, Item>>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -427,12 +425,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_empty_remote(
-                local,
-                ChanStream::<Item>::new(mpsc::channel::<Item>(1).1),
-                stream::decode_mongodb_ack,
-            );
-            return Ok(stream);
+            return Ok(Either::Left(local));
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
         let req_id = req.id;
@@ -451,15 +444,15 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             .request_timeout
             .saturating_add(timeout.unwrap_or(self.local.ack_timeout()));
 
-        Ok(AckStream::new(
+        Ok(Either::Right(AckStream::new(
             local,
             ChanStream::new(rx),
-            stream::decode_mongodb_ack,
+            decode_mongodb_ack,
             timeout,
             remote_serv_cnt,
             req_id,
             self.responses.clone(),
-        ))
+        )))
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
@@ -888,4 +881,11 @@ impl<D: Driver> Spawnable for InitRes<D> {
             }
         });
     }
+}
+
+fn decode_mongodb_ack<E: DeserializeOwned + fmt::Debug>(
+    item: Item,
+) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
+    rmp_serde::from_slice::<Response<E>>(&item.data)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
 }
