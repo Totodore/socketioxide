@@ -41,14 +41,14 @@ impl EngineIoClientConfig {
 #[derive(Default)]
 pub struct EngineIoClientConfigBuilder {
     config: EngineIoClientConfig,
-    uri: String,
+    uri: Option<String>,
 }
 impl EngineIoClientConfigBuilder {
     pub fn new() -> Self {
         Self::default()
     }
     pub fn uri(mut self, uri: &str) -> Self {
-        self.uri = uri.to_string();
+        self.uri = Some(uri.to_string());
         self
     }
     pub fn transports<const N: usize>(mut self, transports: [TransportType; N]) -> Self {
@@ -58,7 +58,9 @@ impl EngineIoClientConfigBuilder {
         self
     }
     pub fn build(mut self) -> EngineIoClientConfig {
-        self.config.uri = self.uri.parse().unwrap(); //TODO: err
+        if let Some(uri) = self.uri {
+            self.config.uri = uri.parse().unwrap(); //TODO: err
+        }
         self.config
     }
 }
