@@ -5,7 +5,9 @@ use std::{
 };
 
 use bytes::Bytes;
-use engineioxide_core::{OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, Str};
+use engineioxide_core::{
+    OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, Str, TransportType,
+};
 use futures_core::Stream;
 use futures_util::{Sink, StreamExt};
 use http::Request;
@@ -13,6 +15,8 @@ use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
 use tokio_tungstenite::tungstenite::handshake::client::generate_key;
 use tracing::Level;
+
+use crate::EngineIoClientConfig;
 
 pin_project! {
     pub struct WsTransport<S: WsSvc> {
@@ -93,18 +97,15 @@ impl<S: WsSvc> std::error::Error for WsTransportError<S> {}
 
 impl<S: WsSvc> WsTransport<S> {
     #[tracing::instrument(skip(svc))]
-    pub fn connect_with_upgrade(svc: S, sid: Sid) -> Self {
+    pub fn connect_with_upgrade(svc: S, config: &EngineIoClientConfig, sid: Sid) -> Self {
         tracing::trace!("websocket connection with upgrade");
-        let req = Request::builder()
-            .method("GET")
+        let uri = super::with_mandatory_query(&config.uri, TransportType::Websocket, Some(sid));
+        let req = Request::get(uri)
             .header("Host", "127.0.0.1")
             .header("Connection", "Upgrade")
             .header("Upgrade", "websocket")
             .header("Sec-WebSocket-Version", "13")
             .header("Sec-WebSocket-Key", generate_key())
-            .uri(format!(
-                "ws://localhost:3000/engine.io/?EIO=4&transport=websocket&sid={sid}"
-            ))
             .body(())
             .unwrap();
 
@@ -117,23 +118,24 @@ impl<S: WsSvc> WsTransport<S> {
     }
 
     #[tracing::instrument(skip(svc))]
-    pub async fn connect(svc: S) -> Result<(Self, OpenPacket), WsTransportError<S>> {
+    pub async fn connect(
+        svc: S,
+        config: &EngineIoClientConfig,
+    ) -> Result<(Self, OpenPacket), WsTransportError<S>> {
         tracing::trace!("websocket connection without upgrade");
+        let uri = super::with_mandatory_query(&config.uri, TransportType::Websocket, None);
 
-        let req = Request::builder()
-            .method("GET")
-            .header("Host", "127.0.0.1")
+        let req = Request::get(uri)
             .header("Connection", "Upgrade")
             .header("Upgrade", "websocket")
             .header("Sec-WebSocket-Version", "13")
             .header("Sec-WebSocket-Key", generate_key())
-            .uri("ws://localhost:3000/engine.io/?EIO=4&transport=websocket")
             .body(())
             .unwrap();
 
         let mut stream = svc.call(req).await.map_err(WsTransportError::Websocket)?;
-        tracing::debug!("handshake response received, waiting for open packet");
 
+        tracing::debug!("handshake response received, waiting for open packet");
         let packet = match stream.next().await.ok_or(WsTransportError::Closed)? {
             Ok(msg) => parse_packet(msg)?,
             Err(e) => return Err(WsTransportError::Websocket(e)),

@@ -1,15 +1,25 @@
 use std::{
+    convert::Infallible,
     fmt,
     pin::Pin,
     task::{Context, Poll, ready},
 };
 
-use engineioxide_core::{Packet, Sid, TransportType};
+use bytes::Bytes;
+use engineioxide_core::{Packet, ProtocolVersion, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
+use http::{
+    Request, Uri,
+    uri::{PathAndQuery, Scheme},
+};
+use http_body_util::{Empty, combinators::BoxBody};
 use tracing::Level;
 
-use crate::transport::{polling::PollingTransportError, ws::WsTransportError};
+use crate::{
+    EngineIoClientConfig,
+    transport::{polling::PollingTransportError, ws::WsTransportError},
+};
 
 pub use polling::{PollingSvc, PollingTransport};
 pub use ws::{WebSocket, WsSvc, WsTransport};
@@ -82,6 +92,7 @@ impl<S: TransportSvc> Transport<S> {
     pub fn upgrade(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
+        config: &EngineIoClientConfig,
         sid: Sid,
     ) -> Poll<Option<Result<(), TransportError<S>>>> {
         match self.as_mut().project() {
@@ -91,7 +102,7 @@ impl<S: TransportSvc> Transport<S> {
                 let svc = inner.svc.clone();
 
                 self.set(Transport::Websocket {
-                    inner: WsTransport::connect_with_upgrade(svc, sid),
+                    inner: WsTransport::connect_with_upgrade(svc, config, sid),
                 });
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -188,5 +199,70 @@ impl<S: TransportSvc> fmt::Debug for Transport<S> {
             Self::Polling { inner } => f.debug_struct("Polling").field("inner", inner).finish(),
             Self::Websocket { inner } => f.debug_struct("Websocket").field("inner", inner).finish(),
         }
+    }
+}
+
+fn build_connect_req(
+    base_uri: &Uri,
+    transport: TransportType,
+) -> Request<BoxBody<Bytes, Infallible>> {
+    let uri = with_mandatory_query(base_uri, transport, None);
+
+    Request::builder()
+        .method(http::Method::GET)
+        .uri(uri)
+        .body(BoxBody::new(Empty::new()))
+        .unwrap()
+}
+
+/// Merges the user-provided `base_uri` (scheme + authority + path, and any
+/// pre-existing query) with the query parameters engine.io mandates on every
+/// request: the protocol version (`EIO`) and the `transport` in use.
+fn with_mandatory_query(base_uri: &Uri, transport: TransportType, sid: Option<Sid>) -> Uri {
+    let secure = is_uri_secure(base_uri);
+    let mut parts = base_uri.clone().into_parts();
+
+    parts.scheme = match (transport, secure) {
+        (TransportType::Polling, Some(true)) => Some(Scheme::HTTPS),
+        (TransportType::Websocket, Some(true)) => Some("wss".parse().unwrap()),
+        (TransportType::Polling, Some(false)) => Some(Scheme::HTTPS),
+        (TransportType::Websocket, Some(false)) => Some("ws".parse().unwrap()),
+        (_, None) => None,
+    };
+
+    let path = parts
+        .path_and_query
+        .as_ref()
+        .map(|pq| pq.path())
+        .unwrap_or("/")
+        .to_owned();
+
+    let existing_query = parts
+        .path_and_query
+        .as_ref()
+        .and_then(|pq| pq.query())
+        .filter(|q| !q.is_empty());
+
+    let protocol = format_args!("EIO={}&transport={transport}", ProtocolVersion::V4);
+
+    let path = match (existing_query, sid) {
+        (Some(existing), Some(sid)) => format!("{path}?sid={sid}&{protocol}&{existing}"),
+        (Some(existing), None) => format!("{path}?{protocol}&{existing}"),
+        (None, Some(sid)) => format!("{path}?sid={sid}&{protocol}"),
+        (None, None) => format!("{path}?{protocol}"),
+    };
+
+    parts.path_and_query =
+        Some(PathAndQuery::try_from(path).expect("base uri path should be valid"));
+
+    Uri::from_parts(parts).expect("base uri should produce a valid uri")
+}
+
+//TODO: invalid scheme err
+fn is_uri_secure(uri: &Uri) -> Option<bool> {
+    match uri.scheme_str()? {
+        "http" | "ws" => Some(false),
+        "https" | "wss" => Some(true),
+        _ => None,
     }
 }

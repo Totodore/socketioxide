@@ -6,13 +6,17 @@ use std::{
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
-use engineioxide_core::{OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, payload};
+use engineioxide_core::{
+    OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, TransportType, payload,
+};
 use futures_core::Stream;
 use futures_util::{Sink, StreamExt};
-use http::{Request, Response, StatusCode};
-use http_body_util::{BodyExt, Full, combinators::BoxBody};
+use http::{Request, Response, StatusCode, Uri};
+use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
 use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
+
+use crate::EngineIoClientConfig;
 
 pub trait PollingSvc:
     HyperSvc<
@@ -77,13 +81,34 @@ impl<F> Default for PostState<F> {
 }
 
 impl<F> PollState<F> {
-    fn new_request<S: PollingSvc<Future = F>>(svc: &S, sid: Sid) -> Self {
-        let uri = format!("http://localhost:3000/engine.io?EIO=4&transport=polling&sid={sid}");
-        let req = Request::get(uri)
-            .body(BoxBody::new(Full::default()))
+    fn new_request<S: PollingSvc<Future = F>>(svc: &S, base_uri: &Uri, sid: Sid) -> Self {
+        let uri = super::with_mandatory_query(base_uri, TransportType::Polling, Some(sid));
+
+        let req = Request::builder()
+            .method(http::Method::GET)
+            .uri(uri)
+            .body(BoxBody::new(Empty::new()))
             .unwrap();
+
         let fut = svc.call(req);
         PollState::Pending { fut }
+    }
+}
+impl<F> PostState<F> {
+    fn new_request<S: PollingSvc<Future = F>>(svc: &S, uri: &Uri, sid: Sid, body: Bytes) -> Self {
+        let uri = super::with_mandatory_query(uri, TransportType::Polling, Some(sid));
+
+        let req = Request::builder()
+            .method(http::Method::POST)
+            .uri(uri)
+            .body(BoxBody::new(Full::new(body)))
+            .unwrap();
+
+        let fut = svc.call(req);
+        PostState::Pending {
+            fut,
+            bytes: BytesMut::new(),
+        }
     }
 }
 
@@ -108,19 +133,19 @@ pin_project! {
         #[pin]
         post_state: PostState<S::Future>,
 
+        base_uri: Uri,
         sid: Sid,
     }
 }
 
 impl<S: PollingSvc> PollingTransport<S> {
-    pub async fn connect(svc: S) -> Result<(Self, OpenPacket), PollingTransportError<S>> {
+    pub async fn connect(
+        svc: S,
+        config: &EngineIoClientConfig,
+    ) -> Result<(Self, OpenPacket), PollingTransportError<S>> {
         tracing::trace!("handshake request");
 
-        let req = Request::builder()
-            .method("GET")
-            .uri("http://localhost:3000/engine.io?EIO=4&transport=polling")
-            .body(BoxBody::new(Full::default()))
-            .unwrap();
+        let req = super::build_connect_req(&config.uri, TransportType::Polling);
 
         let res = svc
             .call(req)
@@ -138,12 +163,13 @@ impl<S: PollingSvc> PollingTransport<S> {
 
         match packet {
             Packet::Open(open) => {
-                let poll_state = PollState::new_request(&svc, open.sid);
+                let poll_state = PollState::new_request(&svc, &config.uri, open.sid);
                 let transport = PollingTransport {
                     svc,
                     poll_state,
                     post_state: PostState::default(),
                     sid: open.sid,
+                    base_uri: config.uri.clone(),
                 };
 
                 tracing::debug!(?transport, ?open, "polling transport intialized");
@@ -195,7 +221,7 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
                         sid = %self.sid,
                         "decoding stream ended, new polling req"
                     );
-                    let request = PollState::new_request(&self.svc, self.sid);
+                    let request = PollState::new_request(&self.svc, &self.base_uri, self.sid);
                     self.project().poll_state.set(request);
                     //check if wake is needed
                     cx.waker().wake_by_ref();
@@ -228,18 +254,8 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
             PostStateProj::Queuing { bytes } => {
                 let body = std::mem::take(bytes).freeze();
                 //TODO: handle max body size from open packet
-                let sid = self.sid;
-                let req = Request::post(format!(
-                    "http://localhost:3000/engine.io?EIO=4&transport=polling&sid={sid}",
-                ))
-                .body(BoxBody::new(Full::new(body)))
-                .unwrap();
-
-                let fut = self.svc.call(req);
-                self.project().post_state.set(PostState::Pending {
-                    fut,
-                    bytes: BytesMut::new(),
-                });
+                let post_state = PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
+                self.project().post_state.set(post_state);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }

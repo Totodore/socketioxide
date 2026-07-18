@@ -68,11 +68,11 @@ impl<S: TransportSvc> Client<S> {
     ) -> Result<Self, TransportError<S>> {
         let (transport, open_packet) = match config.initial_transport() {
             TransportType::Polling => {
-                let (transport, open_packet) = PollingTransport::connect(svc).await?;
+                let (transport, open_packet) = PollingTransport::connect(svc, &config).await?;
                 (transport.into(), open_packet)
             }
             TransportType::Websocket => {
-                let (transport, open_packet) = WsTransport::connect(svc).await?;
+                let (transport, open_packet) = WsTransport::connect(svc, &config).await?;
                 (transport.into(), open_packet)
             }
         };
@@ -168,7 +168,7 @@ impl<S: TransportSvc> Client<S> {
     ) -> Poll<Option<Result<EioEvent, TransportError<S>>>> {
         let sid = self.sid();
         let proj = self.as_mut().project();
-        match ready!(proj.transport.upgrade(cx, sid)) {
+        match ready!(proj.transport.upgrade(cx, proj.config, sid)) {
             Some(Ok(())) => {
                 tracing::debug!(%sid, "websocket transport upgraded");
                 *proj.state = ClientState::Running;
