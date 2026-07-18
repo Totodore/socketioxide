@@ -1,5 +1,7 @@
+use std::str::FromStr;
+
 use engineioxide_core::TransportType;
-use http::Uri;
+use http::{Uri, uri};
 
 #[derive(Debug)]
 pub struct EngineIoClientConfig {
@@ -38,6 +40,35 @@ impl EngineIoClientConfig {
     }
 }
 
+pub trait IntoEngineIoClientConfig {
+    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri>;
+}
+impl IntoEngineIoClientConfig for EngineIoClientConfig {
+    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+        Ok(self)
+    }
+}
+impl IntoEngineIoClientConfig for &str {
+    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+        Ok(EngineIoClientConfig {
+            uri: self.parse()?,
+            ..Default::default()
+        })
+    }
+}
+impl IntoEngineIoClientConfig for Result<EngineIoClientConfig, uri::InvalidUri> {
+    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+        self
+    }
+}
+impl FromStr for EngineIoClientConfig {
+    type Err = uri::InvalidUri;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse()
+    }
+}
+
 #[derive(Default)]
 pub struct EngineIoClientConfigBuilder {
     config: EngineIoClientConfig,
@@ -57,10 +88,10 @@ impl EngineIoClientConfigBuilder {
         self.config.transports = transports.to_vec();
         self
     }
-    pub fn build(mut self) -> EngineIoClientConfig {
+    pub fn build(mut self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
         if let Some(uri) = self.uri {
-            self.config.uri = uri.parse().unwrap(); //TODO: err
+            self.config.uri = uri.parse()?; //TODO: err
         }
-        self.config
+        Ok(self.config)
     }
 }

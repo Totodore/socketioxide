@@ -7,10 +7,13 @@ use std::{
 use engineioxide_core::{OpenPacket, Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
+use http::uri;
+use thiserror::Error;
 use tracing::Level;
 
 use crate::{
     EngineIoClientConfig,
+    config::IntoEngineIoClientConfig,
     event::EioEvent,
     flavors,
     transport::{Transport, TransportError, TransportSvc, WsTransport, polling::PollingTransport},
@@ -40,42 +43,42 @@ enum ClientState {
 
 impl Client<flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
     pub async fn connect_with_hyper_ws(
-        config: EngineIoClientConfig,
-    ) -> Result<Self, TransportError<flavors::hyper_tungstenite::HyperTungsteniteFlavor>> {
+        config: impl IntoEngineIoClientConfig,
+    ) -> Result<Self, ConnectError<flavors::hyper_tungstenite::HyperTungsteniteFlavor>> {
         let svc = flavors::hyper_tungstenite::HyperTungsteniteFlavor::new();
-        Self::connect_with_config(svc, config).await
+        Self::connect(svc, config).await
     }
 }
 
 impl<Svc: flavors::testing::EngineSvc> Client<flavors::testing::TestingFlavor<Svc>> {
     pub async fn connect_with_testbed(
         svc: Svc,
-        config: EngineIoClientConfig,
-    ) -> Result<Self, TransportError<flavors::testing::TestingFlavor<Svc>>> {
+        config: impl IntoEngineIoClientConfig,
+    ) -> Result<Self, ConnectError<flavors::testing::TestingFlavor<Svc>>> {
         let svc = flavors::testing::TestingFlavor::new(svc);
-        Self::connect_with_config(svc, config).await
+        Self::connect(svc, config).await
     }
 }
 
-impl<S: TransportSvc> Client<S> {
-    pub async fn connect(svc: S) -> Result<Self, TransportError<S>> {
-        Self::connect_with_config(svc, EngineIoClientConfig::default()).await
+#[derive(Debug, Error)]
+pub enum ConnectError<S: TransportSvc> {
+    #[error(transparent)]
+    Transport(TransportError<S>),
+    #[error("failed to build client, invalid uri: {0}")]
+    Config(#[from] uri::InvalidUri),
+}
+impl<S: TransportSvc> From<TransportError<S>> for ConnectError<S> {
+    fn from(value: TransportError<S>) -> Self {
+        Self::Transport(value)
     }
-
-    pub async fn connect_with_config(
+}
+impl<S: TransportSvc> Client<S> {
+    pub async fn connect(
         svc: S,
-        config: EngineIoClientConfig,
-    ) -> Result<Self, TransportError<S>> {
-        let (transport, open_packet) = match config.initial_transport() {
-            TransportType::Polling => {
-                let (transport, open_packet) = PollingTransport::connect(svc, &config).await?;
-                (transport.into(), open_packet)
-            }
-            TransportType::Websocket => {
-                let (transport, open_packet) = WsTransport::connect(svc, &config).await?;
-                (transport.into(), open_packet)
-            }
-        };
+        config: impl IntoEngineIoClientConfig,
+    ) -> Result<Self, ConnectError<S>> {
+        let config = config.into_config()?;
+        let (transport, open_packet) = Self::connect_inner(svc, &config).await?;
 
         let client = Client {
             transport,
@@ -87,6 +90,24 @@ impl<S: TransportSvc> Client<S> {
         };
 
         Ok(client)
+    }
+
+    async fn connect_inner(
+        svc: S,
+        config: &EngineIoClientConfig,
+    ) -> Result<(Transport<S>, OpenPacket), TransportError<S>> {
+        let (transport, packet) = match config.initial_transport() {
+            TransportType::Polling => {
+                let (transport, open_packet) = PollingTransport::connect(svc, config).await?;
+                (transport.into(), open_packet)
+            }
+            TransportType::Websocket => {
+                let (transport, open_packet) = WsTransport::connect(svc, config).await?;
+                (transport.into(), open_packet)
+            }
+        };
+
+        Ok((transport, packet))
     }
 
     pub fn transport(&self) -> TransportType {
