@@ -37,6 +37,17 @@ impl<S: TransportSvc> fmt::Display for TransportError<S> {
 }
 impl<S: TransportSvc> std::error::Error for TransportError<S> {}
 
+impl<S: TransportSvc> From<PollingTransportError<S>> for TransportError<S> {
+    fn from(err: PollingTransportError<S>) -> Self {
+        Self::Polling(err)
+    }
+}
+impl<S: TransportSvc> From<WsTransportError<S>> for TransportError<S> {
+    fn from(err: WsTransportError<S>) -> Self {
+        Self::Websocket(err)
+    }
+}
+
 pub trait TransportSvc: PollingSvc + WsSvc {}
 impl<S: PollingSvc + WsSvc> TransportSvc for S {}
 
@@ -76,7 +87,7 @@ impl<S: TransportSvc> Transport<S> {
         match self.as_mut().project() {
             TransportProj::Polling { mut inner } => {
                 // start by flushing polling transport to ensure there is no pending data
-                ready!(inner.as_mut().poll_flush(cx)).map_err(TransportError::Polling)?;
+                ready!(inner.as_mut().poll_flush(cx))?;
                 let svc = inner.svc.clone();
 
                 self.set(Transport::Websocket {
@@ -89,7 +100,7 @@ impl<S: TransportSvc> Transport<S> {
             TransportProj::Websocket { inner } => match ready!(inner.poll_next(cx)) {
                 Some(Ok(Packet::Upgrade)) => Poll::Ready(Some(Ok(()))),
                 Some(Ok(p)) => todo!("handle err: {p:?}"),
-                Some(Err(err)) => Poll::Ready(Some(Err(TransportError::Websocket(err)))),
+                Some(Err(err)) => Poll::Ready(Some(Err(err.into()))),
                 None => Poll::Ready(None),
             },
         }
@@ -161,6 +172,16 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     }
 }
 
+impl<S: TransportSvc> From<PollingTransport<S>> for Transport<S> {
+    fn from(inner: PollingTransport<S>) -> Self {
+        Self::Polling { inner }
+    }
+}
+impl<S: TransportSvc> From<WsTransport<S>> for Transport<S> {
+    fn from(inner: WsTransport<S>) -> Self {
+        Self::Websocket { inner }
+    }
+}
 impl<S: TransportSvc> fmt::Debug for Transport<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

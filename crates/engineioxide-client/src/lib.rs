@@ -9,9 +9,12 @@
 //! Engine.IO client library for Rust.
 
 mod client;
+mod config;
 mod event;
+
 pub mod flavors;
 pub mod transport;
 
 pub use crate::client::Client;
 pub use crate::event::EioEvent;
+pub use config::{EngineIoClientConfig, EngineIoClientConfigBuilder};

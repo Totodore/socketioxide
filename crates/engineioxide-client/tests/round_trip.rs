@@ -5,7 +5,8 @@
 //! the echoed packets must be surfaced back through the stream.
 
 use bytes::Bytes;
-use engineioxide_client::{Client, EioEvent};
+use engineioxide::TransportType;
+use engineioxide_client::{Client, EioEvent, EngineIoClientConfig};
 use futures_util::{SinkExt, StreamExt};
 
 use crate::fixture::{Event, service};
@@ -15,12 +16,17 @@ mod fixture;
 /// Packets sent through the write half must reach the server, and the packets
 /// the handler echoes back must be surfaced in order through the read half.
 #[tokio::test]
-async fn round_trip() {
+async fn round_trip_polling() {
     let (svc, mut rx) = service();
-    let client = Client::connect_polling(svc).await.unwrap();
+    let config = EngineIoClientConfig::builder()
+        .transports([TransportType::Polling])
+        .build();
+    let client = Client::connect_with_config(svc, config).await.unwrap();
     let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<EioEvent>();
+
+    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
+    assert_eq!(crx.next().await.unwrap().unwrap(), EioEvent::Connect(sid));
 
     ctx.send(EioEvent::Message("Hello".into())).await.unwrap();
     ctx.send(EioEvent::Binary(Bytes::from_static(b"Hello")))
@@ -53,10 +59,15 @@ async fn round_trip() {
 #[tokio::test]
 async fn round_trip_ws() {
     let (svc, mut rx) = service();
-    let client = Client::connect_ws(svc).await.unwrap();
+    let config = EngineIoClientConfig::builder()
+        .transports([TransportType::Websocket])
+        .build();
+
+    let client = Client::connect_with_config(svc, config).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     let (mut ctx, mut crx) = client.split::<EioEvent>();
+    assert_eq!(crx.next().await.unwrap().unwrap(), EioEvent::Connect(sid));
 
     ctx.send(EioEvent::Message("Hello".into())).await.unwrap();
     ctx.send(EioEvent::Binary(Bytes::from_static(b"Hello")))

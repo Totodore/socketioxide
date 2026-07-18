@@ -4,20 +4,16 @@ use std::{
     task::{Context, Poll, Waker, ready},
 };
 
-use engineioxide::{handler::EngineIoHandler, service::EngineIoService};
 use engineioxide_core::{OpenPacket, Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
 use tracing::Level;
 
 use crate::{
+    EngineIoClientConfig,
     event::EioEvent,
-    flavors::{hyper_tungstenite::HyperTungsteniteFlavor, testing::TestingFlavor},
-    transport::{
-        Transport, TransportError, TransportSvc,
-        polling::{PollingTransport, PollingTransportError},
-        ws::{WsTransport, WsTransportError},
-    },
+    flavors,
+    transport::{Transport, TransportError, TransportSvc, WsTransport, polling::PollingTransport},
 };
 
 pin_project_lite::pin_project! {
@@ -25,9 +21,9 @@ pin_project_lite::pin_project! {
         #[pin]
         transport: Transport<S>,
         sink_waker: Option<Waker>,
+        config: EngineIoClientConfig,
 
         open_packet: OpenPacket,
-        available_transports: Vec<TransportType>,
         state: ClientState,
         pending_pong: bool,
     }
@@ -42,54 +38,51 @@ enum ClientState {
     Closed,
 }
 
-impl Client<HyperTungsteniteFlavor> {
-    pub async fn connect_with_hyper_ws()
-    -> Result<Self, PollingTransportError<HyperTungsteniteFlavor>> {
-        let svc = HyperTungsteniteFlavor::new();
-        Self::connect_default(svc).await
+impl Client<flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
+    pub async fn connect_with_hyper_ws(
+        config: EngineIoClientConfig,
+    ) -> Result<Self, TransportError<flavors::hyper_tungstenite::HyperTungsteniteFlavor>> {
+        let svc = flavors::hyper_tungstenite::HyperTungsteniteFlavor::new();
+        Self::connect_with_config(svc, config).await
     }
 }
-impl<H: EngineIoHandler> Client<TestingFlavor<H>> {
+
+impl<Svc: flavors::testing::EngineSvc> Client<flavors::testing::TestingFlavor<Svc>> {
     pub async fn connect_with_testbed(
-        svc: EngineIoService<H>,
-    ) -> Result<Self, PollingTransportError<TestingFlavor<H>>> {
-        let svc = TestingFlavor::new(svc);
-        Self::connect_default(svc).await
+        svc: Svc,
+        config: EngineIoClientConfig,
+    ) -> Result<Self, TransportError<flavors::testing::TestingFlavor<Svc>>> {
+        let svc = flavors::testing::TestingFlavor::new(svc);
+        Self::connect_with_config(svc, config).await
     }
 }
 
 impl<S: TransportSvc> Client<S> {
-    pub async fn connect_default(svc: S) -> Result<Self, PollingTransportError<S>> {
-        Self::connect(svc, &[TransportType::Polling, TransportType::Websocket]).await
+    pub async fn connect(svc: S) -> Result<Self, TransportError<S>> {
+        Self::connect_with_config(svc, EngineIoClientConfig::default()).await
     }
-    pub async fn connect_ws(svc: S) -> Result<Self, WsTransportError<S>> {
-        let (inner, open_packet) = WsTransport::connect(svc.clone()).await?;
-        let transport = Transport::Websocket { inner };
-        let client = Client {
-            transport,
-            sink_waker: None,
-            state: ClientState::Open,
-            open_packet,
-            available_transports: vec![], // move to a client config
-            pending_pong: false,
+
+    pub async fn connect_with_config(
+        svc: S,
+        config: EngineIoClientConfig,
+    ) -> Result<Self, TransportError<S>> {
+        let (transport, open_packet) = match config.initial_transport() {
+            TransportType::Polling => {
+                let (transport, open_packet) = PollingTransport::connect(svc).await?;
+                (transport.into(), open_packet)
+            }
+            TransportType::Websocket => {
+                let (transport, open_packet) = WsTransport::connect(svc).await?;
+                (transport.into(), open_packet)
+            }
         };
 
-        Ok(client)
-    }
-
-    pub async fn connect(
-        svc: impl Into<S>,
-        transports: &[TransportType],
-    ) -> Result<Self, PollingTransportError<S>> {
-        let svc = svc.into();
-        let (inner, open_packet) = PollingTransport::connect(svc).await?;
-        let transport = Transport::Polling { inner };
         let client = Client {
             transport,
             open_packet,
+            config,
             sink_waker: None,
             state: ClientState::Open,
-            available_transports: transports.to_vec(),
             pending_pong: false,
         };
 
@@ -102,23 +95,17 @@ impl<S: TransportSvc> Client<S> {
 }
 
 impl<S: TransportSvc> Client<S> {
-    pub async fn connect_polling(svc: S) -> Result<Self, PollingTransportError<S>> {
-        Self::connect(svc, &[TransportType::Polling]).await
-    }
-}
-
-impl<S: TransportSvc> Client<S> {
     pub fn sid(&self) -> Sid {
         self.open_packet.sid
     }
 
     fn should_upgrade(&self) -> bool {
-        self.open_packet
-            .upgrades
-            .contains(&TransportType::Websocket)
+        self.transport() != TransportType::Websocket
             && self
-                .available_transports
+                .open_packet
+                .upgrades
                 .contains(&TransportType::Websocket)
+            && self.config.transports.contains(&TransportType::Websocket)
     }
 }
 
@@ -224,15 +211,15 @@ impl<S: TransportSvc> Client<S> {
 impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
     type Error = <Transport<S> as Sink<Packet>>::Error;
 
-    #[tracing::instrument(level = Level::TRACE, ret)]
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.state {
-            ClientState::Open | ClientState::Upgrading => {
-                // save waker to wake the task when client is running.
+            ClientState::Upgrading => {
+                // save waker to wake the task when transport is migrated.
                 self.project().sink_waker.replace(cx.waker().clone());
                 Poll::Pending
             }
-            ClientState::Running => self.project().transport.poll_ready(cx),
+            ClientState::Open | ClientState::Running => self.project().transport.poll_ready(cx),
             ClientState::Closing => todo!("err, transport is closing"),
             ClientState::Closed => todo!("err, transport closed"),
         }
@@ -259,6 +246,11 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
 
 impl<S: TransportSvc> fmt::Debug for Client<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Client").finish()
+        f.debug_struct("Client")
+            .field("sink_waker", &self.sink_waker)
+            .field("state", &self.state)
+            .field("open_packet", &self.open_packet)
+            .field("config", &self.config)
+            .finish()
     }
 }

@@ -44,6 +44,7 @@ use tower_service::Service as TowerSvc;
 
 use crate::{
     body::ResponseBody, config::EngineIoConfig, engine::EngineIo, handler::EngineIoHandler,
+    service::parser::RequestInfo,
 };
 
 mod futures;
@@ -157,6 +158,30 @@ where
         } else {
             ResponseFuture::new(self.inner.call(req))
         }
+    }
+}
+
+impl<St, H, Svc> HyperSvc<(St, http::Request<()>)> for EngineIoService<H, Svc>
+where
+    H: EngineIoHandler,
+    St: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    type Response = ();
+    type Error = parser::ParseError;
+    type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn call(&self, (conn, req): (St, http::Request<()>)) -> Self::Future {
+        let engine = self.engine.clone();
+        let RequestInfo { protocol, sid, .. } = match RequestInfo::parse(&req, &engine.config) {
+            Ok(infos) => infos,
+            Err(e) => return std::future::ready(Err(e)),
+        };
+
+        let (parts, _) = req.into_parts();
+        tokio::spawn(crate::transport::ws::on_init(
+            engine, conn, protocol, sid, parts,
+        ));
+        std::future::ready(Ok(()))
     }
 }
 

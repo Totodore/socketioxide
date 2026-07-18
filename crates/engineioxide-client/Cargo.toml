@@ -32,17 +32,13 @@ hyper-util = { workspace = true, features = ["tokio", "client", "client-pool", "
 tokio-stream.workspace = true
 tokio-util.workspace = true
 
-# Testing
-engineioxide = { path = "../engineioxide", features = [
-    "tracing",
-    "__test_harness",
-] }
-
 # Tracing
 tracing = { workspace = true } # TODO: make optional
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+# Testing
+engineioxide = { path = "../engineioxide", features = ["tracing"] }
 
 
 [features]

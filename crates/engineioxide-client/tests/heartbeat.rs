@@ -10,8 +10,8 @@
 
 use std::time::Duration;
 
-use engineioxide::config::EngineIoConfig;
-use engineioxide_client::{Client, EioEvent};
+use engineioxide::{TransportType, config::EngineIoConfig};
+use engineioxide_client::{Client, EioEvent, EngineIoClientConfig};
 use futures_util::{SinkExt, StreamExt};
 
 use crate::fixture::{Event, service_with_config};
@@ -31,10 +31,12 @@ fn config() -> EngineIoConfig {
 /// `Ping`s with `Pong`s, keeping the connection alive across several ping
 /// cycles. The connection must also still be usable afterwards.
 #[tokio::test]
-async fn heartbeat_keeps_connection_alive() {
+async fn heartbeat_keeps_connection_alive_polling() {
     let (svc, mut rx) = service_with_config(config());
-
-    let mut client = Client::connect_polling(svc).await.unwrap();
+    let config = EngineIoClientConfig::builder()
+        .transports([TransportType::Polling])
+        .build();
+    let mut client = Client::connect_with_config(svc, config).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     assert_eq!(
@@ -87,7 +89,11 @@ async fn heartbeat_keeps_connection_alive() {
 async fn heartbeat_keeps_connection_alive_websocket() {
     let (svc, mut rx) = service_with_config(config());
 
-    let mut client = Client::connect_ws(svc).await.unwrap();
+    let config = EngineIoClientConfig::builder()
+        .transports([TransportType::Websocket])
+        .build();
+
+    let mut client = Client::connect_with_config(svc, config).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     assert_eq!(

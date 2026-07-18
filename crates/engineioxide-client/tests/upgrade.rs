@@ -10,9 +10,13 @@ mod fixture;
 #[tokio::test]
 async fn upgrade() {
     let (svc, mut rx) = service();
-    let mut client = Client::connect_default(svc).await.unwrap();
+    let mut client = Client::connect(svc).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
+    assert_eq!(
+        client.next().await.unwrap().unwrap(),
+        EioEvent::Connect(sid)
+    );
 
     assert_eq!(
         client.next().await.unwrap().unwrap(),
