@@ -10,8 +10,6 @@ mod buf;
 mod decoder;
 mod encoder;
 
-pub use encoder::V4StreamEncoder;
-
 const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 #[cfg(feature = "v3")]
 const STRING_PACKET_SEPARATOR_V3: u8 = b':';
@@ -74,10 +72,6 @@ impl Payload {
             peeked: None,
         }
     }
-}
-
-pub fn encoder_2<'a, S: Stream<Item = PacketBuf>>(rx: S, max_payload: u64) -> V4StreamEncoder<S> {
-    V4StreamEncoder::new(peekable::Peekable::new(rx), max_payload)
 }
 
 /// Encodes a payload into a byte stream.

@@ -346,9 +346,7 @@ where
 {
     let packet = Packet::Open(make_open_packet(TransportType::Websocket, sid, config));
     let packet: String = packet.into();
-    tracing::debug!(%sid, "sending open packet");
     ws.send(Message::Text(packet.into())).await?;
-    tracing::debug!(%sid, "open packet sent");
     Ok(())
 }
 
