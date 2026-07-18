@@ -137,6 +137,24 @@ where
     }
 }
 
+impl<St, H, Svc> TowerSvc<(St, http::Request<()>)> for EngineIoService<H, Svc>
+where
+    H: EngineIoHandler,
+    St: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    type Response = ();
+    type Error = parser::ParseError;
+    type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, (conn, req): (St, http::Request<()>)) -> Self::Future {
+        std::future::ready(ws_conn_inner(self.engine.clone(), conn, req))
+    }
+}
+
 /// Hyper 1.0 Service implementation.
 impl<H, ReqBody, ResBody, S> HyperSvc<Request<ReqBody>> for EngineIoService<H, S>
 where
@@ -171,18 +189,26 @@ where
     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
 
     fn call(&self, (conn, req): (St, http::Request<()>)) -> Self::Future {
-        let engine = self.engine.clone();
-        let RequestInfo { protocol, sid, .. } = match RequestInfo::parse(&req, &engine.config) {
-            Ok(infos) => infos,
-            Err(e) => return std::future::ready(Err(e)),
-        };
-
-        let (parts, _) = req.into_parts();
-        tokio::spawn(crate::transport::ws::on_init(
-            engine, conn, protocol, sid, parts,
-        ));
-        std::future::ready(Ok(()))
+        std::future::ready(ws_conn_inner(self.engine.clone(), conn, req))
     }
+}
+
+fn ws_conn_inner<St, H>(
+    engine: Arc<EngineIo<H>>,
+    conn: St,
+    req: http::Request<()>,
+) -> Result<(), parser::ParseError>
+where
+    H: EngineIoHandler,
+    St: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let RequestInfo { protocol, sid, .. } = RequestInfo::parse(&req, &engine.config)?;
+
+    let (parts, _) = req.into_parts();
+    let fut = crate::transport::ws::on_init(engine, conn, protocol, sid, parts);
+    tokio::spawn(fut);
+
+    Ok(())
 }
 
 #[cfg(feature = "__test_harness")]
