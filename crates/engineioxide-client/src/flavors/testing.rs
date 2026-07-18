@@ -168,7 +168,7 @@ impl AsyncWrite for StreamImpl {
         self.project()
             .tx
             .send(Ok(Bytes::copy_from_slice(buf)))
-            .unwrap();
+            .map_err(|_| io::Error::other("channel closed"))?;
         Poll::Ready(Ok(len))
     }
 
