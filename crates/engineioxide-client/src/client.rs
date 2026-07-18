@@ -2,11 +2,12 @@ use std::{
     fmt,
     pin::Pin,
     task::{Context, Poll, Waker, ready},
+    time::Instant,
 };
 
 use engineioxide_core::{OpenPacket, Packet, Sid, TransportType};
 use futures_core::Stream;
-use futures_util::Sink;
+use futures_util::{Sink, SinkExt};
 use http::uri;
 use thiserror::Error;
 use tracing::Level;
@@ -27,6 +28,7 @@ pin_project_lite::pin_project! {
         config: EngineIoClientConfig,
 
         open_packet: OpenPacket,
+        last_ping: Instant,
         state: ClientState,
         pending_pong: bool,
     }
@@ -85,6 +87,7 @@ impl<S: TransportSvc> Client<S> {
             open_packet,
             config,
             sink_waker: None,
+            last_ping: Instant::now(),
             state: ClientState::Open,
             pending_pong: false,
         };
@@ -167,6 +170,7 @@ impl<S: TransportSvc> Client<S> {
         match ready!(proj.transport.poll_next(cx)) {
             Some(Ok(Packet::Ping)) => {
                 *proj.pending_pong = true;
+                *proj.last_ping = Instant::now();
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
@@ -217,6 +221,14 @@ impl<S: TransportSvc> Client<S> {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), TransportError<S>>> {
+        if self.last_ping.elapsed()
+            <= self.open_packet.ping_interval + self.open_packet.ping_timeout
+        {
+            todo!("error + closing + better wake");
+            // self.close();
+            // Err()
+        }
+
         let mut proj = self.project();
         if *proj.pending_pong {
             ready!(proj.transport.as_mut().poll_ready(cx))?;
