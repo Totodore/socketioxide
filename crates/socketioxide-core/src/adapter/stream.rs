@@ -223,7 +223,7 @@ mod tests {
     use crate::adapter::remote_packet::{Response, ResponseType};
     use crate::adapter::{AckStreamItem, BroadcastIter, RemoteSocketData, SocketEmitter};
     use crate::packet::Packet;
-    use crate::parser::test::StubParser;
+    use crate::parser::{Parse, test::StubParser};
     use crate::{Sid, Str, Uid, Value};
     use futures_core::{FusedStream, Stream};
     use futures_util::StreamExt;
@@ -279,7 +279,7 @@ mod tests {
         fn path(&self) -> &Str {
             unreachable!()
         }
-        fn parser(&self) -> StubParser {
+        fn parser(&self) -> impl Parse {
             StubParser
         }
         fn server_id(&self) -> Uid {
