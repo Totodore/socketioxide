@@ -135,7 +135,6 @@ impl<S: TransportSvc> Stream for Transport<S> {
 impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     type Error = TransportError<S>;
 
-    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
             TransportProj::Polling { inner } => {
@@ -158,7 +157,6 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
         }
     }
 
-    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
             TransportProj::Polling { inner } => {
@@ -170,7 +168,6 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
         }
     }
 
-    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
             TransportProj::Polling { inner } => {
