@@ -7,7 +7,7 @@ use std::{
 
 use engineioxide_core::{OpenPacket, Packet, Sid, TransportType};
 use futures_core::Stream;
-use futures_util::{Sink, SinkExt};
+use futures_util::Sink;
 use http::uri;
 use thiserror::Error;
 use tracing::Level;

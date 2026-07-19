@@ -50,15 +50,17 @@ impl IntoEngineIoClientConfig for EngineIoClientConfig {
 }
 impl IntoEngineIoClientConfig for &str {
     fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
-        Ok(EngineIoClientConfig {
-            uri: self.parse()?,
-            ..Default::default()
-        })
+        EngineIoClientConfigBuilder::new().uri(self).build()
     }
 }
 impl IntoEngineIoClientConfig for Result<EngineIoClientConfig, uri::InvalidUri> {
     fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
         self
+    }
+}
+impl<const N: usize> IntoEngineIoClientConfig for [TransportType; N] {
+    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+        EngineIoClientConfigBuilder::new().transports(self).build()
     }
 }
 impl FromStr for EngineIoClientConfig {
