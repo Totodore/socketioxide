@@ -40,6 +40,8 @@ enum ClientState {
     Upgrading, // driving the ws upgrade handshake
     Running,   // steady state
     Closing,   // draining the transport toward close
+    //TODO: move closing state to another enum?
+    ClosingFlush, // flushing the disconnect packet
     Closed,
 }
 
@@ -151,12 +153,9 @@ impl<S: TransportSvc> Stream for Client<S> {
             }
             ClientState::Upgrading => self.poll_upgrade(cx),
             ClientState::Running => self.poll_transport(cx),
-            ClientState::Closing => {
-                ready!(self.as_mut().project().transport.poll_close(cx))?;
-                *self.as_mut().project().state = ClientState::Closed;
+            ClientState::Closed | ClientState::ClosingFlush | ClientState::Closing => {
                 Poll::Ready(None)
             }
-            ClientState::Closed => Poll::Ready(None),
         }
     }
 }
@@ -253,7 +252,7 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
                 Poll::Pending
             }
             ClientState::Open | ClientState::Running => self.project().transport.poll_ready(cx),
-            ClientState::Closing => todo!("err, transport is closing"),
+            ClientState::Closing | ClientState::ClosingFlush => todo!("err, transport is closing"),
             ClientState::Closed => todo!("err, transport closed"),
         }
     }
@@ -272,8 +271,31 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
     }
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().transport.poll_close(cx)
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let mut proj = self.as_mut().project();
+        match proj.state {
+            ClientState::Open | ClientState::Upgrading | ClientState::Running => {
+                *proj.state = ClientState::Closing;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            ClientState::Closing => {
+                ready!(proj.transport.as_mut().poll_ready(cx))?;
+                proj.transport.start_send(Packet::Close)?;
+                *proj.state = ClientState::ClosingFlush;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            ClientState::ClosingFlush => {
+                ready!(proj.transport.poll_flush(cx))?;
+                // the client is closed but we still need to close the
+                // underlying transport
+                *proj.state = ClientState::Closed;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            ClientState::Closed => proj.transport.poll_close(cx),
+        }
     }
 }
 
