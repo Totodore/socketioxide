@@ -232,6 +232,7 @@ impl<S: TransportSvc> Client<S> {
         }
 
         // idempotent: continues an in-flight flush, or Ready immediately if clean
+        // TODO: check this assertion
         proj.transport.poll_flush(cx)
     }
 }
