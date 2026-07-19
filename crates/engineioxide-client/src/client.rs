@@ -222,7 +222,7 @@ impl<S: TransportSvc> Client<S> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), TransportError<S>>> {
         if self.last_ping.elapsed()
-            <= self.open_packet.ping_interval + self.open_packet.ping_timeout
+            >= self.open_packet.ping_interval + self.open_packet.ping_timeout
         {
             todo!("error + closing + better wake");
             // self.close();
@@ -266,12 +266,12 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
         Ok(())
     }
 
-    #[tracing::instrument(level = Level::TRACE, ret)]
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().transport.poll_flush(cx)
     }
 
-    #[tracing::instrument(level = Level::TRACE, ret)]
+    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().transport.poll_close(cx)
     }

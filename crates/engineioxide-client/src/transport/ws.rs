@@ -258,7 +258,7 @@ fn poll_upgrade<S: WsSvc>(
 impl<S: WsSvc> Stream for WsTransport<S> {
     type Item = Result<Packet, WsTransportError<S>>;
 
-    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
+    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project().state.project() {
             // if we were connecting it means that's an upgrade.
@@ -313,7 +313,7 @@ impl<S: WsSvc> Stream for WsTransport<S> {
 impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
     type Error = WsTransportError<S>;
 
-    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
+    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let proj = self.as_mut().project();
         match proj.state.project() {
@@ -348,7 +348,7 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
         }
     }
 
-    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
+    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project().state.project() {
             WsTransportStateProj::Stream {
@@ -359,7 +359,7 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
         }
     }
 
-    #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
+    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project().state.project() {
             WsTransportStateProj::Connecting { .. } => Poll::Ready(Ok(())),

@@ -22,11 +22,9 @@ use futures_util::{SinkExt, StreamExt};
 
 use crate::{
     fixture::{Event, service, service_with_registry},
-    mock::{ClientTestExt, FutureTestExt},
+    helpers::{ClientTestExt, FutureTestExt},
+    mock,
 };
-
-mod fixture;
-mod mock;
 
 /// A `1` (close) packet received on a poll ends the session: `Disconnect`
 /// then end-of-stream, and the client stops issuing requests.

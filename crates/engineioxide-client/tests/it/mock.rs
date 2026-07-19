@@ -13,7 +13,6 @@
 use std::{
     convert::Infallible,
     fmt,
-    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -26,88 +25,14 @@ use engineioxide_client::{
 };
 use engineioxide_core::{OpenPacket, Packet, ProtocolVersion, Sid, TransportType};
 use futures_core::{Stream, future::BoxFuture};
-use futures_util::{FutureExt, Sink, StreamExt};
+use futures_util::{FutureExt, Sink};
 use http::{Method, Request, Response, Uri};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::service::Service as HyperSvc;
 use tokio::sync::{mpsc, oneshot};
+use tracing_subscriber::EnvFilter;
 
-/// Default deadline for every await in the tests: an enforcement test must
-/// fail fast instead of hanging the whole suite.
-pub const DEADLINE: Duration = Duration::from_secs(5);
-
-pub trait FutureTestExt: Future {
-    fn timeout(self) -> impl Future<Output = Self::Output>;
-    fn timeout_with(self, duration: Duration) -> impl Future<Output = Self::Output>;
-}
-impl<F: Future> FutureTestExt for F {
-    async fn timeout(self) -> Self::Output {
-        self.timeout_with(DEADLINE).await
-    }
-
-    async fn timeout_with(self, duration: Duration) -> Self::Output {
-        match tokio::time::timeout(duration, self).await {
-            Ok(v) => v,
-            Err(_) => panic!("timed out after {duration:?}"),
-        }
-    }
-}
-mod via {
-    pub enum Stream {}
-    pub enum Concrete {}
-}
-pub trait ClientTestExt<T, E, V> {
-    fn next_ok(&mut self) -> impl Future<Output = T>;
-    fn next_err(&mut self) -> impl Future<Output = E>;
-    fn next_close(&mut self) -> impl Future<Output = ()>;
-
-    fn phantom() -> PhantomData<V> {
-        PhantomData
-    }
-}
-impl<S: Stream<Item = Result<T, E>> + Unpin, T: fmt::Debug, E: fmt::Debug>
-    ClientTestExt<T, E, via::Stream> for S
-{
-    async fn next_ok(&mut self) -> T {
-        self.next()
-            .timeout()
-            .await
-            .expect("called next_ok on a closed stream")
-            .expect("stream yield an error")
-    }
-
-    async fn next_err(&mut self) -> E {
-        self.next()
-            .timeout()
-            .await
-            .expect("called next_err on a closed stream")
-            .expect_err("stream yielded a value, we're expecting an error")
-    }
-
-    async fn next_close(&mut self) {
-        if let Some(i) = self.next().timeout().await {
-            panic!("stream yielded an item, we're expecting to be closed: {i:?}")
-        }
-    }
-}
-impl<T: fmt::Debug> ClientTestExt<T, Infallible, via::Concrete> for mpsc::UnboundedReceiver<T> {
-    async fn next_ok(&mut self) -> T {
-        self.recv()
-            .timeout()
-            .await
-            .expect("call recv on a close chan")
-    }
-
-    async fn next_err(&mut self) -> Infallible {
-        const { panic!("called next_err on an infallible receiver") }
-    }
-
-    async fn next_close(&mut self) {
-        if let Some(i) = self.recv().timeout().await {
-            panic!("chan yielded an item, we're expecting to be closed: {i:?}")
-        }
-    }
-}
+use crate::helpers::FutureTestExt;
 
 /// The engine.io v4 payload record separator.
 pub const SEP: char = '\x1e';
@@ -123,6 +48,10 @@ impl std::error::Error for MockError {}
 
 /// Create a connected `(client service, scripted server)` pair.
 pub fn mock() -> (MockSvc, MockServer) {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init()
+        .ok();
     let (tx, rx) = mpsc::unbounded_channel();
     (MockSvc { tx }, MockServer { rx })
 }
