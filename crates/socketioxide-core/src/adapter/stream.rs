@@ -216,7 +216,6 @@ impl<E: SocketEmitter, R: Stream, T> fmt::Debug for AckStream<E, R, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -224,9 +223,8 @@ mod tests {
     use crate::adapter::remote_packet::{Response, ResponseType};
     use crate::adapter::{AckStreamItem, BroadcastIter, RemoteSocketData, SocketEmitter};
     use crate::packet::Packet;
-    use crate::parser::{Parse, ParserError, test::StubParser};
+    use crate::parser::test::StubParser;
     use crate::{Sid, Str, Uid, Value};
-    use engineioxide_core::Sid as EngineIoSid;
     use futures_core::{FusedStream, Stream};
     use futures_util::StreamExt;
     use serde::{Deserialize, Serialize};
@@ -282,7 +280,7 @@ mod tests {
             unreachable!()
         }
         fn parser(&self) -> StubParser {
-            StubParser::default()
+            StubParser
         }
         fn server_id(&self) -> Uid {
             Uid::ZERO
