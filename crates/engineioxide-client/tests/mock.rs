@@ -13,6 +13,7 @@
 use std::{
     convert::Infallible,
     fmt,
+    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -25,7 +26,7 @@ use engineioxide_client::{
 };
 use engineioxide_core::{OpenPacket, Packet, ProtocolVersion, Sid, TransportType};
 use futures_core::{Stream, future::BoxFuture};
-use futures_util::{FutureExt, Sink};
+use futures_util::{FutureExt, Sink, StreamExt};
 use http::{Method, Request, Response, Uri};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::service::Service as HyperSvc;
@@ -35,11 +36,76 @@ use tokio::sync::{mpsc, oneshot};
 /// fail fast instead of hanging the whole suite.
 pub const DEADLINE: Duration = Duration::from_secs(5);
 
-/// Await `fut` with the global [`DEADLINE`], panicking with `what` on expiry.
-pub async fn within<F: Future>(what: &str, fut: F) -> F::Output {
-    match tokio::time::timeout(DEADLINE, fut).await {
-        Ok(v) => v,
-        Err(_) => panic!("timed out after {DEADLINE:?}: {what}"),
+pub trait FutureTestExt: Future {
+    fn timeout(self) -> impl Future<Output = Self::Output>;
+    fn timeout_with(self, duration: Duration) -> impl Future<Output = Self::Output>;
+}
+impl<F: Future> FutureTestExt for F {
+    async fn timeout(self) -> Self::Output {
+        self.timeout_with(DEADLINE).await
+    }
+
+    async fn timeout_with(self, duration: Duration) -> Self::Output {
+        match tokio::time::timeout(duration, self).await {
+            Ok(v) => v,
+            Err(_) => panic!("timed out after {duration:?}"),
+        }
+    }
+}
+mod via {
+    pub enum Stream {}
+    pub enum Concrete {}
+}
+pub trait ClientTestExt<T, E, V> {
+    fn next_ok(&mut self) -> impl Future<Output = T>;
+    fn next_err(&mut self) -> impl Future<Output = E>;
+    fn next_close(&mut self) -> impl Future<Output = ()>;
+
+    fn phantom() -> PhantomData<V> {
+        PhantomData
+    }
+}
+impl<S: Stream<Item = Result<T, E>> + Unpin, T: fmt::Debug, E: fmt::Debug>
+    ClientTestExt<T, E, via::Stream> for S
+{
+    async fn next_ok(&mut self) -> T {
+        self.next()
+            .timeout()
+            .await
+            .expect("called next_ok on a closed stream")
+            .expect("stream yield an error")
+    }
+
+    async fn next_err(&mut self) -> E {
+        self.next()
+            .timeout()
+            .await
+            .expect("called next_err on a closed stream")
+            .expect_err("stream yielded a value, we're expecting an error")
+    }
+
+    async fn next_close(&mut self) {
+        if let Some(i) = self.next().timeout().await {
+            panic!("stream yielded an item, we're expecting to be closed: {i:?}")
+        }
+    }
+}
+impl<T: fmt::Debug> ClientTestExt<T, Infallible, via::Concrete> for mpsc::UnboundedReceiver<T> {
+    async fn next_ok(&mut self) -> T {
+        self.recv()
+            .timeout()
+            .await
+            .expect("call recv on a close chan")
+    }
+
+    async fn next_err(&mut self) -> Infallible {
+        const { panic!("called next_err on an infallible receiver") }
+    }
+
+    async fn next_close(&mut self) {
+        if let Some(i) = self.recv().timeout().await {
+            panic!("chan yielded an item, we're expecting to be closed: {i:?}")
+        }
     }
 }
 
@@ -316,7 +382,7 @@ impl ServerWs {
 
     /// Next raw message sent by the client, `None` once the client closed.
     pub async fn recv(&mut self) -> Option<WsMessage> {
-        within("waiting for a client websocket message", self.rx.recv()).await
+        self.rx.recv().timeout().await
     }
 
     /// Next client message decoded as a packet (binary frames are messages).
@@ -342,7 +408,9 @@ pub struct MockServer {
 
 impl MockServer {
     pub async fn next_call(&mut self) -> ServerCall {
-        within("waiting for a client request", self.rx.recv())
+        self.rx
+            .recv()
+            .timeout()
             .await
             .expect("client service dropped, no more requests will come")
     }
@@ -428,17 +496,11 @@ pub async fn connect_polling<const N: usize>(
     transports: [TransportType; N],
 ) -> (Client<MockSvc>, MockServer) {
     let (svc, mut server) = mock();
-    let config = EngineIoClientConfig::builder()
-        .transports(transports)
-        .build();
-    let (client, _) = tokio::join!(
-        within("polling handshake", Client::connect(svc, config)),
-        async {
-            let call = server.next_http().await;
-            assert_eq!(call.method, Method::GET, "handshake must be a GET");
-            call.respond_open(open);
-        }
-    );
+    let (client, _) = tokio::join!(Client::connect(svc, transports).timeout(), async {
+        let call = server.next_http().await;
+        assert_eq!(call.method, Method::GET, "handshake must be a GET");
+        call.respond_open(open);
+    });
     (client.expect("handshake should succeed"), server)
 }
 
@@ -448,14 +510,11 @@ pub async fn connect_ws(open: &OpenPacket) -> (Client<MockSvc>, MockServer, Serv
     let config = EngineIoClientConfig::builder()
         .transports([TransportType::Websocket])
         .build();
-    let (client, ws) = tokio::join!(
-        within("websocket handshake", Client::connect(svc, config)),
-        async {
-            let ws = server.next_ws().await.accept();
-            ws.send_packet(Packet::Open(open.clone()));
-            ws
-        }
-    );
+    let (client, ws) = tokio::join!(Client::connect(svc, config).timeout(), async {
+        let ws = server.next_ws().await.accept();
+        ws.send_packet(Packet::Open(open.clone()));
+        ws
+    });
     (client.expect("handshake should succeed"), server, ws)
 }
 

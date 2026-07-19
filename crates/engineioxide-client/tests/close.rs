@@ -16,11 +16,14 @@
 use std::time::Duration;
 
 use engineioxide::{DisconnectReason, TransportType};
-use engineioxide_client::{Client, EioEvent, EngineIoClientConfig};
+use engineioxide_client::{Client, EioEvent};
 use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
 
-use crate::fixture::{Event, service, service_with_registry};
+use crate::{
+    fixture::{Event, service, service_with_registry},
+    mock::{ClientTestExt, FutureTestExt},
+};
 
 mod fixture;
 mod mock;
@@ -31,25 +34,13 @@ mod mock;
 async fn server_close_packet_polling() {
     let open = mock::open_packet_no_upgrade();
     let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
-    let (disconnect, _) = tokio::join!(mock::within("disconnect event", client.next()), async {
+    let (disconnect, _) = tokio::join!(client.next_ok(), async {
         server.next_http().await.respond_packets([Packet::Close])
-    },);
-    assert_eq!(disconnect.unwrap().unwrap(), EioEvent::Disconnect);
-    assert_eq!(
-        mock::within("end of stream", client.next())
-            .await
-            .map(|r| r.ok()),
-        None,
-        "the stream must terminate after the server closed the session"
-    );
+    });
+    assert_eq!(disconnect, EioEvent::Disconnect);
+    client.next_close().await;
 }
 
 /// A `1` (close) packet received on the websocket ends the session the same
@@ -58,93 +49,46 @@ async fn server_close_packet_polling() {
 async fn server_close_packet_ws() {
     let open = mock::open_packet_no_upgrade();
     let (mut client, _server, ws) = mock::connect_ws(&open).await;
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
     ws.send_packet(Packet::Close);
-    assert_eq!(
-        mock::within("disconnect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Disconnect
-    );
-    assert_eq!(
-        mock::within("end of stream", client.next())
-            .await
-            .map(|r| r.ok()),
-        None,
-        "the stream must terminate after the server closed the session"
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Disconnect);
+    client.next_close().await;
 }
 
 /// Server-initiated close against the real server, polling transport.
 #[tokio::test]
 async fn server_close_real_server_polling() {
     let (svc, mut rx, registry) = service_with_registry(Default::default());
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Polling])
-        .build();
-    let mut client = Client::connect(svc, config).await.unwrap();
+    let mut client = Client::connect(svc, [TransportType::Polling])
+        .timeout()
+        .await
+        .unwrap();
     let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    assert_eq!(
-        client.next().await.unwrap().unwrap(),
-        EioEvent::Connect(sid)
-    );
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
 
     registry.lock().unwrap()[&sid].close(DisconnectReason::TransportClose);
 
-    assert_eq!(
-        fixture::within("disconnect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Disconnect
-    );
-    assert!(
-        fixture::within("end of stream", client.next())
-            .await
-            .is_none(),
-        "the stream must terminate after the server closed the session"
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Disconnect);
+    client.next_close().await;
 }
 
 /// Server-initiated close against the real server, websocket transport.
 #[tokio::test]
 async fn server_close_real_server_ws() {
     let (svc, mut rx, registry) = service_with_registry(Default::default());
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Websocket])
-        .build();
-    let mut client = Client::connect(svc, config).await.unwrap();
+    let mut client = Client::connect(svc, [TransportType::Websocket])
+        .await
+        .unwrap();
     let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    assert_eq!(
-        client.next().await.unwrap().unwrap(),
-        EioEvent::Connect(sid)
-    );
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
 
     registry.lock().unwrap()[&sid].close(DisconnectReason::TransportClose);
 
-    assert_eq!(
-        fixture::within("disconnect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Disconnect
-    );
-    assert!(
-        fixture::within("end of stream", client.next())
-            .await
-            .is_none(),
-        "the stream must terminate after the server closed the session"
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Disconnect);
+    client.next_close().await;
 }
 
 /// Closing a polling client must send a `1` (close) packet so the server
@@ -154,20 +98,10 @@ async fn server_close_real_server_ws() {
 async fn client_close_polling_sends_close_packet() {
     let open = mock::open_packet_no_upgrade();
     let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
     tokio::join!(
-        async {
-            mock::within("client close", client.close())
-                .await
-                .expect("close must succeed");
-        },
+        async { client.close().timeout().await.expect("close must succeed") },
         async {
             let post = server.next_post_parking_get().await;
             assert_eq!(
@@ -186,21 +120,13 @@ async fn client_close_polling_sends_close_packet() {
 async fn client_close_ws_closes_the_connection() {
     let open = mock::open_packet_no_upgrade();
     let (mut client, _server, mut ws) = mock::connect_ws(&open).await;
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
-    mock::within("client close", client.close())
-        .await
-        .expect("close must succeed");
+    client.close().timeout().await.unwrap();
 
     // The server observes the websocket closing, with no engine.io close
     // packet beforehand.
-    match mock::within("ws close", ws.recv()).await {
+    match ws.recv().timeout().await {
         Some(engineioxide_client::transport::ws::WsMessage::Close) | None => (),
         Some(engineioxide_client::transport::ws::WsMessage::Text(t)) => {
             assert_ne!(&*t, "1", "no close packet is sent over websocket");
@@ -219,25 +145,17 @@ async fn client_close_ws_closes_the_connection() {
 #[tokio::test]
 async fn client_close_notifies_server_polling() {
     let (svc, mut rx) = service();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Polling])
-        .build();
-    let mut client = Client::connect(svc, config).await.unwrap();
-    let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    assert_eq!(
-        client.next().await.unwrap().unwrap(),
-        EioEvent::Connect(sid)
-    );
-
-    fixture::within("client close", client.close())
+    let mut client = Client::connect(svc, [TransportType::Polling])
         .await
-        .expect("close must succeed");
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
+
+    client.close().timeout().await.unwrap();
 
     assert_eq!(
-        fixture::within("server disconnect event", rx.recv())
-            .await
-            .unwrap(),
+        rx.next_ok().await,
         Event::Disconnect(sid, DisconnectReason::TransportClose),
         "the server must observe a graceful close"
     );
@@ -248,25 +166,17 @@ async fn client_close_notifies_server_polling() {
 #[tokio::test]
 async fn client_close_notifies_server_ws() {
     let (svc, mut rx) = service();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Websocket])
-        .build();
-    let mut client = Client::connect(svc, config).await.unwrap();
-    let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    assert_eq!(
-        client.next().await.unwrap().unwrap(),
-        EioEvent::Connect(sid)
-    );
-
-    fixture::within("client close", client.close())
+    let mut client = Client::connect(svc, [TransportType::Websocket])
         .await
-        .expect("close must succeed");
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
+
+    client.close().timeout().await.unwrap();
 
     assert_eq!(
-        fixture::within("server disconnect event", rx.recv())
-            .await
-            .unwrap(),
+        rx.next_ok().await,
         Event::Disconnect(sid, DisconnectReason::TransportClose),
         "the server must observe a graceful close"
     );
@@ -278,83 +188,49 @@ async fn client_close_notifies_server_ws() {
 #[tokio::test]
 async fn close_flushes_buffered_packets_polling() {
     let (svc, mut rx) = service();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Polling])
-        .build();
-    let mut client = Client::connect(svc, config).await.unwrap();
+    let mut client = Client::connect(svc, [TransportType::Polling])
+        .await
+        .unwrap();
     let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    assert_eq!(
-        client.next().await.unwrap().unwrap(),
-        EioEvent::Connect(sid)
-    );
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
 
     // feed() queues without flushing; close() must flush then close.
     client.feed(EioEvent::Message("one".into())).await.unwrap();
     client.feed(EioEvent::Message("two".into())).await.unwrap();
-    fixture::within("client close", client.close())
-        .await
-        .expect("close must succeed");
+    client.close().timeout().await.expect("close must succeed");
 
+    assert_eq!(rx.next_ok().await, Event::Message(sid, "one".into()));
+    assert_eq!(rx.next_ok().await, Event::Message(sid, "two".into()));
     assert_eq!(
-        fixture::within("first buffered message", rx.recv())
-            .await
-            .unwrap(),
-        Event::Message(sid, "one".into())
-    );
-    assert_eq!(
-        fixture::within("second buffered message", rx.recv())
-            .await
-            .unwrap(),
-        Event::Message(sid, "two".into())
-    );
-    assert_eq!(
-        fixture::within("server disconnect event", rx.recv())
-            .await
-            .unwrap(),
+        rx.next_ok().await,
         Event::Disconnect(sid, DisconnectReason::TransportClose),
     );
+    //TODO: assert client / server closing
 }
 
 /// Same flush-before-close requirement over websocket.
 #[tokio::test]
 async fn close_flushes_buffered_packets_ws() {
     let (svc, mut rx) = service();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Websocket])
-        .build();
-    let mut client = Client::connect(svc, config).await.unwrap();
+    let mut client = Client::connect(svc, [TransportType::Websocket])
+        .await
+        .unwrap();
     let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    assert_eq!(
-        client.next().await.unwrap().unwrap(),
-        EioEvent::Connect(sid)
-    );
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
 
     client.feed(EioEvent::Message("one".into())).await.unwrap();
     client.feed(EioEvent::Message("two".into())).await.unwrap();
-    fixture::within("client close", client.close())
-        .await
-        .expect("close must succeed");
+    client.close().timeout().await.unwrap();
 
+    assert_eq!(rx.next_ok().await, Event::Message(sid, "one".into()));
+    assert_eq!(rx.next_ok().await, Event::Message(sid, "two".into()));
     assert_eq!(
-        fixture::within("first buffered message", rx.recv())
-            .await
-            .unwrap(),
-        Event::Message(sid, "one".into())
-    );
-    assert_eq!(
-        fixture::within("second buffered message", rx.recv())
-            .await
-            .unwrap(),
-        Event::Message(sid, "two".into())
-    );
-    assert_eq!(
-        fixture::within("server disconnect event", rx.recv())
-            .await
-            .unwrap(),
+        rx.next_ok().await,
         Event::Disconnect(sid, DisconnectReason::TransportClose),
     );
+    //TODO: assert client / server closing
 }
 
 /// Packets submitted after a local close must never reach the server (the
@@ -363,28 +239,22 @@ async fn close_flushes_buffered_packets_ws() {
 #[tokio::test]
 async fn send_after_close_is_not_delivered() {
     let (svc, mut rx) = service();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Polling])
-        .build();
-    let mut client = Client::connect(svc, config).await.unwrap();
-    let sid = client.sid();
-    assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
-    assert_eq!(
-        client.next().await.unwrap().unwrap(),
-        EioEvent::Connect(sid)
-    );
-
-    fixture::within("client close", client.close())
+    let mut client = Client::connect(svc, [TransportType::Polling])
         .await
-        .expect("close must succeed");
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
+
+    client.close().timeout().await.unwrap();
 
     // Whether this returns Ok (discarded) or Err (sink closed) is API
     // flavor; what matters is that nothing is delivered and nothing panics.
-    let _ = fixture::within(
-        "send after close",
-        client.send(EioEvent::Message("late".into())),
-    )
-    .await;
+    //TODO: uniform flavor
+    let _ = client
+        .send(EioEvent::Message("late".into()))
+        .timeout()
+        .await;
 
     if let Ok(Some(Event::Message(_, msg))) =
         tokio::time::timeout(Duration::from_millis(300), rx.recv()).await
@@ -399,28 +269,18 @@ async fn send_after_close_is_not_delivered() {
 async fn send_after_server_close_is_an_error() {
     let open = mock::open_packet_no_upgrade();
     let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
-    let (disconnect, _) = tokio::join!(mock::within("disconnect event", client.next()), async {
+    let (disconnect, _) = tokio::join!(client.next_ok(), async {
         server.next_http().await.respond_packets([Packet::Close])
     },);
-    assert_eq!(disconnect.unwrap().unwrap(), EioEvent::Disconnect);
-    assert!(
-        mock::within("end of stream", client.next()).await.is_none(),
-        "the stream must terminate after the server closed the session"
-    );
+    assert_eq!(disconnect, EioEvent::Disconnect);
+    client.next_close().await;
 
-    let res = mock::within(
-        "send after server close",
-        client.send(EioEvent::Message("late".into())),
-    )
-    .await;
+    let res = client
+        .send(EioEvent::Message("late".into()))
+        .timeout()
+        .await;
     assert!(
         res.is_err(),
         "sending on a closed session must surface an error"
@@ -434,17 +294,11 @@ async fn send_after_server_close_is_an_error() {
 async fn abrupt_ws_termination_ends_the_stream() {
     let open = mock::open_packet_no_upgrade();
     let (mut client, _server, ws) = mock::connect_ws(&open).await;
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
     ws.close();
 
-    mock::within("stream termination", async {
+    async {
         loop {
             match client.next().await {
                 // Surfacing the disconnection as an event first is fine.
@@ -454,7 +308,8 @@ async fn abrupt_ws_termination_ends_the_stream() {
                 None => break,
             }
         }
-    })
+    }
+    .timeout()
     .await;
 }
 
@@ -465,28 +320,14 @@ async fn abrupt_ws_termination_ends_the_stream() {
 async fn ws_error_surfaces_then_stream_terminates() {
     let open = mock::open_packet_no_upgrade();
     let (mut client, _server, ws) = mock::connect_ws(&open).await;
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
     ws.send_error("connection reset by peer");
 
-    let err = mock::within("stream error", client.next()).await;
-    assert!(
-        matches!(err, Some(Err(_))),
-        "the websocket error must surface: {err:?}"
-    );
+    dbg!(client.next_err().await); //TODO: assert error eq
+
     // Keep `ws` alive: termination must come from the client closing itself
     // after the error, not from the mock dropping the connection.
-    assert!(
-        mock::within("stream termination after error", client.next())
-            .await
-            .is_none(),
-        "the stream must terminate after a transport error"
-    );
+    client.next_close().await;
     drop(ws);
 }

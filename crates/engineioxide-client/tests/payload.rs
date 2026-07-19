@@ -142,9 +142,7 @@ async fn flush_splits_batches_at_max_payload() {
     let client_config = EngineIoClientConfig::builder()
         .transports([TransportType::Polling])
         .build();
-    let mut client = Client::connect(svc, client_config)
-        .await
-        .unwrap();
+    let mut client = Client::connect(svc, client_config).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     assert_eq!(
@@ -182,9 +180,7 @@ async fn oversized_packet_surfaces_a_transport_error() {
     let client_config = EngineIoClientConfig::builder()
         .transports([TransportType::Polling])
         .build();
-    let mut client = Client::connect(svc, client_config)
-        .await
-        .unwrap();
+    let mut client = Client::connect(svc, client_config).await.unwrap();
     let sid = client.sid();
     assert_eq!(rx.recv().await.unwrap(), Event::Connect(sid));
     assert_eq!(
