@@ -436,10 +436,8 @@ pub async fn connect_polling<const N: usize>(
 /// Connect a client directly over websocket against the mock.
 pub async fn connect_ws(open: &OpenPacket) -> (Client<MockSvc>, MockServer, ServerWs) {
     let (svc, mut server) = mock();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Websocket])
-        .build();
-    let (client, ws) = tokio::join!(Client::connect(svc, config).timeout(), async {
+    let client = Client::connect(svc, [TransportType::Websocket]).timeout();
+    let (client, ws) = tokio::join!(client, async {
         let ws = server.next_ws().await.accept();
         ws.send_packet(Packet::Open(open.clone()));
         ws

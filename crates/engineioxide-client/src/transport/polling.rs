@@ -53,7 +53,7 @@ pin_project! {
         Decoding {
             #[pin]
             stream: Pin<Box<dyn Stream<Item = Result<Packet, PacketParseError>>>>
-        }
+        },
     }
 }
 
@@ -72,11 +72,23 @@ pin_project! {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+enum ClosingState {
+    #[default]
+    Open,
+    Closing,
+    Closed,
+}
 impl<F> Default for PostState<F> {
     fn default() -> Self {
         PostState::Queuing {
             bytes: BytesMut::new(),
         }
+    }
+}
+impl<F> PostState<F> {
+    fn queuing(bytes: BytesMut) -> Self {
+        Self::Queuing { bytes }
     }
 }
 
@@ -95,13 +107,18 @@ impl<F> PollState<F> {
     }
 }
 impl<F> PostState<F> {
-    fn new_request<S: PollingSvc<Future = F>>(svc: &S, uri: &Uri, sid: Sid, body: Bytes) -> Self {
+    fn new_request<S: PollingSvc<Future = F>>(
+        svc: &S,
+        uri: &Uri,
+        sid: Sid,
+        body: BytesMut,
+    ) -> Self {
         let uri = super::with_mandatory_query(uri, TransportType::Polling, Some(sid));
 
         let req = Request::builder()
             .method(http::Method::POST)
             .uri(uri)
-            .body(BoxBody::new(Full::new(body)))
+            .body(BoxBody::new(Full::new(body.freeze())))
             .unwrap();
 
         let fut = svc.call(req);
@@ -132,6 +149,8 @@ pin_project! {
 
         #[pin]
         post_state: PostState<S::Future>,
+
+        close_state: ClosingState,
 
         base_uri: Uri,
         sid: Sid,
@@ -167,6 +186,7 @@ impl<S: PollingSvc> PollingTransport<S> {
                     svc,
                     poll_state,
                     post_state: PostState::default(),
+                    close_state: ClosingState::default(),
                     sid: open.sid,
                     base_uri: config.uri.clone(),
                 };
@@ -235,7 +255,11 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
     type Error = PollingTransportError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+        if self.close_state != ClosingState::Open {
+            Poll::Pending
+        } else {
+            Poll::Ready(Ok(()))
+        }
     }
 
     fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
@@ -251,19 +275,29 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
         match proj {
             PostStateProj::Queuing { bytes } if bytes.is_empty() => Poll::Ready(Ok(())),
             PostStateProj::Queuing { bytes } => {
-                let body = std::mem::take(bytes).freeze();
+                let body = std::mem::take(bytes);
                 //TODO: handle max body size from open packet
                 let post_state = PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
                 self.project().post_state.set(post_state);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            PostStateProj::Pending { fut, .. } => {
+            PostStateProj::Pending { fut, bytes } => {
                 match ready!(fut.poll(cx)) {
                     Ok(res) => {
                         assert!(res.status().is_success());
-                        self.project().post_state.set(PostState::default());
-                        Poll::Ready(Ok(())) // TODO: check response == ok
+                        let body = std::mem::take(bytes);
+                        if bytes.is_empty() {
+                            self.project().post_state.set(PostState::queuing(body));
+                            Poll::Ready(Ok(())) // TODO: check response == ok
+                        } else {
+                            let post_state =
+                                PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
+                            // resend another request immediately, the buffer was filled
+                            // while the previous one was sent
+                            self.project().post_state.set(post_state);
+                            Poll::Pending
+                        }
                     }
                     Err(err) => {
                         self.project().post_state.set(PostState::default());
@@ -274,9 +308,23 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
         }
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        //TODO: close behavior
-        Poll::Ready(Ok(()))
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.close_state {
+            ClosingState::Open => {
+                // we dont need to call poll_ready on ourselve
+                self.as_mut().start_send(Packet::Close)?;
+                *self.project().close_state = ClosingState::Closing;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            ClosingState::Closing => {
+                ready!(self.as_mut().poll_flush(cx))?;
+                *self.project().close_state = ClosingState::Closed;
+                cx.waker().wake_by_ref();
+                Poll::Ready(Ok(()))
+            }
+            ClosingState::Closed => Poll::Ready(Ok(())),
+        }
     }
 }
 
