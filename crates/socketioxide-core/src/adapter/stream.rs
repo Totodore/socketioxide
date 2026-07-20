@@ -36,6 +36,7 @@ pin_project! {
     }
 }
 impl<T> ChanStream<T> {
+    /// Create a new `ChanStream` from an [`mpsc::Receiver`].
     pub fn new(rx: mpsc::Receiver<T>) -> Self {
         Self { rx }
     }
@@ -66,6 +67,7 @@ pin_project! {
     }
 }
 impl<S, T> DropStream<S, T> {
+    /// Create a new `DropStream` that will remove the handler entry on drop.
     pub fn new(stream: S, handlers: Arc<Mutex<ResponseHandlers<T>>>, req_id: Sid) -> Self {
         Self {
             stream,
@@ -102,6 +104,7 @@ pin_project! {
 }
 
 impl<E: SocketEmitter, R: Stream, T> AckStream<E, R, T> {
+    /// Create a new `AckStream` wrapping the given local and remote streams.
     pub fn new(
         local: E::AckStream,
         remote: R,
