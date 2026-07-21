@@ -404,7 +404,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
             let specific_stream = self.subscribe(self.get_req_chan(Some(self.uid))).await?;
             let response_chan = format!(
                 "{}-response#{}#{}#",
-                &self.config.prefix,
+                self.config.prefix,
                 self.local.path(),
                 self.uid
             );
@@ -422,7 +422,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     async fn close(&self) -> Result<(), Self::Error> {
         let response_chan = format!(
             "{}-response#{}#{}#",
-            &self.config.prefix,
+            self.config.prefix,
             self.local.path(),
             self.uid
         );

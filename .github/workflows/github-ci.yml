@@ -165,10 +165,8 @@ jobs:
         run: cargo install clippy-sarif sarif-fmt || true
 
       - name: Run rust-clippy
-        run: cargo clippy
-          --all-features
-          --tests
-          --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        run: cargo clippy --all-features --workspace --examples --tests --message-format=json -- -D warnings
+          | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
 
       - name: Upload analysis results to GitHub
@@ -188,7 +186,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.94.0
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -225,7 +223,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.94.0
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - uses: actions/cache@v6
@@ -269,7 +267,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-adapter
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: install adapter infra

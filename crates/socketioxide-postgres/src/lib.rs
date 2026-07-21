@@ -1106,7 +1106,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     fn get_response_chan(&self, uid: Uid) -> String {
         let chan = format!(
             "response-{}{}{}",
-            &self.config.prefix,
+            self.config.prefix,
             self.local.path(),
             uid
         );
