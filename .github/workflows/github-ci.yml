@@ -165,10 +165,8 @@ jobs:
         run: cargo install clippy-sarif sarif-fmt || true
 
       - name: Run rust-clippy
-        run: cargo clippy
-          --all-features
-          --tests
-          --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        run: cargo clippy --all-features --workspace --examples --tests --message-format=json -- -D warnings
+          | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
 
       - name: Upload analysis results to GitHub
