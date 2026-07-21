@@ -57,12 +57,12 @@ mod tests {
         to_value(&data, event).unwrap().as_bytes().unwrap().clone()
     }
     fn from_bytes_event<T: DeserializeOwned>(data: impl Serialize) -> T {
-        println!("{:?}", &to_vec_named(&data).unwrap());
+        println!("{:?}", to_vec_named(&data).unwrap());
         println!("{:?}", std::any::type_name::<T>());
         from_value::<T>(&Value::Bytes(to_vec_named(&data).unwrap().into()), true).unwrap()
     }
     fn from_bytes_ack<T: DeserializeOwned>(data: impl Serialize) -> T {
-        println!("{:?}", &to_vec_named(&data).unwrap());
+        println!("{:?}", to_vec_named(&data).unwrap());
         println!("{:?}", std::any::type_name::<T>());
         from_value::<T>(&Value::Bytes(to_vec_named(&data).unwrap().into()), false).unwrap()
     }
