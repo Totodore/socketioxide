@@ -16,53 +16,13 @@ use http::{
 use http_body_util::{Empty, combinators::BoxBody};
 use tracing::Level;
 
-use crate::EngineIoClientConfig;
+use crate::{EngineIoClientConfig, errors::ClientError};
 
-pub use polling::{PollingSvc, PollingTransport, PollingTransportError};
-pub use ws::{WebSocket, WsSvc, WsTransport, WsTransportError};
+pub use polling::{PollingSvc, PollingTransport};
+pub use ws::{WebSocket, WsSvc, WsTransport};
 
 pub mod polling;
 pub mod ws;
-
-pub enum TransportError<S: TransportSvc> {
-    Polling(PollingTransportError<S>),
-    Websocket(WsTransportError<S>),
-}
-
-impl<S: TransportSvc> TransportError<S> {
-    pub(crate) fn should_close(&self) -> bool {
-        match self {
-            TransportError::Polling(e) => e.should_close(),
-            TransportError::Websocket(e) => e.should_close(),
-        }
-    }
-}
-
-impl<S: TransportSvc> fmt::Debug for TransportError<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
-    }
-}
-impl<S: TransportSvc> fmt::Display for TransportError<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TransportError::Polling(e) => write!(f, "polling error: {}", e),
-            TransportError::Websocket(e) => write!(f, "ws error: {}", e),
-        }
-    }
-}
-impl<S: TransportSvc> std::error::Error for TransportError<S> {}
-
-impl<S: TransportSvc> From<PollingTransportError<S>> for TransportError<S> {
-    fn from(err: PollingTransportError<S>) -> Self {
-        Self::Polling(err)
-    }
-}
-impl<S: TransportSvc> From<WsTransportError<S>> for TransportError<S> {
-    fn from(err: WsTransportError<S>) -> Self {
-        Self::Websocket(err)
-    }
-}
 
 pub trait TransportSvc: PollingSvc + WsSvc {}
 impl<S: PollingSvc + WsSvc> TransportSvc for S {}
@@ -100,7 +60,7 @@ impl<S: TransportSvc> Transport<S> {
         cx: &mut Context<'_>,
         config: &EngineIoClientConfig,
         sid: Sid,
-    ) -> Poll<Option<Result<(), TransportError<S>>>> {
+    ) -> Poll<Option<Result<(), ClientError<S>>>> {
         match self.as_mut().project() {
             TransportProj::Polling { mut inner } => {
                 // start by flushing polling transport to ensure there is no pending data
@@ -125,29 +85,25 @@ impl<S: TransportSvc> Transport<S> {
 }
 
 impl<S: TransportSvc> Stream for Transport<S> {
-    type Item = Result<Packet, TransportError<S>>;
+    type Item = Result<Packet, ClientError<S>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.as_mut().project() {
-            TransportProj::Polling { inner } => {
-                inner.poll_next(cx).map_err(TransportError::Polling)
-            }
+            TransportProj::Polling { inner } => inner.poll_next(cx).map_err(ClientError::Polling),
             TransportProj::Websocket { inner } => {
-                inner.poll_next(cx).map_err(TransportError::Websocket)
+                inner.poll_next(cx).map_err(ClientError::Websocket)
             }
         }
     }
 }
 impl<S: TransportSvc> Sink<Packet> for Transport<S> {
-    type Error = TransportError<S>;
+    type Error = ClientError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
-            TransportProj::Polling { inner } => {
-                inner.poll_ready(cx).map_err(TransportError::Polling)
-            }
+            TransportProj::Polling { inner } => inner.poll_ready(cx).map_err(ClientError::Polling),
             TransportProj::Websocket { inner } => {
-                inner.poll_ready(cx).map_err(TransportError::Websocket)
+                inner.poll_ready(cx).map_err(ClientError::Websocket)
             }
         }
     }
@@ -155,32 +111,28 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
         match self.project() {
             TransportProj::Polling { inner } => {
-                inner.start_send(item).map_err(TransportError::Polling)
+                inner.start_send(item).map_err(ClientError::Polling)
             }
             TransportProj::Websocket { inner } => {
-                inner.start_send(item).map_err(TransportError::Websocket)
+                inner.start_send(item).map_err(ClientError::Websocket)
             }
         }
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
-            TransportProj::Polling { inner } => {
-                inner.poll_flush(cx).map_err(TransportError::Polling)
-            }
+            TransportProj::Polling { inner } => inner.poll_flush(cx).map_err(ClientError::Polling),
             TransportProj::Websocket { inner } => {
-                inner.poll_flush(cx).map_err(TransportError::Websocket)
+                inner.poll_flush(cx).map_err(ClientError::Websocket)
             }
         }
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.project() {
-            TransportProj::Polling { inner } => {
-                inner.poll_close(cx).map_err(TransportError::Polling)
-            }
+            TransportProj::Polling { inner } => inner.poll_close(cx).map_err(ClientError::Polling),
             TransportProj::Websocket { inner } => {
-                inner.poll_close(cx).map_err(TransportError::Websocket)
+                inner.poll_close(cx).map_err(ClientError::Websocket)
             }
         }
     }

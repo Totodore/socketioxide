@@ -16,10 +16,7 @@
 use std::{assert_matches, time::Duration};
 
 use engineioxide::{DisconnectReason, TransportType};
-use engineioxide_client::{
-    Client, ClientSinkError, EioEvent,
-    transport::{TransportError, ws::WsTransportError},
-};
+use engineioxide_client::{Client, ClientError, EioEvent, transport::ws::WsError};
 use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
 use tokio::time;
@@ -266,7 +263,7 @@ async fn send_after_close_is_not_delivered() {
             .send(EioEvent::Message("late".into()))
             .timeout()
             .await,
-        Err(ClientSinkError::TransportClosed)
+        Err(ClientError::TransportClosed)
     );
 
     if let Ok(Some(Event::Message(_, msg))) =
@@ -339,7 +336,7 @@ async fn ws_error_surfaces_then_stream_terminates() {
 
     assert_matches!(
         client.next_err().await,
-        TransportError::Websocket(WsTransportError::Websocket(_))
+        ClientError::Websocket(WsError::Websocket(_))
     );
 
     // Keep `ws` alive: termination must come from the client closing itself

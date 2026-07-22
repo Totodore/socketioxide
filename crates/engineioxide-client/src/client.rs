@@ -8,16 +8,15 @@ use std::{
 use engineioxide_core::{OpenPacket, Packet, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
-use http::uri;
-use thiserror::Error;
 use tracing::Level;
 
 use crate::{
     EngineIoClientConfig,
     config::IntoEngineIoClientConfig,
+    errors::{ClientError, ConnectError},
     event::EioEvent,
     flavors,
-    transport::{Transport, TransportError, TransportSvc, WsTransport, polling::PollingTransport},
+    transport::{Transport, TransportSvc, WsTransport, polling::PollingTransport},
 };
 
 pin_project_lite::pin_project! {
@@ -62,18 +61,6 @@ impl<Svc: flavors::testing::EngineSvc> Client<flavors::testing::TestingFlavor<Sv
     }
 }
 
-#[derive(Debug, Error)]
-pub enum ConnectError<S: TransportSvc> {
-    #[error(transparent)]
-    Transport(TransportError<S>),
-    #[error("failed to build client, invalid uri: {0}")]
-    Config(#[from] uri::InvalidUri),
-}
-impl<S: TransportSvc> From<TransportError<S>> for ConnectError<S> {
-    fn from(value: TransportError<S>) -> Self {
-        Self::Transport(value)
-    }
-}
 impl<S: TransportSvc> Client<S> {
     pub async fn connect(
         svc: S,
@@ -98,7 +85,7 @@ impl<S: TransportSvc> Client<S> {
     async fn connect_inner(
         svc: S,
         config: &EngineIoClientConfig,
-    ) -> Result<(Transport<S>, OpenPacket), TransportError<S>> {
+    ) -> Result<(Transport<S>, OpenPacket), ClientError<S>> {
         let (transport, packet) = match config.initial_transport() {
             TransportType::Polling => {
                 let (transport, open_packet) = PollingTransport::connect(svc, config).await?;
@@ -133,31 +120,8 @@ impl<S: TransportSvc> Client<S> {
     }
 }
 
-impl<S: TransportSvc> Client<S> {
-    fn poll_next_inner(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<EioEvent, TransportError<S>>>> {
-        let _ = self.as_mut().poll_heartbeat(cx);
-
-        match self.state {
-            ClientState::Open => {
-                *self.as_mut().project().state = if self.should_upgrade() {
-                    ClientState::Upgrading
-                } else {
-                    ClientState::Running
-                };
-                Poll::Ready(Some(Ok(EioEvent::Connect(self.open_packet.sid))))
-            }
-            ClientState::Upgrading => self.poll_upgrade(cx),
-            ClientState::Running => self.poll_transport(cx),
-            ClientState::Closed | ClientState::Closing => Poll::Ready(None),
-        }
-    }
-}
-
 impl<S: TransportSvc> Stream for Client<S> {
-    type Item = Result<EioEvent, TransportError<S>>;
+    type Item = Result<EioEvent, ClientError<S>>;
 
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -175,10 +139,31 @@ impl<S: TransportSvc> Stream for Client<S> {
 }
 
 impl<S: TransportSvc> Client<S> {
+    fn poll_next_inner(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
+        let _ = self.as_mut().poll_heartbeat(cx);
+
+        match self.state {
+            ClientState::Open => {
+                *self.as_mut().project().state = if self.should_upgrade() {
+                    ClientState::Upgrading
+                } else {
+                    ClientState::Running
+                };
+                Poll::Ready(Some(Ok(EioEvent::Connect(self.open_packet.sid))))
+            }
+            ClientState::Upgrading => self.poll_upgrade(cx),
+            ClientState::Running => self.poll_transport(cx),
+            ClientState::Closed | ClientState::Closing => Poll::Ready(None),
+        }
+    }
+
     fn poll_transport(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<EioEvent, TransportError<S>>>> {
+    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
         let proj = self.as_mut().project();
         match ready!(proj.transport.poll_next(cx)) {
             Some(Ok(Packet::Ping)) => {
@@ -193,8 +178,15 @@ impl<S: TransportSvc> Client<S> {
                 Poll::Ready(Some(Ok(EioEvent::Disconnect)))
             }
             Some(Ok(Packet::Message(v))) => Poll::Ready(Some(Ok(EioEvent::Message(v)))),
-            Some(Ok(Packet::Binary(v))) => Poll::Ready(Some(Ok(EioEvent::Binary(v)))),
-            Some(Ok(v)) => unreachable!("unexpected msg {v:?}"),
+            Some(Ok(Packet::Binary(v) | Packet::BinaryV3(v))) => {
+                Poll::Ready(Some(Ok(EioEvent::Binary(v))))
+            }
+            Some(Ok(Packet::Noop)) => {
+                // ignore noop packets
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            Some(Ok(p)) => Poll::Ready(Some(Err(ClientError::InvalidPacket(p)))),
             Some(Err(e)) => Poll::Ready(Some(Err(e))),
             None => Poll::Ready(None),
         }
@@ -203,7 +195,7 @@ impl<S: TransportSvc> Client<S> {
     fn poll_upgrade(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<EioEvent, TransportError<S>>>> {
+    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
         let sid = self.sid();
         let proj = self.as_mut().project();
         match ready!(proj.transport.upgrade(cx, proj.config, sid)) {
@@ -233,7 +225,7 @@ impl<S: TransportSvc> Client<S> {
     fn poll_heartbeat(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<(), TransportError<S>>> {
+    ) -> Poll<Result<(), ClientError<S>>> {
         if self.last_ping.elapsed()
             >= self.open_packet.ping_interval + self.open_packet.ping_timeout
         {
@@ -255,26 +247,8 @@ impl<S: TransportSvc> Client<S> {
     }
 }
 
-#[derive(Error)]
-pub enum ClientSinkError<S: TransportSvc> {
-    #[error("transport error: {0}")]
-    TransportError(<Transport<S> as Sink<Packet>>::Error),
-    #[error("transport closed")]
-    TransportClosed,
-}
-impl<S: TransportSvc> fmt::Debug for ClientSinkError<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
-    }
-}
-impl<S: TransportSvc> From<<Transport<S> as Sink<Packet>>::Error> for ClientSinkError<S> {
-    fn from(err: <Transport<S> as Sink<Packet>>::Error) -> Self {
-        ClientSinkError::TransportError(err)
-    }
-}
-
 impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
-    type Error = ClientSinkError<S>;
+    type Error = ClientError<S>;
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -288,9 +262,9 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
                 .project()
                 .transport
                 .poll_ready(cx)
-                .map_err(ClientSinkError::from),
-            ClientState::Closing => Poll::Ready(Err(ClientSinkError::TransportClosed)),
-            ClientState::Closed => Poll::Ready(Err(ClientSinkError::TransportClosed)),
+                .map_err(ClientError::from),
+            ClientState::Closing => Poll::Ready(Err(ClientError::TransportClosed)),
+            ClientState::Closed => Poll::Ready(Err(ClientError::TransportClosed)),
         }
     }
 
@@ -307,7 +281,7 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
         self.project()
             .transport
             .poll_flush(cx)
-            .map_err(ClientSinkError::from)
+            .map_err(ClientError::from)
     }
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
@@ -332,10 +306,13 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
 impl<S: TransportSvc> fmt::Debug for Client<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
+            .field("transport", &self.transport)
             .field("sink_waker", &self.sink_waker)
-            .field("state", &self.state)
-            .field("open_packet", &self.open_packet)
             .field("config", &self.config)
+            .field("open_packet", &self.open_packet)
+            .field("last_ping", &self.last_ping)
+            .field("state", &self.state)
+            .field("pending_pong", &self.pending_pong)
             .finish()
     }
 }

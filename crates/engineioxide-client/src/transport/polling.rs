@@ -130,24 +130,36 @@ impl<F> PostState<F> {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum PollingTransportError<S: PollingSvc> {
-    #[error("polling error: {0}")]
-    Polling(<S as PollingSvc>::Error),
-    #[error("polling body error: {0}")]
-    PollingBody(<S as PollingSvc>::ResBodyError),
+#[derive(thiserror::Error)]
+pub enum PollingError<S: PollingSvc> {
+    #[error("http error: {0}")]
+    Http(<S as PollingSvc>::Error),
+    #[error("polling http body error: {0}")]
+    HttpBody(<S as PollingSvc>::ResBodyError),
     #[error("packet error: {0}")]
     Packet(#[from] PacketParseError),
     #[error("server response error: {0}")]
     Protocol(#[from] ProtocolError),
 }
 
-impl<S: PollingSvc> PollingTransportError<S> {
+impl<S: PollingSvc> fmt::Debug for PollingError<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PollingError::Http(err) => f.debug_tuple("Http").field(err).finish(),
+            PollingError::HttpBody(err) => f.debug_tuple("HttpBody").field(err).finish(),
+            PollingError::Packet(err) => f.debug_tuple("Packet").field(err).finish(),
+            PollingError::Protocol(err) => f.debug_tuple("Protocol").field(err).finish(),
+        }
+    }
+}
+
+impl<S: PollingSvc> PollingError<S> {
     pub(crate) fn should_close(&self) -> bool {
         match self {
-            PollingTransportError::Polling(_) | PollingTransportError::PollingBody(_) => false,
-            PollingTransportError::Packet(_) => false,
-            PollingTransportError::Protocol(_) => true,
+            PollingError::Http(_) | PollingError::HttpBody(_) => false,
+            //TODO: make test again with false to find the future repolled
+            PollingError::Packet(_) => true,
+            PollingError::Protocol(_) => true,
         }
     }
 }
@@ -177,7 +189,7 @@ impl ProtocolError {
     fn from_parts(parts: response::Parts, body: impl Buf) -> Self {
         #[derive(Deserialize)]
         struct ErrorBody {
-            code: char,
+            code: u8,
         }
 
         serde_json::from_reader(body.reader())
@@ -185,13 +197,13 @@ impl ProtocolError {
             .unwrap_or_else(|_| Self::new(parts.status, None))
     }
 
-    fn new(status: StatusCode, code: Option<char>) -> Self {
+    fn new(status: StatusCode, code: Option<u8>) -> Self {
         match code {
-            Some('0') => ProtocolError::UnknownTransport,
-            Some('1') => ProtocolError::UnknownSessionID,
-            Some('2') => ProtocolError::BadHandshakeMethod,
-            Some('3') => ProtocolError::TransportMismatch,
-            Some('5') => ProtocolError::UnsupportedProtocolVersion,
+            Some(0) => ProtocolError::UnknownTransport,
+            Some(1) => ProtocolError::UnknownSessionID,
+            Some(2) => ProtocolError::BadHandshakeMethod,
+            Some(3) => ProtocolError::TransportMismatch,
+            Some(5) => ProtocolError::UnsupportedProtocolVersion,
             _ if status.is_client_error() => ProtocolError::InvalidRequest { status },
             _ => ProtocolError::ServerError { status },
         }
@@ -220,18 +232,12 @@ impl<S: PollingSvc> PollingTransport<S> {
     pub async fn connect(
         svc: S,
         config: &EngineIoClientConfig,
-    ) -> Result<(Self, OpenPacket), PollingTransportError<S>> {
+    ) -> Result<(Self, OpenPacket), PollingError<S>> {
         let req = super::build_connect_req(&config.uri, TransportType::Polling);
         tracing::trace!(?req, "handshake request");
 
-        let res = svc
-            .call(req)
-            .await
-            .map_err(PollingTransportError::Polling)?;
-        let body = res
-            .collect()
-            .await
-            .map_err(PollingTransportError::PollingBody)?;
+        let res = svc.call(req).await.map_err(PollingError::Http)?;
+        let body = res.collect().await.map_err(PollingError::HttpBody)?;
 
         let packet = Packet::parse(
             ProtocolVersion::V4,
@@ -253,15 +259,15 @@ impl<S: PollingSvc> PollingTransport<S> {
                 tracing::debug!(?transport, ?open, "polling transport intialized");
                 Ok((transport, open))
             }
-            _ => Err(PollingTransportError::Packet(
-                PacketParseError::InvalidPacketType(None),
-            )),
+            _ => Err(PollingError::Packet(PacketParseError::InvalidPacketType(
+                None,
+            ))),
         }
     }
 }
 
 impl<S: PollingSvc> Stream for PollingTransport<S> {
-    type Item = Result<Packet, PollingTransportError<S>>;
+    type Item = Result<Packet, PollingError<S>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         tracing::trace!(poll_state = ?self.poll_state, "polling");
@@ -279,9 +285,9 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
                                 .collect()
                                 .now_or_never()
                                 .unwrap()
-                                .map_err(PollingTransportError::PollingBody)?; //TODO: body collect state machine
+                                .map_err(PollingError::HttpBody)?; //TODO: body collect state machine
                             let error = ProtocolError::from_parts(parts, body.aggregate());
-                            return Poll::Ready(Some(Err(PollingTransportError::Protocol(error))));
+                            return Poll::Ready(Some(Err(PollingError::Protocol(error))));
                         }
 
                         //TODO: implement limited body + Content-Type
@@ -295,15 +301,12 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
                         cx.waker().wake_by_ref();
                         Poll::Pending
                     }
-                    Err(err) => {
-                        tracing::debug!(?err, "got body error");
-                        Poll::Ready(Some(Err(PacketParseError::InvalidPacketPayload.into())))
-                    }
+                    Err(err) => Poll::Ready(Some(Err(PollingError::Http(err)))),
                 }
             }
             PollStateProj::Decoding { stream } => {
                 if let Some(packet) = ready!(stream.poll_next(cx)) {
-                    Poll::Ready(Some(packet.map_err(PollingTransportError::from)))
+                    Poll::Ready(Some(packet.map_err(PollingError::from)))
                 } else {
                     tracing::debug!(
                         sid = %self.sid,
@@ -321,7 +324,7 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
 }
 
 impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
-    type Error = PollingTransportError<S>;
+    type Error = PollingError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.close_state != ClosingState::Open {
@@ -354,7 +357,17 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
             PostStateProj::Pending { fut, bytes } => {
                 match ready!(fut.poll(cx)) {
                     Ok(res) => {
-                        assert!(res.status().is_success());
+                        let (parts, res_body) = res.into_parts();
+                        let res_body = res_body
+                            .collect()
+                            .now_or_never()
+                            .unwrap()
+                            .map_err(PollingError::HttpBody)?; //TODO error body collect
+                        if !parts.status.is_success() {
+                            let err = ProtocolError::from_parts(parts, res_body.aggregate());
+                            return Poll::Ready(Err(PollingError::Protocol(err)));
+                        }
+
                         let body = std::mem::take(bytes);
                         if bytes.is_empty() {
                             self.project().post_state.set(PostState::queuing(body));
@@ -370,7 +383,7 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
                     }
                     Err(err) => {
                         self.project().post_state.set(PostState::default());
-                        Poll::Ready(Err(PollingTransportError::Polling(err)))
+                        Poll::Ready(Err(PollingError::Http(err)))
                     }
                 }
             }
@@ -416,16 +429,19 @@ impl<F> PostState<F> {
 impl<F> fmt::Debug for PollState<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Pending { .. } => write!(f, "Pending"),
-            Self::Decoding { .. } => write!(f, "Decoding"),
+            Self::Pending { .. } => f.debug_struct("Pending").finish_non_exhaustive(),
+            Self::Decoding { .. } => f.debug_struct("Decoding").finish_non_exhaustive(),
         }
     }
 }
 impl<F> fmt::Debug for PostState<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Pending { .. } => write!(f, "Pending"),
-            Self::Queuing { .. } => write!(f, "Queuing"),
+            Self::Queuing { bytes } => f.debug_struct("Queuing").field("bytes", bytes).finish(),
+            Self::Pending { bytes, .. } => f
+                .debug_struct("Pending")
+                .field("bytes", bytes)
+                .finish_non_exhaustive(),
         }
     }
 }
@@ -434,7 +450,9 @@ impl<S: PollingSvc> fmt::Debug for PollingTransport<S> {
         f.debug_struct("PollingTransport")
             .field("poll_state", &self.poll_state)
             .field("post_state", &self.post_state)
+            .field("close_state", &self.close_state)
+            .field("base_uri", &self.base_uri)
             .field("sid", &self.sid)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
