@@ -17,9 +17,9 @@ use engineioxide_client::{Client, ConnectError, EioEvent, EngineIoClientConfig};
 use engineioxide_core::{Packet, TransportType};
 use http::Method;
 
-use crate::{
+use crate::mock::{
+    self,
     helpers::{ClientTestExt, FutureTestExt},
-    mock,
 };
 
 /// The polling handshake must be a `GET` on the configured path with

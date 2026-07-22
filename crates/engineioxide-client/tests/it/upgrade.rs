@@ -19,10 +19,10 @@ use engineioxide_core::{Packet, TransportType};
 use futures_util::{SinkExt, StreamExt};
 use http::Method;
 
-use crate::{
+use crate::mock::{
+    self,
     fixture::{Event, service, service_with_registry},
     helpers::{ClientTestExt, FutureTestExt},
-    mock,
 };
 
 /// Wire-level probe sequence: ws connect with the session `sid`, `2probe`

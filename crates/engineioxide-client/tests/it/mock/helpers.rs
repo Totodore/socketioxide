@@ -1,3 +1,5 @@
+//! Async helpers for the mock engine.io server.
+
 use std::{
     convert::Infallible,
     fmt,

@@ -1,14 +1,4 @@
 //! A scripted mock engine.io server.
-//!
-//! Unlike the `fixture` module (which runs the real `engineioxide` server
-//! behind the [`TestingFlavor`]), this harness hands every HTTP request and
-//! every websocket connection straight to the test, which decides how to
-//! answer (or not answer) each one. It is the "granular control" path used to
-//! exercise edge cases the real server never produces: malformed handshakes,
-//! dropped pings, failed upgrades, error status codes, abrupt closes...
-//!
-//! Test binaries using it must declare `mod mock;`.
-#![allow(dead_code)]
 
 use std::{
     convert::Infallible,
@@ -32,7 +22,10 @@ use hyper::service::Service as HyperSvc;
 use tokio::sync::{mpsc, oneshot};
 use tracing_subscriber::EnvFilter;
 
-use crate::helpers::FutureTestExt;
+use crate::mock::helpers::FutureTestExt;
+
+pub mod fixture;
+pub mod helpers;
 
 /// The engine.io v4 payload record separator.
 pub const SEP: char = '\x1e';

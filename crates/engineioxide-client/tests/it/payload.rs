@@ -15,10 +15,10 @@ use engineioxide_client::{Client, EioEvent};
 use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
 
-use crate::{
+use crate::mock::{
+    self,
     fixture::{Event, service, service_with_config},
     helpers::{ClientTestExt, FutureTestExt},
-    mock,
 };
 
 /// Several packets received in a single poll response (separated by `\x1e`)

@@ -21,10 +21,10 @@ use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
 use tokio::time;
 
-use crate::{
+use crate::mock::{
+    self,
     fixture::{Event, service, service_with_registry},
     helpers::{ClientTestExt, FutureTestExt},
-    mock,
 };
 
 /// A `1` (close) packet received on a poll ends the session: `Disconnect`

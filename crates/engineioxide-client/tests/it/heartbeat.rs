@@ -18,10 +18,10 @@ use engineioxide_client::{Client, EioEvent, EngineIoClientConfig};
 use engineioxide_core::{OpenPacket, Packet};
 use futures_util::{SinkExt, StreamExt};
 
-use crate::{
+use crate::mock::{
+    self,
     fixture::{Event, service_with_config},
     helpers::{ClientTestExt, FutureTestExt},
-    mock,
 };
 
 const PING_INTERVAL: Duration = Duration::from_millis(150);

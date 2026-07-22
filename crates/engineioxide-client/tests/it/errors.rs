@@ -24,9 +24,9 @@ use engineioxide_core::{Packet, TransportType};
 use futures_util::SinkExt;
 use http::StatusCode;
 
-use crate::{
+use crate::mock::{
+    self,
     helpers::{ClientTestExt, FutureTestExt},
-    mock,
 };
 
 /// A 500 on a mid-session poll must surface an error and close the session.

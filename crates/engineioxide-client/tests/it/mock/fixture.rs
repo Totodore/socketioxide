@@ -1,8 +1,5 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use bytes::Bytes;
 use engineioxide::config::EngineIoConfig;
@@ -13,18 +10,6 @@ use engineioxide_client::flavors::testing::TestingFlavor;
 use engineioxide_core::{Sid, Str};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
-
-/// Default deadline for every await in the tests: an enforcement test must
-/// fail fast instead of hanging the whole suite.
-pub const DEADLINE: Duration = Duration::from_secs(5);
-
-/// Await `fut` with the global [`DEADLINE`], panicking with `what` on expiry.
-pub async fn within<F: Future>(what: &str, fut: F) -> F::Output {
-    match tokio::time::timeout(DEADLINE, fut).await {
-        Ok(v) => v,
-        Err(_) => panic!("timed out after {DEADLINE:?}: {what}"),
-    }
-}
 
 /// Handle over the sockets currently connected to the test server, letting
 /// tests drive server-side actions (e.g. closing a session).
