@@ -1,3 +1,6 @@
+# engineioxide 0.17.7
+* chore(deps): bump `tokio_tungstenite` to v0.30
+* 
 # engineioxide 0.17.6
 * feat: add `emit_{binary,many}_volatile` methods to `Socket` to emit volatile packets.
 
