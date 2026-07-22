@@ -1,0 +1,47 @@
+[package]
+name = "engineioxide-client"
+description = "Engine IO client implementation in rust"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[dependencies]
+engineioxide-core = { path = "../engineioxide-core", version = "0.2" }
+bytes.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "macros", "parking_lot"] }
+hyper = { workspace = true, features = ["client", "http1"] }
+tokio-tungstenite.workspace = true
+http-body-util.workspace = true
+pin-project-lite.workspace = true
+smallvec.workspace = true
+hyper-util = { workspace = true, features = ["tokio", "client", "client-pool", "client-legacy", "http1", "http2"] }
+tokio-stream.workspace = true
+tokio-util.workspace = true
+
+# Tracing
+tracing = { workspace = true } # TODO: make optional
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+# Testing
+engineioxide = { path = "../engineioxide", features = ["tracing"] }
+
+
+[features]
+v3 = ["engineioxide-core/v3"]
+# tracing = ["dep:tracing", "engineioxide-core/tracing"]
+__test_harness = []
