@@ -274,7 +274,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
-      [adapter, feature_set, format, udeps, msrv, examples, rust-clippy-analyze]
+      [adapter, feature_set, format, udeps, msrv, examples, clippy]
     steps:
       - uses: re-actors/alls-green@release/v1
         with:
