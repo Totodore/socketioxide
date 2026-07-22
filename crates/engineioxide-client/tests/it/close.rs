@@ -13,12 +13,16 @@
 //! * An abruptly closed websocket is a *clean* close ("transport close"),
 //!   not an error.
 
-use std::time::Duration;
+use std::{assert_matches, time::Duration};
 
 use engineioxide::{DisconnectReason, TransportType};
-use engineioxide_client::{Client, EioEvent};
+use engineioxide_client::{
+    Client, ClientSinkError, EioEvent,
+    transport::{TransportError, ws::WsTransportError},
+};
 use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
+use tokio::time;
 
 use crate::{
     fixture::{Event, service, service_with_registry},
@@ -66,9 +70,20 @@ async fn server_close_real_server_polling() {
     assert_eq!(rx.next_ok().await, Event::Connect(sid));
     assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
 
-    registry.lock().unwrap()[&sid].close(DisconnectReason::TransportClose);
+    // start a polling req before closing the socket server side. Otherwise
+    // The disconnect packet is never sent because the client didn't initiated a req immediately
+    let fut = client.next_ok();
+    tokio::pin!(fut);
+    let event = loop {
+        tokio::select! {
+            res = &mut fut => break res,
+            _ = time::sleep(Duration::from_millis(10)) => {
+                registry.lock().unwrap()[&sid].close(DisconnectReason::TransportClose);
+            }
+        }
+    };
 
-    assert_eq!(client.next_ok().await, EioEvent::Disconnect);
+    assert_eq!(event, EioEvent::Disconnect);
     client.next_close().await;
 }
 
@@ -246,13 +261,13 @@ async fn send_after_close_is_not_delivered() {
 
     client.close().timeout().await.unwrap();
 
-    // Whether this returns Ok (discarded) or Err (sink closed) is API
-    // flavor; what matters is that nothing is delivered and nothing panics.
-    //TODO: uniform flavor
-    let _ = client
-        .send(EioEvent::Message("late".into()))
-        .timeout()
-        .await;
+    assert_matches!(
+        client
+            .send(EioEvent::Message("late".into()))
+            .timeout()
+            .await,
+        Err(ClientSinkError::TransportClosed)
+    );
 
     if let Ok(Some(Event::Message(_, msg))) =
         tokio::time::timeout(Duration::from_millis(300), rx.recv()).await
@@ -322,7 +337,10 @@ async fn ws_error_surfaces_then_stream_terminates() {
 
     ws.send_error("connection reset by peer");
 
-    dbg!(client.next_err().await); //TODO: assert error eq
+    assert_matches!(
+        client.next_err().await,
+        TransportError::Websocket(WsTransportError::Websocket(_))
+    );
 
     // Keep `ws` alive: termination must come from the client closing itself
     // after the error, not from the mock dropping the connection.

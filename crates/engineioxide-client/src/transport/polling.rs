@@ -5,16 +5,17 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use engineioxide_core::{
     OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, TransportType, payload,
 };
 use futures_core::Stream;
-use futures_util::{Sink, StreamExt};
-use http::{Request, Response, StatusCode, Uri};
+use futures_util::{FutureExt, Sink, StreamExt};
+use http::{Request, Response, StatusCode, Uri, response};
 use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
 use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
+use serde::Deserialize;
 
 use crate::EngineIoClientConfig;
 
@@ -137,6 +138,64 @@ pub enum PollingTransportError<S: PollingSvc> {
     PollingBody(<S as PollingSvc>::ResBodyError),
     #[error("packet error: {0}")]
     Packet(#[from] PacketParseError),
+    #[error("server response error: {0}")]
+    Protocol(#[from] ProtocolError),
+}
+
+impl<S: PollingSvc> PollingTransportError<S> {
+    pub(crate) fn should_close(&self) -> bool {
+        match self {
+            PollingTransportError::Polling(_) | PollingTransportError::PollingBody(_) => false,
+            PollingTransportError::Packet(_) => false,
+            PollingTransportError::Protocol(_) => true,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProtocolError {
+    #[error("internal error: {status}")]
+    ServerError { status: StatusCode },
+
+    #[error("invalid request: {status}")]
+    InvalidRequest { status: StatusCode },
+
+    #[error("unknown transport")]
+    UnknownTransport,
+    #[error("unknown session id")]
+    UnknownSessionID,
+    #[error("bad handshake method")]
+    BadHandshakeMethod,
+    #[error("transport mismatch")]
+    TransportMismatch,
+    #[error("unsupported protocol version")]
+    UnsupportedProtocolVersion,
+}
+impl ProtocolError {
+    /// Tries to parse a response body and generate a [`ProtocolError`]
+    /// from it.
+    fn from_parts(parts: response::Parts, body: impl Buf) -> Self {
+        #[derive(Deserialize)]
+        struct ErrorBody {
+            code: char,
+        }
+
+        serde_json::from_reader(body.reader())
+            .map(|ErrorBody { code }| Self::new(parts.status, Some(code)))
+            .unwrap_or_else(|_| Self::new(parts.status, None))
+    }
+
+    fn new(status: StatusCode, code: Option<char>) -> Self {
+        match code {
+            Some('0') => ProtocolError::UnknownTransport,
+            Some('1') => ProtocolError::UnknownSessionID,
+            Some('2') => ProtocolError::BadHandshakeMethod,
+            Some('3') => ProtocolError::TransportMismatch,
+            Some('5') => ProtocolError::UnsupportedProtocolVersion,
+            _ if status.is_client_error() => ProtocolError::InvalidRequest { status },
+            _ => ProtocolError::ServerError { status },
+        }
+    }
 }
 
 pin_project! {
@@ -213,8 +272,18 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
                 match ready!(fut.as_mut().poll(cx)) {
                     Ok(res) => {
                         let (parts, body) = res.into_parts();
-                        assert!(parts.status == StatusCode::OK);
                         let body = Box::pin(body);
+
+                        if !parts.status.is_success() {
+                            let body = body
+                                .collect()
+                                .now_or_never()
+                                .unwrap()
+                                .map_err(PollingTransportError::PollingBody)?; //TODO: body collect state machine
+                            let error = ProtocolError::from_parts(parts, body.aggregate());
+                            return Poll::Ready(Some(Err(PollingTransportError::Protocol(error))));
+                        }
+
                         //TODO: implement limited body + Content-Type
                         let stream =
                             payload::decoder(body, None, ProtocolVersion::V4, 200).boxed_local();

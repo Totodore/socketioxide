@@ -133,11 +133,11 @@ impl<S: TransportSvc> Client<S> {
     }
 }
 
-impl<S: TransportSvc> Stream for Client<S> {
-    type Item = Result<EioEvent, TransportError<S>>;
-
-    #[tracing::instrument(skip(cx))]
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+impl<S: TransportSvc> Client<S> {
+    fn poll_next_inner(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<EioEvent, TransportError<S>>>> {
         let _ = self.as_mut().poll_heartbeat(cx);
 
         match self.state {
@@ -152,6 +152,24 @@ impl<S: TransportSvc> Stream for Client<S> {
             ClientState::Upgrading => self.poll_upgrade(cx),
             ClientState::Running => self.poll_transport(cx),
             ClientState::Closed | ClientState::Closing => Poll::Ready(None),
+        }
+    }
+}
+
+impl<S: TransportSvc> Stream for Client<S> {
+    type Item = Result<EioEvent, TransportError<S>>;
+
+    #[tracing::instrument(skip(cx))]
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match ready!(self.as_mut().poll_next_inner(cx)) {
+            Some(Ok(item)) => Poll::Ready(Some(Ok(item))),
+            Some(Err(err)) if err.should_close() => {
+                // hard closing on errors
+                *self.project().state = ClientState::Closed;
+                Poll::Ready(Some(Err(err)))
+            }
+            Some(Err(err)) => Poll::Ready(Some(Err(err))),
+            None => Poll::Ready(None),
         }
     }
 }
@@ -237,8 +255,26 @@ impl<S: TransportSvc> Client<S> {
     }
 }
 
+#[derive(Error)]
+pub enum ClientSinkError<S: TransportSvc> {
+    #[error("transport error: {0}")]
+    TransportError(<Transport<S> as Sink<Packet>>::Error),
+    #[error("transport closed")]
+    TransportClosed,
+}
+impl<S: TransportSvc> fmt::Debug for ClientSinkError<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+impl<S: TransportSvc> From<<Transport<S> as Sink<Packet>>::Error> for ClientSinkError<S> {
+    fn from(err: <Transport<S> as Sink<Packet>>::Error) -> Self {
+        ClientSinkError::TransportError(err)
+    }
+}
+
 impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
-    type Error = <Transport<S> as Sink<Packet>>::Error;
+    type Error = ClientSinkError<S>;
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -248,9 +284,13 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
                 self.project().sink_waker.replace(cx.waker().clone());
                 Poll::Pending
             }
-            ClientState::Open | ClientState::Running => self.project().transport.poll_ready(cx),
-            ClientState::Closing => todo!("err, transport is closing"),
-            ClientState::Closed => todo!("err, transport closed"),
+            ClientState::Open | ClientState::Running => self
+                .project()
+                .transport
+                .poll_ready(cx)
+                .map_err(ClientSinkError::from),
+            ClientState::Closing => Poll::Ready(Err(ClientSinkError::TransportClosed)),
+            ClientState::Closed => Poll::Ready(Err(ClientSinkError::TransportClosed)),
         }
     }
 
@@ -264,7 +304,10 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().transport.poll_flush(cx)
+        self.project()
+            .transport
+            .poll_flush(cx)
+            .map_err(ClientSinkError::from)
     }
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]

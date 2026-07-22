@@ -63,6 +63,12 @@ pub enum WsTransportError<S: WsSvc> {
 }
 
 impl<S: WsSvc> WsTransportError<S> {
+    pub(crate) fn should_close(&self) -> bool {
+        matches!(
+            self,
+            WsTransportError::Closed | WsTransportError::Websocket(_)
+        )
+    }
     fn invalid_packet(expected: Packet, got: Packet) -> Self {
         Self::InvalidPacket {
             expected: Box::new(expected),

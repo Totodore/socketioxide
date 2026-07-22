@@ -16,13 +16,10 @@ use http::{
 use http_body_util::{Empty, combinators::BoxBody};
 use tracing::Level;
 
-use crate::{
-    EngineIoClientConfig,
-    transport::{polling::PollingTransportError, ws::WsTransportError},
-};
+use crate::EngineIoClientConfig;
 
-pub use polling::{PollingSvc, PollingTransport};
-pub use ws::{WebSocket, WsSvc, WsTransport};
+pub use polling::{PollingSvc, PollingTransport, PollingTransportError};
+pub use ws::{WebSocket, WsSvc, WsTransport, WsTransportError};
 
 pub mod polling;
 pub mod ws;
@@ -30,6 +27,15 @@ pub mod ws;
 pub enum TransportError<S: TransportSvc> {
     Polling(PollingTransportError<S>),
     Websocket(WsTransportError<S>),
+}
+
+impl<S: TransportSvc> TransportError<S> {
+    pub(crate) fn should_close(&self) -> bool {
+        match self {
+            TransportError::Polling(e) => e.should_close(),
+            TransportError::Websocket(e) => e.should_close(),
+        }
+    }
 }
 
 impl<S: TransportSvc> fmt::Debug for TransportError<S> {

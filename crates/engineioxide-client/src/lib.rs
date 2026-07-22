@@ -15,6 +15,6 @@ mod event;
 pub mod flavors;
 pub mod transport;
 
-pub use crate::client::Client;
+pub use crate::client::{Client, ClientSinkError, ConnectError};
 pub use crate::event::EioEvent;
 pub use config::{EngineIoClientConfig, EngineIoClientConfigBuilder};
