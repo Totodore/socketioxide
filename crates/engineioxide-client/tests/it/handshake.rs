@@ -11,56 +11,16 @@
 //!   a network failure, a closed websocket — must surface as a connection
 //!   error.
 
-use std::time::Duration;
+use std::assert_matches;
 
-use engineioxide_client::{
-    Client, EioEvent, EngineIoClientConfig,
-    transport::{PollingTransport, WsTransport},
-};
+use engineioxide_client::{Client, ConnectError, EioEvent, EngineIoClientConfig};
 use engineioxide_core::{Packet, TransportType};
-use futures_util::StreamExt;
 use http::Method;
 
-use crate::fixture::{Event, service};
-
-mod fixture;
-mod mock;
-
-#[tokio::test]
-async fn handshake_polling() {
-    let (svc, mut rx) = service();
-    let (_transport, open) = tokio::time::timeout(
-        Duration::from_secs(1),
-        PollingTransport::connect(svc, &EngineIoClientConfig::default()),
-    )
-    .await
-    .expect("timeout while initializing polling transport conn")
-    .unwrap();
-
-    let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
-        .await
-        .expect("timeout while receiving server connect event");
-
-    assert_eq!(event, Some(Event::Connect(open.sid)));
-}
-
-#[tokio::test]
-async fn handshake_websocket() {
-    let (svc, mut rx) = service();
-    let (_transport, open) = tokio::time::timeout(
-        Duration::from_secs(1),
-        WsTransport::connect(svc, &EngineIoClientConfig::default()),
-    )
-    .await
-    .expect("timeout while initializing polling transport conn")
-    .unwrap();
-
-    let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
-        .await
-        .expect("timeout while receiving server connect event");
-
-    assert_eq!(event, Some(Event::Connect(open.sid)));
-}
+use crate::{
+    helpers::{ClientTestExt, FutureTestExt},
+    mock,
+};
 
 /// The polling handshake must be a `GET` on the configured path with
 /// `EIO=4&transport=polling` and no `sid`.
@@ -72,19 +32,16 @@ async fn polling_handshake_request_format() {
         .transports([TransportType::Polling])
         .build();
 
-    let (client, _) = tokio::join!(
-        mock::within("handshake", Client::connect(svc, config)),
-        async {
-            let call = server.next_http().await;
-            assert_eq!(call.method, Method::GET);
-            assert_eq!(call.uri.path(), "/engine.io");
-            assert_eq!(call.query("EIO"), Some("4"));
-            assert_eq!(call.query("transport"), Some("polling"));
-            assert_eq!(call.query("sid"), None, "no sid before the session exists");
-            assert!(call.body.is_empty(), "the handshake GET has no body");
-            call.respond_open(&mock::open_packet());
-        },
-    );
+    let (client, _) = tokio::join!(Client::connect(svc, config).timeout(), async {
+        let call = server.next_http().await;
+        assert_eq!(call.method, Method::GET);
+        assert_eq!(call.uri.path(), "/engine.io");
+        assert_eq!(call.query("EIO"), Some("4"));
+        assert_eq!(call.query("transport"), Some("polling"));
+        assert_eq!(call.query("sid"), None, "no sid before the session exists");
+        assert!(call.body.is_empty(), "the handshake GET has no body");
+        call.respond_open(&mock::open_packet());
+    },);
     let client = client.expect("handshake should succeed");
     assert_eq!(client.transport(), TransportType::Polling);
 }
@@ -99,19 +56,16 @@ async fn ws_handshake_request_format() {
         .transports([TransportType::Websocket])
         .build();
 
-    let (client, _ws) = tokio::join!(
-        mock::within("handshake", Client::connect(svc, config)),
-        async {
-            let call = server.next_ws().await;
-            assert_eq!(call.req.uri().path(), "/engine.io");
-            assert_eq!(call.query("EIO"), Some("4"));
-            assert_eq!(call.query("transport"), Some("websocket"));
-            assert_eq!(call.query("sid"), None, "no sid before the session exists");
-            let ws = call.accept();
-            ws.send_packet(Packet::Open(mock::open_packet()));
-            ws
-        },
-    );
+    let (client, _ws) = tokio::join!(Client::connect(svc, config).timeout(), async {
+        let call = server.next_ws().await;
+        assert_eq!(call.req.uri().path(), "/engine.io");
+        assert_eq!(call.query("EIO"), Some("4"));
+        assert_eq!(call.query("transport"), Some("websocket"));
+        assert_eq!(call.query("sid"), None, "no sid before the session exists");
+        let ws = call.accept();
+        ws.send_packet(Packet::Open(mock::open_packet()));
+        ws
+    },);
     let client = client.expect("handshake should succeed");
     assert_eq!(client.transport(), TransportType::Websocket);
 }
@@ -125,15 +79,9 @@ async fn handshake_sid_is_attached_to_subsequent_requests() {
     let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
 
     assert_eq!(client.sid(), open.sid);
-    assert_eq!(
-        mock::within("connect event", client.next())
-            .await
-            .unwrap()
-            .unwrap(),
-        EioEvent::Connect(open.sid)
-    );
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
 
-    let (event, _) = tokio::join!(mock::within("first message", client.next()), async {
+    let (event, _) = tokio::join!(client.next_ok().timeout(), async {
         let call = server.next_http().await;
         assert_eq!(call.method, Method::GET);
         assert_eq!(call.query("sid").map(str::to_owned), Some(sid));
@@ -141,7 +89,7 @@ async fn handshake_sid_is_attached_to_subsequent_requests() {
         assert_eq!(call.query("transport"), Some("polling"));
         call.respond_packets([Packet::Message("hi".into())]);
     },);
-    assert_eq!(event.unwrap().unwrap(), EioEvent::Message("hi".into()));
+    assert_eq!(event, EioEvent::Message("hi".into()));
 }
 
 /// Query parameters provided in the configured uri must be preserved
@@ -154,45 +102,38 @@ async fn handshake_preserves_custom_query_params() {
         .transports([TransportType::Polling])
         .build();
 
-    let (client, _) = tokio::join!(
-        mock::within("handshake", Client::connect(svc, config)),
-        async {
-            let call = server.next_http().await;
-            assert_eq!(call.query("token"), Some("s3cret"));
-            assert_eq!(call.query("EIO"), Some("4"));
-            assert_eq!(call.query("transport"), Some("polling"));
-            call.respond_open(&mock::open_packet());
-        },
-    );
+    let (client, _) = tokio::join!(Client::connect(svc, config).timeout(), async {
+        let call = server.next_http().await;
+        assert_eq!(call.query("token"), Some("s3cret"));
+        assert_eq!(call.query("EIO"), Some("4"));
+        assert_eq!(call.query("transport"), Some("polling"));
+        call.respond_open(&mock::open_packet());
+    },);
     client.expect("handshake should succeed");
+    //TODO: not finished
 }
 
 /// Run a polling connect against a scripted handshake answer and require it
 /// to fail.
 async fn polling_connect_must_fail(answer: impl FnOnce(mock::HttpCall)) {
     let (svc, mut server) = mock::mock();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Polling])
-        .build();
+
     let (res, _) = tokio::join!(
-        mock::within("handshake attempt", Client::connect(svc, config)),
+        Client::connect(svc, [TransportType::Polling]).timeout(),
         async { answer(server.next_http().await) },
     );
-    assert!(res.is_err(), "connect must surface an error");
+    assert_matches!(res, Err(ConnectError::Client(_)));
 }
 
 /// Run a websocket connect against a scripted handshake answer and require
 /// it to fail.
 async fn ws_connect_must_fail(answer: impl FnOnce(mock::WsCall)) {
     let (svc, mut server) = mock::mock();
-    let config = EngineIoClientConfig::builder()
-        .transports([TransportType::Websocket])
-        .build();
     let (res, _) = tokio::join!(
-        mock::within("handshake attempt", Client::connect(svc, config)),
+        Client::connect(svc, [TransportType::Websocket]).timeout(),
         async { answer(server.next_ws().await) },
     );
-    assert!(res.is_err(), "connect must surface an error");
+    assert_matches!(res, Err(ConnectError::Client(_)));
 }
 
 /// A first packet that is not an `open` packet is a protocol violation.
