@@ -6,6 +6,7 @@ mod close;
 mod errors;
 mod handshake;
 mod heartbeat;
+mod payload;
 mod upgrade;
 
 const fn main() {}

@@ -227,6 +227,7 @@ pin_project! {
         close_state: ClosingState,
 
         base_uri: Uri,
+        max_payload: u64,
         sid: Sid,
     }
 }
@@ -256,6 +257,7 @@ impl<S: PollingSvc> PollingTransport<S> {
                     post_state: PostState::default(),
                     close_state: ClosingState::default(),
                     sid: open.sid,
+                    max_payload: open.max_payload,
                     base_uri: config.uri.clone(),
                 };
 
@@ -323,9 +325,9 @@ impl<S: PollingSvc> PollingTransport<S> {
                             return Poll::Ready(Some(Err(PollingError::Protocol(error))));
                         }
 
-                        //TODO: implement limited body + Content-Type
                         let stream =
-                            payload::decoder(body, None, ProtocolVersion::V4, 200).boxed_local();
+                            payload::decoder(body, None, ProtocolVersion::V4, self.max_payload)
+                                .boxed_local();
 
                         self.project()
                             .poll_state
@@ -390,12 +392,12 @@ impl<S: PollingSvc> PollingTransport<S> {
                         let body = std::mem::take(bytes);
                         if body.is_empty() {
                             self.project().post_state.set(PostState::queuing(body));
-                            Poll::Ready(Ok(())) // TODO: check response == ok
+                            Poll::Ready(Ok(()))
                         } else {
-                            let post_state =
-                                PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
                             // resend another request immediately, the buffer was filled
                             // while the previous one was sent
+                            let post_state =
+                                PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
                             self.project().post_state.set(post_state);
                             cx.waker().wake_by_ref();
                             Poll::Pending
