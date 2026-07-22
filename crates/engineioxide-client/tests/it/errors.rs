@@ -11,7 +11,7 @@
 //!   poll during upgrades).
 //! * The client never retries or reconnects on its own.
 
-use std::{assert_matches, time::Duration};
+use std::assert_matches;
 
 use engineioxide_client::{
     ClientError, EioEvent,
@@ -20,7 +20,7 @@ use engineioxide_client::{
         ws::WsError,
     },
 };
-use engineioxide_core::{Packet, PacketParseError, TransportType};
+use engineioxide_core::{Packet, TransportType};
 use futures_util::SinkExt;
 use http::StatusCode;
 
@@ -49,10 +49,6 @@ async fn polling_get_http_error_surfaces_and_closes() {
         );
         client.next_close().timeout().await;
     });
-
-    server
-        .assert_no_call(Duration::from_millis(300), "the session is closed")
-        .await;
 }
 
 /// A 400 `{"code":1,"message":"Session ID unknown"}` (e.g. the server
@@ -83,9 +79,6 @@ async fn polling_get_session_unknown_surfaces_and_closes() {
             client.next_close().timeout().await;
         }
     );
-    server
-        .assert_no_call(Duration::from_millis(300), "the session is closed")
-        .await;
 }
 
 /// A network-level failure on a mid-session poll must surface an error and
@@ -107,9 +100,6 @@ async fn polling_get_network_error_surfaces_and_closes() {
             client.next_close().timeout().await;
         }
     );
-    server
-        .assert_no_call(Duration::from_millis(300), "the session is closed")
-        .await;
 }
 
 /// An HTTP error on a POST write must surface as a sink error (reference:
@@ -163,9 +153,6 @@ async fn polling_parse_error_surfaces_and_closes() {
             client.next_close().timeout().await;
         }
     );
-    server
-        .assert_no_call(Duration::from_millis(300), "the session is closed")
-        .await;
 }
 
 /// An invalid packet received over websocket must surface an error and

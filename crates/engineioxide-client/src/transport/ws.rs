@@ -40,6 +40,9 @@ pin_project! {
             stream: S::WebSocket,
             upgrade: UpgradeHandshakeState,
         },
+        // Terminal state: the connect future / websocket stream is dropped so
+        // it can never be polled again after an error or a close.
+        Closed,
     }
 }
 #[derive(Debug)]
@@ -272,6 +275,28 @@ impl<S: WsSvc> Stream for WsTransport<S> {
 
     #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match ready!(self.as_mut().poll_next_inner(cx)) {
+            // an error or the end of the stream is terminal: drop the
+            // websocket (or the completed connect future) so it can never
+            // be polled again.
+            Some(Err(err)) if err.should_close() => {
+                self.project().state.set(WsTransportState::Closed);
+                Poll::Ready(Some(Err(err)))
+            }
+            None => {
+                self.project().state.set(WsTransportState::Closed);
+                Poll::Ready(None)
+            }
+            packet => Poll::Ready(packet),
+        }
+    }
+}
+
+impl<S: WsSvc> WsTransport<S> {
+    fn poll_next_inner(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Packet, WsError<S>>>> {
         match self.as_mut().project().state.project() {
             // if we were connecting it means that's an upgrade.
             // TODO: this assertion might be brittle, add a test to prove that.
@@ -318,6 +343,7 @@ impl<S: WsSvc> Stream for WsTransport<S> {
                     Err(err) => Poll::Ready(Some(Err(err))),
                 }
             }
+            WsTransportStateProj::Closed => Poll::Ready(None),
         }
     }
 }
@@ -334,6 +360,7 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
                 upgrade: UpgradeHandshakeState::Done,
                 ..
             } => stream.poll_ready(cx).map_err(WsError::Websocket),
+            WsTransportStateProj::Closed => Poll::Ready(Err(WsError::Closed)),
             _ => {
                 proj.sink_waker.replace(cx.waker().clone());
                 Poll::Pending
@@ -354,6 +381,7 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
                 };
                 stream.start_send(msg).map_err(WsError::Websocket)
             }
+            WsTransportStateProj::Closed => Err(WsError::Closed),
             _ => {
                 panic!("Sink is not ready")
             }
@@ -372,12 +400,17 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
     }
 
     #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        match self.project().state.project() {
-            WsTransportStateProj::Connecting { .. } => Poll::Ready(Ok(())),
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.as_mut().project().state.project() {
+            WsTransportStateProj::Connecting { .. } => {
+                // abort the in-flight connection attempt
+                self.project().state.set(WsTransportState::Closed);
+                Poll::Ready(Ok(()))
+            }
             WsTransportStateProj::Stream { stream, .. } => {
                 stream.poll_close(cx).map_err(WsError::Websocket)
             }
+            WsTransportStateProj::Closed => Poll::Ready(Ok(())),
         }
     }
 }
@@ -399,6 +432,7 @@ impl<S: WsSvc> fmt::Debug for WsTransportState<S> {
                 .debug_struct("Stream")
                 .field("upgrade", upgrade)
                 .finish_non_exhaustive(),
+            Self::Closed => f.write_str("Closed"),
         }
     }
 }

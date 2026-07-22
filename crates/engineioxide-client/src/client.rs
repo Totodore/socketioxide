@@ -143,7 +143,15 @@ impl<S: TransportSvc> Client<S> {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
-        let _ = self.as_mut().poll_heartbeat(cx);
+        // The heartbeat drives the transport sink: it must not run once the
+        // session is closing or closed, and its errors must surface.
+        if matches!(
+            self.state,
+            ClientState::Open | ClientState::Upgrading | ClientState::Running
+        ) && let Poll::Ready(Err(err)) = self.as_mut().poll_heartbeat(cx)
+        {
+            return Poll::Ready(Some(Err(err)));
+        }
 
         match self.state {
             ClientState::Open => {
@@ -222,6 +230,15 @@ impl<S: TransportSvc> Client<S> {
         }
     }
 
+    /// A fatal error surfaced by the transport sink means the session is
+    /// over: mark the client closed so the stream terminates instead of
+    /// driving a dead transport.
+    fn close_on_fatal(self: Pin<&mut Self>, err: &ClientError<S>) {
+        if err.should_close() {
+            *self.project().state = ClientState::Closed;
+        }
+    }
+
     fn poll_heartbeat(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -251,37 +268,42 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
     type Error = ClientError<S>;
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.state {
             ClientState::Upgrading => {
                 // save waker to wake the task when transport is migrated.
                 self.project().sink_waker.replace(cx.waker().clone());
                 Poll::Pending
             }
-            ClientState::Open | ClientState::Running => self
-                .project()
-                .transport
-                .poll_ready(cx)
-                .map_err(ClientError::from),
+            ClientState::Open | ClientState::Running => {
+                let res = ready!(self.as_mut().project().transport.poll_ready(cx))
+                    .inspect_err(|err| self.close_on_fatal(err));
+                Poll::Ready(res)
+            }
             ClientState::Closing => Poll::Ready(Err(ClientError::TransportClosed)),
             ClientState::Closed => Poll::Ready(Err(ClientError::TransportClosed)),
         }
     }
 
     #[tracing::instrument(level = Level::TRACE, ret)]
-    fn start_send(self: Pin<&mut Self>, event: EioEvent) -> Result<(), Self::Error> {
+    fn start_send(mut self: Pin<&mut Self>, event: EioEvent) -> Result<(), Self::Error> {
         if let Some(packet) = event.into() {
-            self.project().transport.start_send(packet)?;
+            self.as_mut()
+                .project()
+                .transport
+                .start_send(packet)
+                .inspect_err(|err| self.close_on_fatal(err))?;
         }
         Ok(())
     }
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project()
-            .transport
-            .poll_flush(cx)
-            .map_err(ClientError::from)
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let res = ready!(self.as_mut().project().transport.poll_flush(cx));
+        if let Err(err) = &res {
+            self.close_on_fatal(err);
+        }
+        Poll::Ready(res)
     }
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
@@ -293,11 +315,18 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            ClientState::Closing => {
-                ready!(proj.transport.poll_close(cx))?;
-                *proj.state = ClientState::Closed;
-                Poll::Ready(Ok(()))
-            }
+            ClientState::Closing => match ready!(proj.transport.poll_close(cx)) {
+                Ok(()) => {
+                    *proj.state = ClientState::Closed;
+                    Poll::Ready(Ok(()))
+                }
+                Err(err) => {
+                    if err.should_close() {
+                        *proj.state = ClientState::Closed;
+                    }
+                    Poll::Ready(Err(err))
+                }
+            },
             ClientState::Closed => Poll::Ready(Ok(())),
         }
     }

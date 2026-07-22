@@ -55,6 +55,9 @@ pin_project! {
             #[pin]
             stream: Pin<Box<dyn Stream<Item = Result<Packet, PacketParseError>>>>
         },
+        // Terminal state: the previous request future is dropped so it can
+        // never be polled again after it completed with an error.
+        Closed,
     }
 }
 
@@ -69,7 +72,9 @@ pin_project! {
             fut: F,
             // TODO: BytesList
             bytes: BytesMut,
-        }
+        },
+        // Terminal state: in-flight request and queued bytes are discarded.
+        Closed,
     }
 }
 
@@ -140,6 +145,8 @@ pub enum PollingError<S: PollingSvc> {
     Packet(#[from] PacketParseError),
     #[error("server response error: {0}")]
     Protocol(#[from] ProtocolError),
+    #[error("transport closed, it is not possible to send or receive data")]
+    Closed,
 }
 
 impl<S: PollingSvc> fmt::Debug for PollingError<S> {
@@ -149,18 +156,14 @@ impl<S: PollingSvc> fmt::Debug for PollingError<S> {
             PollingError::HttpBody(err) => f.debug_tuple("HttpBody").field(err).finish(),
             PollingError::Packet(err) => f.debug_tuple("Packet").field(err).finish(),
             PollingError::Protocol(err) => f.debug_tuple("Protocol").field(err).finish(),
+            PollingError::Closed => f.write_str("Closed"),
         }
     }
 }
 
 impl<S: PollingSvc> PollingError<S> {
     pub(crate) fn should_close(&self) -> bool {
-        match self {
-            PollingError::Http(_) | PollingError::HttpBody(_) => false,
-            //TODO: make test again with false to find the future repolled
-            PollingError::Packet(_) => true,
-            PollingError::Protocol(_) => true,
-        }
+        true
     }
 }
 
@@ -264,12 +267,42 @@ impl<S: PollingSvc> PollingTransport<S> {
             ))),
         }
     }
+
+    /// Tear the transport down: drop any in-flight request future (it must
+    /// never be polled again once it completed), discard queued writes and
+    /// refuse any further use.
+    fn terminate(self: Pin<&mut Self>) {
+        let mut proj = self.project();
+        proj.poll_state.set(PollState::Closed);
+        proj.post_state.set(PostState::Closed);
+        *proj.close_state = ClosingState::Closed;
+    }
 }
 
 impl<S: PollingSvc> Stream for PollingTransport<S> {
     type Item = Result<Packet, PollingError<S>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // the session is over (error or graceful close): the stream is fused.
+        if self.close_state != ClosingState::Open {
+            return Poll::Ready(None);
+        }
+
+        match ready!(self.as_mut().poll_next_inner(cx)) {
+            Some(Err(err)) if err.should_close() => {
+                self.terminate();
+                Poll::Ready(Some(Err(err)))
+            }
+            res => Poll::Ready(res),
+        }
+    }
+}
+
+impl<S: PollingSvc> PollingTransport<S> {
+    fn poll_next_inner(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Packet, PollingError<S>>>> {
         tracing::trace!(poll_state = ?self.poll_state, "polling");
 
         let mut proj = self.as_mut().project().poll_state.project();
@@ -319,28 +352,14 @@ impl<S: PollingSvc> Stream for PollingTransport<S> {
                     Poll::Pending
                 }
             }
-        }
-    }
-}
-
-impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
-    type Error = PollingError<S>;
-
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.close_state != ClosingState::Open {
-            Poll::Pending
-        } else {
-            Poll::Ready(Ok(()))
+            PollStateProj::Closed => Poll::Ready(None),
         }
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
-        tracing::trace!(post_state = ?self.post_state, "sending packet");
-        self.project().post_state.encode(item);
-        Ok(())
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush_inner(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), PollingError<S>>> {
         tracing::trace!(post_state = ?self.post_state, "flushing");
         let proj = self.as_mut().project().post_state.project();
 
@@ -369,7 +388,7 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
                         }
 
                         let body = std::mem::take(bytes);
-                        if bytes.is_empty() {
+                        if body.is_empty() {
                             self.project().post_state.set(PostState::queuing(body));
                             Poll::Ready(Ok(())) // TODO: check response == ok
                         } else {
@@ -378,15 +397,48 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
                             // resend another request immediately, the buffer was filled
                             // while the previous one was sent
                             self.project().post_state.set(post_state);
+                            cx.waker().wake_by_ref();
                             Poll::Pending
                         }
                     }
-                    Err(err) => {
-                        self.project().post_state.set(PostState::default());
-                        Poll::Ready(Err(PollingError::Http(err)))
-                    }
+                    Err(err) => Poll::Ready(Err(PollingError::Http(err))),
                 }
             }
+            PostStateProj::Closed => Poll::Ready(Ok(())),
+        }
+    }
+}
+
+impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
+    type Error = PollingError<S>;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        if self.close_state != ClosingState::Open {
+            Poll::Ready(Err(PollingError::Closed))
+        } else {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
+        tracing::trace!(post_state = ?self.post_state, "sending packet");
+        if self.close_state != ClosingState::Open {
+            return Err(PollingError::Closed);
+        }
+        self.project().post_state.encode(item);
+        Ok(())
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match ready!(self.as_mut().poll_flush_inner(cx)) {
+            Err(err) => {
+                // any polling error is fatal: tear the transport down before
+                // surfacing it so the completed request future can never be
+                // polled again.
+                self.terminate();
+                Poll::Ready(Err(err))
+            }
+            ok => Poll::Ready(ok),
         }
     }
 
@@ -401,8 +453,9 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
             }
             ClosingState::Closing => {
                 ready!(self.as_mut().poll_flush(cx))?;
-                *self.project().close_state = ClosingState::Closed;
-                cx.waker().wake_by_ref();
+                // the close packet is flushed: abort the held poll request
+                // and refuse any further use.
+                self.terminate();
                 Poll::Ready(Ok(()))
             }
             ClosingState::Closed => Poll::Ready(Ok(())),
@@ -417,6 +470,9 @@ impl<F> PostState<F> {
         let bytes = match self.project() {
             PostStateProj::Queuing { bytes } => bytes,
             PostStateProj::Pending { bytes, .. } => bytes,
+            // unreachable from `start_send` (gated on `close_state`), writes
+            // on a closed transport are discarded.
+            PostStateProj::Closed => return,
         };
 
         if !bytes.is_empty() {
@@ -431,6 +487,7 @@ impl<F> fmt::Debug for PollState<F> {
         match self {
             Self::Pending { .. } => f.debug_struct("Pending").finish_non_exhaustive(),
             Self::Decoding { .. } => f.debug_struct("Decoding").finish_non_exhaustive(),
+            Self::Closed => f.write_str("Closed"),
         }
     }
 }
@@ -442,6 +499,7 @@ impl<F> fmt::Debug for PostState<F> {
                 .debug_struct("Pending")
                 .field("bytes", bytes)
                 .finish_non_exhaustive(),
+            Self::Closed => f.write_str("Closed"),
         }
     }
 }
