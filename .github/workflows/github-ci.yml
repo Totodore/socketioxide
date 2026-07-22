@@ -136,20 +136,13 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('examples/Cargo.lock') }}-examples
       - run: cd examples && cargo check --all-features
 
-  rust-clippy-analyze:
+  clippy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.94.0
+          toolchain: 1.94.0 # TODO(bump): switch to new cargo deny warnings + continue on error
           components: clippy
       - uses: actions/cache@v6
         with:
@@ -161,19 +154,8 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-clippy
 
-      - name: Install required cargo                                                                                                                                                                                                      │
-        run: cargo install clippy-sarif sarif-fmt || true
-
       - name: Run rust-clippy
-        run: cargo clippy --all-features --workspace --examples --tests --message-format=json -- -D warnings
-          | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
-        continue-on-error: true
-
-      - name: Upload analysis results to GitHub
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: rust-clippy-results.sarif
-          wait-for-processing: true
+        run: cargo clippy --all-features --workspace --examples --tests -- -D warnings
 
   engine_io:
     runs-on: ubuntu-latest
