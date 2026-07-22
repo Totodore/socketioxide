@@ -384,6 +384,19 @@ impl MockServer {
             call.park()
         }
     }
+
+    /// Assert the client stays silent (no http request, no ws connect) for
+    /// the whole window.
+    pub async fn assert_no_call(&mut self, window: Duration, what: &str) {
+        match tokio::time::timeout(window, self.rx.recv()).await {
+            Err(_) => (),   // silence: all good
+            Ok(None) => (), // client service dropped: silent forever
+            Ok(Some(call)) => panic!(
+                "unexpected client request while {what}: {}",
+                call.describe()
+            ),
+        }
+    }
 }
 
 /// An open packet advertising a websocket upgrade.
