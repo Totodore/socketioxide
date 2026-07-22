@@ -54,7 +54,7 @@
 
 use drivers::Driver;
 use futures_core::{Stream, stream::BoxStream};
-use futures_util::{StreamExt, pin_mut};
+use futures_util::{StreamExt, future::Either, pin_mut};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::value::RawValue;
 use socketioxide_core::{
@@ -67,6 +67,7 @@ use socketioxide_core::{
             RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType,
             ResponseTypeId,
         },
+        stream::{AckStream, ChanStream, ResponseHandlers},
     },
     packet::Packet,
 };
@@ -81,10 +82,7 @@ use std::{
 };
 use tokio::{sync::mpsc, task::AbortHandle};
 
-use crate::{
-    drivers::Notification,
-    stream::{AckPayload, AckStream, ChanStream},
-};
+use crate::{drivers::Notification, stream::AckPayload};
 
 pub mod drivers;
 mod stream;
@@ -333,8 +331,6 @@ pub type SqlxAdapter<E> = CustomPostgresAdapter<E, drivers::sqlx::SqlxDriver>;
 pub type TokioPostgresAdapter<E> =
     CustomPostgresAdapter<E, drivers::tokio_postgres::TokioPostgresDriver>;
 
-type ResponseHandlers = HashMap<Sid, mpsc::Sender<ResponsePayload>>;
-
 /// The postgres adapter implementation.
 /// It is generic over the [`Driver`] used to communicate with the postgres server.
 /// And over the [`SocketEmitter`] used to communicate with the local server. This allows to
@@ -350,7 +346,7 @@ pub struct CustomPostgresAdapter<E, D: Driver> {
     /// A map of nodes liveness, with the last time remote nodes were seen alive.
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
     /// A map of response handlers used to await for responses from the remote servers.
-    responses: Arc<Mutex<ResponseHandlers>>,
+    responses: Arc<Mutex<ResponseHandlers<ResponsePayload>>>,
 
     ev_stream_task: OnceLock<AbortHandle>,
     hb_task: OnceLock<AbortHandle>,
@@ -361,7 +357,8 @@ impl<E, D: Driver> DefinedAdapter for CustomPostgresAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D> {
     type Error = Error<D>;
     type State = PostgresAdapterCtr<D>;
-    type AckStream = AckStream<E::AckStream>;
+    type AckStream =
+        Either<E::AckStream, AckStream<E, BoxStream<'static, AckPayload>, ResponsePayload>>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -494,8 +491,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         if opts.is_local(self.local.server_id()) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_local(local);
-            return Ok(stream);
+            return Ok(Either::Left(local));
         }
         let req = RequestOut::new(
             self.local.server_id(),
@@ -532,14 +528,15 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             .filter_map(future::ready)
             .boxed();
 
-        Ok(AckStream::new(
+        Ok(Either::Right(AckStream::new(
             local,
             remote,
+            decode_postgres_ack,
             timeout,
             remote_serv_cnt,
             req_id,
             self.responses.clone(),
-        ))
+        )))
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
@@ -1230,8 +1227,15 @@ impl ResponsePacket {
         self.node_id == node_id
     }
 }
+/// A response payload received from the postgres NOTIFY channel.
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) enum ResponsePayload {
+pub enum ResponsePayload {
     Data(Box<RawValue>),
     Attachment { id: i64, is_binary: bool },
+}
+
+fn decode_postgres_ack<E: serde::de::DeserializeOwned + fmt::Debug>(
+    item: AckPayload,
+) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
+    item.deserialize()
 }

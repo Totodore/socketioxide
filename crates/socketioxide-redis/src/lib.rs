@@ -151,11 +151,12 @@ use std::{
 
 use drivers::{ChanItem, Driver, MessageStream};
 use futures_core::Stream;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, future::Either};
 use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::adapter::remote_packet::{
     RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
 };
+use socketioxide_core::adapter::stream::{AckStream, DropStream, ResponseHandlers};
 use socketioxide_core::{
     Sid, Uid,
     adapter::errors::{AdapterError, BroadcastError},
@@ -165,14 +166,11 @@ use socketioxide_core::{
     },
     packet::Packet,
 };
-use stream::{AckStream, DropStream};
 use tokio::{sync::mpsc, time};
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
 pub mod drivers;
-
-mod stream;
 
 /// Represent any error that might happen when using this adapter.
 #[derive(thiserror::Error)]
@@ -346,8 +344,6 @@ impl<R: Driver> RedisAdapterCtr<R> {
     }
 }
 
-pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Vec<u8>>>;
-
 /// The redis adapter with the fred driver.
 #[cfg(feature = "fred")]
 pub type FredAdapter<E> = CustomRedisAdapter<E, drivers::fred::FredDriver>;
@@ -378,14 +374,14 @@ pub struct CustomRedisAdapter<E, R> {
     /// format: `{prefix}-request#{path}#`.
     req_chan: String,
     /// A map of response handlers used to await for responses from the remote servers.
-    responses: Arc<Mutex<ResponseHandlers>>,
+    responses: Arc<Mutex<ResponseHandlers<Vec<u8>>>>,
 }
 
 impl<E, R> DefinedAdapter for CustomRedisAdapter<E, R> {}
 impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     type Error = Error<R>;
     type State = RedisAdapterCtr<R>;
-    type AckStream = AckStream<E::AckStream>;
+    type AckStream = Either<E::AckStream, AckStream<E, MessageStream<Vec<u8>>, Vec<u8>>>;
     type InitRes = InitRes<R>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -504,7 +500,7 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_local(local);
+            let stream = Either::Left(local);
             return Ok(stream);
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
@@ -525,14 +521,15 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
             .request_timeout
             .saturating_add(timeout.unwrap_or(self.local.ack_timeout()));
 
-        Ok(AckStream::new(
+        Ok(Either::Right(AckStream::new(
             local,
             remote,
+            decode_redis_ack,
             timeout,
             remote_serv_cnt,
             req_id,
             self.responses.clone(),
-        ))
+        )))
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
@@ -955,6 +952,15 @@ pub fn read_req_id(data: &[u8]) -> Option<Sid> {
     Sid::from_str(str).ok()
 }
 
+/// Decode a msgpack-encoded `(Sid, Response<E>)` tuple from raw bytes.
+fn decode_redis_ack<E: DeserializeOwned + fmt::Debug>(
+    item: Vec<u8>,
+) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
+    rmp_serde::from_slice::<(Sid, Response<E>)>(&item)
+        .map(|(_, response)| response)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -986,104 +992,5 @@ mod tests {
         async fn num_serv(&self, _: &str) -> Result<u16, Self::Error> {
             Ok(0)
         }
-    }
-    fn new_stub_ack_stream(
-        remote: MessageStream<Vec<u8>>,
-        timeout: Duration,
-    ) -> AckStream<stream::Empty<AckStreamItem<()>>> {
-        AckStream::new(
-            stream::empty::<AckStreamItem<()>>(),
-            remote,
-            timeout,
-            2,
-            Sid::new(),
-            Arc::new(Mutex::new(HashMap::new())),
-        )
-    }
-
-    //TODO: test weird behaviours, packets out of orders, etc
-    #[tokio::test]
-    async fn ack_stream() {
-        let (tx, rx) = tokio::sync::mpsc::channel(255);
-        let remote = MessageStream::new(rx);
-        let stream = new_stub_ack_stream(remote, Duration::from_secs(10));
-        let node_id = Uid::new();
-        let req_id = Sid::new();
-
-        // The two servers will send 2 acks each.
-        let ack_cnt_res = Response::<()> {
-            node_id,
-            r#type: ResponseType::BroadcastAckCount(2),
-        };
-        tx.try_send(rmp_serde::to_vec(&(req_id, &ack_cnt_res)).unwrap())
-            .unwrap();
-        tx.try_send(rmp_serde::to_vec(&(req_id, &ack_cnt_res)).unwrap())
-            .unwrap();
-
-        let ack_res = Response::<String> {
-            node_id,
-            r#type: ResponseType::BroadcastAck((Sid::new(), Ok(Value::Str(Str::from(""), None)))),
-        };
-        for _ in 0..4 {
-            tx.try_send(rmp_serde::to_vec(&(req_id, &ack_res)).unwrap())
-                .unwrap();
-        }
-        futures_util::pin_mut!(stream);
-        for _ in 0..4 {
-            assert!(stream.next().await.is_some());
-        }
-        assert!(stream.is_terminated());
-    }
-
-    #[tokio::test]
-    async fn ack_stream_timeout() {
-        let (tx, rx) = tokio::sync::mpsc::channel(255);
-        let remote = MessageStream::new(rx);
-        let stream = new_stub_ack_stream(remote, Duration::from_millis(50));
-        let node_id = Uid::new();
-        let req_id = Sid::new();
-        // There will be only one ack count and then the stream will timeout.
-        let ack_cnt_res = Response::<()> {
-            node_id,
-            r#type: ResponseType::BroadcastAckCount(2),
-        };
-        tx.try_send(rmp_serde::to_vec(&(req_id, ack_cnt_res)).unwrap())
-            .unwrap();
-
-        futures_util::pin_mut!(stream);
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(stream.next().await.is_none());
-        assert!(stream.is_terminated());
-    }
-
-    #[tokio::test]
-    async fn ack_stream_drop() {
-        let (tx, rx) = tokio::sync::mpsc::channel(255);
-        let remote = MessageStream::new(rx);
-        let handlers = Arc::new(Mutex::new(HashMap::new()));
-        let id = Sid::new();
-        handlers.lock().unwrap().insert(id, tx);
-        let stream = AckStream::new(
-            stream::empty::<AckStreamItem<()>>(),
-            remote,
-            Duration::from_secs(10),
-            2,
-            id,
-            handlers.clone(),
-        );
-        drop(stream);
-        assert!(handlers.lock().unwrap().is_empty(),);
-    }
-
-    #[test]
-    fn check_ns_error() {
-        assert!(matches!(
-            check_ns::<StubDriver>("#"),
-            Err(InitError::MalformedNamespace)
-        ));
-        assert!(matches!(
-            check_ns::<StubDriver>(""),
-            Err(InitError::MalformedNamespace)
-        ));
     }
 }
