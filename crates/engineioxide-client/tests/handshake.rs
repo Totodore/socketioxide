@@ -175,10 +175,7 @@ async fn polling_connect_must_fail(answer: impl FnOnce(mock::HttpCall)) {
         .transports([TransportType::Polling])
         .build();
     let (res, _) = tokio::join!(
-        mock::within(
-            "handshake attempt",
-            Client::connect(svc, config)
-        ),
+        mock::within("handshake attempt", Client::connect(svc, config)),
         async { answer(server.next_http().await) },
     );
     assert!(res.is_err(), "connect must surface an error");
@@ -192,10 +189,7 @@ async fn ws_connect_must_fail(answer: impl FnOnce(mock::WsCall)) {
         .transports([TransportType::Websocket])
         .build();
     let (res, _) = tokio::join!(
-        mock::within(
-            "handshake attempt",
-            Client::connect(svc, config)
-        ),
+        mock::within("handshake attempt", Client::connect(svc, config)),
         async { answer(server.next_ws().await) },
     );
     assert!(res.is_err(), "connect must surface an error");

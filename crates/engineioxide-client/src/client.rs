@@ -246,9 +246,7 @@ impl<S: TransportSvc> Client<S> {
         if self.last_ping.elapsed()
             >= self.open_packet.ping_interval + self.open_packet.ping_timeout
         {
-            todo!("error + closing + better wake");
-            // self.close();
-            // Err()
+            return Poll::Ready(Err(ClientError::HeartbeatTimeout));
         }
 
         let mut proj = self.project();

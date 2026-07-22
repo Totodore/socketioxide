@@ -21,6 +21,9 @@ pub enum ClientError<S: TransportSvc> {
     #[error("websocket transport error: {0}")]
     Websocket(WsError<S>),
 
+    #[error("heartbeat timeout, closing connection")]
+    HeartbeatTimeout,
+
     #[error("transport closed, it is not possible to send or receive data")]
     TransportClosed,
     #[error("invalid packet received from server: {0:?}")]
@@ -33,7 +36,7 @@ impl<S: TransportSvc> ClientError<S> {
             ClientError::Polling(e) => e.should_close(),
             ClientError::Websocket(e) => e.should_close(),
             ClientError::TransportClosed => false, // we are already closed, no need to close again
-            ClientError::InvalidPacket(_) => true,
+            ClientError::HeartbeatTimeout | ClientError::InvalidPacket(_) => true,
         }
     }
 }
@@ -45,6 +48,7 @@ impl<S: TransportSvc> fmt::Debug for ClientError<S> {
             ClientError::Websocket(e) => f.debug_tuple("Websocket").field(e).finish(),
             ClientError::TransportClosed => f.write_str("TransportClosed"),
             ClientError::InvalidPacket(p) => f.debug_tuple("InvalidPacket").field(p).finish(),
+            ClientError::HeartbeatTimeout => f.write_str("HeartbeatTimeout"),
         }
     }
 }
