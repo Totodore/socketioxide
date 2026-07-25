@@ -964,8 +964,6 @@ fn decode_redis_ack<E: DeserializeOwned + fmt::Debug>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_util::stream::{self, FusedStream, StreamExt};
-    use socketioxide_core::{Str, Value, adapter::AckStreamItem};
     use std::convert::Infallible;
 
     #[derive(Clone)]
@@ -992,5 +990,17 @@ mod tests {
         async fn num_serv(&self, _: &str) -> Result<u16, Self::Error> {
             Ok(0)
         }
+    }
+
+    #[test]
+    fn check_ns_error() {
+        assert!(matches!(
+            check_ns::<StubDriver>("#"),
+            Err(InitError::MalformedNamespace)
+        ));
+        assert!(matches!(
+            check_ns::<StubDriver>(""),
+            Err(InitError::MalformedNamespace)
+        ));
     }
 }

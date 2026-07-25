@@ -1230,8 +1230,17 @@ impl ResponsePacket {
 /// A response payload received from the postgres NOTIFY channel.
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ResponsePayload {
+    /// An inline JSON-serialized response, used when it is smaller than
+    /// [`PostgresAdapterConfig::payload_threshold`].
     Data(Box<RawValue>),
-    Attachment { id: i64, is_binary: bool },
+    /// A reference to a response stored in the attachment table, used when it exceeds
+    /// [`PostgresAdapterConfig::payload_threshold`] or is binary.
+    Attachment {
+        /// The id of the row in the attachment table.
+        id: i64,
+        /// Whether the stored attachment is msgpack-encoded binary data.
+        is_binary: bool,
+    },
 }
 
 fn decode_postgres_ack<E: serde::de::DeserializeOwned + fmt::Debug>(
