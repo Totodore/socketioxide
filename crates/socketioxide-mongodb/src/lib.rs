@@ -99,7 +99,7 @@ use std::{
 };
 
 use futures_core::{Stream, future::Future};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, future::Either};
 use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::adapter::remote_packet::{
     RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
@@ -110,10 +110,10 @@ use socketioxide_core::{
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
+        stream::{AckStream, ChanStream, DropStream, ResponseHandlers},
     },
     packet::Packet,
 };
-use stream::{AckStream, ChanStream, DropStream};
 use tokio::sync::mpsc;
 
 use drivers::{Driver, Item, ItemHeader};
@@ -121,8 +121,6 @@ use drivers::{Driver, Item, ItemHeader};
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
 pub mod drivers;
-
-mod stream;
 
 /// The configuration of the [`MongoDbAdapter`].
 #[derive(Debug, Clone)]
@@ -303,8 +301,6 @@ impl<R: Driver> From<Error<R>> for AdapterError {
     }
 }
 
-pub(crate) type ResponseHandlers = HashMap<Sid, mpsc::Sender<Item>>;
-
 /// The mongodb adapter with the [mongodb](drivers::mongodb::mongodb_client) driver.
 #[cfg(feature = "mongodb")]
 pub type MongoDbAdapter<E> = CustomMongoDbAdapter<E, drivers::mongodb::MongoDbDriver>;
@@ -326,14 +322,14 @@ pub struct CustomMongoDbAdapter<E, D> {
     /// A map of nodes liveness, with the last time remote nodes were seen alive.
     nodes_liveness: Mutex<Vec<(Uid, std::time::Instant)>>,
     /// A map of response handlers used to await for responses from the remote servers.
-    responses: Arc<Mutex<ResponseHandlers>>,
+    responses: Arc<Mutex<ResponseHandlers<Item>>>,
 }
 
 impl<E, D> DefinedAdapter for CustomMongoDbAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> {
     type Error = Error<D>;
     type State = MongoDbAdapterCtr<D>;
-    type AckStream = AckStream<E::AckStream>;
+    type AckStream = Either<E::AckStream, AckStream<E, ChanStream<Item>, Item>>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -429,8 +425,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         if opts.is_local(self.uid) {
             tracing::debug!(?opts, "broadcast with ack is local");
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
-            let stream = AckStream::new_local(local);
-            return Ok(stream);
+            return Ok(Either::Left(local));
         }
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
         let req_id = req.id;
@@ -449,14 +444,15 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             .request_timeout
             .saturating_add(timeout.unwrap_or(self.local.ack_timeout()));
 
-        Ok(AckStream::new(
+        Ok(Either::Right(AckStream::new(
             local,
-            rx,
+            ChanStream::new(rx),
+            decode_mongodb_ack,
             timeout,
             remote_serv_cnt,
             req_id,
             self.responses.clone(),
-        ))
+        )))
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
@@ -885,4 +881,11 @@ impl<D: Driver> Spawnable for InitRes<D> {
             }
         });
     }
+}
+
+fn decode_mongodb_ack<E: DeserializeOwned + fmt::Debug>(
+    item: Item,
+) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
+    rmp_serde::from_slice::<Response<E>>(&item.data)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
 }

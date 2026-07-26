@@ -13,7 +13,12 @@ license.workspace = true
 readme.workspace = true
 
 [features]
-remote-adapter = []
+remote-adapter = [
+    "dep:pin-project-lite",
+    "dep:futures-util",
+    "dep:tokio",
+    "dep:tracing",
+]
 
 [dependencies]
 bytes.workspace = true
@@ -21,7 +26,11 @@ engineioxide-core = { version = "0.2", path = "../engineioxide-core" }
 serde.workspace = true
 thiserror.workspace = true
 futures-core.workspace = true
+futures-util = { workspace = true, optional = true }
+pin-project-lite = { workspace = true, optional = true }
 smallvec = { workspace = true, features = ["serde"] }
+tokio = { workspace = true, features = ["sync", "time"], optional = true }
+tracing = { workspace = true, optional = true }
 
 [target."cfg(fuzzing)".dependencies]
 arbitrary = { version = "1.4.2", features = ["derive"] }
@@ -29,6 +38,7 @@ arbitrary = { version = "1.4.2", features = ["derive"] }
 [dev-dependencies]
 serde_json.workspace = true
 rmp-serde.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true
