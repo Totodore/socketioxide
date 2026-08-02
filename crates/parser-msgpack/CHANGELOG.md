@@ -1,3 +1,7 @@
+# socketioxide-parser-msgpack 0.17.2
+* fix(security): bound the packet decoder recursion depth to prevent an unauthenticated remote DoS via
+deeply nested MsgPack packets (uncontrolled recursion → stack overflow, CWE-674). See CVE-xxx.
+
 # socketioxide-parser-msgpack 0.17.1
 * deps: bump `socketioxide-core` to 0.18
 
