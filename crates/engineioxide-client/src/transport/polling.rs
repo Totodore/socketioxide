@@ -96,23 +96,7 @@ impl<F> PostState<F> {
     fn queuing(bytes: BytesMut) -> Self {
         Self::Queuing { bytes }
     }
-}
 
-impl<F> PollState<F> {
-    fn new_request<S: PollingSvc<Future = F>>(svc: &S, base_uri: &Uri, sid: Sid) -> Self {
-        let uri = super::with_mandatory_query(base_uri, TransportType::Polling, Some(sid));
-
-        let req = Request::builder()
-            .method(http::Method::GET)
-            .uri(uri)
-            .body(BoxBody::new(Empty::new()))
-            .unwrap();
-
-        let fut = svc.call(req);
-        PollState::Pending { fut }
-    }
-}
-impl<F> PostState<F> {
     fn new_request<S: PollingSvc<Future = F>>(
         svc: &S,
         uri: &Uri,
@@ -132,6 +116,21 @@ impl<F> PostState<F> {
             fut,
             bytes: BytesMut::new(),
         }
+    }
+}
+
+impl<F> PollState<F> {
+    fn new_request<S: PollingSvc<Future = F>>(svc: &S, base_uri: &Uri, sid: Sid) -> Self {
+        let uri = super::with_mandatory_query(base_uri, TransportType::Polling, Some(sid));
+
+        let req = Request::builder()
+            .method(http::Method::GET)
+            .uri(uri)
+            .body(BoxBody::new(Empty::new()))
+            .unwrap();
+
+        let fut = svc.call(req);
+        PollState::Pending { fut }
     }
 }
 
@@ -369,7 +368,6 @@ impl<S: PollingSvc> PollingTransport<S> {
             PostStateProj::Queuing { bytes } if bytes.is_empty() => Poll::Ready(Ok(())),
             PostStateProj::Queuing { bytes } => {
                 let body = std::mem::take(bytes);
-                //TODO: handle max body size from open packet
                 let post_state = PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
                 self.project().post_state.set(post_state);
                 cx.waker().wake_by_ref();
@@ -422,12 +420,34 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
         }
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
+    fn start_send(mut self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
         tracing::trace!(post_state = ?self.post_state, "sending packet");
         if self.close_state != ClosingState::Open {
             return Err(PollingError::Closed);
         }
-        self.project().post_state.encode(item);
+        let packet_size = item.get_size_hint(false);
+
+        let max_payload = self.max_payload as usize;
+
+        let bytes = self
+            .as_mut()
+            .project()
+            .post_state
+            .get_bytes_buf()
+            .expect("start_send should not be called on a non-sendable path");
+
+        if bytes.len() + packet_size + 1 > max_payload {
+            tracing::debug!(
+                "pending buffer is becoming bigger than {max_payload}, \
+                sending the current payload, current packet will be deffered to the next batch"
+            );
+
+            let body = std::mem::take(bytes);
+            let post_state = PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
+            self.as_mut().project().post_state.set(post_state);
+        }
+
+        self.as_mut().project().post_state.encode(item);
         Ok(())
     }
 
@@ -466,21 +486,25 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
 }
 
 impl<F> PostState<F> {
-    pub fn encode(self: Pin<&mut Self>, item: Packet) {
+    fn encode(self: Pin<&mut Self>, item: Packet) {
         const PACKET_SEPARATOR_V4: u8 = b'\x1e';
         let packet: Bytes = item.into();
-        let bytes = match self.project() {
-            PostStateProj::Queuing { bytes } => bytes,
-            PostStateProj::Pending { bytes, .. } => bytes,
-            // unreachable from `start_send` (gated on `close_state`), writes
-            // on a closed transport are discarded.
-            PostStateProj::Closed => return,
+        let Some(bytes) = self.get_bytes_buf() else {
+            return;
         };
 
         if !bytes.is_empty() {
             bytes.put_u8(PACKET_SEPARATOR_V4);
         }
         bytes.extend_from_slice(&packet);
+    }
+
+    fn get_bytes_buf(self: Pin<&mut Self>) -> Option<&mut BytesMut> {
+        match self.project() {
+            PostStateProj::Queuing { bytes } => Some(bytes),
+            PostStateProj::Pending { bytes, .. } => Some(bytes),
+            PostStateProj::Closed => None,
+        }
     }
 }
 
