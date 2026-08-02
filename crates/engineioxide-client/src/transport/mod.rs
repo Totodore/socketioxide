@@ -14,72 +14,69 @@ use http::{
     uri::{PathAndQuery, Scheme},
 };
 use http_body_util::{Empty, combinators::BoxBody};
-use tracing::Level;
 
 use crate::{EngineIoClientConfig, errors::ClientError};
 
 pub use polling::{PollingSvc, PollingTransport};
+pub use upgrading::{UpgradeError, UpgradingTransport};
 pub use ws::{WebSocket, WsSvc, WsTransport};
 
 pub mod polling;
+mod upgrading;
 pub mod ws;
 
 pub trait TransportSvc: PollingSvc + WsSvc {}
 impl<S: PollingSvc + WsSvc> TransportSvc for S {}
 
-pin_project_lite::pin_project! {
-    #[project = TransportProj]
-    pub enum Transport<S: TransportSvc> {
-        Polling {
-            #[pin]
-            inner: PollingTransport<S>
-        },
-        Websocket {
-            #[pin]
-            inner: WsTransport<S>
-        }
-    }
+/// The transports are [`Unpin`] so a variant switch (upgrade start,
+/// upgrade settlement) can move the live transports around.
+pub enum Transport<S: TransportSvc> {
+    Polling {
+        inner: PollingTransport<S>,
+    },
+    Upgrading {
+        inner: UpgradingTransport<S>,
+    },
+    Websocket {
+        inner: WsTransport<S>,
+    },
+    /// Transient placeholder installed while switching variants. It is
+    /// replaced within the same call and should never be observed.
+    Switching,
 }
 
 impl<S: TransportSvc> Transport<S> {
     pub fn transport_type(&self) -> TransportType {
         match self {
-            Transport::Polling { .. } => TransportType::Polling,
+            Transport::Polling { .. } | Transport::Upgrading { .. } => TransportType::Polling,
             Transport::Websocket { .. } => TransportType::Websocket,
+            Transport::Switching => unreachable!("transport observed mid-switch"),
         }
     }
-}
-impl<S: TransportSvc> Transport<S> {
-    /// Upgrade the current transport to [`WsTransport`].
+
+    /// Start the websocket upgrade: connect a probe websocket for the
+    /// current session while the polling transport keeps running alongside
+    /// it until the probe settles.
     ///
-    /// Starts by flushing the polling transport, once done switch to websocket
-    /// and drive the websocket protocol upgrade.
-    #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
-    pub fn upgrade(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        config: &EngineIoClientConfig,
-        sid: Sid,
-    ) -> Poll<Option<Result<(), ClientError<S>>>> {
-        match self.as_mut().project() {
-            TransportProj::Polling { mut inner } => {
-                // start by flushing polling transport to ensure there is no pending data
-                ready!(inner.as_mut().poll_flush(cx))?;
-                let svc = inner.svc.clone();
+    /// Must only be called on the polling transport.
+    pub(crate) fn start_upgrade(&mut self, config: &EngineIoClientConfig, sid: Sid) {
+        let Transport::Polling { inner } = self else {
+            unreachable!("an upgrade can only be started from the polling transport");
+        };
+        let websocket = WsTransport::connect_with_upgrade(inner.svc.clone(), config, sid);
+        let Transport::Polling { inner } = std::mem::replace(self, Transport::Switching) else {
+            unreachable!();
+        };
+        *self = Transport::Upgrading {
+            inner: UpgradingTransport::new(inner, websocket),
+        };
+    }
 
-                self.set(Transport::Websocket {
-                    inner: WsTransport::connect_with_upgrade(svc, config, sid),
-                });
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-
-            TransportProj::Websocket { inner } => match ready!(inner.poll_next(cx)) {
-                Some(Ok(Packet::Upgrade)) => Poll::Ready(Some(Ok(()))),
-                Some(Ok(p)) => todo!("handle err: {p:?}"),
-                Some(Err(err)) => Poll::Ready(Some(Err(err.into()))),
-                None => Poll::Ready(None),
-            },
+    /// Replace the `Upgrading` variant with the transport chosen by `next`.
+    fn settle_upgrade(&mut self, next: impl FnOnce(UpgradingTransport<S>) -> Transport<S>) {
+        match std::mem::replace(self, Transport::Switching) {
+            Transport::Upgrading { inner } => *self = next(inner),
+            _ => unreachable!("settle_upgrade is only called on the upgrading transport"),
         }
     }
 }
@@ -87,12 +84,38 @@ impl<S: TransportSvc> Transport<S> {
 impl<S: TransportSvc> Stream for Transport<S> {
     type Item = Result<Packet, ClientError<S>>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.as_mut().project() {
-            TransportProj::Polling { inner } => inner.poll_next(cx).map_err(ClientError::Polling),
-            TransportProj::Websocket { inner } => {
-                inner.poll_next(cx).map_err(ClientError::Websocket)
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match &mut *this {
+            Transport::Polling { inner } => {
+                Pin::new(inner).poll_next(cx).map_err(ClientError::Polling)
             }
+            Transport::Upgrading { inner } => match ready!(Pin::new(inner).poll_next(cx)) {
+                // the upgrade packet signals the completed handshake
+                Some(Ok(Packet::Upgrade)) => {
+                    tracing::debug!("upgrade done, switching to the websocket transport");
+                    this.settle_upgrade(|upgrading| Transport::Websocket {
+                        inner: upgrading.into_next(),
+                    });
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Some(Ok(packet)) => Poll::Ready(Some(Ok(packet))),
+                Some(Err(UpgradeError::Recoverable(err))) => {
+                    tracing::debug!("upgrade failed ({err}), falling back to polling");
+                    this.settle_upgrade(|upgrading| Transport::Polling {
+                        inner: upgrading.into_prev(),
+                    });
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Some(Err(UpgradeError::Unrecoverable(err))) => Poll::Ready(Some(Err(err))),
+                None => Poll::Ready(None),
+            },
+            Transport::Websocket { inner } => Pin::new(inner)
+                .poll_next(cx)
+                .map_err(ClientError::Websocket),
+            Transport::Switching => Poll::Ready(None),
         }
     }
 }
@@ -100,40 +123,54 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     type Error = ClientError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        match self.project() {
-            TransportProj::Polling { inner } => inner.poll_ready(cx).map_err(ClientError::Polling),
-            TransportProj::Websocket { inner } => {
-                inner.poll_ready(cx).map_err(ClientError::Websocket)
+        match self.get_mut() {
+            Transport::Polling { inner } => {
+                Pin::new(inner).poll_ready(cx).map_err(ClientError::Polling)
             }
+            Transport::Upgrading { inner } => Pin::new(inner).poll_ready(cx),
+            Transport::Websocket { inner } => Pin::new(inner)
+                .poll_ready(cx)
+                .map_err(ClientError::Websocket),
+            Transport::Switching => Poll::Ready(Err(ClientError::TransportClosed)),
         }
     }
 
     fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
-        match self.project() {
-            TransportProj::Polling { inner } => {
-                inner.start_send(item).map_err(ClientError::Polling)
-            }
-            TransportProj::Websocket { inner } => {
-                inner.start_send(item).map_err(ClientError::Websocket)
-            }
+        match self.get_mut() {
+            Transport::Polling { inner } => Pin::new(inner)
+                .start_send(item)
+                .map_err(ClientError::Polling),
+            Transport::Upgrading { inner } => Pin::new(inner).start_send(item),
+            Transport::Websocket { inner } => Pin::new(inner)
+                .start_send(item)
+                .map_err(ClientError::Websocket),
+            Transport::Switching => Err(ClientError::TransportClosed),
         }
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        match self.project() {
-            TransportProj::Polling { inner } => inner.poll_flush(cx).map_err(ClientError::Polling),
-            TransportProj::Websocket { inner } => {
-                inner.poll_flush(cx).map_err(ClientError::Websocket)
+        match self.get_mut() {
+            Transport::Polling { inner } => {
+                Pin::new(inner).poll_flush(cx).map_err(ClientError::Polling)
             }
+            Transport::Upgrading { inner } => Pin::new(inner).poll_flush(cx),
+            Transport::Websocket { inner } => Pin::new(inner)
+                .poll_flush(cx)
+                .map_err(ClientError::Websocket),
+            Transport::Switching => Poll::Ready(Ok(())),
         }
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        match self.project() {
-            TransportProj::Polling { inner } => inner.poll_close(cx).map_err(ClientError::Polling),
-            TransportProj::Websocket { inner } => {
-                inner.poll_close(cx).map_err(ClientError::Websocket)
+        match self.get_mut() {
+            Transport::Polling { inner } => {
+                Pin::new(inner).poll_close(cx).map_err(ClientError::Polling)
             }
+            Transport::Upgrading { inner } => Pin::new(inner).poll_close(cx),
+            Transport::Websocket { inner } => Pin::new(inner)
+                .poll_close(cx)
+                .map_err(ClientError::Websocket),
+            Transport::Switching => Poll::Ready(Ok(())),
         }
     }
 }
@@ -152,7 +189,9 @@ impl<S: TransportSvc> fmt::Debug for Transport<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Polling { inner } => f.debug_struct("Polling").field("inner", inner).finish(),
+            Self::Upgrading { inner } => f.debug_struct("Upgrading").field("inner", inner).finish(),
             Self::Websocket { inner } => f.debug_struct("Websocket").field("inner", inner).finish(),
+            Self::Switching => f.write_str("Switching"),
         }
     }
 }

@@ -24,6 +24,7 @@ pub trait PollingSvc:
         Request<BoxBody<Bytes, Infallible>>,
         Response = Response<Self::Body>,
         Error = <Self as PollingSvc>::Error,
+        Future: Unpin, // Unpin bound so we can move transports around when upgrading
     >
 {
     type Body: http_body::Body<Error = Self::ResBodyError> + 'static;
@@ -34,6 +35,7 @@ pub trait PollingSvc:
 impl<B, S> PollingSvc for S
 where
     S: HyperSvc<Request<BoxBody<Bytes, Infallible>>, Response = Response<B>>,
+    <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Future: Unpin,
     <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Error: fmt::Debug + std::error::Error,
     B: http_body::Body + 'static,
     <B as http_body::Body>::Error: fmt::Debug + std::error::Error + 'static,

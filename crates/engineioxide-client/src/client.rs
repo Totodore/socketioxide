@@ -36,7 +36,7 @@ pin_project_lite::pin_project! {
 #[derive(Debug)]
 enum ClientState {
     Open,      // connected; owe the caller a Connect event
-    Upgrading, // driving the ws upgrade handshake
+    Upgrading, // probing the websocket upgrade; polling still flows
     Running,   // steady state
     Closing,   // draining the transport toward close
     Closed,
@@ -155,16 +155,54 @@ impl<S: TransportSvc> Client<S> {
 
         match self.state {
             ClientState::Open => {
-                *self.as_mut().project().state = if self.should_upgrade() {
-                    ClientState::Upgrading
+                let sid = self.open_packet.sid;
+                if self.should_upgrade() {
+                    let proj = self.as_mut().project();
+                    proj.transport.get_mut().start_upgrade(proj.config, sid);
+                    *proj.state = ClientState::Upgrading;
                 } else {
-                    ClientState::Running
-                };
-                Poll::Ready(Some(Ok(EioEvent::Connect(self.open_packet.sid))))
+                    *self.as_mut().project().state = ClientState::Running;
+                }
+                Poll::Ready(Some(Ok(EioEvent::Connect(sid))))
             }
-            ClientState::Upgrading => self.poll_upgrade(cx),
+            ClientState::Upgrading => self.poll_upgrading(cx),
             ClientState::Running => self.poll_transport(cx),
             ClientState::Closed | ClientState::Closing => Poll::Ready(None),
+        }
+    }
+
+    /// While the upgrade probe is in flight the transport keeps delivering
+    /// polling packets. The [`Transport`] settles itself to websocket (probe
+    /// succeeded) or back to polling (probe failed): detect the switch here
+    /// to resume the nominal state.
+    fn poll_upgrading(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
+        let settled = match self.transport {
+            Transport::Websocket { .. } => Some(true),
+            Transport::Polling { .. } => Some(false),
+            _ => None,
+        };
+        let Some(upgraded) = settled else {
+            // probe still in flight: packets keep flowing over polling
+            return self.poll_transport(cx);
+        };
+
+        let proj = self.as_mut().project();
+        *proj.state = ClientState::Running;
+        if let Some(waker) = proj.sink_waker.take() {
+            tracing::debug!("waking up sink after end of upgrade");
+            waker.wake();
+        }
+
+        if upgraded {
+            tracing::debug!(sid = %self.sid(), "websocket transport upgraded");
+            Poll::Ready(Some(Ok(EioEvent::Upgrade(TransportType::Websocket))))
+        } else {
+            // a failed probe never kills the session: continue on polling
+            tracing::warn!(sid = %self.sid(), "websocket upgrade failed, staying on polling");
+            self.poll_transport(cx)
         }
     }
 
@@ -194,39 +232,9 @@ impl<S: TransportSvc> Client<S> {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Some(Ok(p)) => Poll::Ready(Some(Err(ClientError::InvalidPacket(p)))),
+            Some(Ok(p)) => Poll::Ready(Some(Err(ClientError::invalid_packet(p)))),
             Some(Err(e)) => Poll::Ready(Some(Err(e))),
             None => Poll::Ready(None),
-        }
-    }
-
-    fn poll_upgrade(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
-        let sid = self.sid();
-        let proj = self.as_mut().project();
-        match ready!(proj.transport.upgrade(cx, proj.config, sid)) {
-            Some(Ok(())) => {
-                tracing::debug!(%sid, "websocket transport upgraded");
-                *proj.state = ClientState::Running;
-                if let Some(waker) = proj.sink_waker.take() {
-                    tracing::debug!("waking up sink after end of upgrade");
-                    waker.wake();
-                }
-
-                cx.waker().wake_by_ref();
-                Poll::Ready(Some(Ok(EioEvent::Upgrade(self.transport()))))
-            }
-            //TODO: handle upgrade failures gracefully
-            Some(Err(e)) => {
-                *proj.state = ClientState::Closed;
-                Poll::Ready(Some(Err(e)))
-            }
-            None => {
-                *proj.state = ClientState::Closed;
-                Poll::Ready(None)
-            } // TODO: fallback to polling if upgrade fails,
         }
     }
 

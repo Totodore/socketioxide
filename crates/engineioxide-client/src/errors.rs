@@ -26,8 +26,11 @@ pub enum ClientError<S: TransportSvc> {
 
     #[error("transport closed, it is not possible to send or receive data")]
     TransportClosed,
-    #[error("invalid packet received from server: {0:?}")]
-    InvalidPacket(Packet),
+    #[error("invalid packet received from server: {got:?}, expected: {expected:?}")]
+    InvalidPacket {
+        expected: Option<Box<Packet>>,
+        got: Box<Packet>,
+    },
 }
 
 impl<S: TransportSvc> ClientError<S> {
@@ -36,7 +39,20 @@ impl<S: TransportSvc> ClientError<S> {
             ClientError::Polling(e) => e.should_close(),
             ClientError::Websocket(e) => e.should_close(),
             ClientError::TransportClosed => false, // we are already closed, no need to close again
-            ClientError::HeartbeatTimeout | ClientError::InvalidPacket(_) => true,
+            ClientError::HeartbeatTimeout | ClientError::InvalidPacket { .. } => true,
+        }
+    }
+    pub(crate) fn expected_packet(expected: Packet, got: Packet) -> Self {
+        Self::InvalidPacket {
+            expected: Some(Box::new(expected)),
+            got: Box::new(got),
+        }
+    }
+
+    pub(crate) fn invalid_packet(got: Packet) -> Self {
+        Self::InvalidPacket {
+            expected: None,
+            got: Box::new(got),
         }
     }
 }
@@ -47,7 +63,11 @@ impl<S: TransportSvc> fmt::Debug for ClientError<S> {
             ClientError::Polling(e) => f.debug_tuple("Polling").field(e).finish(),
             ClientError::Websocket(e) => f.debug_tuple("Websocket").field(e).finish(),
             ClientError::TransportClosed => f.write_str("TransportClosed"),
-            ClientError::InvalidPacket(p) => f.debug_tuple("InvalidPacket").field(p).finish(),
+            ClientError::InvalidPacket { expected, got } => f
+                .debug_struct("InvalidPacket")
+                .field("expected", expected)
+                .field("got", got)
+                .finish(),
             ClientError::HeartbeatTimeout => f.write_str("HeartbeatTimeout"),
         }
     }
