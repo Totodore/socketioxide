@@ -13,6 +13,8 @@ use socketioxide_core::{
     parser::{ParseError, ParserError},
 };
 
+const DEPTH_LIMIT: usize = 128;
+
 pub fn deserialize_packet(buff: Bytes) -> Result<Packet, ParseError> {
     let mut reader = Cursor::new(buff);
     let maplen = read_map_len(&mut reader).map_err(|e| {
@@ -95,7 +97,7 @@ fn parse_key_value(
         }
         "data" => {
             let start = reader.position() as usize;
-            move_to_next_element(reader)?;
+            move_to_next_element(reader, 0)?;
             let end = reader.position() as usize;
             *data_pos = start..end;
         }
@@ -112,7 +114,7 @@ fn parse_key_value(
                 Some(_) => Some(decode::read_int::<i64, _>(reader)?),
             }
         }
-        _ => move_to_next_element(reader)?, // Skip the data corresponding to the key
+        _ => move_to_next_element(reader, 0)?, // Skip the data corresponding to the key
     };
     Ok(())
 }
@@ -141,8 +143,12 @@ fn read_str(reader: &mut Cursor<Bytes>) -> Result<&str, DecodeError> {
     Ok(str::from_utf8(&reader.get_ref()[start..end])?)
 }
 
-/// Iterate over the next element
-fn move_to_next_element(reader: &mut Cursor<Bytes>) -> Result<(), DecodeError> {
+/// Iterate over the next element.
+fn move_to_next_element(reader: &mut Cursor<Bytes>, depth: usize) -> Result<(), DecodeError> {
+    if depth >= DEPTH_LIMIT {
+        return Err(DecodeError::DepthLimitExceeded);
+    }
+
     let marker = decode::read_marker(reader)?;
     match marker {
         rmp::Marker::FixPos(_)
@@ -153,12 +159,12 @@ fn move_to_next_element(reader: &mut Cursor<Bytes>) -> Result<(), DecodeError> {
         | rmp::Marker::True => (),
         rmp::Marker::FixMap(n) => {
             for _ in 0..n * 2 {
-                move_to_next_element(reader)?
+                move_to_next_element(reader, depth + 1)?
             }
         }
         rmp::Marker::FixArray(n) => {
             for _ in 0..n {
-                move_to_next_element(reader)?
+                move_to_next_element(reader, depth + 1)?
             }
         }
         rmp::Marker::FixStr(n) => reader.advance(n as usize),
@@ -198,25 +204,25 @@ fn move_to_next_element(reader: &mut Cursor<Bytes>) -> Result<(), DecodeError> {
         rmp::Marker::Array16 => {
             let arrlen = read_u16(reader)? as usize;
             for _ in 0..arrlen {
-                move_to_next_element(reader)?;
+                move_to_next_element(reader, depth + 1)?;
             }
         }
         rmp::Marker::Array32 => {
             let arrlen = read_u32(reader)? as usize;
             for _ in 0..arrlen {
-                move_to_next_element(reader)?;
+                move_to_next_element(reader, depth + 1)?;
             }
         }
         rmp::Marker::Map16 => {
             let maplen = read_u16(reader)? as usize;
             for _ in 0..maplen * 2 {
-                move_to_next_element(reader)?;
+                move_to_next_element(reader, depth + 1)?;
             }
         }
         rmp::Marker::Map32 => {
             let len = read_u32(reader)? as usize;
             for _ in 0..len * 2 {
-                move_to_next_element(reader)?;
+                move_to_next_element(reader, depth + 1)?;
             }
         }
     }
@@ -392,7 +398,7 @@ mod tests {
         rmp::encode::write_pfix(&mut data, 0).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -403,7 +409,7 @@ mod tests {
         rmp::encode::write_nfix(&mut data, -1).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -416,7 +422,7 @@ mod tests {
 
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -429,7 +435,7 @@ mod tests {
         rmp::encode::write_bin(&mut data, &[4, 5, 6]).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -440,7 +446,7 @@ mod tests {
         rmp::encode::write_str(&mut data, "a").unwrap(); // ["a"]
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -450,7 +456,7 @@ mod tests {
         let data = vec![Marker::Null.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -460,7 +466,7 @@ mod tests {
         let data = vec![Marker::Reserved.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -470,7 +476,7 @@ mod tests {
         let data = vec![Marker::False.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -480,7 +486,7 @@ mod tests {
         let data = vec![Marker::True.to_u8()];
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -491,7 +497,7 @@ mod tests {
         rmp::encode::write_u8(&mut data, 0xff).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -502,7 +508,7 @@ mod tests {
         rmp::encode::write_u16(&mut data, 0xffff).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -513,7 +519,7 @@ mod tests {
         rmp::encode::write_u32(&mut data, 0xffffff).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -524,7 +530,7 @@ mod tests {
         rmp::encode::write_u32(&mut data, 0xffffffff).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -535,7 +541,7 @@ mod tests {
         rmp::encode::write_i8(&mut data, 1).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -546,7 +552,7 @@ mod tests {
         rmp::encode::write_i16(&mut data, 13).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -557,7 +563,7 @@ mod tests {
         rmp::encode::write_i32(&mut data, 132).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -568,7 +574,7 @@ mod tests {
         rmp::encode::write_i16(&mut data, 123).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -579,7 +585,7 @@ mod tests {
         rmp::encode::write_f32(&mut data, 23.1).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -590,7 +596,7 @@ mod tests {
         rmp::encode::write_f64(&mut data, 23.1).unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -601,7 +607,7 @@ mod tests {
         rmp::encode::write_bin(&mut data, b"test").unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -612,7 +618,7 @@ mod tests {
         data.extend_from_slice(&[0x00, 0x04, b't', b'e', b's', b't']);
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -624,7 +630,7 @@ mod tests {
 
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -635,7 +641,7 @@ mod tests {
         rmp::encode::write_str(&mut data, "test").unwrap();
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -646,7 +652,7 @@ mod tests {
         data.extend_from_slice(&[0x00, 0x04, b't', b'e', b's', b't']);
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -658,7 +664,7 @@ mod tests {
 
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -672,7 +678,7 @@ mod tests {
 
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -686,7 +692,7 @@ mod tests {
 
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -700,7 +706,7 @@ mod tests {
 
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
     }
@@ -713,8 +719,44 @@ mod tests {
 
         let len = data.len();
         let mut reader = Cursor::new(data.into());
-        move_to_next_element(&mut reader).unwrap();
+        move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
+    }
+
+    /// `n` nested `FixArray(1)` with a nil innermost element: `[[[...nil...]]]`
+    fn nested_arrays(n: usize) -> Bytes {
+        let mut data = vec![Marker::FixArray(1).to_u8(); n];
+        data.push(Marker::Null.to_u8());
+        data.into()
+    }
+
+    #[test]
+    pub fn depth_at_limit() {
+        // the innermost nil sits at depth DEPTH_LIMIT - 1: deepest accepted nesting
+        let len = DEPTH_LIMIT;
+        let mut reader = Cursor::new(nested_arrays(DEPTH_LIMIT - 1));
+        move_to_next_element(&mut reader, 0).unwrap();
+        assert_eq!(reader.position() as usize, len);
+    }
+
+    #[test]
+    pub fn depth_limit_exceeded() {
+        let mut reader = Cursor::new(nested_arrays(DEPTH_LIMIT));
+        let err = move_to_next_element(&mut reader, 0).unwrap_err();
+        assert!(matches!(err, DecodeError::DepthLimitExceeded));
+    }
+
+    #[test]
+    pub fn depth_limit_ignores_sibling_elements() {
+        // a flat array of 1000 elements is way over DEPTH_LIMIT in element count
+        // but only 2 levels deep: it must be accepted
+        let mut data = vec![Marker::Array16.to_u8()];
+        data.extend_from_slice(&1000u16.to_be_bytes());
+        data.extend(vec![Marker::Null.to_u8(); 1000]);
+        let len = data.len();
+        let mut reader = Cursor::new(data.into());
+        move_to_next_element(&mut reader, 0).unwrap();
+        assert_eq!(reader.position() as usize, len);
     }
 }
