@@ -1,6 +1,6 @@
 # socketioxide 0.18.6
 * fix(security): bump `socketioxide-parser-msgpack` to 0.17.2, fixing an unauthenticated remote DoS in the
-opt-in MsgPack parser (deeply nested packets caused a stack overflow, CWE-674). See CVE-xxx.
+opt-in MsgPack parser (deeply nested packets caused a stack overflow, CWE-674). See [Github Advisory](https://github.com/Totodore/socketioxide/security/advisories/GHSA-c6g7-r2mf-pf5g)
 
 # socketioxide 0.18.5
 * feat: add `volatile()` flags to emit without guaranteeing delivery, this allows to avoid filling internal
