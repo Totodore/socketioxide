@@ -32,8 +32,10 @@ pin_project! {
         websocket: WsTransport<S>,
 
         upgrade: UpgradeHandshakeState,
-        // cause of the probe failure, emitted once the websocket is closed
-        probe_error: Option<ClientError<S>>,
+
+        // An upgrade error that must be yielded after
+        // closing the websocket transport.
+        upgrade_error: Option<ClientError<S>>,
     }
 
 }
@@ -78,7 +80,7 @@ impl<S: TransportSvc> UpgradingTransport<S> {
             polling,
             websocket,
             upgrade: UpgradeHandshakeState::ShouldSendPingUpgrade,
-            probe_error: None,
+            upgrade_error: None,
         }
     }
 
@@ -95,6 +97,7 @@ impl<S: TransportSvc> UpgradingTransport<S> {
         self.polling
     }
 
+    /// Drives the handshake mechanism
     #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_handshake(
         self: Pin<&mut Self>,
@@ -162,9 +165,9 @@ impl<S: TransportSvc> Stream for UpgradingTransport<S> {
             }
             let err = self
                 .project()
-                .probe_error
+                .upgrade_error
                 .take()
-                .expect("the probe error must be set when closing the websocket");
+                .expect("the upgrade error must be set when closing the websocket");
             return Poll::Ready(Some(Err(UpgradeError::Recoverable(err))));
         }
 
@@ -177,12 +180,12 @@ impl<S: TransportSvc> Stream for UpgradingTransport<S> {
                 Poll::Pending
             }
             Err(err) => {
-                // a failed probe never kills the session: close the
+                // a failed upgrade handshake never kills the session: close the
                 // websocket before falling back to polling.
                 tracing::warn!("websocket upgrade probe failed: {err}");
                 let this = self.project();
                 *this.upgrade = UpgradeHandshakeState::ClosingWs;
-                *this.probe_error = Some(err);
+                *this.upgrade_error = Some(err);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
@@ -236,7 +239,7 @@ impl<S: TransportSvc> fmt::Debug for UpgradingTransport<S> {
             .field("polling", &self.polling)
             .field("websocket", &self.websocket)
             .field("upgrade", &self.upgrade)
-            .field("probe_error", &self.probe_error)
+            .field("upgrade_error", &self.upgrade_error)
             .finish()
     }
 }

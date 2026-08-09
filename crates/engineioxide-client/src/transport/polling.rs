@@ -190,7 +190,11 @@ pub enum ProtocolError {
 impl ProtocolError {
     /// Tries to parse a response body and generate a [`ProtocolError`]
     /// from it.
-    fn from_parts(parts: response::Parts, body: impl Buf) -> Self {
+    fn from_parts(parts: response::Parts, body: Option<impl Buf>) -> Self {
+        let Some(body) = body else {
+            return Self::new(parts.status, None);
+        };
+
         #[derive(Deserialize)]
         struct ErrorBody {
             code: u8,
@@ -310,36 +314,35 @@ impl<S: PollingSvc> PollingTransport<S> {
 
         let mut proj = self.as_mut().project().poll_state.project();
         match proj {
-            PollStateProj::Pending { ref mut fut } => {
-                match ready!(fut.as_mut().poll(cx)) {
-                    Ok(res) => {
-                        let (parts, body) = res.into_parts();
-                        let body = Box::pin(body);
+            PollStateProj::Pending { ref mut fut } => match ready!(fut.as_mut().poll(cx)) {
+                Ok(res) => {
+                    let (parts, body) = res.into_parts();
+                    let body = Box::pin(body);
 
-                        if !parts.status.is_success() {
-                            let body = body
-                                .collect()
-                                .now_or_never()
-                                .unwrap()
-                                .map_err(PollingError::HttpBody)?; //TODO: body collect state machine
-                            let error = ProtocolError::from_parts(parts, body.aggregate());
-                            return Poll::Ready(Some(Err(PollingError::Protocol(error))));
-                        }
-
-                        let stream =
-                            payload::decoder(body, None, ProtocolVersion::V4, self.max_payload)
-                                .boxed_local();
-
-                        self.project()
-                            .poll_state
-                            .set(PollState::Decoding { stream });
-
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
+                    if !parts.status.is_success() {
+                        // best effort collect without state machine
+                        let body = body
+                            .collect()
+                            .now_or_never()
+                            .transpose()
+                            .map_err(PollingError::HttpBody)?;
+                        let error = ProtocolError::from_parts(parts, body.map(|b| b.aggregate()));
+                        return Poll::Ready(Some(Err(PollingError::Protocol(error))));
                     }
-                    Err(err) => Poll::Ready(Some(Err(PollingError::Http(err)))),
+
+                    let stream =
+                        payload::decoder(body, None, ProtocolVersion::V4, self.max_payload)
+                            .boxed_local();
+
+                    self.project()
+                        .poll_state
+                        .set(PollState::Decoding { stream });
+
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
                 }
-            }
+                Err(err) => Poll::Ready(Some(Err(PollingError::Http(err)))),
+            },
             PollStateProj::Decoding { stream } => {
                 if let Some(packet) = ready!(stream.poll_next(cx)) {
                     Poll::Ready(Some(packet.map_err(PollingError::from)))
@@ -379,14 +382,17 @@ impl<S: PollingSvc> PollingTransport<S> {
                 match ready!(fut.poll(cx)) {
                     Ok(res) => {
                         let (parts, res_body) = res.into_parts();
-                        let res_body = res_body
-                            .collect()
-                            .now_or_never()
-                            .unwrap()
-                            .map_err(PollingError::HttpBody)?; //TODO error body collect
+
                         if !parts.status.is_success() {
-                            let err = ProtocolError::from_parts(parts, res_body.aggregate());
-                            return Poll::Ready(Err(PollingError::Protocol(err)));
+                            // best effort collect without state machine
+                            let res_body = res_body
+                                .collect()
+                                .now_or_never()
+                                .transpose()
+                                .map_err(PollingError::HttpBody)?;
+                            let error =
+                                ProtocolError::from_parts(parts, res_body.map(|b| b.aggregate()));
+                            return Poll::Ready(Err(PollingError::Protocol(error)));
                         }
 
                         let body = std::mem::take(bytes);
