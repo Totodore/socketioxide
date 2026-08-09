@@ -856,11 +856,11 @@ dependencies = [
  "smallvec",
  "thiserror",
  "tokio",
- "tokio-stream",
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "web-sys",
 ]
 
 [[package]]
