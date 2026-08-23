@@ -286,7 +286,11 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_message(self: &Arc<Self>, msg: Str, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received message: {:?}", msg);
-        let packet = match self.parser().decode_str(&socket.data.parser_state, msg) {
+        let packet = match self.parser().decode_str(
+            &self.config.parse_config,
+            &socket.data.parser_state,
+            msg,
+        ) {
             Ok(packet) => packet,
             Err(ParseError::NeedsMoreBinaryData) => return,
             Err(_e) => {
@@ -325,7 +329,11 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_binary(self: &Arc<Self>, data: Bytes, socket: Arc<EIoSocket<SocketData<A>>>) {
         #[cfg(feature = "tracing")]
         tracing::debug!("received binary: {:?}", &data);
-        let packet = match self.parser().decode_bin(&socket.data.parser_state, data) {
+        let packet = match self.parser().decode_bin(
+            &self.config.parse_config,
+            &socket.data.parser_state,
+            data,
+        ) {
             Ok(packet) => packet,
             Err(ParseError::NeedsMoreBinaryData) => return,
             Err(_e) => {

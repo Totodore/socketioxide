@@ -3,7 +3,7 @@ use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main
 use socketioxide_core::{
     Sid, Value,
     packet::{ConnectPacket, Packet, PacketData},
-    parser::Parse,
+    parser::{Parse, ParseConfig, ParserState},
 };
 use socketioxide_parser_common::CommonParser;
 
@@ -15,7 +15,11 @@ fn encode(packet: Packet) -> String {
 }
 fn decode(value: String) -> Option<Packet> {
     CommonParser
-        .decode_str(&Default::default(), black_box(value.into()))
+        .decode_str(
+            &ParseConfig::default(),
+            &ParserState::default(),
+            black_box(value.into()),
+        )
         .ok()
 }
 

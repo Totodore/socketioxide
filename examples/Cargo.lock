@@ -1099,7 +1099,7 @@ dependencies = [
  "smallvec",
  "thiserror",
  "tokio",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.30.0",
  "tokio-util",
  "tower-layer",
  "tower-service",
@@ -3412,7 +3412,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.29.0",
  "tower",
  "tracing",
  "ulid",
@@ -3764,7 +3764,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.18.5"
+version = "0.18.6"
 dependencies = [
  "bytes",
  "engineioxide",
@@ -3795,9 +3795,13 @@ dependencies = [
  "bytes",
  "engineioxide-core",
  "futures-core",
+ "futures-util",
+ "pin-project-lite",
  "serde",
  "smallvec",
  "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3831,7 +3835,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-msgpack"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
  "bytes",
  "rmp",
@@ -4279,7 +4283,19 @@ dependencies = [
  "futures-util",
  "log",
  "tokio",
- "tungstenite",
+ "tungstenite 0.29.0",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite 0.30.0",
 ]
 
 [[package]]
@@ -4458,12 +4474,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
 dependencies = [
  "bytes",
+ "log",
+ "rand 0.9.4",
+ "thiserror",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48ac77174b19c110a50ab2128b24215ac9cb40e0e12e093fb602d175c569d22"
+dependencies = [
+ "bytes",
  "data-encoding",
  "http",
  "httparse",
  "log",
- "rand 0.9.4",
- "sha1 0.10.6",
+ "rand 0.10.2",
+ "sha1 0.11.0",
  "thiserror",
 ]
 

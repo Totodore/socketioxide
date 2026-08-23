@@ -23,6 +23,7 @@ use std::{
     error::Error as StdError,
     fmt,
     sync::{Mutex, atomic::AtomicUsize},
+    time::{Duration, Instant},
 };
 
 use bytes::Bytes;
@@ -38,10 +39,67 @@ use crate::{Value, packet::Packet};
 pub struct ParserState {
     /// Partial binary packet that is being received
     /// Stored here until all the binary payloads are received for common parser
-    pub partial_bin_packet: Mutex<Option<Packet>>,
+    pub partial_bin_packet: Mutex<Option<PartialBinPacket>>,
 
     /// The number of expected binary attachments (used when receiving data for common parser)
     pub incoming_binary_cnt: AtomicUsize,
+}
+
+/// A partial binary packet along when we started receiving it.
+#[derive(Debug)]
+pub struct PartialBinPacket {
+    /// The packet whose we are waiting for its attachments
+    pub packet: Packet,
+
+    /// When the initial packet is received, used in conjunction
+    /// with [`ParseConfig::packet_completion_timeout`].
+    pub initial_packet_recv: Instant,
+}
+
+impl PartialBinPacket {
+    /// Create a new partial binary packet from a first `Str` Packet.
+    pub fn new(packet: Packet) -> Self {
+        Self {
+            packet,
+            initial_packet_recv: Instant::now(),
+        }
+    }
+}
+
+/// A config passed to the parsers in order to securely decode packets
+#[derive(Debug, Clone)]
+pub struct ParseConfig {
+    /// Maximum buffer size of all the incoming binary attachments.
+    ///
+    /// If the sum of each attachment is threspassing this limit,
+    /// the packet will be dropped and the connection closed.
+    ///
+    /// Default to 10 MB
+    pub max_incoming_binary_buf_size: usize,
+
+    /// Maximum number of incoming binary attachments.
+    ///
+    /// If the [`incoming_binary_cnt`](ParserState::incoming_binary_cnt) is threspassesd,
+    /// the packet will be dropped and the connection closed.
+    ///
+    /// Default to 10_000
+    pub max_incoming_binaries: usize,
+
+    /// Timeout after which it is no longer tolerable to wait for partial binary packets,
+    /// the entire packet will dropped and the connection closed.
+    ///
+    /// Default to 60 seconds
+    pub packet_completion_timeout: Duration,
+}
+
+impl Default for ParseConfig {
+    fn default() -> Self {
+        Self {
+            max_incoming_binary_buf_size: 10e6 as usize, // 10 MB
+            max_incoming_binaries: 10_000,
+            packet_completion_timeout: Duration::from_secs(60),
+        }
+    }
 }
 
 /// All socket.io parser should implement this trait.
@@ -52,11 +110,21 @@ pub trait Parse: Default + Copy {
 
     /// Parse a given input string. If the payload needs more adjacent binary packet,
     /// the partial packet will be kept and a [`ParseError::NeedsMoreBinaryData`] will be returned.
-    fn decode_str(self, state: &ParserState, data: Str) -> Result<Packet, ParseError>;
+    fn decode_str(
+        self,
+        config: &ParseConfig,
+        state: &ParserState,
+        data: Str,
+    ) -> Result<Packet, ParseError>;
 
     /// Parse a given input binary. If the payload needs more adjacent binary packet,
     /// the partial packet is still kept and a [`ParseError::NeedsMoreBinaryData`] will be returned.
-    fn decode_bin(self, state: &ParserState, bin: Bytes) -> Result<Packet, ParseError>;
+    fn decode_bin(
+        self,
+        config: &ParseConfig,
+        state: &ParserState,
+        bin: Bytes,
+    ) -> Result<Packet, ParseError>;
 
     /// Convert any serializable data to a generic [`Value`] to be later included as a payload in the packet.
     ///
@@ -162,6 +230,29 @@ pub enum ParseError {
     /// Invalid attachments
     #[error("invalid attachments")]
     InvalidAttachments,
+
+    /// Too many attachments
+    #[error("too many attachments, got {got}, maximum: {max}")]
+    TooManyAttachments {
+        /// How many attachments we got
+        got: usize,
+        /// Maximum of attachment the client can send
+        max: usize,
+    },
+
+    /// Too many attachments
+    #[error("attachment bytes cant be more than {max} bytes, got: {current} bytes")]
+    AttachmentsTooHeavy {
+        /// The current attachment buffers size
+        current: usize,
+
+        /// Maximum size the sum of each attachment buffers can be
+        max: usize,
+    },
+
+    /// Timeout while waiting attachments
+    #[error("The server exceeded its timeout while waiting for binary packet attachments")]
+    TimeoutWhileWaitingAttachments,
 
     /// Received unexpected binary data
     #[error(
@@ -534,11 +625,21 @@ pub mod test {
             Value::Bytes(Bytes::new())
         }
 
-        fn decode_str(self, _: &ParserState, _: Str) -> Result<Packet, ParseError> {
+        fn decode_str(
+            self,
+            _: &ParseConfig,
+            _: &ParserState,
+            _: Str,
+        ) -> Result<Packet, ParseError> {
             Err(ParseError::ParserError(stub_err()))
         }
 
-        fn decode_bin(self, _: &ParserState, _: bytes::Bytes) -> Result<Packet, ParseError> {
+        fn decode_bin(
+            self,
+            _: &ParseConfig,
+            _: &ParserState,
+            _: bytes::Bytes,
+        ) -> Result<Packet, ParseError> {
             Err(ParseError::ParserError(stub_err()))
         }
 

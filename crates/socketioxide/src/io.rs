@@ -9,6 +9,7 @@ use serde::Serialize;
 use socketioxide_core::{
     Sid, Uid,
     adapter::{DefinedAdapter, Room, RoomParam},
+    parser::ParseConfig,
 };
 use socketioxide_parser_common::CommonParser;
 #[cfg(feature = "msgpack")]
@@ -32,18 +33,61 @@ use crate::{
 ///
 /// Be sure that the selected parser matches the client parser.
 #[derive(Debug, Clone)]
-pub struct ParserConfig(Parser);
+pub struct ParserConfig<T> {
+    parser: T,
+    config: ParseConfig,
+}
 
-impl ParserConfig {
+impl ParserConfig<()> {
     /// Use a [`CommonParser`] to parse incoming and outgoing socket.io packets
-    pub fn common() -> Self {
-        ParserConfig(Parser::Common(CommonParser))
+    pub fn common() -> ParserConfig<CommonParser> {
+        ParserConfig {
+            parser: CommonParser,
+            config: ParseConfig::default(),
+        }
     }
 
     /// Use a [`MsgPackParser`] to parse incoming and outgoing socket.io packets
     #[cfg(feature = "msgpack")]
-    pub fn msgpack() -> Self {
-        ParserConfig(Parser::MsgPack(MsgPackParser))
+    pub fn msgpack() -> ParserConfig<MsgPackParser> {
+        ParserConfig {
+            parser: MsgPackParser,
+            config: ParseConfig::default(),
+        }
+    }
+}
+impl ParserConfig<CommonParser> {
+    /// Maximum buffer size of all the incoming binary attachments.
+    ///
+    /// If the sum of each attachment is threspassing this limit,
+    /// the packet will be dropped and the connection closed.
+    ///
+    /// It is important to set a limit for [`SocketIoConfig::max_payload`] that match.
+    ///
+    /// Default to 10 MB
+    pub fn max_incoming_binary_buf_size(mut self, value: usize) -> Self {
+        self.config.max_incoming_binary_buf_size = value;
+        self
+    }
+
+    /// Maximum number of incoming binary attachments.
+    ///
+    /// If the [`incoming_binary_cnt`](ParserState::incoming_binary_cnt) is threspassesd,
+    /// the packet will be dropped and the connection closed.
+    ///
+    /// Default to 10_000
+    pub fn max_incoming_binaries(mut self, value: usize) -> Self {
+        self.config.max_incoming_binaries = value;
+        self
+    }
+
+    /// Timeout after which it is no longer tolerable to wait for partial binary packets,
+    /// the entire packet will dropped and the connection closed.
+    ///
+    /// Default to 1min
+    pub fn packet_completion_timeout(mut self, timeout: Duration) -> Self {
+        self.config.packet_completion_timeout = timeout;
+        self
     }
 }
 
@@ -66,6 +110,9 @@ pub struct SocketIoConfig {
     /// The parser to use to encode and decode socket.io packets
     pub(crate) parser: Parser,
 
+    /// Config for parser behaviors
+    pub(crate) parse_config: ParseConfig,
+
     /// A global server identifier
     pub server_id: Uid,
 }
@@ -80,6 +127,7 @@ impl Default for SocketIoConfig {
             ack_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(45),
             parser: Parser::default(),
+            parse_config: ParseConfig::default(),
             server_id: Uid::new(),
         }
     }
@@ -217,15 +265,34 @@ impl<A: Adapter> SocketIoBuilder<A> {
     }
 
     /// Set a custom [`ParserConfig`] for this [`SocketIoBuilder`]
+    ///
+    /// # Using the msgpack parser
     /// ```
     /// # use socketioxide::{SocketIo, ParserConfig};
     /// let (io, layer) = SocketIo::builder()
     ///     .with_parser(ParserConfig::msgpack())
     ///     .build_layer();
     /// ```
+    ///
+    /// # Using the common parser and customizing config
+    /// ```
+    /// # use socketioxide::{SocketIo, ParserConfig};
+    /// # use std::time::Duration;
+    /// let parser = ParserConfig::common()
+    ///     .max_incoming_binary_buf_size(1e5 as usize) // 100 kb
+    ///     .max_incoming_binaries(10)
+    ///     .packet_completion_timeout(Duration::from_millis(200));
+    ///
+    /// let (io, layer) = SocketIo::builder()
+    ///     .with_parser(parser)
+    ///     .build_layer();
+    /// ```
     #[inline]
-    pub fn with_parser(mut self, parser: ParserConfig) -> Self {
-        self.config.parser = parser.0;
+    #[expect(private_bounds)] // Parser should only be set from parser config anyway
+    pub fn with_parser<T: Into<Parser>>(mut self, parser_config: ParserConfig<T>) -> Self {
+        let ParserConfig { parser, config } = parser_config;
+        self.config.parser = parser.into();
+        self.config.parse_config = config;
         self
     }
 

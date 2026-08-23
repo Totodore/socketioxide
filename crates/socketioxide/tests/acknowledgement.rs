@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use socketioxide::SocketIo;
 use socketioxide::extract::SocketRef;
 use socketioxide_core::packet::PacketData;
-use socketioxide_core::parser::Parse;
+use socketioxide_core::parser::{Parse, ParseConfig, ParserState};
 use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
@@ -101,7 +101,13 @@ pub async fn broadcast_with_ack() {
                     Message(msg) => msg,
                     msg => panic!("Unexpected message: {msg:?}"),
                 };
-                let ack = match assert_ok!(parser.decode_str(&Default::default(), msg)).inner {
+                let ack = match assert_ok!(parser.decode_str(
+                    &ParseConfig::default(),
+                    &ParserState::default(),
+                    msg
+                ))
+                .inner
+                {
                     PacketData::Event(_, Some(ack)) => ack,
                     _ => panic!("Unexpected packet"),
                 };
