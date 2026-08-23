@@ -227,6 +227,29 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// The maximum size of an incoming message
+    ///
+    /// The default value is 64 MiB which should be reasonably big for all normal use-cases but small enough
+    /// to prevent memory eating by a malicious user.
+    pub fn ws_max_message_size(mut self, ws_max_message_size: usize) -> Self {
+        self.engine_config_builder = self
+            .engine_config_builder
+            .ws_max_message_size(ws_max_message_size);
+        self
+    }
+
+    /// The maximum size of a single incoming message frame.
+    /// The limit is for frame payload NOT including the frame header.
+    ///
+    /// The default value is 16 MiB which should be reasonably big for all normal use-cases but small enough
+    /// to prevent memory eating by a malicious user.
+    pub fn ws_max_frame_size(mut self, ws_max_frame_size: usize) -> Self {
+        self.engine_config_builder = self
+            .engine_config_builder
+            .ws_max_frame_size(ws_max_frame_size);
+        self
+    }
+
     /// Allowed transports on this server
     ///
     /// The `transports` array should have a size of 1 or 2
