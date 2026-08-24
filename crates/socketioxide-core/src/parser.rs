@@ -71,7 +71,7 @@ impl PartialBinPacket {
 pub struct ParseConfig {
     /// Maximum buffer size of all the incoming binary attachments.
     ///
-    /// If the sum of each attachment is threspassing this limit,
+    /// If the sum of each attachment exceeds this limit,
     /// the packet will be dropped and the connection closed.
     ///
     /// Default to 10 MB
@@ -79,7 +79,7 @@ pub struct ParseConfig {
 
     /// Maximum number of incoming binary attachments.
     ///
-    /// If the [`incoming_binary_cnt`](ParserState::incoming_binary_cnt) is threspassesd,
+    /// If the [`incoming_binary_cnt`](ParserState::incoming_binary_cnt) is exceeded,
     /// the packet will be dropped and the connection closed.
     ///
     /// Default to 10_000
@@ -240,8 +240,8 @@ pub enum ParseError {
         max: usize,
     },
 
-    /// Too many attachments
-    #[error("attachment bytes cant be more than {max} bytes, got: {current} bytes")]
+    /// Accumulated attachment bytes exceeded the configured maximum
+    #[error("attachment bytes cannot be more than {max} bytes, got: {current} bytes")]
     AttachmentsTooHeavy {
         /// The current attachment buffers size
         current: usize,

@@ -59,10 +59,10 @@ impl ParserConfig<()> {
 impl ParserConfig<CommonParser> {
     /// Maximum buffer size of all the incoming binary attachments.
     ///
-    /// If the sum of each attachment is threspassing this limit,
+    /// If the sum of each attachment exceeds this limit,
     /// the packet will be dropped and the connection closed.
     ///
-    /// It is important to set a limit for [`SocketIoConfig::max_payload`] that match.
+    /// It is important to set a limit for [`EngineIoConfig::max_payload`] that match.
     ///
     /// Default to 10 MB
     pub fn max_incoming_binary_buf_size(mut self, value: usize) -> Self {
@@ -72,7 +72,7 @@ impl ParserConfig<CommonParser> {
 
     /// Maximum number of incoming binary attachments.
     ///
-    /// If the [`incoming_binary_cnt`](ParserState::incoming_binary_cnt) is threspassesd,
+    /// If the incoming binary count is exceeded,
     /// the packet will be dropped and the connection closed.
     ///
     /// Default to 10_000

@@ -1,4 +1,4 @@
-# socketioxide-core 0.19.2
+# socketioxide-core 0.19.0
 * feat(*breaking*): Add a new `ParseConfig` arg to parser `decode_{str/bin}` methods. 
 
 # socketioxide-core 0.18.2
