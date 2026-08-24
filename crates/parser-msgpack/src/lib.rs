@@ -112,7 +112,11 @@ mod tests {
 
     fn decode(value: &'static [u8]) -> Packet {
         MsgPackParser
-            .decode_bin(&Default::default(), &Default::default(), Bytes::from_static(value))
+            .decode_bin(
+                &Default::default(),
+                &Default::default(),
+                Bytes::from_static(value),
+            )
             .unwrap()
     }
     fn encode(packet: Packet) -> Bytes {
