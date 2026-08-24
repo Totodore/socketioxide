@@ -37,7 +37,7 @@ fn deeply_nested_packet_is_rejected_not_crash() {
     // the stack overflow is deterministic whatever the test runner's stack size.
     let res = std::thread::Builder::new()
         .stack_size(512 * 1024)
-        .spawn(move || MsgPackParser.decode_bin(&Default::default(), packet))
+        .spawn(move || MsgPackParser.decode_bin(&Default::default(), &Default::default(), packet))
         .unwrap()
         .join()
         .unwrap();
@@ -52,7 +52,7 @@ fn deeply_nested_packet_is_rejected_not_crash() {
 fn nested_within_limit_is_accepted() {
     let packet = event_packet(&nested_arrays(100));
     let packet = MsgPackParser
-        .decode_bin(&Default::default(), packet)
+        .decode_bin(&Default::default(), &Default::default(), packet)
         .unwrap();
     assert!(matches!(packet.inner, PacketData::Event(_, None)));
 }
@@ -66,7 +66,7 @@ fn large_flat_payload_is_accepted() {
 
     let packet = event_packet(&data);
     let packet = MsgPackParser
-        .decode_bin(&Default::default(), packet)
+        .decode_bin(&Default::default(), &Default::default(), packet)
         .unwrap();
     assert!(matches!(packet.inner, PacketData::Event(_, None)));
 }

@@ -71,6 +71,19 @@ pub struct EngineIoConfig {
     /// but will consume more memory.
     pub ws_read_buffer_size: usize,
 
+    /// The maximum size of an incoming message
+    ///
+    /// The default value is 64 MiB which should be reasonably big for all normal use-cases but small enough
+    /// to prevent memory eating by a malicious user.
+    pub ws_max_message_size: usize,
+
+    /// The maximum size of a single incoming message frame.
+    /// The limit is for frame payload NOT including the frame header.
+    ///
+    /// The default value is 16 MiB which should be reasonably big for all normal use-cases but small enough
+    /// to prevent memory eating by a malicious user.
+    pub ws_max_frame_size: usize,
+
     /// Allowed transports on this server
     /// It is represented as a bitfield to allow to combine any number of transports easily
     pub transports: u8,
@@ -86,6 +99,8 @@ impl Default for EngineIoConfig {
             max_buffer_size: 128,
             max_payload: 1e5 as u64, // 100kb
             ws_read_buffer_size: 4096,
+            ws_max_message_size: 64 << 20,
+            ws_max_frame_size: 16 << 20,
             transports: TransportType::Polling as u8 | TransportType::Websocket as u8,
         }
     }
@@ -202,6 +217,25 @@ impl EngineIoConfigBuilder {
     /// but will consume more memory.
     pub fn ws_read_buffer_size(mut self, ws_read_buffer_size: usize) -> Self {
         self.config.ws_read_buffer_size = ws_read_buffer_size;
+        self
+    }
+
+    /// The maximum size of an incoming message
+    ///
+    /// The default value is 64 MiB which should be reasonably big for all normal use-cases but small enough
+    /// to prevent memory eating by a malicious user.
+    pub fn ws_max_message_size(mut self, ws_max_message_size: usize) -> Self {
+        self.config.ws_max_message_size = ws_max_message_size;
+        self
+    }
+
+    /// The maximum size of a single incoming message frame.
+    /// The limit is for frame payload NOT including the frame header.
+    ///
+    /// The default value is 16 MiB which should be reasonably big for all normal use-cases but small enough
+    /// to prevent memory eating by a malicious user.
+    pub fn ws_max_frame_size(mut self, ws_max_frame_size: usize) -> Self {
+        self.config.ws_max_frame_size = ws_max_frame_size;
         self
     }
 

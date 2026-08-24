@@ -8,7 +8,7 @@
 //! <packet type>[<# of binary attachments>-][<namespace>,][<acknowledgment id>][JSON-stringified payload without binary]
 //! + binary attachments extracted
 //! ```
-use std::{collections::VecDeque, sync::atomic::Ordering};
+use std::{collections::VecDeque, sync::atomic::Ordering, time::Instant};
 
 use bytes::Bytes;
 
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use socketioxide_core::{
     Str, Value,
     packet::{Packet, PacketData},
-    parser::{Parse, ParseError, ParserError, ParserState},
+    parser::{Parse, ParseConfig, ParseError, ParserError, ParserState, PartialBinPacket},
 };
 
 mod de;
@@ -33,12 +33,24 @@ impl Parse for CommonParser {
         ser::serialize_packet(packet)
     }
 
-    fn decode_str(self, state: &ParserState, value: Str) -> Result<Packet, ParseError> {
+    fn decode_str(
+        self,
+        config: &ParseConfig,
+        state: &ParserState,
+        value: Str,
+    ) -> Result<Packet, ParseError> {
         let (packet, incoming_binary_cnt) = de::deserialize_packet(value)?;
         if packet.inner.is_binary() {
             let incoming_binary_cnt = incoming_binary_cnt.ok_or(ParseError::InvalidAttachments)?;
+            if incoming_binary_cnt > config.max_incoming_binaries {
+                return Err(ParseError::TooManyAttachments {
+                    got: incoming_binary_cnt,
+                    max: config.max_incoming_binaries,
+                });
+            }
+
             if !is_bin_packet_complete(&packet.inner, incoming_binary_cnt) {
-                *state.partial_bin_packet.lock().unwrap() = Some(packet);
+                *state.partial_bin_packet.lock().unwrap() = Some(PartialBinPacket::new(packet));
                 state
                     .incoming_binary_cnt
                     .store(incoming_binary_cnt, Ordering::Release);
@@ -51,23 +63,44 @@ impl Parse for CommonParser {
         }
     }
 
-    fn decode_bin(self, state: &ParserState, data: Bytes) -> Result<Packet, ParseError> {
+    fn decode_bin(
+        self,
+        config: &ParseConfig,
+        state: &ParserState,
+        data: Bytes,
+    ) -> Result<Packet, ParseError> {
         let packet = &mut *state.partial_bin_packet.lock().unwrap();
         match packet {
-            Some(Packet {
-                inner:
-                    PacketData::BinaryEvent(Value::Str(_, binaries), _)
-                    | PacketData::BinaryAck(Value::Str(_, binaries), _),
-                ..
+            Some(PartialBinPacket {
+                initial_packet_recv,
+                packet:
+                    Packet {
+                        inner:
+                            PacketData::BinaryEvent(Value::Str(_, binaries), _)
+                            | PacketData::BinaryAck(Value::Str(_, binaries), _),
+                        ..
+                    },
             }) => {
+                if Instant::now() - *initial_packet_recv > config.packet_completion_timeout {
+                    return Err(ParseError::TimeoutWhileWaitingAttachments);
+                }
+
                 let binaries = binaries.get_or_insert(VecDeque::new());
+                let bin_buf_size = binaries.iter().map(Bytes::len).sum::<usize>() + data.len();
+                if bin_buf_size > config.max_incoming_binary_buf_size {
+                    return Err(ParseError::AttachmentsTooHeavy {
+                        current: bin_buf_size,
+                        max: config.max_incoming_binary_buf_size,
+                    });
+                }
+
                 // We copy the data to avoid holding a ref to the engine.io
                 // websocket buffer too long.
                 binaries.push_back(Bytes::copy_from_slice(&data));
                 if state.incoming_binary_cnt.load(Ordering::Relaxed) > binaries.len() {
                     Err(ParseError::NeedsMoreBinaryData)
                 } else {
-                    Ok(packet.take().unwrap())
+                    Ok(packet.take().unwrap().packet)
                 }
             }
             _ => Err(ParseError::UnexpectedBinaryPacket),
@@ -130,7 +163,7 @@ fn is_bin_packet_complete(packet: &PacketData, incoming_binary_cnt: usize) -> bo
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, time::Duration};
 
     use crate::is_bin_packet_complete;
 
@@ -156,7 +189,11 @@ mod test {
     }
     fn decode(value: String) -> Packet {
         CommonParser
-            .decode_str(&Default::default(), value.into())
+            .decode_str(
+                &ParseConfig::default(),
+                &ParserState::default(),
+                value.into(),
+            )
             .unwrap()
     }
 
@@ -410,68 +447,72 @@ mod test {
             }
         };
         let state = ParserState::default();
+        let config = ParseConfig::default();
         let payload = format!("52-{json}");
         assert!(matches!(
-            CommonParser.decode_str(&state, payload.into()),
+            CommonParser.decode_str(&config, &state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         assert!(matches!(
-            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            CommonParser.decode_bin(&config, &state, Bytes::from_static(&[1])),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[2]))
+            .decode_bin(&config, &state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/"));
 
         // Check with ack ID
         let state = ParserState::default();
+        let config = ParseConfig::default();
         let payload = format!("52-254{json}");
         assert!(matches!(
-            CommonParser.decode_str(&state, payload.into()),
+            CommonParser.decode_str(&config, &state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         assert!(matches!(
-            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            CommonParser.decode_bin(&config, &state, Bytes::from_static(&[1])),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[2]))
+            .decode_bin(&config, &state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/"));
 
         // Check with NS
         let state = ParserState::default();
+        let config = ParseConfig::default();
         let payload = format!("52-/admin™,{json}");
         assert!(matches!(
-            CommonParser.decode_str(&state, payload.into()),
+            CommonParser.decode_str(&config, &state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         assert!(matches!(
-            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            CommonParser.decode_bin(&config, &state, Bytes::from_static(&[1])),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[2]))
+            .decode_bin(&config, &state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(None, "/admin™"));
 
         // Check with ack ID and NS
         let state = ParserState::default();
+        let config = ParseConfig::default();
         let payload = format!("52-/admin™,254{json}");
         assert!(matches!(
-            CommonParser.decode_str(&state, payload.into()),
+            CommonParser.decode_str(&config, &state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         assert!(matches!(
-            CommonParser.decode_bin(&state, Bytes::from_static(&[1])),
+            CommonParser.decode_bin(&config, &state, Bytes::from_static(&[1])),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[2]))
+            .decode_bin(&config, &state, Bytes::from_static(&[2]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(Some(254), "/admin™"));
@@ -515,12 +556,13 @@ mod test {
 
         let payload = format!("61-54{json}");
         let state = ParserState::default();
+        let config = ParseConfig::default();
         assert!(matches!(
-            CommonParser.decode_str(&state, payload.into()),
+            CommonParser.decode_str(&config, &state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[1]))
+            .decode_bin(&config, &state, Bytes::from_static(&[1]))
             .unwrap();
 
         assert_eq!(packet, comparison_packet(54, "/"));
@@ -529,11 +571,11 @@ mod test {
         let state = ParserState::default();
         let payload = format!("61-/admin™,54{json}");
         assert!(matches!(
-            CommonParser.decode_str(&state, payload.into()),
+            CommonParser.decode_str(&config, &state, payload.into()),
             Err(ParseError::NeedsMoreBinaryData)
         ));
         let packet = CommonParser
-            .decode_bin(&state, Bytes::from_static(&[1]))
+            .decode_bin(&config, &state, Bytes::from_static(&[1]))
             .unwrap();
         assert_eq!(packet, comparison_packet(54, "/admin™"));
     }
@@ -542,7 +584,11 @@ mod test {
     fn packet_reject_invalid_binary_event() {
         let payload = "5invalid".to_owned();
         let err = CommonParser
-            .decode_str(&Default::default(), payload.into())
+            .decode_str(
+                &ParseConfig::default(),
+                &ParserState::default(),
+                payload.into(),
+            )
             .unwrap_err();
 
         assert!(matches!(err, ParseError::InvalidAttachments));
@@ -580,7 +626,11 @@ mod test {
 
     #[test]
     fn unexpected_bin_packet() {
-        let err = CommonParser.decode_bin(&Default::default(), Bytes::new());
+        let err = CommonParser.decode_bin(
+            &ParseConfig::default(),
+            &ParserState::default(),
+            Bytes::new(),
+        );
         assert!(matches!(err, Err(ParseError::UnexpectedBinaryPacket)));
     }
     #[test]
@@ -597,5 +647,72 @@ mod test {
         let data = PacketData::Connect(None);
         assert!(is_bin_packet_complete(&data, 0));
         assert!(is_bin_packet_complete(&data, 1));
+    }
+
+    #[test]
+    fn packet_decode_binary_timeout() {
+        let json = json!(["event", { "data": "value™" },{ "_placeholder": true, "num": 0},{ "_placeholder": true, "num": 1}]);
+
+        let state = ParserState::default();
+        let config = ParseConfig {
+            packet_completion_timeout: Duration::from_millis(10),
+            ..ParseConfig::default()
+        };
+
+        let payload = format!("52-{json}");
+        assert!(matches!(
+            CommonParser.decode_str(&config, &state, payload.into()),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
+        std::thread::sleep(config.packet_completion_timeout + Duration::from_millis(5));
+
+        assert!(matches!(
+            CommonParser.decode_bin(&config, &state, Bytes::from_static(&[1])),
+            Err(ParseError::TimeoutWhileWaitingAttachments)
+        ));
+    }
+
+    #[test]
+    fn packet_decode_binary_max_count() {
+        let json = json!(["event", { "data": "value™" },{ "_placeholder": true, "num": 0},{ "_placeholder": true, "num": 1}]);
+
+        let state = ParserState::default();
+        let config = ParseConfig {
+            max_incoming_binaries: 1,
+            ..ParseConfig::default()
+        };
+
+        let payload = format!("52-{json}");
+        assert!(matches!(
+            CommonParser.decode_str(&config, &state, payload.into()),
+            Err(ParseError::TooManyAttachments { got: 2, max: 1 })
+        ));
+    }
+
+    #[test]
+    fn packet_decode_binary_max_buf_len() {
+        let json = json!(["event", { "data": "value™" },{ "_placeholder": true, "num": 0},{ "_placeholder": true, "num": 1}]);
+
+        let state = ParserState::default();
+        let config = ParseConfig {
+            max_incoming_binary_buf_size: 2,
+            ..ParseConfig::default()
+        };
+
+        let payload = format!("52-{json}");
+        assert!(matches!(
+            CommonParser.decode_str(&config, &state, payload.into()),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
+
+        assert!(matches!(
+            CommonParser.decode_bin(&config, &state, Bytes::from_static(&[1])),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
+
+        assert!(matches!(
+            CommonParser.decode_bin(&config, &state, Bytes::from_static(&[1, 2])),
+            Err(ParseError::AttachmentsTooHeavy { current: 3, max: 2 })
+        ));
     }
 }

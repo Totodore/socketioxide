@@ -15,7 +15,7 @@ fn encode(packet: Packet) -> Bytes {
 }
 fn decode(value: Bytes) -> Option<Packet> {
     MsgPackParser
-        .decode_bin(&Default::default(), black_box(value))
+        .decode_bin(&Default::default(), &Default::default(), black_box(value))
         .ok()
 }
 

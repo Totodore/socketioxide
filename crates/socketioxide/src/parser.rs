@@ -7,7 +7,7 @@ use bytes::Bytes;
 use socketioxide_core::{
     Str, Value,
     packet::Packet,
-    parser::{Parse, ParserState},
+    parser::{Parse, ParseConfig, ParserState},
 };
 
 use serde::{Deserialize, Serialize};
@@ -54,28 +54,38 @@ impl Parse for Parser {
         value
     }
 
-    fn decode_bin(self, state: &ParserState, bin: Bytes) -> Result<Packet, ParseError> {
+    fn decode_bin(
+        self,
+        config: &ParseConfig,
+        state: &ParserState,
+        bin: Bytes,
+    ) -> Result<Packet, ParseError> {
         #[cfg(feature = "tracing")]
         tracing::trace!(?state, "decoding bin payload: {:X}", bin);
 
         let packet = match self {
-            Parser::Common(p) => p.decode_bin(state, bin),
+            Parser::Common(p) => p.decode_bin(config, state, bin),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p.decode_bin(state, bin),
+            Parser::MsgPack(p) => p.decode_bin(config, state, bin),
         }?;
 
         #[cfg(feature = "tracing")]
         tracing::trace!(?packet, "bin payload decoded:");
         Ok(packet)
     }
-    fn decode_str(self, state: &ParserState, data: Str) -> Result<Packet, ParseError> {
+    fn decode_str(
+        self,
+        config: &ParseConfig,
+        state: &ParserState,
+        data: Str,
+    ) -> Result<Packet, ParseError> {
         #[cfg(feature = "tracing")]
         tracing::trace!(?data, ?state, "decoding str payload:");
 
         let packet = match self {
-            Parser::Common(p) => p.decode_str(state, data),
+            Parser::Common(p) => p.decode_str(config, state, data),
             #[cfg(feature = "msgpack")]
-            Parser::MsgPack(p) => p.decode_str(state, data),
+            Parser::MsgPack(p) => p.decode_str(config, state, data),
         }?;
 
         #[cfg(feature = "tracing")]
@@ -137,5 +147,18 @@ impl Parse for Parser {
             #[cfg(feature = "msgpack")]
             Parser::MsgPack(p) => p.read_event(value),
         }
+    }
+}
+
+impl From<CommonParser> for Parser {
+    fn from(value: CommonParser) -> Self {
+        Parser::Common(value)
+    }
+}
+
+#[cfg(feature = "msgpack")]
+impl From<MsgPackParser> for Parser {
+    fn from(value: MsgPackParser) -> Self {
+        Parser::MsgPack(value)
     }
 }
