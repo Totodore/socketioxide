@@ -1,3 +1,6 @@
+# socketioxide-mongodb 0.1.4
+* deps: bump `socketioxide-core` to 0.19
+
 # socketioxide-mongodb 0.1.3
 * fix: rustdoc failed build
 
