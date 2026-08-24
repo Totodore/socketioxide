@@ -812,7 +812,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.17.6"
+version = "0.17.7"
 dependencies = [
  "axum",
  "bytes",
