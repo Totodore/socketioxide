@@ -24,7 +24,7 @@ use serde::Deserialize;
 use socketioxide_core::{
     Str, Value,
     packet::Packet,
-    parser::{Parse, ParseError, ParserError, ParserState},
+    parser::{Parse, ParseConfig, ParseError, ParserError, ParserState},
 };
 
 mod de;
@@ -41,11 +41,21 @@ impl Parse for MsgPackParser {
         Value::Bytes(data.into())
     }
 
-    fn decode_str(self, _: &ParserState, _data: Str) -> Result<Packet, ParseError> {
+    fn decode_str(
+        self,
+        _: &ParseConfig,
+        _: &ParserState,
+        _data: Str,
+    ) -> Result<Packet, ParseError> {
         Err(ParseError::UnexpectedStringPacket)
     }
 
-    fn decode_bin(self, _: &ParserState, bin: Bytes) -> Result<Packet, ParseError> {
+    fn decode_bin(
+        self,
+        _: &ParseConfig,
+        _: &ParserState,
+        bin: Bytes,
+    ) -> Result<Packet, ParseError> {
         deserialize_packet(bin)
     }
 
@@ -102,7 +112,11 @@ mod tests {
 
     fn decode(value: &'static [u8]) -> Packet {
         MsgPackParser
-            .decode_bin(&Default::default(), Bytes::from_static(value))
+            .decode_bin(
+                &Default::default(),
+                &Default::default(),
+                Bytes::from_static(value),
+            )
             .unwrap()
     }
     fn encode(packet: Packet) -> Bytes {

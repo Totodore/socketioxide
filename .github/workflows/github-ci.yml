@@ -11,9 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.94.0
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -22,9 +21,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.94.0
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v6
         with:
           path: |
@@ -43,7 +40,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
 
@@ -80,7 +77,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}-${{ steps.msrv.outputs.version }}
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
           components: rustfmt, clippy
@@ -92,9 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.94.0
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-hack
         run: cargo install cargo-hack
@@ -122,9 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.94.0
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v6
         with:
           path: |
@@ -140,9 +133,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.94.0 # TODO(bump): switch to new cargo deny warnings + continue on error
           components: clippy
       - uses: actions/cache@v6
         with:
@@ -165,9 +157,7 @@ jobs:
         engineio-version: [v3, v4]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.94.0
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -202,9 +192,7 @@ jobs:
         socketio-version: [v4, v5, v5-msgpack]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.94.0
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -237,9 +225,7 @@ jobs:
     needs: [socket_io, engine_io]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.94.0
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v6
         with:
           path: |

@@ -26,7 +26,11 @@ use errors::{AdapterError, BroadcastError, SocketError};
 
 pub mod errors;
 #[cfg(feature = "remote-adapter")]
+pub mod heartbeat;
+#[cfg(feature = "remote-adapter")]
 pub mod remote_packet;
+#[cfg(feature = "remote-adapter")]
+pub mod stream;
 
 /// A room identifier
 pub type Room = Cow<'static, str>;

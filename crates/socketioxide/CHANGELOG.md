@@ -1,3 +1,11 @@
+# socketioxide 0.18.7
+* fix(security): bump `socketioxide-parser-commong` to 0.17.2, fixing unlimited binary data attachments which could lead
+to denial of service. See [Github Advisory](https://github.com/Totodore/socketioxide/security/advisories/GHSA-55mf-67qm-4wpg).
+
+# socketioxide 0.18.6
+* fix(security): bump `socketioxide-parser-msgpack` to 0.17.2, fixing an unauthenticated remote DoS in the
+opt-in MsgPack parser (deeply nested packets caused a stack overflow, CWE-674). See [Github Advisory](https://github.com/Totodore/socketioxide/security/advisories/GHSA-c6g7-r2mf-pf5g)
+
 # socketioxide 0.18.5
 * feat: add `volatile()` flags to emit without guaranteeing delivery, this allows to avoid filling internal
 buffers and improve performance [#602](https://github.com/Totodore/socketioxide/issues/602).

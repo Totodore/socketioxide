@@ -1,6 +1,8 @@
 # engineioxide 0.17.7
-* chore(deps): bump `tokio_tungstenite` to v0.30
-* 
+* feat(security): add `ws_max_message_size`/`ws_max_frame_size` config options to bound the size of incoming
+websocket messages and frames, preventing memory exhaustion by malicious clients. Defaults to 64 MiB/16 MiB.
+See [Github Advisory](https://github.com/Totodore/socketioxide/security/advisories/GHSA-55mf-67qm-4wpg).
+
 # engineioxide 0.17.6
 * feat: add `emit_{binary,many}_volatile` methods to `Socket` to emit volatile packets.
 

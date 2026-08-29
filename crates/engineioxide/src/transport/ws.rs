@@ -117,7 +117,11 @@ pub async fn on_init<H: EngineIoHandler, S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let ws_config = WebSocketConfig::default().read_buffer_size(engine.config.ws_read_buffer_size);
+    let ws_config = WebSocketConfig::default()
+        .read_buffer_size(engine.config.ws_read_buffer_size)
+        .max_message_size(Some(engine.config.ws_max_message_size))
+        .max_frame_size(Some(engine.config.ws_max_frame_size));
+
     let ws_init = move || WebSocketStream::from_raw_socket(conn, Role::Server, Some(ws_config));
     let (socket, ws) = if let Some(sid) = sid {
         match engine.get_socket(sid) {

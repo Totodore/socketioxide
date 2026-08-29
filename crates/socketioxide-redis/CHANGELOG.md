@@ -1,3 +1,6 @@
+# socketioxide-redis 0.4.2
+* deps: bump `socketioxide-core` to 0.19
+
 # socketioxide-redis 0.4.1
 * fix: race condition between ack timeout and adapter request timeout when broadcasting with acks.
 

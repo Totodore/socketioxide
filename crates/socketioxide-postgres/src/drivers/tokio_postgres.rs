@@ -7,7 +7,7 @@ use futures_util::{StreamExt, sink, stream};
 use tokio::sync::mpsc;
 use tokio_postgres::{AsyncMessage, Client, Config, Socket, tls::MakeTlsConnect};
 
-use crate::stream::ChanStream;
+use socketioxide_core::adapter::stream::ChanStream;
 
 use super::{Driver, INIT_LOCK_KEY};
 
