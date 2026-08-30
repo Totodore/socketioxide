@@ -843,6 +843,7 @@ dependencies = [
  "bytes",
  "engineioxide",
  "engineioxide-core",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",
