@@ -18,8 +18,8 @@ use futures_core::{Stream, future::BoxFuture};
 use futures_util::{FutureExt, Sink};
 use http::{Method, Request, Response, Uri};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
-use hyper::service::Service as HyperSvc;
 use tokio::sync::{mpsc, oneshot};
+use tower_service::Service;
 use tracing_subscriber::EnvFilter;
 
 use crate::mock::helpers::FutureTestExt;
@@ -57,12 +57,16 @@ pub struct MockSvc {
 }
 
 /// HTTP (polling) side: satisfies `PollingSvc`.
-impl HyperSvc<Request<BoxBody<Bytes, Infallible>>> for MockSvc {
+impl Service<Request<BoxBody<Bytes, Infallible>>> for MockSvc {
     type Response = Response<Full<Bytes>>;
     type Error = MockError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn call(&self, req: Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
         let calls = self.tx.clone();
         // The request is surfaced to the test only once the client actually
         // polls the future, mirroring "the request was sent on the wire".
@@ -87,12 +91,16 @@ impl HyperSvc<Request<BoxBody<Bytes, Infallible>>> for MockSvc {
 }
 
 /// Websocket side: satisfies `WsSvc`.
-impl HyperSvc<Request<()>> for MockSvc {
+impl Service<Request<()>> for MockSvc {
     type Response = MockWs;
     type Error = MockError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn call(&self, req: Request<()>) -> Self::Future {
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: Request<()>) -> Self::Future {
         let calls = self.tx.clone();
         async move {
             let (respond, rx) = oneshot::channel();

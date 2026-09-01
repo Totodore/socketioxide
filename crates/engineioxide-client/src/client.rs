@@ -15,7 +15,6 @@ use crate::{
     config::IntoEngineIoClientConfig,
     errors::{ClientError, ConnectError},
     event::EioEvent,
-    flavors,
     transport::{Transport, TransportSvc, WsTransport, polling::PollingTransport},
 };
 
@@ -42,21 +41,33 @@ enum ClientState {
     Closed,
 }
 
-impl Client<flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
-    pub async fn connect_with_hyper_ws(
+#[cfg(feature = "flavor-hyper")]
+impl Client<crate::flavors::hyper::HyperFlavor> {
+    pub async fn connect_with_hyper_polling(
         config: impl IntoEngineIoClientConfig,
-    ) -> Result<Self, ConnectError<flavors::hyper_tungstenite::HyperTungsteniteFlavor>> {
-        let svc = flavors::hyper_tungstenite::HyperTungsteniteFlavor::new();
+    ) -> Result<Self, ConnectError<crate::flavors::hyper::HyperFlavor>> {
+        let svc = crate::flavors::hyper::HyperFlavor::new();
         Self::connect(svc, config).await
     }
 }
 
-impl<Svc: flavors::testing::EngineSvc> Client<flavors::testing::TestingFlavor<Svc>> {
+#[cfg(feature = "flavor-tungstenite")]
+impl Client<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
+    pub async fn connect_with_hyper_ws(
+        config: impl IntoEngineIoClientConfig,
+    ) -> Result<Self, ConnectError<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor>> {
+        let svc = crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor::new();
+        Self::connect(svc, config).await
+    }
+}
+
+#[cfg(feature = "flavor-testing")]
+impl<Svc: crate::flavors::testing::EngineSvc> Client<crate::flavors::testing::TestingFlavor<Svc>> {
     pub async fn connect_with_testbed(
         svc: Svc,
         config: impl IntoEngineIoClientConfig,
-    ) -> Result<Self, ConnectError<flavors::testing::TestingFlavor<Svc>>> {
-        let svc = flavors::testing::TestingFlavor::new(svc);
+    ) -> Result<Self, ConnectError<crate::flavors::testing::TestingFlavor<Svc>>> {
+        let svc = crate::flavors::testing::TestingFlavor::new(svc);
         Self::connect(svc, config).await
     }
 }

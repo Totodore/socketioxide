@@ -13,14 +13,14 @@ use futures_core::Stream;
 use futures_util::{FutureExt, Sink, StreamExt};
 use http::{Request, Response, StatusCode, Uri, response};
 use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
-use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
 use serde::Deserialize;
+use tower_service::Service;
 
 use crate::EngineIoClientConfig;
 
 pub trait PollingSvc:
-    HyperSvc<
+    Service<
         Request<BoxBody<Bytes, Infallible>>,
         Response = Response<Self::Body>,
         Error = <Self as PollingSvc>::Error,
@@ -34,15 +34,15 @@ pub trait PollingSvc:
 
 impl<B, S> PollingSvc for S
 where
-    S: HyperSvc<Request<BoxBody<Bytes, Infallible>>, Response = Response<B>>,
-    <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Future: Unpin,
-    <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Error: fmt::Debug + std::error::Error,
+    S: Service<Request<BoxBody<Bytes, Infallible>>, Response = Response<B>>,
+    <S as Service<Request<BoxBody<Bytes, Infallible>>>>::Future: Unpin,
+    <S as Service<Request<BoxBody<Bytes, Infallible>>>>::Error: fmt::Debug + std::error::Error,
     B: http_body::Body + 'static,
     <B as http_body::Body>::Error: fmt::Debug + std::error::Error + 'static,
     <B as http_body::Body>::Data: Send + fmt::Debug + 'static,
 {
     type Body = B;
-    type Error = <S as HyperSvc<Request<BoxBody<Bytes, Infallible>>>>::Error;
+    type Error = <S as Service<Request<BoxBody<Bytes, Infallible>>>>::Error;
     type ResBodyError = <B as http_body::Body>::Error;
 }
 
@@ -100,7 +100,7 @@ impl<F> PostState<F> {
     }
 
     fn new_request<S: PollingSvc<Future = F>>(
-        svc: &S,
+        svc: &mut S,
         uri: &Uri,
         sid: Sid,
         body: BytesMut,
@@ -122,7 +122,7 @@ impl<F> PostState<F> {
 }
 
 impl<F> PollState<F> {
-    fn new_request<S: PollingSvc<Future = F>>(svc: &S, base_uri: &Uri, sid: Sid) -> Self {
+    fn new_request<S: PollingSvc<Future = F>>(svc: &mut S, base_uri: &Uri, sid: Sid) -> Self {
         let uri = super::with_mandatory_query(base_uri, TransportType::Polling, Some(sid));
 
         let req = Request::builder()
@@ -239,7 +239,7 @@ pin_project! {
 
 impl<S: PollingSvc> PollingTransport<S> {
     pub async fn connect(
-        svc: S,
+        mut svc: S,
         config: &EngineIoClientConfig,
     ) -> Result<(Self, OpenPacket), PollingError<S>> {
         let req = super::build_connect_req(&config.uri, TransportType::Polling);
@@ -255,7 +255,7 @@ impl<S: PollingSvc> PollingTransport<S> {
 
         match packet {
             Packet::Open(open) => {
-                let poll_state = PollState::new_request(&svc, &config.uri, open.sid);
+                let poll_state = PollState::new_request(&mut svc, &config.uri, open.sid);
                 let transport = PollingTransport {
                     svc,
                     poll_state,
@@ -351,8 +351,9 @@ impl<S: PollingSvc> PollingTransport<S> {
                         sid = %self.sid,
                         "decoding stream ended, new polling req"
                     );
-                    let request = PollState::new_request(&self.svc, &self.base_uri, self.sid);
-                    self.project().poll_state.set(request);
+                    let mut proj = self.project();
+                    let request = PollState::new_request(proj.svc, proj.base_uri, *proj.sid);
+                    proj.poll_state.set(request);
                     //check if wake is needed
                     cx.waker().wake_by_ref();
                     Poll::Pending
@@ -373,8 +374,9 @@ impl<S: PollingSvc> PollingTransport<S> {
             PostStateProj::Queuing { bytes } if bytes.is_empty() => Poll::Ready(Ok(())),
             PostStateProj::Queuing { bytes } => {
                 let body = std::mem::take(bytes);
-                let post_state = PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
-                self.project().post_state.set(post_state);
+                let mut proj = self.project();
+                let post_state = PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body);
+                proj.post_state.set(post_state);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
@@ -402,9 +404,10 @@ impl<S: PollingSvc> PollingTransport<S> {
                         } else {
                             // resend another request immediately, the buffer was filled
                             // while the previous one was sent
+                            let mut proj = self.project();
                             let post_state =
-                                PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
-                            self.project().post_state.set(post_state);
+                                PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body);
+                            proj.post_state.set(post_state);
                             cx.waker().wake_by_ref();
                             Poll::Pending
                         }
@@ -451,8 +454,9 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
             );
 
             let body = std::mem::take(bytes);
-            let post_state = PostState::new_request(&self.svc, &self.base_uri, self.sid, body);
-            self.as_mut().project().post_state.set(post_state);
+            let mut proj = self.as_mut().project();
+            let post_state = PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body);
+            proj.post_state.set(post_state);
         }
 
         self.as_mut().project().post_state.encode(item);

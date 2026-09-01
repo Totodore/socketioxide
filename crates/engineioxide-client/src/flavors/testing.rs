@@ -8,10 +8,10 @@ use bytes::Bytes;
 use futures_core::{future::BoxFuture, ready};
 use futures_util::FutureExt;
 use http_body_util::combinators::BoxBody;
-use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
 use tokio::io;
 use tokio_tungstenite::tungstenite::protocol::Role;
+use tower_service::Service;
 
 use crate::{flavors::hyper_tungstenite::TokioTungsteniteWS, transport::PollingSvc};
 
@@ -20,7 +20,7 @@ use crate::{flavors::hyper_tungstenite::TokioTungsteniteWS, transport::PollingSv
 /// Typically this wil be satisfied by the engineioxide service.
 pub trait EngineSvc:
     PollingSvc<Body: http_body::Body<Data: Send + std::fmt::Debug + 'static>>
-    + HyperSvc<
+    + Service<
         (DuplexStream, http::Request<()>),
         Response = (),
         Error: std::error::Error + Send + 'static,
@@ -33,7 +33,7 @@ pub trait EngineSvc:
 
 impl<Svc> EngineSvc for Svc where
     Svc: PollingSvc<Body: http_body::Body<Data: Send + std::fmt::Debug + 'static>>
-        + HyperSvc<
+        + Service<
             (DuplexStream, http::Request<()>),
             Response = (),
             Error: std::error::Error + Send + 'static,
@@ -60,25 +60,28 @@ impl<Svc> From<Svc> for TestingFlavor<Svc> {
 }
 
 /// HTTP Service implementation
-impl<Svc> HyperSvc<http::Request<BoxBody<Bytes, Infallible>>> for TestingFlavor<Svc>
+impl<Svc> Service<http::Request<BoxBody<Bytes, Infallible>>> for TestingFlavor<Svc>
 where
-    Svc: HyperSvc<http::Request<BoxBody<Bytes, Infallible>>>,
+    Svc: Service<http::Request<BoxBody<Bytes, Infallible>>>,
     Svc: Clone,
 {
     type Response = Svc::Response;
     type Error = Svc::Error;
     type Future = Svc::Future;
 
-    fn call(&self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
         self.inner.clone().call(req)
     }
 }
 
 /// Websocket service implementation
-impl<Svc, E, Fut> HyperSvc<http::Request<()>> for TestingFlavor<Svc>
+impl<Svc, E, Fut> Service<http::Request<()>> for TestingFlavor<Svc>
 where
-    Svc:
-        HyperSvc<(DuplexStream, http::Request<()>), Response = (), Error = E, Future = Fut> + Clone,
+    Svc: Service<(DuplexStream, http::Request<()>), Response = (), Error = E, Future = Fut> + Clone,
     Svc: Clone + Send + 'static,
     E: std::error::Error + Send + 'static,
     Fut: Future<Output = Result<Svc::Response, Svc::Error>> + Send,
@@ -87,8 +90,14 @@ where
     type Error = tokio_tungstenite::tungstenite::Error;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn call(&self, req: http::Request<()>) -> Self::Future {
-        let svc = self.inner.clone();
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner
+            .poll_ready(cx)
+            .map_err(|e| tokio_tungstenite::tungstenite::Error::Io(io::Error::other(e.to_string())))
+    }
+
+    fn call(&mut self, req: http::Request<()>) -> Self::Future {
+        let mut svc = self.inner.clone();
         let (client, server) = DuplexStream::new();
         tracing::debug!("initializing duplex stream");
 

@@ -8,6 +8,7 @@ use hyper_util::client::legacy::{
     Client, ResponseFuture,
     connect::{HttpConnector, dns::GaiResolver},
 };
+use tower_service::Service;
 
 use crate::flavors::noop_impl::NoopWebSocket;
 
@@ -30,23 +31,37 @@ impl Default for HyperFlavor {
 }
 
 /// HTTP Service implementation
-impl hyper::service::Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperFlavor {
+impl Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperFlavor {
     type Response = Response<Incoming>;
     type Error = hyper_util::client::legacy::Error;
     type Future = ResponseFuture;
 
-    fn call(&self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.client.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
         self.client.request(req)
     }
 }
 
 /// WS Service Implementation
-impl hyper::service::Service<http::Request<()>> for HyperFlavor {
+impl Service<http::Request<()>> for HyperFlavor {
     type Response = NoopWebSocket;
     type Error = Infallible;
     type Future = Ready<Result<Self::Response, Self::Error>>;
 
-    fn call(&self, _: http::Request<()>) -> Self::Future {
+    fn poll_ready(
+        &mut self,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _: http::Request<()>) -> Self::Future {
         std::future::ready(Ok(NoopWebSocket))
     }
 }

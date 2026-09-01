@@ -4,6 +4,7 @@ use std::{
     task::{Context, Poll, ready},
 };
 
+use base64::Engine;
 use bytes::Bytes;
 use engineioxide_core::{
     OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, Str, TransportType,
@@ -11,9 +12,8 @@ use engineioxide_core::{
 use futures_core::Stream;
 use futures_util::{Sink, StreamExt};
 use http::Request;
-use hyper::service::Service as HyperSvc;
 use pin_project_lite::pin_project;
-use tokio_tungstenite::tungstenite::handshake::client::generate_key;
+use tower_service::Service;
 use tracing::Level;
 
 use crate::EngineIoClientConfig;
@@ -85,7 +85,7 @@ impl<S: WsSvc> std::error::Error for WsError<S> {}
 
 impl<S: WsSvc> WsTransport<S> {
     #[tracing::instrument(skip(svc))]
-    pub fn connect_with_upgrade(svc: S, config: &EngineIoClientConfig, sid: Sid) -> Self {
+    pub fn connect_with_upgrade(mut svc: S, config: &EngineIoClientConfig, sid: Sid) -> Self {
         tracing::trace!("websocket connection with upgrade");
         let uri = super::with_mandatory_query(&config.uri, TransportType::Websocket, Some(sid));
         let req = Request::get(uri)
@@ -106,7 +106,7 @@ impl<S: WsSvc> WsTransport<S> {
 
     #[tracing::instrument(skip(svc))]
     pub async fn connect(
-        svc: S,
+        mut svc: S,
         config: &EngineIoClientConfig,
     ) -> Result<(Self, OpenPacket), WsError<S>> {
         tracing::trace!("websocket connection without upgrade");
@@ -142,7 +142,7 @@ impl<S: WsSvc> WsTransport<S> {
 }
 
 pub trait WsSvc:
-    HyperSvc<
+    Service<
         http::Request<()>,
         Response = Self::WebSocket,
         Error = <Self as WsSvc>::Error,
@@ -155,11 +155,11 @@ pub trait WsSvc:
 
 impl<S, WS> WsSvc for S
 where
-    S: HyperSvc<http::Request<()>, Response = WS, Future: Unpin> + Clone,
-    WS: WebSocket<Error = <S as HyperSvc<http::Request<()>>>::Error>,
-    <S as HyperSvc<http::Request<()>>>::Error: fmt::Debug + std::error::Error,
+    S: Service<http::Request<()>, Response = WS, Future: Unpin> + Clone,
+    WS: WebSocket<Error = <S as Service<http::Request<()>>>::Error>,
+    <S as Service<http::Request<()>>>::Error: fmt::Debug + std::error::Error,
 {
-    type Error = <S as HyperSvc<http::Request<()>>>::Error;
+    type Error = <S as Service<http::Request<()>>>::Error;
     type WebSocket = WS;
 }
 
@@ -329,4 +329,16 @@ impl<S: WsSvc> fmt::Debug for WsTransportState<S> {
             Self::Closed => f.write_str("Closed"),
         }
     }
+}
+
+/// Generate a random key for the `Sec-WebSocket-Key` header.
+fn generate_key() -> String {
+    // a base64-encoded (see Section 4 of [RFC4648]) value that,
+    // when decoded, is 16 bytes in length (RFC 6455)
+    let r: [u8; 16] = rand::random();
+
+    let mut out = String::new();
+    base64::prelude::BASE64_URL_SAFE_NO_PAD.encode_string(r, &mut out);
+
+    out
 }

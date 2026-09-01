@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use engineioxide_core::TransportType;
-use http::{Uri, uri};
+use http::{uri, Uri};
 
 #[derive(Debug)]
 pub struct EngineIoClientConfig {

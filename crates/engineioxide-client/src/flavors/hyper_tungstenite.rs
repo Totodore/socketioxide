@@ -18,6 +18,7 @@ use tokio_tungstenite::{
     MaybeTlsStream,
     tungstenite::{self, Message, Utf8Bytes},
 };
+use tower_service::Service;
 
 use crate::{
     flavors::hyper::HyperFlavor,
@@ -55,23 +56,34 @@ impl Default for HyperTungsteniteFlavor {
 }
 
 /// HTTP Service implementation
-impl hyper::service::Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperTungsteniteFlavor {
+impl Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperTungsteniteFlavor {
     type Response = Response<Incoming>;
     type Error = hyper_util::client::legacy::Error;
     type Future = ResponseFuture;
 
-    fn call(&self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <HyperFlavor as Service<http::Request<BoxBody<Bytes, Infallible>>>>::poll_ready(
+            &mut self.hyper_svc,
+            cx,
+        )
+    }
+
+    fn call(&mut self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
         self.hyper_svc.call(req)
     }
 }
 
 /// WS Service Implementation
-impl hyper::service::Service<http::Request<()>> for HyperTungsteniteFlavor {
+impl Service<http::Request<()>> for HyperTungsteniteFlavor {
     type Response = TokioTungsteniteWS<MaybeTlsStream<TcpStream>>;
     type Error = tungstenite::Error;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn call(&self, req: http::Request<()>) -> Self::Future {
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: http::Request<()>) -> Self::Future {
         async move {
             let (ws, _) = tokio_tungstenite::connect_async(req).await?;
             Ok(ws.into())
