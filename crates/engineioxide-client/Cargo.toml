@@ -24,7 +24,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 base64 = "0.23"
 rand = "0.10"
-tokio = { workspace = true, optional = true, default-features = false, features = ["io-std"] }
+tokio = { workspace = true, optional = true, default-features = false }
 hyper = { workspace = true, optional = true, features = ["client", "http1", "http2"] }
 tokio-tungstenite = { workspace = true, optional = true }
 tower-service = "0.3"
@@ -45,5 +45,5 @@ engineioxide = { path = "../engineioxide", features = ["tracing"] }
 
 [features]
 flavor-hyper = ["dep:hyper", "dep:hyper-util"]
-flavor-tungstenite = ["flavor-hyper", "dep:tokio-tungstenite"]
+flavor-tungstenite = ["flavor-hyper", "dep:tokio-tungstenite", "tokio/io-std"]
 flavor-testing = ["flavor-tungstenite"]
