@@ -1,7 +1,6 @@
 pub mod hyper;
 pub mod hyper_tungstenite;
 pub mod testing;
-pub mod wasm;
 
 mod noop_impl {
     use std::{

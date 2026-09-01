@@ -30,12 +30,6 @@ pin-project-lite.workspace = true
 smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio", "client", "client-pool", "client-legacy", "http1", "http2"] }
 tokio-util.workspace = true
-web-sys = { version = "0.3", default-features = false, features = [
-    "WebSocket", "Window", "Request",
-    "RequestInit", "Response", "Headers",
-    "ReadableStream", "ReadableStreamDefaultReader"
-] }
-futures-channel = { version = "0.3", default-features = false }
 
 # Tracing
 tracing = { workspace = true } # TODO: make optional
