@@ -32,7 +32,6 @@ http-body-util.workspace = true
 pin-project-lite.workspace = true
 smallvec.workspace = true
 hyper-util = { workspace = true, optional = true, features = ["tokio", "client", "client-pool", "client-legacy", "http1", "http2"] }
-tokio-util.workspace = true
 
 # Tracing
 tracing.workspace = true
