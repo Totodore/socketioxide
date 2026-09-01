@@ -127,7 +127,7 @@ pub struct RequestInfo {
 
 impl RequestInfo {
     /// Parse the request URI to extract the [`TransportType`](crate::service::TransportType) and the socket id.
-    fn parse<B>(req: &Request<B>, config: &EngineIoConfig) -> Result<Self, ParseError> {
+    pub(super) fn parse<B>(req: &Request<B>, config: &EngineIoConfig) -> Result<Self, ParseError> {
         use ParseError::*;
         let query = req.uri().query().ok_or(UnknownTransport)?;
 

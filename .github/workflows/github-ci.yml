@@ -109,9 +109,14 @@ jobs:
           cargo hack check --feature-powerset --no-dev-deps \
           -p socketioxide \
           -p engineioxide \
+          -p engineioxide-core \
+          -p socketioxide-core \
           -p socketioxide-redis \
           -p socketioxide-mongodb \
-          -p socketioxide-postgres
+          -p socketioxide-postgres \
+          -p socketioxide-parser-common \
+          -p socketioxide-parser-msgpack \
+          -p engineioxide-client
 
   examples:
     runs-on: ubuntu-latest

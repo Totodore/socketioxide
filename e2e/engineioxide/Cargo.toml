@@ -16,7 +16,9 @@ bytes.workspace = true
 engineioxide = { path = "../../crates/engineioxide", default-features = false, features = [
     "tracing",
 ] }
+engineioxide-client = { path = "../../crates/engineioxide-client" }
 hyper-util = { workspace = true, features = ["tokio"] }
+futures-util.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
@@ -26,6 +28,10 @@ serde_json.workspace = true
 [[bin]]
 name = "engineioxide-e2e"
 path = "engineioxide.rs"
+
+[[bin]]
+name = "engineioxide-e2e-client"
+path = "client.rs"
 
 [features]
 v3 = ["engineioxide/v3"]

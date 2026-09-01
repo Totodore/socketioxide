@@ -68,6 +68,13 @@ impl<'de> Deserialize<'de> for TransportType {
     }
 }
 
+impl std::fmt::Display for TransportType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let v: &'static str = (*self).into();
+        write!(f, "{}", v)
+    }
+}
+
 /// Cannot determine the transport type to connect to the client/server.
 #[derive(Debug, Copy, Clone)]
 pub struct UnknownTransportError;

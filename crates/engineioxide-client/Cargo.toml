@@ -1,0 +1,48 @@
+[package]
+name = "engineioxide-client"
+description = "Engine IO client implementation in rust"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[dependencies]
+engineioxide-core = { path = "../engineioxide-core", version = "0.2", features = ["tracing"] }
+bytes.workspace = true
+futures-core.workspace = true
+futures-util = { workspace = true, features = ["std", "sink"] }
+http.workspace = true
+http-body.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+base64 = "0.23"
+rand = "0.10"
+tokio = { workspace = true, optional = true, default-features = false }
+hyper = { workspace = true, optional = true, features = ["client", "http1", "http2"] }
+tokio-tungstenite = { workspace = true, optional = true }
+tower-service = "0.3"
+http-body-util.workspace = true
+pin-project-lite.workspace = true
+smallvec.workspace = true
+hyper-util = { workspace = true, optional = true, features = ["tokio", "client", "client-pool", "client-legacy", "http1", "http2"] }
+
+# Tracing
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+# Testing
+engineioxide = { path = "../engineioxide", features = ["tracing"] }
+
+
+[features]
+flavor-hyper = ["dep:hyper", "dep:hyper-util"]
+flavor-tungstenite = ["flavor-hyper", "dep:tokio-tungstenite", "tokio/io-std"]
+flavor-testing = ["flavor-tungstenite"]
