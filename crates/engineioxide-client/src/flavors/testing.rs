@@ -1,3 +1,4 @@
+//! A testing flavor that wraps an inner service and provides a [`Flavor`] implementation.
 use std::{
     convert::Infallible,
     pin::Pin,

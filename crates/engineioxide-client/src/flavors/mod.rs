@@ -43,8 +43,11 @@ pub trait PollingSvc:
         Future: Unpin, // Unpin bound so we can move transports around when upgrading
     >
 {
+    /// Response body type for the polling service.
     type Body: http_body::Body<Error = Self::ResBodyError> + 'static;
+    /// Error type for the polling service.
     type Error: fmt::Debug + std::error::Error;
+    /// Response body error type for the polling service.
     type ResBodyError: fmt::Debug + std::error::Error + 'static;
 }
 
@@ -71,6 +74,7 @@ pub trait WsSvc:
         Future: Unpin, // Unpin bound so we can move transports around when upgrading
     > + Clone
 {
+    /// Error type for the websocket service.
     type Error: fmt::Debug + std::error::Error;
     /// The WebSocket type that this service uses.
     type WebSocket: WebSocket<Error = <Self as WsSvc>::Error>;
@@ -93,6 +97,7 @@ pub trait WebSocket:
     + Sized
     + Unpin
 {
+    /// Error type for the WebSocket.
     type Error: fmt::Debug + std::error::Error;
 }
 
@@ -106,8 +111,11 @@ where
 
 /// A WebSocket message.
 pub enum WsMessage {
+    /// A text message.
     Text(Str),
+    /// A binary message.
     Binary(Bytes),
+    /// A close message.
     Close,
 }
 
@@ -123,6 +131,8 @@ pub mod noop {
     use futures_core::Stream;
     use futures_util::Sink;
 
+    /// A stub, no-op WebSocket implementation for use in flavors that do not
+    /// support WebSocket connections.
     #[derive(Debug, Default, Clone)]
     pub struct NoopWebSocket;
 

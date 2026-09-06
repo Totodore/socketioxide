@@ -1,3 +1,6 @@
+//! A flavor that supports both polling and websocket transports with the [`HyperFlavor`] and
+//! [`tokio_tungstenite`].
+
 use std::{
     convert::Infallible,
     pin::Pin,
@@ -35,8 +38,8 @@ impl From<WsMessage> for tungstenite::Message {
     }
 }
 
-/// A flavor that combines [`HyperFlavor`] and [`TungsteniteFlavor`]
-/// to support both polling and websocket transports.
+/// A flavor that supports both polling and websocket transports with the [`HyperFlavor`] and
+/// [`tokio_tungstenite`].
 #[derive(Debug, Clone, Default)]
 pub struct HyperTungsteniteFlavor {
     hyper_svc: HyperFlavor,
@@ -101,6 +104,8 @@ impl Service<http::Request<()>> for HyperTungsteniteFlavor {
 }
 
 pin_project! {
+    /// A wrapper around a tokio-tungstenite WebSocket stream.
+    /// to integrate with the engineioxide WebSocket API.
     pub struct TokioTungsteniteWS<S> {
         #[pin]
         inner: tokio_tungstenite::WebSocketStream<S>,

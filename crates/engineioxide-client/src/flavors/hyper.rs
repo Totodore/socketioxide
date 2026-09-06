@@ -26,10 +26,13 @@ fn get_conn_pool() -> &'static Client<HttpConnector<GaiResolver>, BoxBody<Bytes,
     CONN_POOL.get_or_init(|| Client::builder(hyper_util::rt::TokioExecutor::new()).build_http())
 }
 
+/// A flavor that supports polling transport only through [`hyper_util::client::legacy`].
+/// The connection pool is shared across all instances of this flavor.
 #[derive(Debug, Clone, Default)]
 pub struct HyperFlavor;
 
 impl HyperFlavor {
+    /// Creates a new [`HyperFlavor`] instance.
     pub fn new() -> Self {
         Self
     }
