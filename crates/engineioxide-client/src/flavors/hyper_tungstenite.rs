@@ -12,7 +12,7 @@ use engineioxide_core::Str;
 use engineioxide_core::TransportType;
 use futures_core::{Stream, future::BoxFuture};
 use futures_util::{FutureExt, Sink};
-use http::{HeaderValue, Response};
+use http::Response;
 use http_body_util::combinators::BoxBody;
 use hyper::body::Incoming;
 use hyper_util::client::legacy::ResponseFuture;
@@ -20,7 +20,7 @@ use pin_project_lite::pin_project;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     MaybeTlsStream,
-    tungstenite::{self, Message, Utf8Bytes, handshake::client::generate_key},
+    tungstenite::{self, Message, Utf8Bytes, client::IntoClientRequest},
 };
 use tower_service::Service;
 
@@ -85,17 +85,10 @@ impl Service<http::Request<()>> for HyperTungsteniteFlavor {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, mut req: http::Request<()>) -> Self::Future {
-        req.headers_mut()
-            .insert("Connection", HeaderValue::from_static("Upgrade"));
-        req.headers_mut()
-            .insert("Upgrade", HeaderValue::from_static("websocket"));
-        req.headers_mut()
-            .insert("Sec-WebSocket-Version", HeaderValue::from_static("13"));
-        req.headers_mut()
-            .insert("Sec-WebSocket-Key", generate_key().parse().unwrap());
-
+    fn call(&mut self, req: http::Request<()>) -> Self::Future {
+        let (parts, _) = req.into_parts();
         async move {
+            let req = parts.uri.into_client_request()?;
             let (ws, _) = tokio_tungstenite::connect_async(req).await?;
             Ok(ws.into())
         }
@@ -158,7 +151,7 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> Stream for TokioTu
                 Poll::Pending
             }
             Some(Err(e)) => Poll::Ready(Some(Err(e))),
-            None => Poll::Pending,
+            None => Poll::Ready(None),
         }
     }
 }

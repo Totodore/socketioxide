@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fmt,
     pin::Pin,
     task::{Context, Poll, ready},
@@ -25,6 +26,7 @@ pin_project! {
             fut: F
         },
         Decoding {
+            //TODO: switch to concrete type
             #[pin]
             stream: Pin<Box<dyn Stream<Item = Result<Packet, PacketParseError>>>>
         },
@@ -37,19 +39,29 @@ pin_project! {
 pin_project! {
     #[project = PostStateProj]
     enum PostState<F> {
+        /// No POST in flight: packets are appended to `bytes` until the next
+        /// flush (or until the batch would exceed `max_payload`).
         Queuing {
             bytes: BytesMut,
         },
+        /// A POST is in flight. Packets sent meanwhile are appended to the
+        /// last batch of `batches`; a new batch is opened whenever the last
+        /// one would exceed `max_payload`. Batches are POSTed in order, one
+        /// at a time, once the in-flight request completes: engine.io
+        /// forbids concurrent POSTs on a session.
         Pending {
             #[pin]
             fut: F,
-            // TODO: BytesList
-            bytes: BytesMut,
+            batches: VecDeque<BytesMut>,
         },
         // Terminal state: in-flight request and queued bytes are discarded.
         Closed,
     }
 }
+
+/// Length of the record separator between two packets of a v4 payload.
+const PACKET_SEPARATOR_LEN: usize = 1;
+const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 
 #[derive(Debug, Default, PartialEq, Eq)]
 enum ClosingState {
@@ -66,15 +78,13 @@ impl<F> Default for PostState<F> {
     }
 }
 impl<F> PostState<F> {
-    fn queuing(bytes: BytesMut) -> Self {
-        Self::Queuing { bytes }
-    }
-
+    /// POST `body` right away, keeping `batches` queued behind it.
     fn new_request<S: PollingSvc<Future = F>>(
         svc: &mut S,
         uri: &Uri,
         sid: Sid,
         body: BytesMut,
+        batches: VecDeque<BytesMut>,
     ) -> Self {
         let uri = super::with_mandatory_query(uri, TransportType::Polling, Some(sid));
 
@@ -85,10 +95,16 @@ impl<F> PostState<F> {
             .unwrap();
 
         let fut = svc.call(req);
-        PostState::Pending {
-            fut,
-            bytes: BytesMut::new(),
-        }
+        PostState::Pending { fut, batches }
+    }
+
+    /// `true` when appending a packet of `packet_size` wire bytes to `batch`
+    /// would make it exceed `max_payload`.
+    ///
+    /// An empty batch always accepts the packet: a single packet over the
+    /// limit cannot be split, it is sent as is and rejected by the server.
+    fn overflows(batch: &BytesMut, packet_size: usize, max_payload: usize) -> bool {
+        !batch.is_empty() && batch.len() + PACKET_SEPARATOR_LEN + packet_size > max_payload
     }
 }
 
@@ -370,12 +386,18 @@ impl<S: PollingSvc> PollingTransport<S> {
             PostStateProj::Queuing { bytes } => {
                 let body = std::mem::take(bytes);
                 let mut proj = self.project();
-                let post_state = PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body);
+                let post_state = PostState::new_request(
+                    proj.svc,
+                    proj.base_uri,
+                    *proj.sid,
+                    body,
+                    VecDeque::new(),
+                );
                 proj.post_state.set(post_state);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            PostStateProj::Pending { fut, bytes } => {
+            PostStateProj::Pending { fut, batches } => {
                 match ready!(fut.poll(cx)) {
                     Ok(res) => {
                         let (parts, res_body) = res.into_parts();
@@ -392,19 +414,27 @@ impl<S: PollingSvc> PollingTransport<S> {
                             return Poll::Ready(Err(PollingError::Protocol(error)));
                         }
 
-                        let body = std::mem::take(bytes);
-                        if body.is_empty() {
-                            self.project().post_state.set(PostState::queuing(body));
-                            Poll::Ready(Ok(()))
-                        } else {
-                            // resend another request immediately, the buffer was filled
-                            // while the previous one was sent
-                            let mut proj = self.project();
-                            let post_state =
-                                PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body);
-                            proj.post_state.set(post_state);
-                            cx.waker().wake_by_ref();
-                            Poll::Pending
+                        let mut batches = std::mem::take(batches);
+                        let mut proj = self.project();
+                        match batches.pop_front() {
+                            None => {
+                                proj.post_state.set(PostState::default());
+                                Poll::Ready(Ok(()))
+                            }
+                            Some(body) => {
+                                // the buffer was filled while the previous request was
+                                // in flight: POST the next batch right away.
+                                let post_state = PostState::new_request(
+                                    proj.svc,
+                                    proj.base_uri,
+                                    *proj.sid,
+                                    body,
+                                    batches,
+                                );
+                                proj.post_state.set(post_state);
+                                cx.waker().wake_by_ref();
+                                Poll::Pending
+                            }
                         }
                     }
                     Err(err) => Poll::Ready(Err(PollingError::Http(err))),
@@ -431,30 +461,48 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
         if self.close_state != ClosingState::Open {
             return Err(PollingError::Closed);
         }
-        let packet_size = item.get_size_hint(false);
-
+        // polling payloads are text: binary packets are base64 encoded
+        let packet_size = item.get_size_hint(true);
         let max_payload = self.max_payload as usize;
 
-        let bytes = self
-            .as_mut()
-            .project()
-            .post_state
-            .get_bytes_buf()
-            .expect("start_send should not be called on a non-sendable path");
-
-        if bytes.len() + packet_size + 1 > max_payload {
-            tracing::debug!(
-                "pending buffer is becoming bigger than {max_payload}, \
-                sending the current payload, current packet will be deffered to the next batch"
-            );
-
-            let body = std::mem::take(bytes);
-            let mut proj = self.as_mut().project();
-            let post_state = PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body);
-            proj.post_state.set(post_state);
+        let mut proj = self.as_mut().project();
+        match proj.post_state.as_mut().project() {
+            PostStateProj::Queuing { bytes } => {
+                if PostState::<S::Future>::overflows(bytes, packet_size, max_payload) {
+                    tracing::debug!(
+                        "pending buffer would exceed {max_payload} bytes, \
+                        sending the current payload, current packet is deferred to the next batch"
+                    );
+                    let body = std::mem::take(bytes);
+                    let post_state = PostState::new_request(
+                        proj.svc,
+                        proj.base_uri,
+                        *proj.sid,
+                        body,
+                        VecDeque::new(),
+                    );
+                    proj.post_state.set(post_state);
+                }
+            }
+            PostStateProj::Pending { batches, .. } => {
+                // a POST is already in flight: it must complete before the
+                // next one starts, so the batch is only sealed here and
+                // POSTed from `poll_flush` once the current request completes.
+                let sealed = batches.back().is_some_and(|b| {
+                    PostState::<S::Future>::overflows(b, packet_size, max_payload)
+                });
+                if sealed {
+                    tracing::debug!(
+                        "queued batch would exceed {max_payload} bytes, \
+                        current packet is deferred to a new batch"
+                    );
+                    batches.push_back(BytesMut::new());
+                }
+            }
+            PostStateProj::Closed => return Err(PollingError::Closed),
         }
 
-        self.as_mut().project().post_state.encode(item);
+        proj.post_state.encode(item);
         Ok(())
     }
 
@@ -493,10 +541,10 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
 }
 
 impl<F> PostState<F> {
+    /// Append `item` to the batch currently being filled.
     fn encode(self: Pin<&mut Self>, item: Packet) {
-        const PACKET_SEPARATOR_V4: u8 = b'\x1e';
         let packet: Bytes = item.into();
-        let Some(bytes) = self.get_bytes_buf() else {
+        let Some(bytes) = self.open_batch() else {
             return;
         };
 
@@ -506,10 +554,16 @@ impl<F> PostState<F> {
         bytes.extend_from_slice(&packet);
     }
 
-    fn get_bytes_buf(self: Pin<&mut Self>) -> Option<&mut BytesMut> {
+    /// The batch new packets are appended to, `None` once closed.
+    fn open_batch(self: Pin<&mut Self>) -> Option<&mut BytesMut> {
         match self.project() {
             PostStateProj::Queuing { bytes } => Some(bytes),
-            PostStateProj::Pending { bytes, .. } => Some(bytes),
+            PostStateProj::Pending { batches, .. } => {
+                if batches.is_empty() {
+                    batches.push_back(BytesMut::new());
+                }
+                batches.back_mut()
+            }
             PostStateProj::Closed => None,
         }
     }
@@ -528,9 +582,9 @@ impl<F> fmt::Debug for PostState<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Queuing { bytes } => f.debug_struct("Queuing").field("bytes", bytes).finish(),
-            Self::Pending { bytes, .. } => f
+            Self::Pending { batches, .. } => f
                 .debug_struct("Pending")
-                .field("bytes", bytes)
+                .field("batches", batches)
                 .finish_non_exhaustive(),
             Self::Closed => f.write_str("Closed"),
         }

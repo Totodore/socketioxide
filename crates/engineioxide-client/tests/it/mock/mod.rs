@@ -315,6 +315,11 @@ impl ServerWs {
         self.rx.recv().timeout().await
     }
 
+    /// The next message already sent by the client, without waiting.
+    pub fn try_recv(&mut self) -> Option<WsMessage> {
+        self.rx.try_recv().ok()
+    }
+
     /// Next client message decoded as a packet (binary frames are messages).
     pub async fn recv_packet(&mut self) -> Packet {
         match self.recv().await {

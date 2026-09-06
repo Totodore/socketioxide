@@ -21,7 +21,10 @@ pin_project! {
     /// while an upgrade is in flight.
     ///
     /// Packets keep flowing over polling for the whole probe so nothing is lost
-    /// while upgrading. Once the probe settles, the [`Stream`] emits
+    /// while upgrading. Once the probe is acknowledged, polling is paused:
+    /// every write queued or in flight over polling is flushed *before* the
+    /// upgrade packet is sent, and later writes go over the websocket.
+    /// Once the probe settles, the [`Stream`] emits
     /// [`Packet::Upgrade`] on success or an [`UpgradeError`] and the caller
     /// is expected to switch to [`into_next`](Self::into_next) or
     /// [`into_prev`](Self::into_prev) respectively.
@@ -45,7 +48,11 @@ enum UpgradeHandshakeState {
     ShouldSendPingUpgrade,
     ShouldFlushPingUpgrade,
     WaitingPong,
+    /// The probe is acknowledged: drain the polling write buffer, then send
+    /// the upgrade packet.
     ShouldSendUpgrade,
+    /// The upgrade packet is handed to the websocket: polling is paused and
+    /// every write now goes over the websocket.
     ShouldFlushUpgrade,
     Done,
     // the probe failed: gracefully close the websocket before falling back
@@ -85,7 +92,8 @@ impl<S: TransportSvc> UpgradingTransport<S> {
     }
 
     /// The upgrade succeeded: keep the websocket and drop the polling
-    /// transport. Its held poll request is simply canceled: the server
+    /// transport. Its write buffer was drained before the upgrade packet was
+    /// sent, and its held poll request is simply canceled: the server
     /// already released the session to the websocket.
     pub(super) fn into_next(self) -> WsTransport<S> {
         self.websocket
@@ -97,41 +105,67 @@ impl<S: TransportSvc> UpgradingTransport<S> {
         self.polling
     }
 
-    /// Drives the handshake mechanism
+    /// Once the upgrade packet is handed to the websocket, polling is
+    /// paused: every later write goes over the websocket, ordered after the
+    /// upgrade packet, so nothing is left behind in the polling transport.
+    fn upgrade_sent(&self) -> bool {
+        matches!(
+            self.upgrade,
+            UpgradeHandshakeState::ShouldFlushUpgrade | UpgradeHandshakeState::Done
+        )
+    }
+
+    /// Drives the handshake mechanism.
+    ///
+    /// A websocket failure is [`UpgradeError::Recoverable`] (the session
+    /// continues over polling), a polling failure is
+    /// [`UpgradeError::Unrecoverable`] (the session is over).
     #[tracing::instrument(level = Level::TRACE, skip_all, ret)]
     fn poll_handshake(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<UpgradeHandshakeState, ClientError<S>>> {
+    ) -> Poll<Result<UpgradeHandshakeState, UpgradeError<S>>> {
+        fn recoverable<S: TransportSvc>(err: impl Into<ClientError<S>>) -> UpgradeError<S> {
+            UpgradeError::Recoverable(err.into())
+        }
+
         let upgrade = self.upgrade;
-        let mut ws = self.project().websocket;
+        let this = self.project();
+        let mut ws = this.websocket;
         match upgrade {
             UpgradeHandshakeState::ShouldSendPingUpgrade => {
-                ready!(ws.as_mut().poll_ready(cx))?;
-                ws.start_send(Packet::PingUpgrade)?;
+                ready!(ws.as_mut().poll_ready(cx)).map_err(recoverable)?;
+                ws.start_send(Packet::PingUpgrade).map_err(recoverable)?;
                 Poll::Ready(Ok(UpgradeHandshakeState::ShouldFlushPingUpgrade))
             }
             UpgradeHandshakeState::ShouldFlushPingUpgrade => {
-                ready!(ws.poll_flush(cx))?;
+                ready!(ws.poll_flush(cx)).map_err(recoverable)?;
                 Poll::Ready(Ok(UpgradeHandshakeState::WaitingPong))
             }
             UpgradeHandshakeState::WaitingPong => match ready!(ws.poll_next(cx)) {
                 Some(Ok(Packet::PongUpgrade)) => {
                     Poll::Ready(Ok(UpgradeHandshakeState::ShouldSendUpgrade))
                 }
-                Some(Ok(p)) => {
-                    Poll::Ready(Err(ClientError::expected_packet(Packet::PongUpgrade, p)))
-                }
-                Some(Err(err)) => Poll::Ready(Err(err.into())),
-                None => Poll::Ready(Err(WsError::Closed.into())),
+                Some(Ok(p)) => Poll::Ready(Err(recoverable(ClientError::expected_packet(
+                    Packet::PongUpgrade,
+                    p,
+                )))),
+                Some(Err(err)) => Poll::Ready(Err(recoverable(err))),
+                None => Poll::Ready(Err(recoverable(WsError::Closed))),
             },
             UpgradeHandshakeState::ShouldSendUpgrade => {
-                ready!(ws.as_mut().poll_ready(cx))?;
-                ws.start_send(Packet::Upgrade)?;
+                // Pause polling (reference `pause()`): the polling transport is
+                // dropped right after the switch and the server refuses any
+                // POST once upgraded, so every write queued or in flight over
+                // polling must reach the server *before* the upgrade packet.
+                ready!(this.polling.poll_flush(cx))
+                    .map_err(|err| UpgradeError::Unrecoverable(err.into()))?;
+                ready!(ws.as_mut().poll_ready(cx)).map_err(recoverable)?;
+                ws.start_send(Packet::Upgrade).map_err(recoverable)?;
                 Poll::Ready(Ok(UpgradeHandshakeState::ShouldFlushUpgrade))
             }
             UpgradeHandshakeState::ShouldFlushUpgrade => {
-                ready!(ws.poll_flush(cx))?;
+                ready!(ws.poll_flush(cx)).map_err(recoverable)?;
                 Poll::Ready(Ok(UpgradeHandshakeState::Done))
             }
             UpgradeHandshakeState::Done | UpgradeHandshakeState::ClosingWs => {
@@ -179,7 +213,11 @@ impl<S: TransportSvc> Stream for UpgradingTransport<S> {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Err(err) => {
+            // polling failed while pausing: the session is over
+            Err(UpgradeError::Unrecoverable(err)) => {
+                Poll::Ready(Some(Err(UpgradeError::Unrecoverable(err))))
+            }
+            Err(UpgradeError::Recoverable(err)) => {
                 // a failed upgrade handshake never kills the session: close the
                 // websocket before falling back to polling.
                 tracing::warn!("websocket upgrade probe failed: {err}");
@@ -195,29 +233,45 @@ impl<S: TransportSvc> Stream for UpgradingTransport<S> {
 
 /// While upgrading, everything (user packets, heartbeats) keeps flowing over
 /// the polling transport: the websocket only carries the probe handshake
-/// until the upgrade is confirmed.
+/// until the upgrade packet is sent. From then on polling is paused and
+/// writes go over the websocket, right behind the upgrade packet.
 impl<S: TransportSvc> Sink<Packet> for UpgradingTransport<S> {
     type Error = ClientError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project()
-            .polling
-            .poll_ready(cx)
-            .map_err(ClientError::Polling)
+        let upgrade_sent = self.upgrade_sent();
+        let this = self.project();
+        if upgrade_sent {
+            this.websocket
+                .poll_ready(cx)
+                .map_err(ClientError::Websocket)
+        } else {
+            this.polling.poll_ready(cx).map_err(ClientError::Polling)
+        }
     }
 
     fn start_send(self: Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
-        self.project()
-            .polling
-            .start_send(item)
-            .map_err(ClientError::Polling)
+        let upgrade_sent = self.upgrade_sent();
+        let this = self.project();
+        if upgrade_sent {
+            this.websocket
+                .start_send(item)
+                .map_err(ClientError::Websocket)
+        } else {
+            this.polling.start_send(item).map_err(ClientError::Polling)
+        }
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project()
-            .polling
-            .poll_flush(cx)
-            .map_err(ClientError::Polling)
+        let upgrade_sent = self.upgrade_sent();
+        let this = self.project();
+        if upgrade_sent {
+            this.websocket
+                .poll_flush(cx)
+                .map_err(ClientError::Websocket)
+        } else {
+            this.polling.poll_flush(cx).map_err(ClientError::Polling)
+        }
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

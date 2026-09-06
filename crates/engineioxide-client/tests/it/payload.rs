@@ -9,11 +9,17 @@
 //!   limit. A single packet bigger than the limit is sent anyway and the
 //!   server rejects it (HTTP 413) — which is a transport error.
 
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
+
 use bytes::Bytes;
 use engineioxide::{TransportType, config::EngineIoConfig};
 use engineioxide_client::{Client, EioEvent};
-use engineioxide_core::Packet;
-use futures_util::{SinkExt, StreamExt};
+use engineioxide_core::{OpenPacket, Packet};
+use futures_util::{Sink, SinkExt, StreamExt};
 
 use crate::mock::{
     self,
@@ -147,6 +153,145 @@ async fn flush_splits_batches_at_max_payload() {
             "message {i} must arrive: batches must be split under maxPayload"
         );
     }
+}
+
+/// A packet whose wire size is exactly `maxPayload` fits in a single POST:
+/// the first packet of a batch has no record separator, and the server
+/// accepts payloads *up to and including* the limit. Neither an empty POST
+/// nor a split may be emitted.
+#[tokio::test]
+async fn packet_of_exactly_max_payload_is_sent_in_a_single_post() {
+    let open = OpenPacket {
+        max_payload: 100,
+        ..mock::open_packet_no_upgrade()
+    };
+    let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+
+    // "4" + 99 bytes = exactly maxPayload on the wire.
+    let msg = "a".repeat(99);
+    let (res, _) = tokio::join!(
+        client.send(EioEvent::Message(msg.clone().into())).timeout(),
+        async {
+            let post = server.next_post_parking_get().await;
+            assert_eq!(
+                post.body,
+                format!("4{msg}"),
+                "a packet of exactly maxPayload must be POSTed as is, in the first POST"
+            );
+            post.respond_ok();
+        },
+    );
+    assert!(res.is_ok());
+}
+
+/// Binary packets are base64 encoded on polling, so the batch size must be
+/// computed on the *encoded* size: two 40-byte binaries fit under a 100-byte
+/// limit raw (2 x 41 + 1) but not encoded (2 x 57 + 1).
+#[tokio::test]
+async fn binary_batches_are_split_on_their_base64_size() {
+    let open = OpenPacket {
+        max_payload: 100,
+        ..mock::open_packet_no_upgrade()
+    };
+    let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+
+    let first: Bytes = vec![1u8; 40].into();
+    let second: Bytes = vec![2u8; 40].into();
+    let encoded = |data: &Bytes| String::from(Packet::Binary(data.clone()));
+    assert_eq!(encoded(&first).len(), 57);
+
+    client.feed(EioEvent::Binary(first.clone())).await.unwrap();
+    client.feed(EioEvent::Binary(second.clone())).await.unwrap();
+
+    let (res, _) = tokio::join!(client.flush().timeout(), async {
+        let post = server.next_post_parking_get().await;
+        assert_eq!(post.body, encoded(&first), "first POST: first binary alone");
+        post.respond_ok();
+        let post = server.next_post_parking_get().await;
+        assert_eq!(
+            post.body,
+            encoded(&second),
+            "second POST: second binary alone"
+        );
+        post.respond_ok();
+    },);
+    assert!(res.is_ok());
+}
+
+/// Engine.io forbids concurrent POSTs on a session. When the write buffer
+/// overflows `maxPayload` while a POST is already in flight, the client must
+/// neither cancel that request nor start a second one: it queues a new batch
+/// and sends the batches one after the other, once the in-flight POST
+/// completes, without losing any of them.
+#[tokio::test]
+async fn overflow_while_a_post_is_in_flight_waits_for_it() {
+    let open = OpenPacket {
+        max_payload: 100,
+        ..mock::open_packet_no_upgrade()
+    };
+    let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+
+    // Each message is 31 wire bytes: three fit in a batch, a fourth does not.
+    let msg = |c: char| "4".to_owned() + &c.to_string().repeat(30);
+    let event = |c: char| EioEvent::Message(c.to_string().repeat(30).into());
+
+    // Put a POST in flight: one write, one poll of the flush.
+    client.feed(event('a')).await.unwrap();
+    std::future::poll_fn(|cx: &mut Context<'_>| {
+        let _ = Pin::new(&mut client).poll_flush(cx);
+        Poll::Ready(())
+    })
+    .await;
+
+    // Fill the buffer past maxPayload while that POST is in flight.
+    for c in ['b', 'c', 'd', 'e'] {
+        client.feed(event(c)).await.unwrap();
+    }
+
+    let (res, _) = tokio::join!(client.flush().timeout(), async {
+        let first = server.next_post_parking_get().await;
+        assert_eq!(
+            first.body,
+            msg('a'),
+            "the in-flight POST must not be cancelled"
+        );
+        server
+            .assert_no_call(
+                Duration::from_millis(100),
+                "a POST is in flight: no concurrent POST may be issued",
+            )
+            .await;
+        first.respond_ok();
+
+        let second = server.next_post_parking_get().await;
+        assert_eq!(
+            second.body,
+            format!("{}\x1e{}\x1e{}", msg('b'), msg('c'), msg('d')),
+            "the first queued batch must follow"
+        );
+        second.respond_ok();
+
+        let third = server.next_post_parking_get().await;
+        assert_eq!(
+            third.body,
+            msg('e'),
+            "the overflowing packet must land in a new batch"
+        );
+        third.respond_ok();
+    },);
+    assert!(res.is_ok());
 }
 
 /// A single packet over `maxPayload` cannot be split: the reference client

@@ -12,7 +12,7 @@
 //! * No probe is attempted when the server offers no upgrade or when the
 //!   client is not configured for websocket.
 
-use std::assert_matches;
+use std::{assert_matches, time::Duration};
 
 use engineioxide_client::{Client, EioEvent, EngineIoClientConfig};
 use engineioxide_core::{Packet, TransportType};
@@ -362,6 +362,88 @@ async fn send_during_upgrade_is_delivered_after_upgrade() {
     assert_eq!(
         rx.recv().timeout().await,
         Some(Event::Message(sid, "buffered".into()))
+    );
+}
+
+/// Reference `pause()`: once the probe is acknowledged, the client waits for
+/// its in-flight polling POST before confirming with `5`. The polling
+/// transport is dropped on the switch and the server refuses any POST once
+/// upgraded, so a write still in flight over polling would otherwise be lost.
+#[tokio::test]
+async fn polling_writes_are_flushed_before_the_upgrade_packet() {
+    let open = mock::open_packet();
+    let (mut client, mut server) =
+        mock::connect_polling(&open, [TransportType::Polling, TransportType::Websocket]).await;
+
+    // Queued before the client first polls: this write lands on polling and
+    // is POSTed while the probe starts.
+    client
+        .feed(EioEvent::Message("before-upgrade".into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+
+    let script = async {
+        let mut post = None;
+        let ws = loop {
+            match server.next_call().await {
+                mock::ServerCall::Ws(c) => break c,
+                mock::ServerCall::Http(c) if c.method == Method::POST => post = Some(c),
+                mock::ServerCall::Http(c) => c.park(),
+            }
+        };
+        let mut ws = ws.accept();
+        assert_eq!(ws.recv_packet().await, Packet::PingUpgrade);
+        ws.send_packet(Packet::PongUpgrade);
+
+        let post = match post {
+            Some(p) => p,
+            None => server.next_post_parking_get().await,
+        };
+        assert_eq!(&post.body[..], b"4before-upgrade");
+
+        // The write is still in flight: the upgrade packet must be held back.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            ws.try_recv().is_none(),
+            "the upgrade packet must wait for the in-flight polling POST"
+        );
+        post.respond_ok();
+        assert_eq!(ws.recv_packet().await, Packet::Upgrade);
+    };
+    let (event, ()) = tokio::join!(client.next_ok().timeout(), script);
+    assert_eq!(event, EioEvent::Upgrade(TransportType::Websocket));
+    assert_eq!(client.transport(), TransportType::Websocket);
+}
+
+/// Against the real server: a message queued before the client first polls
+/// (still on polling) must reach the server even though the client upgrades
+/// to websocket right away.
+#[tokio::test]
+async fn early_send_is_delivered_across_upgrade() {
+    let (svc, mut rx) = service();
+    let mut client = Client::connect(svc, EngineIoClientConfig::default())
+        .timeout()
+        .await
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().timeout().await, Event::Connect(sid));
+
+    client
+        .feed(EioEvent::Message("early".into()))
+        .await
+        .unwrap();
+    loop {
+        if let EioEvent::Upgrade(TransportType::Websocket) = client.next_ok().timeout().await {
+            break;
+        }
+    }
+    assert_eq!(
+        rx.next_ok().timeout().await,
+        Event::Message(sid, "early".into())
     );
 }
 

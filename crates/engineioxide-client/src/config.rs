@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use engineioxide_core::TransportType;
-use http::{Uri, uri};
+use http::Uri;
 
 use crate::errors::ConfigError;
 
@@ -72,10 +72,10 @@ impl<const N: usize> IntoEngineIoClientConfig for [TransportType; N] {
     }
 }
 impl FromStr for EngineIoClientConfig {
-    type Err = uri::InvalidUri;
+    type Err = ConfigError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse()
+        EngineIoClientConfigBuilder::new().uri(s).build()
     }
 }
 
