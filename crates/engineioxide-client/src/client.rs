@@ -50,6 +50,11 @@ impl Client<crate::flavors::hyper::HyperFlavor> {
         config: impl IntoEngineIoClientConfig,
     ) -> Result<Self, ConnectError<crate::flavors::hyper::HyperFlavor>> {
         let svc = crate::flavors::hyper::HyperFlavor::new();
+
+        // override transports to only use polling, as websocket is not
+        // supported for the hyper flavor
+        let mut config = config.into_config()?;
+        config.transports = vec![TransportType::Polling];
         Self::connect(svc, config).await
     }
 }
