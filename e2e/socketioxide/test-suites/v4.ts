@@ -266,22 +266,27 @@ describe("Engine.IO protocol", () => {
       it("should forcefully close the session", async () => {
         const sid = await initLongPollingSession();
 
-        const [pollResponse] = await Promise.all([
-          fetch(`${POLLING_URL}/socket.io/?EIO=3&transport=polling&sid=${sid}`),
-          fetch(
-            `${POLLING_URL}/socket.io/?EIO=3&transport=polling&sid=${sid}`,
-            {
-              method: "post",
-              body: "1:1",
-            },
-          ),
-        ]);
+        // the connect & auth packets are already buffered server-side,
+        // so this poll request returns immediately
+        const pollResponse = await fetch(
+          `${POLLING_URL}/socket.io/?EIO=3&transport=polling&sid=${sid}`,
+        );
 
         assert.equal(pollResponse.status, 200);
 
         const pullContent = await pollResponse.text();
 
         assert.equal(pullContent, `2:4013:42["auth",{}]`);
+
+        const postResponse = await fetch(
+          `${POLLING_URL}/socket.io/?EIO=3&transport=polling&sid=${sid}`,
+          {
+            method: "post",
+            body: "1:1",
+          },
+        );
+
+        assert.equal(postResponse.status, 200);
 
         const pollResponse2 = await fetch(
           `${POLLING_URL}/socket.io/?EIO=3&transport=polling&sid=${sid}`,
