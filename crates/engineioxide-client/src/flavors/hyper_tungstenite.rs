@@ -35,21 +35,17 @@ impl From<WsMessage> for tungstenite::Message {
     }
 }
 
-#[derive(Debug, Clone)]
+/// A flavor that combines [`HyperFlavor`] and [`TungsteniteFlavor`]
+/// to support both polling and websocket transports.
+#[derive(Debug, Clone, Default)]
 pub struct HyperTungsteniteFlavor {
     hyper_svc: HyperFlavor,
 }
 
 impl HyperTungsteniteFlavor {
+    /// Creates a new [`HyperTungsteniteFlavor`].
     pub fn new() -> Self {
-        Self {
-            hyper_svc: HyperFlavor::new(),
-        }
-    }
-}
-impl Default for HyperTungsteniteFlavor {
-    fn default() -> Self {
-        Self::new()
+        Self::default()
     }
 }
 

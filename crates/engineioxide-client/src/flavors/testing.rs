@@ -45,11 +45,13 @@ impl<Svc> EngineSvc for Svc where
 {
 }
 
+/// A testing flavor that wraps an inner service and provides a [`Flavor`] implementation.
 #[derive(Debug, Clone)]
 pub struct TestingFlavor<Svc> {
     inner: Svc,
 }
 impl<Svc> TestingFlavor<Svc> {
+    /// Creates a new `TestingFlavor` with the given inner service.
     pub fn new(inner: Svc) -> Self {
         Self { inner }
     }
@@ -129,6 +131,8 @@ where
     }
 }
 pin_project! {
+    /// A wrapper around [`io::DuplexStream`] to simulate a TCP stream
+    /// for websocket mocking.
     pub struct DuplexStream {
         #[pin]
         inner: io::DuplexStream,

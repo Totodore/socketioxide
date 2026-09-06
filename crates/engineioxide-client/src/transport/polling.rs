@@ -107,16 +107,22 @@ impl<F> PollState<F> {
     }
 }
 
+/// An error that can occur during a polling transport.
 #[derive(thiserror::Error)]
 pub enum PollingError<S: PollingSvc> {
+    /// The underlying polling service returned an error.
     #[error("http error: {0}")]
     Http(<S as PollingSvc>::Error),
+    /// The polling HTTP body could not be parsed.
     #[error("polling http body error: {0}")]
     HttpBody(<S as PollingSvc>::ResBodyError),
+    /// The packet could not be parsed.
     #[error("packet error: {0}")]
     Packet(#[from] PacketParseError),
+    /// The server response could not be parsed.
     #[error("server response error: {0}")]
     Protocol(#[from] ProtocolError),
+    /// The transport was closed, it is not possible to send or receive data.
     #[error("transport closed, it is not possible to send or receive data")]
     Closed,
 }
@@ -139,22 +145,40 @@ impl<S: PollingSvc> PollingError<S> {
     }
 }
 
+/// A polling protocol error.
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
+    /// Server failed to process the request.
     #[error("internal error: {status}")]
-    ServerError { status: StatusCode },
+    ServerError {
+        /// The status code returned by the server.
+        status: StatusCode,
+    },
 
+    /// Client has performed an invalid request.
     #[error("invalid request: {status}")]
-    InvalidRequest { status: StatusCode },
+    InvalidRequest {
+        /// The status code returned by the server.
+        status: StatusCode,
+    },
 
+    /// The transport is unknown.
     #[error("unknown transport")]
     UnknownTransport,
+
+    /// The session ID is unknown.
     #[error("unknown session id")]
     UnknownSessionID,
+
+    /// The handshake method is invalid.
     #[error("bad handshake method")]
     BadHandshakeMethod,
+
+    /// The transport is unknown.
     #[error("transport mismatch")]
     TransportMismatch,
+
+    /// The protocol version is unsupported.
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
 }

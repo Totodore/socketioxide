@@ -44,9 +44,13 @@ pin_project! {
     }
 }
 
+/// An error that can occur during a WebSocket transport.
 pub enum WsError<S: WsSvc> {
+    /// The underlying WebSocket service returned an error.
     Websocket(<S as WsSvc>::Error),
+    /// The packet could not be parsed.
     Packet(PacketParseError),
+    /// The connection was closed.
     Closed,
 }
 

@@ -9,10 +9,14 @@ use crate::{
     transport::{PollingError, WsError},
 };
 
+/// Errors that can occur during a connection attempt.
 #[derive(Error)]
 pub enum ConnectError<S: TransportSvc> {
+    /// Client error
     #[error(transparent)]
     Client(ClientError<S>),
+
+    /// Invalid config
     #[error("failed to build client: {0}")]
     Config(#[from] ConfigError),
 }
@@ -25,21 +29,30 @@ pub enum ConfigError {
     InvalidUri(#[from] uri::InvalidUri),
 }
 
+/// Errors returned by the client stream
 #[derive(Error)]
 pub enum ClientError<S: TransportSvc> {
+    /// Polling transport error
     #[error("polling transport error: {0}")]
     Polling(PollingError<S>),
+    /// Websocket transport error
     #[error("websocket transport error: {0}")]
     Websocket(WsError<S>),
 
+    /// Heartbeat timeout, closing connection
     #[error("heartbeat timeout, closing connection")]
     HeartbeatTimeout,
 
+    /// Transport closed, it is not possible to send or receive data
     #[error("transport closed, it is not possible to send or receive data")]
     TransportClosed,
+
+    /// Invalid packet received from server
     #[error("invalid packet received from server: {got:?}, expected: {expected:?}")]
     InvalidPacket {
+        /// Expected packet type
         expected: Option<Box<Packet>>,
+        /// Received packet type
         got: Box<Packet>,
     },
 }

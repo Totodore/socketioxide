@@ -5,6 +5,7 @@ use http::{Uri, uri};
 
 use crate::errors::ConfigError;
 
+/// Configuration for the Engine.io client.
 #[derive(Debug)]
 pub struct EngineIoClientConfig {
     /// A list of transports to try (in order). Engine.io always attempts to
@@ -12,6 +13,10 @@ pub struct EngineIoClientConfig {
     /// for it passes.
     ///
     /// Defaults to `[Polling, Websocket]`.
+    ///
+    /// <div class="warning">
+    ///     With only <code>flavor-hyper</code> enabled, only <code>Polling</code> is supported.
+    /// </div>
     pub transports: Vec<TransportType>,
 
     /// The uri to use to connect to the server.
@@ -30,6 +35,7 @@ impl Default for EngineIoClientConfig {
 }
 
 impl EngineIoClientConfig {
+    /// Returns a builder for constructing an [`EngineIoClientConfig`].
     pub fn builder() -> EngineIoClientConfigBuilder {
         EngineIoClientConfigBuilder::new()
     }
@@ -73,25 +79,36 @@ impl FromStr for EngineIoClientConfig {
     }
 }
 
+/// Builder for constructing an [`EngineIoClientConfig`].
 #[derive(Default)]
 pub struct EngineIoClientConfigBuilder {
     config: EngineIoClientConfig,
     uri: Option<String>,
 }
 impl EngineIoClientConfigBuilder {
+    /// Returns a new [`EngineIoClientConfigBuilder`] with default values.
     pub fn new() -> Self {
         Self::default()
     }
+    /// Sets the URI for the engine.io client.
     pub fn uri(mut self, uri: &str) -> Self {
         self.uri = Some(uri.to_string());
         self
     }
+
+    /// Sets available transports for the engine.io client.
+    ///
+    /// <div class="warning">
+    ///     With only <code>flavor-hyper</code> enabled, only <code>Polling</code> is supported.
+    /// </div>
     pub fn transports<const N: usize>(mut self, transports: [TransportType; N]) -> Self {
         const { assert!(N > 0, "transports list should be non-empty") };
 
         self.config.transports = transports.to_vec();
         self
     }
+
+    /// Builds the [`EngineIoClientConfig`] from the builder's state.
     pub fn build(mut self) -> Result<EngineIoClientConfig, ConfigError> {
         if let Some(uri) = self.uri {
             self.config.uri = uri.parse()?;

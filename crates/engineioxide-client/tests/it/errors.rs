@@ -13,10 +13,7 @@
 
 use std::assert_matches;
 
-use engineioxide_client::{
-    ClientError, EioEvent,
-    transport::{PollingError, ProtocolError, WsError},
-};
+use engineioxide_client::{ClientError, EioEvent, PollingError, ProtocolError, WsError};
 use engineioxide_core::{Packet, TransportType};
 use futures_util::SinkExt;
 use http::StatusCode;

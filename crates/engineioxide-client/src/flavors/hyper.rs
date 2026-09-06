@@ -1,4 +1,7 @@
-//! A hyper-only flavor that only works with HTTP polling, websocket is disabled with this implementation.
+//! A hyper-only flavor that only works with HTTP polling,
+//! websocket is disabled with this implementation.
+//!
+//! The connection pool is shared across all instances of `HyperFlavor` in order to reuse connections.
 
 use std::{convert::Infallible, future::Ready};
 
@@ -15,21 +18,20 @@ use tower_service::Service;
 
 use crate::flavors::{Flavor, noop::NoopWebSocket};
 
-#[derive(Debug, Clone)]
-pub struct HyperFlavor {
-    client: Client<HttpConnector<GaiResolver>, BoxBody<Bytes, Infallible>>,
+static CONN_POOL: std::sync::OnceLock<
+    Client<HttpConnector<GaiResolver>, BoxBody<Bytes, Infallible>>,
+> = std::sync::OnceLock::new();
+
+fn get_conn_pool() -> &'static Client<HttpConnector<GaiResolver>, BoxBody<Bytes, Infallible>> {
+    CONN_POOL.get_or_init(|| Client::builder(hyper_util::rt::TokioExecutor::new()).build_http())
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct HyperFlavor;
 
 impl HyperFlavor {
     pub fn new() -> Self {
-        Self {
-            client: Client::builder(hyper_util::rt::TokioExecutor::new()).build_http(),
-        }
-    }
-}
-impl Default for HyperFlavor {
-    fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -47,11 +49,11 @@ impl Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperFlavor {
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.client.poll_ready(cx)
+        get_conn_pool().poll_ready(cx)
     }
 
     fn call(&mut self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
-        self.client.request(req)
+        get_conn_pool().request(req)
     }
 }
 

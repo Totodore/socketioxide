@@ -16,7 +16,7 @@
 use std::{assert_matches, time::Duration};
 
 use engineioxide::{DisconnectReason, TransportType};
-use engineioxide_client::{Client, ClientError, EioEvent, transport::WsError};
+use engineioxide_client::{Client, ClientError, EioEvent, WsError};
 use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
 use tokio::time;

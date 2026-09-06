@@ -19,6 +19,8 @@ use crate::{
 };
 
 pin_project_lite::pin_project! {
+    /// A client for the engine.io protocol.
+    /// This is the main struct for interacting with the engine.io server.
     pub struct Client<S: TransportSvc> {
         #[pin]
         transport: Transport<S>,
@@ -43,6 +45,7 @@ enum ClientState {
 
 #[cfg(feature = "flavor-hyper")]
 impl Client<crate::flavors::hyper::HyperFlavor> {
+    /// Connects to the engine.io server using the hyper polling transport.
     pub async fn connect_with_hyper_polling(
         config: impl IntoEngineIoClientConfig,
     ) -> Result<Self, ConnectError<crate::flavors::hyper::HyperFlavor>> {
@@ -53,6 +56,7 @@ impl Client<crate::flavors::hyper::HyperFlavor> {
 
 #[cfg(feature = "flavor-tungstenite")]
 impl Client<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
+    /// Connects to the engine.io server using the hyper tungstenite transport.
     pub async fn connect_with_hyper_ws(
         config: impl IntoEngineIoClientConfig,
     ) -> Result<Self, ConnectError<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor>> {
@@ -64,6 +68,7 @@ impl Client<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
 #[cfg(feature = "flavor-testing")]
 #[expect(private_bounds)] // EngineSvc is simply a trait alias
 impl<Svc: crate::flavors::testing::EngineSvc> Client<crate::flavors::testing::TestingFlavor<Svc>> {
+    /// Connects to the engine.io server using the testing transport.
     pub async fn connect_with_testbed(
         svc: Svc,
         config: impl IntoEngineIoClientConfig,
@@ -74,6 +79,7 @@ impl<Svc: crate::flavors::testing::EngineSvc> Client<crate::flavors::testing::Te
 }
 
 impl<S: TransportSvc> Client<S> {
+    /// Connects to the engine.io server using the given transport service and config.
     pub async fn connect(
         svc: S,
         config: impl IntoEngineIoClientConfig,
@@ -114,12 +120,14 @@ impl<S: TransportSvc> Client<S> {
         Ok((transport, packet))
     }
 
+    /// Returns the transport type of the client.
     pub fn transport(&self) -> TransportType {
         self.transport.transport_type()
     }
 }
 
 impl<S: TransportSvc> Client<S> {
+    /// Returns the session ID of the client.
     pub fn sid(&self) -> Sid {
         self.open_packet.sid
     }
