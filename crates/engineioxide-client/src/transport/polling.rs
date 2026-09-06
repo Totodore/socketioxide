@@ -30,6 +30,9 @@ pin_project! {
             #[pin]
             stream: Pin<Box<dyn Stream<Item = Result<Packet, PacketParseError>>>>
         },
+        /// Polling is paused (upgrade in progress): the last poll completed
+        /// and no new one is issued until [`PollingTransport::resume`].
+        Paused,
         // Terminal state: the previous request future is dropped so it can
         // never be polled again after it completed with an error.
         Closed,
@@ -208,11 +211,27 @@ impl ProtocolError {
 
         #[derive(Deserialize)]
         struct ErrorBody {
-            code: u8,
+            code: ErrorCode,
+        }
+        /// The reference server sends the code as a JSON number,
+        /// engineioxide as a string.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum ErrorCode {
+            Number(u8),
+            Text(String),
+        }
+        impl ErrorCode {
+            fn get(&self) -> Option<u8> {
+                match self {
+                    ErrorCode::Number(code) => Some(*code),
+                    ErrorCode::Text(code) => code.parse().ok(),
+                }
+            }
         }
 
         serde_json::from_reader(body.reader())
-            .map(|ErrorBody { code }| Self::new(parts.status, Some(code)))
+            .map(|ErrorBody { code }| Self::new(parts.status, code.get()))
             .unwrap_or_else(|_| Self::new(parts.status, None))
     }
 
@@ -241,6 +260,9 @@ pin_project! {
         post_state: PostState<S::Future>,
 
         close_state: ClosingState,
+        // set while upgrading: the in-flight poll completes normally but
+        // no new poll is issued afterwards.
+        paused: bool,
 
         base_uri: Uri,
         max_payload: u64,
@@ -257,12 +279,17 @@ impl<S: PollingSvc> PollingTransport<S> {
         tracing::trace!(?req, "handshake request");
 
         let res = svc.call(req).await.map_err(PollingError::Http)?;
-        let body = res.collect().await.map_err(PollingError::HttpBody)?;
+        let (parts, body) = res.into_parts();
+        let body = body.collect().await.map_err(PollingError::HttpBody)?;
 
-        let packet = Packet::parse(
-            ProtocolVersion::V4,
-            String::from_utf8(body.to_bytes().to_vec()).unwrap(),
-        )?;
+        if !parts.status.is_success() {
+            let error = ProtocolError::from_parts(parts, Some(body.aggregate()));
+            return Err(PollingError::Protocol(error));
+        }
+
+        let body = String::from_utf8(body.to_bytes().to_vec())
+            .map_err(|err| PacketParseError::InvalidUtf8Boundary(err.utf8_error()))?;
+        let packet = Packet::parse(ProtocolVersion::V4, body)?;
 
         match packet {
             Packet::Open(open) => {
@@ -272,6 +299,7 @@ impl<S: PollingSvc> PollingTransport<S> {
                     poll_state,
                     post_state: PostState::default(),
                     close_state: ClosingState::default(),
+                    paused: false,
                     sid: open.sid,
                     max_payload: open.max_payload,
                     base_uri: config.uri.clone(),
@@ -289,11 +317,31 @@ impl<S: PollingSvc> PollingTransport<S> {
     /// Tear the transport down: drop any in-flight request future (it must
     /// never be polled again once it completed), discard queued writes and
     /// refuse any further use.
-    fn terminate(self: Pin<&mut Self>) {
+    pub(super) fn terminate(self: Pin<&mut Self>) {
         let mut proj = self.project();
         proj.poll_state.set(PollState::Closed);
         proj.post_state.set(PostState::Closed);
         *proj.close_state = ClosingState::Closed;
+    }
+
+    /// Pause polling (reference `pause()`, upgrade in progress): the
+    /// in-flight poll completes normally, and no new poll is issued
+    /// afterwards. Writes are unaffected.
+    pub(super) fn pause(self: Pin<&mut Self>) {
+        *self.project().paused = true;
+    }
+
+    /// `true` once paused with no poll in flight.
+    pub(super) fn is_idle(&self) -> bool {
+        matches!(self.poll_state, PollState::Paused)
+    }
+
+    /// Resume polling after a failed upgrade.
+    pub(super) fn resume(&mut self) {
+        self.paused = false;
+        if matches!(self.poll_state, PollState::Paused) {
+            self.poll_state = PollState::new_request(&mut self.svc, &self.base_uri, self.sid);
+        }
     }
 }
 
@@ -358,18 +406,21 @@ impl<S: PollingSvc> PollingTransport<S> {
                 if let Some(packet) = ready!(stream.poll_next(cx)) {
                     Poll::Ready(Some(packet.map_err(PollingError::from)))
                 } else {
-                    tracing::debug!(
-                        sid = %self.sid,
-                        "decoding stream ended, new polling req"
-                    );
                     let mut proj = self.project();
-                    let request = PollState::new_request(proj.svc, proj.base_uri, *proj.sid);
-                    proj.poll_state.set(request);
-                    //check if wake is needed
+                    if *proj.paused {
+                        tracing::debug!(sid = %proj.sid, "decoding stream ended, polling paused");
+                        proj.poll_state.set(PollState::Paused);
+                    } else {
+                        tracing::debug!(sid = %proj.sid, "decoding stream ended, new polling req");
+                        let request = PollState::new_request(proj.svc, proj.base_uri, *proj.sid);
+                        proj.poll_state.set(request);
+                    }
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
             }
+            // nothing will be received until polling resumes
+            PollStateProj::Paused => Poll::Pending,
             PollStateProj::Closed => Poll::Ready(None),
         }
     }
@@ -574,6 +625,7 @@ impl<F> fmt::Debug for PollState<F> {
         match self {
             Self::Pending { .. } => f.debug_struct("Pending").finish_non_exhaustive(),
             Self::Decoding { .. } => f.debug_struct("Decoding").finish_non_exhaustive(),
+            Self::Paused => f.write_str("Paused"),
             Self::Closed => f.write_str("Closed"),
         }
     }

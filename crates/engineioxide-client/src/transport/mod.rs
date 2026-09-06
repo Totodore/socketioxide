@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub use polling::{PollingError, ProtocolError};
+use upgrading::Side;
 pub use upgrading::{UpgradeError, UpgradingTransport};
 pub use ws::WsError;
 
@@ -95,6 +96,31 @@ impl<S: TransportSvc> Transport<S> {
             _ => unreachable!("settle_upgrade is only called on the upgrading transport"),
         }
     }
+
+    /// Replace the `Upgrading` variant with the transport the probe selected.
+    fn settle_upgrade_to(&mut self, upgraded: bool) {
+        if upgraded {
+            tracing::debug!("upgrade done, switching to the websocket transport");
+            self.settle_upgrade(|upgrading| Transport::Websocket {
+                inner: upgrading.into_next(),
+            });
+        } else {
+            self.settle_upgrade(|upgrading| Transport::Polling {
+                inner: upgrading.into_prev(),
+            });
+        }
+    }
+
+    /// Tear the transport down: the session is over, nothing must be sent
+    /// or received anymore. Closing afterwards is a no-op.
+    pub(crate) fn terminate(&mut self) {
+        match self {
+            Transport::Polling { inner } => Pin::new(inner).terminate(),
+            Transport::Upgrading { inner } => Pin::new(inner).terminate(),
+            Transport::Websocket { inner } => Pin::new(inner).terminate(),
+            Transport::Switching => {}
+        }
+    }
 }
 
 impl<S: TransportSvc> Stream for Transport<S> {
@@ -109,19 +135,14 @@ impl<S: TransportSvc> Stream for Transport<S> {
             Transport::Upgrading { inner } => match ready!(Pin::new(inner).poll_next(cx)) {
                 // the upgrade packet signals the completed handshake
                 Some(Ok(Packet::Upgrade)) => {
-                    tracing::debug!("upgrade done, switching to the websocket transport");
-                    this.settle_upgrade(|upgrading| Transport::Websocket {
-                        inner: upgrading.into_next(),
-                    });
+                    this.settle_upgrade_to(true);
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
                 Some(Ok(packet)) => Poll::Ready(Some(Ok(packet))),
                 Some(Err(UpgradeError::Recoverable(err))) => {
                     tracing::debug!("upgrade failed ({err}), falling back to polling");
-                    this.settle_upgrade(|upgrading| Transport::Polling {
-                        inner: upgrading.into_prev(),
-                    });
+                    this.settle_upgrade_to(false);
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
@@ -139,15 +160,37 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     type Error = ClientError<S>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        match self.get_mut() {
-            Transport::Polling { inner } => {
-                Pin::new(inner).poll_ready(cx).map_err(ClientError::Polling)
+        let this = self.get_mut();
+        loop {
+            match this {
+                Transport::Polling { inner } => {
+                    return Pin::new(inner).poll_ready(cx).map_err(ClientError::Polling);
+                }
+                Transport::Upgrading { inner } => {
+                    // The sink drives the probe too: a write issued while
+                    // upgrading completes once the probe settles, over the
+                    // transport it selected, without waiting for the stream
+                    // to be polled.
+                    let upgraded = match ready!(Pin::new(&mut *inner).poll_upgrade(cx, Side::Sink))
+                    {
+                        Ok(upgraded) => upgraded,
+                        Err(err) => return Poll::Ready(Err(err)),
+                    };
+                    if inner.has_inbound() {
+                        // Packets from the last poll are still to be yielded:
+                        // the stream switches the transport once they are out.
+                        // Meanwhile writes already go over the selected one.
+                        return Pin::new(inner).poll_ready(cx);
+                    }
+                    this.settle_upgrade_to(upgraded);
+                }
+                Transport::Websocket { inner } => {
+                    return Pin::new(inner)
+                        .poll_ready(cx)
+                        .map_err(ClientError::Websocket);
+                }
+                Transport::Switching => return Poll::Ready(Err(ClientError::TransportClosed)),
             }
-            Transport::Upgrading { inner } => Pin::new(inner).poll_ready(cx),
-            Transport::Websocket { inner } => Pin::new(inner)
-                .poll_ready(cx)
-                .map_err(ClientError::Websocket),
-            Transport::Switching => Poll::Ready(Err(ClientError::TransportClosed)),
         }
     }
 

@@ -13,7 +13,9 @@
 
 use std::assert_matches;
 
-use engineioxide_client::{Client, ConnectError, EioEvent, EngineIoClientConfig};
+use engineioxide_client::{
+    Client, ClientError, ConnectError, EioEvent, EngineIoClientConfig, PollingError, ProtocolError,
+};
 use engineioxide_core::{Packet, TransportType};
 use http::Method;
 
@@ -116,13 +118,76 @@ async fn handshake_preserves_custom_query_params() {
 /// Run a polling connect against a scripted handshake answer and require it
 /// to fail.
 async fn polling_connect_must_fail(answer: impl FnOnce(mock::HttpCall)) {
+    let err = polling_connect_error(answer).await;
+    assert_matches!(err, ConnectError::Client(_));
+}
+
+/// Connect over polling against the mock, answering the handshake with
+/// `answer`, and return the connection error.
+async fn polling_connect_error(answer: impl FnOnce(mock::HttpCall)) -> ConnectError<mock::MockSvc> {
     let (svc, mut server) = mock::mock();
 
     let (res, _) = tokio::join!(
         Client::connect(svc, [TransportType::Polling]).timeout(),
         async { answer(server.next_http().await) },
     );
-    assert_matches!(res, Err(ConnectError::Client(_)));
+    res.expect_err("the handshake must fail")
+}
+
+/// The engine.io error body carries a numeric `code` (reference server) or
+/// a string one (engineioxide): both must map to the matching protocol
+/// error, on any non-success status.
+#[tokio::test]
+async fn handshake_error_body_code_is_decoded() {
+    type Expected = fn(&ProtocolError) -> bool;
+    let cases: [(&str, Expected); 4] = [
+        ("{\"code\":0,\"message\":\"Transport unknown\"}", |e| {
+            matches!(e, ProtocolError::UnknownTransport)
+        }),
+        ("{\"code\":\"0\",\"message\":\"Transport unknown\"}", |e| {
+            matches!(e, ProtocolError::UnknownTransport)
+        }),
+        (
+            "{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}",
+            |e| matches!(e, ProtocolError::UnsupportedProtocolVersion),
+        ),
+        (
+            "not json",
+            |e| matches!(e, ProtocolError::InvalidRequest { status } if status.as_u16() == 400),
+        ),
+    ];
+    for (body, expected) in cases {
+        let err = polling_connect_error(|call| call.respond(400, body)).await;
+        match err {
+            ConnectError::Client(ClientError::Polling(PollingError::Protocol(err))) => {
+                assert!(expected(&err), "body {body:?} decoded as {err:?}");
+            }
+            other => panic!("body {body:?}: expected a protocol error, got {other:?}"),
+        }
+    }
+}
+
+/// A non-UTF-8 error page (e.g. from a reverse proxy) must surface as a
+/// server error, never as a panic.
+#[tokio::test]
+async fn handshake_rejects_non_utf8_error_page() {
+    let err = polling_connect_error(|call| call.respond(502, vec![0xff, 0xfe, 0x00])).await;
+    assert_matches!(
+        err,
+        ConnectError::Client(ClientError::Polling(PollingError::Protocol(
+            ProtocolError::ServerError { status }
+        ))) if status.as_u16() == 502
+    );
+}
+
+/// A non-UTF-8 body on a successful status is a packet error, never a panic.
+#[tokio::test]
+async fn handshake_rejects_non_utf8_open_packet() {
+    let err = polling_connect_error(|call| call.respond(200, vec![0xff, 0xfe, 0x00])).await;
+    assert_matches!(
+        err,
+        ConnectError::Client(ClientError::Polling(PollingError::Packet(_)))
+    );
 }
 
 /// Run a websocket connect against a scripted handshake answer and require

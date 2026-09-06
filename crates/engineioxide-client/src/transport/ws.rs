@@ -267,6 +267,14 @@ impl<S: WsSvc> Sink<Packet> for WsTransport<S> {
     }
 }
 
+impl<S: WsSvc> WsTransport<S> {
+    /// Tear the transport down: drop the connect future or the websocket
+    /// stream so it can never be polled again, and refuse any further use.
+    pub(super) fn terminate(self: Pin<&mut Self>) {
+        self.project().state.set(WsTransportState::Closed);
+    }
+}
+
 impl<S: WsSvc> fmt::Debug for WsTransport<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WsTransport")

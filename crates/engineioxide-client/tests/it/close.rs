@@ -273,6 +273,77 @@ async fn send_after_close_is_not_delivered() {
     }
 }
 
+/// After the server closed the session, the server has already forgotten
+/// it: `close()` must not write a close packet to the dead session (which
+/// would be refused with "unknown session") and must succeed as a no-op.
+#[tokio::test]
+async fn close_after_server_close_is_a_noop_polling() {
+    let open = mock::open_packet_no_upgrade();
+    let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
+    assert_eq!(client.next_ok().await, EioEvent::Connect(open.sid));
+
+    let (disconnect, _) = tokio::join!(client.next_ok(), async {
+        server.next_http().await.respond_packets([Packet::Close])
+    },);
+    assert_eq!(disconnect, EioEvent::Disconnect);
+
+    let (res, _) = tokio::join!(
+        client.close().timeout(),
+        server.assert_no_call(
+            Duration::from_millis(100),
+            "closing a session the server already closed"
+        ),
+    );
+    res.unwrap();
+    client.next_close().await;
+}
+
+/// Same against the real server: the idiomatic drain-then-close sequence
+/// must succeed on a graceful server-side disconnect, over polling.
+#[tokio::test]
+async fn close_after_server_close_succeeds_real_server_polling() {
+    let (svc, mut rx, registry) = service_with_registry(Default::default());
+    let mut client = Client::connect(svc, [TransportType::Polling])
+        .timeout()
+        .await
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
+
+    let fut = client.next_ok();
+    tokio::pin!(fut);
+    let event = loop {
+        tokio::select! {
+            res = &mut fut => break res,
+            _ = time::sleep(Duration::from_millis(10)) => {
+                registry.lock().unwrap()[&sid].close(DisconnectReason::TransportClose);
+            }
+        }
+    };
+    assert_eq!(event, EioEvent::Disconnect);
+    client.close().timeout().await.unwrap();
+    client.next_close().await;
+}
+
+/// Same over websocket.
+#[tokio::test]
+async fn close_after_server_close_succeeds_real_server_ws() {
+    let (svc, mut rx, registry) = service_with_registry(Default::default());
+    let mut client = Client::connect(svc, [TransportType::Websocket])
+        .timeout()
+        .await
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().await, EioEvent::Connect(sid));
+
+    registry.lock().unwrap()[&sid].close(DisconnectReason::TransportClose);
+    assert_eq!(client.next_ok().await, EioEvent::Disconnect);
+    client.close().timeout().await.unwrap();
+    client.next_close().await;
+}
+
 /// Sending after the *server* closed the session must surface a sink error
 /// (the session is gone), not panic.
 #[tokio::test]

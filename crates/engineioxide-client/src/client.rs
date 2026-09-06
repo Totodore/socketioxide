@@ -1,7 +1,7 @@
 use std::{
     fmt,
     pin::Pin,
-    task::{Context, Poll, Waker, ready},
+    task::{Context, Poll, ready},
     time::Instant,
 };
 
@@ -24,7 +24,6 @@ pin_project_lite::pin_project! {
     pub struct Client<S: TransportSvc> {
         #[pin]
         transport: Transport<S>,
-        sink_waker: Option<Waker>,
         config: EngineIoClientConfig,
 
         open_packet: OpenPacket,
@@ -104,7 +103,6 @@ impl<S: TransportSvc> Client<S> {
             transport,
             open_packet,
             config,
-            sink_waker: None,
             last_ping: Instant::now(),
             state: ClientState::Open,
             pending_pong: false,
@@ -200,8 +198,9 @@ impl<S: TransportSvc> Client<S> {
 
     /// While the upgrade probe is in flight the transport keeps delivering
     /// polling packets. The [`Transport`] settles itself to websocket (probe
-    /// succeeded) or back to polling (probe failed): detect the switch here
-    /// to resume the nominal state.
+    /// succeeded) or back to polling (probe failed), from the stream or
+    /// from the sink side: detect the switch here to resume the nominal
+    /// state.
     fn poll_upgrading(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -216,12 +215,7 @@ impl<S: TransportSvc> Client<S> {
             return self.poll_transport(cx);
         };
 
-        let proj = self.as_mut().project();
-        *proj.state = ClientState::Running;
-        if let Some(waker) = proj.sink_waker.take() {
-            tracing::debug!("waking up sink after end of upgrade");
-            waker.wake();
-        }
+        *self.as_mut().project().state = ClientState::Running;
 
         if upgraded {
             tracing::debug!(sid = %self.sid(), "websocket transport upgraded");
@@ -237,8 +231,8 @@ impl<S: TransportSvc> Client<S> {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
-        let proj = self.as_mut().project();
-        match ready!(proj.transport.poll_next(cx)) {
+        let mut proj = self.as_mut().project();
+        match ready!(proj.transport.as_mut().poll_next(cx)) {
             Some(Ok(Packet::Ping)) => {
                 *proj.pending_pong = true;
                 *proj.last_ping = Instant::now();
@@ -246,8 +240,11 @@ impl<S: TransportSvc> Client<S> {
                 Poll::Pending
             }
             Some(Ok(Packet::Close)) => {
+                // The server closed the session: tear the transport down so
+                // nothing is written to the dead session (the server has
+                // already forgotten it) and a later `close()` is a no-op.
+                proj.transport.get_mut().terminate();
                 *proj.state = ClientState::Closing;
-                cx.waker().wake_by_ref(); // wake up to close the transport
                 Poll::Ready(Some(Ok(EioEvent::Disconnect)))
             }
             Some(Ok(Packet::Message(v))) => Poll::Ready(Some(Ok(EioEvent::Message(v)))),
@@ -303,12 +300,9 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.state {
-            ClientState::Upgrading => {
-                // save waker to wake the task when transport is migrated.
-                self.project().sink_waker.replace(cx.waker().clone());
-                Poll::Pending
-            }
-            ClientState::Open | ClientState::Running => {
+            // while upgrading, the sink drives the probe: the write completes
+            // once the transport settles, over the selected transport.
+            ClientState::Open | ClientState::Upgrading | ClientState::Running => {
                 let res = ready!(self.as_mut().project().transport.poll_ready(cx))
                     .inspect_err(|err| self.close_on_fatal(err));
                 Poll::Ready(res)
@@ -369,7 +363,6 @@ impl<S: TransportSvc> fmt::Debug for Client<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("transport", &self.transport)
-            .field("sink_waker", &self.sink_waker)
             .field("config", &self.config)
             .field("open_packet", &self.open_packet)
             .field("last_ping", &self.last_ping)

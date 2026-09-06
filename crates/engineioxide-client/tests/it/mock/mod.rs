@@ -369,13 +369,30 @@ impl MockServer {
         }
     }
 
-    /// Wait for a ws connect, leaving any interleaved polling request parked
-    /// (the reference client keeps a poll in flight while probing).
-    pub async fn next_ws_parking_http(&mut self) -> WsCall {
+    /// Next packet sent by the client over `ws`, releasing every polling
+    /// request received meanwhile with a noop (the reference server does so
+    /// for any poll once the probe is in progress).
+    pub async fn recv_packet_releasing_polls(&mut self, ws: &mut ServerWs) -> Packet {
+        loop {
+            tokio::select! {
+                packet = ws.recv_packet() => return packet,
+                call = self.next_call() => match call {
+                    ServerCall::Http(c) => c.respond_packets([Packet::Noop]),
+                    ServerCall::Ws(c) => panic!("unexpected second ws connect: {:?}", c.req),
+                },
+            }
+        }
+    }
+
+    /// Wait for a ws connect, handing back the interleaved polling requests
+    /// so the test can release them (the reference server answers the
+    /// pending poll with a noop once the probe starts).
+    pub async fn next_ws_holding_http(&mut self) -> (WsCall, Vec<HttpCall>) {
+        let mut held = Vec::new();
         loop {
             match self.next_call().await {
-                ServerCall::Ws(call) => return call,
-                ServerCall::Http(call) => call.park(),
+                ServerCall::Ws(call) => return (call, held),
+                ServerCall::Http(call) => held.push(call),
             }
         }
     }

@@ -40,7 +40,7 @@ async fn upgrade_probe_wire_sequence() {
     );
 
     let script = async {
-        let call = server.next_ws_parking_http().await;
+        let (call, held_polls) = server.next_ws_holding_http().await;
         assert_eq!(call.query("EIO"), Some("4"));
         assert_eq!(call.query("transport"), Some("websocket"));
         assert_eq!(
@@ -55,8 +55,12 @@ async fn upgrade_probe_wire_sequence() {
             "probe ping expected"
         );
         ws.send_packet(Packet::PongUpgrade);
+        // the reference server releases the pending poll with a noop
+        for poll in held_polls {
+            poll.respond_packets([Packet::Noop]);
+        }
         assert_eq!(
-            ws.recv_packet().await,
+            server.recv_packet_releasing_polls(&mut ws).await,
             Packet::Upgrade,
             "upgrade confirmation expected"
         );
@@ -388,16 +392,21 @@ async fn polling_writes_are_flushed_before_the_upgrade_packet() {
 
     let script = async {
         let mut post = None;
+        let mut polls = Vec::new();
         let ws = loop {
             match server.next_call().await {
                 mock::ServerCall::Ws(c) => break c,
                 mock::ServerCall::Http(c) if c.method == Method::POST => post = Some(c),
-                mock::ServerCall::Http(c) => c.park(),
+                mock::ServerCall::Http(c) => polls.push(c),
             }
         };
         let mut ws = ws.accept();
         assert_eq!(ws.recv_packet().await, Packet::PingUpgrade);
         ws.send_packet(Packet::PongUpgrade);
+        // the reference server releases the pending poll with a noop
+        for poll in polls {
+            poll.respond_packets([Packet::Noop]);
+        }
 
         let post = match post {
             Some(p) => p,
@@ -417,6 +426,79 @@ async fn polling_writes_are_flushed_before_the_upgrade_packet() {
     let (event, ()) = tokio::join!(client.next_ok().timeout(), script);
     assert_eq!(event, EioEvent::Upgrade(TransportType::Websocket));
     assert_eq!(client.transport(), TransportType::Websocket);
+}
+
+/// Reference `pause()`, inbound side: once the probe is acknowledged the
+/// client stops polling and waits for its in-flight poll to complete before
+/// confirming with `5`. The server releases that poll with a `noop`, along
+/// with anything queued for it. A client confirming the upgrade while the
+/// poll is still in flight drops the polling transport together with the
+/// response it was about to receive, and its packets are lost.
+#[tokio::test]
+async fn packets_in_the_last_poll_response_survive_the_upgrade() {
+    let open = mock::open_packet();
+    let (mut client, mut server) =
+        mock::connect_polling(&open, [TransportType::Polling, TransportType::Websocket]).await;
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+
+    let script = async {
+        let mut held_poll = None;
+        let ws = loop {
+            match server.next_call().await {
+                mock::ServerCall::Ws(c) => break c,
+                mock::ServerCall::Http(c) => held_poll = Some(c),
+            }
+        };
+        let mut ws = ws.accept();
+        assert_eq!(ws.recv_packet().await, Packet::PingUpgrade);
+        ws.send_packet(Packet::PongUpgrade);
+        let poll = match held_poll {
+            Some(c) => c,
+            None => server.next_http().await,
+        };
+
+        // The poll response only reaches the client after a network delay.
+        // A client confirming the upgrade before its poll completes has
+        // already dropped the transport that carries "last-poll".
+        let confirmed_early = tokio::time::timeout(Duration::from_millis(100), ws.recv_packet())
+            .await
+            .is_ok();
+        poll.respond_packets([Packet::Message("last-poll".into()), Packet::Noop]);
+        if !confirmed_early {
+            // paused: the completed poll must not be followed by a new one
+            server
+                .assert_no_call(Duration::from_millis(50), "polling is paused")
+                .await;
+            assert_eq!(ws.recv_packet().await, Packet::Upgrade);
+        }
+        ws.send_packet(Packet::Message("over-ws".into()));
+        ws
+    };
+    let (events, _ws) = tokio::join!(
+        async {
+            let mut events = Vec::new();
+            while events.len() < 3 {
+                match client.next().timeout_with(Duration::from_secs(1)).await {
+                    Some(Ok(event)) => events.push(event),
+                    other => panic!("stream ended early: {other:?}, received {events:?}"),
+                }
+            }
+            events
+        },
+        script
+    );
+    assert_eq!(
+        events,
+        [
+            EioEvent::Message("last-poll".into()),
+            EioEvent::Upgrade(TransportType::Websocket),
+            EioEvent::Message("over-ws".into()),
+        ],
+        "packets carried by the last poll response must be delivered before the upgrade"
+    );
 }
 
 /// Against the real server: a message queued before the client first polls
@@ -444,6 +526,131 @@ async fn early_send_is_delivered_across_upgrade() {
     assert_eq!(
         rx.next_ok().timeout().await,
         Event::Message(sid, "early".into())
+    );
+}
+
+/// A write issued while the probe is in flight must drive the probe itself:
+/// `next()` (which starts the upgrade) followed by `send().await` is the
+/// most natural usage and must not deadlock waiting for the stream to be
+/// polled. The write is delivered over the websocket, right behind the
+/// upgrade packet.
+#[tokio::test]
+async fn send_after_connect_drives_the_upgrade() {
+    let open = mock::open_packet();
+    let (mut client, mut server) =
+        mock::connect_polling(&open, [TransportType::Polling, TransportType::Websocket]).await;
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+
+    let script = async {
+        let (call, held_polls) = server.next_ws_holding_http().await;
+        let mut ws = call.accept();
+        assert_eq!(ws.recv_packet().await, Packet::PingUpgrade);
+        ws.send_packet(Packet::PongUpgrade);
+        for poll in held_polls {
+            poll.respond_packets([Packet::Noop]);
+        }
+        assert_eq!(
+            server.recv_packet_releasing_polls(&mut ws).await,
+            Packet::Upgrade
+        );
+        assert_eq!(
+            ws.recv_packet().await,
+            Packet::Message("hello".into()),
+            "the write must follow the upgrade packet over the websocket"
+        );
+        ws
+    };
+    // only the sink is driven here
+    let (res, _ws) = tokio::join!(
+        client.send(EioEvent::Message("hello".into())).timeout(),
+        script
+    );
+    res.unwrap();
+    assert_eq!(client.transport(), TransportType::Websocket);
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Upgrade(TransportType::Websocket)
+    );
+}
+
+/// Same, against the real server: the sequential `next()` then
+/// `send().await` pattern must complete with the default configuration.
+#[tokio::test]
+async fn sequential_send_after_connect_completes() {
+    let (svc, mut rx) = service();
+    let mut client = Client::connect(svc, EngineIoClientConfig::default())
+        .timeout()
+        .await
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().timeout().await, Event::Connect(sid));
+    assert_eq!(client.next_ok().timeout().await, EioEvent::Connect(sid));
+
+    client
+        .send(EioEvent::Message("hello".into()))
+        .timeout()
+        .await
+        .unwrap();
+    assert_eq!(client.transport(), TransportType::Websocket);
+    assert_eq!(
+        rx.next_ok().timeout().await,
+        Event::Message(sid, "hello".into())
+    );
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Upgrade(TransportType::Websocket)
+    );
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Message("hello".into()),
+        "echo"
+    );
+}
+
+/// The split halves may live on different tasks, both driving the probe:
+/// neither side may starve the other of wake-ups. Each half must complete
+/// on its own.
+#[tokio::test]
+async fn split_halves_on_separate_tasks_complete_the_upgrade() {
+    let (svc, mut rx) = service();
+    let client = Client::connect(svc, EngineIoClientConfig::default())
+        .timeout()
+        .await
+        .unwrap();
+    let sid = client.sid();
+    assert_eq!(rx.next_ok().timeout().await, Event::Connect(sid));
+    let (mut tx, mut stream) = client.split::<EioEvent>();
+
+    // Distinct tasks (hence distinct wakers) on the same thread: the client
+    // is not `Send`.
+    let local = tokio::task::LocalSet::new();
+    let writer = local.spawn_local(async move {
+        tx.send(EioEvent::Message("from-writer".into()))
+            .timeout()
+            .await
+            .unwrap();
+        tx
+    });
+    let reader = local.spawn_local(async move {
+        loop {
+            match stream.next_ok().timeout().await {
+                EioEvent::Message(msg) if msg == "from-writer" => break stream,
+                _ => continue,
+            }
+        }
+    });
+    local
+        .run_until(async {
+            let _tx = writer.await.unwrap();
+            let _stream = reader.await.unwrap();
+        })
+        .await;
+    assert_eq!(
+        rx.next_ok().timeout().await,
+        Event::Message(sid, "from-writer".into())
     );
 }
 
