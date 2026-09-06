@@ -13,7 +13,9 @@ license.workspace = true
 readme = "README.md"
 
 [dependencies]
-engineioxide-core = { path = "../engineioxide-core", version = "0.2", features = ["tracing"] }
+engineioxide-core = { path = "../engineioxide-core", version = "0.2", features = [
+  "tracing",
+] }
 bytes.workspace = true
 futures-core.workspace = true
 futures-util = { workspace = true, features = ["std", "sink"] }
@@ -23,13 +25,24 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true, default-features = false }
-hyper = { workspace = true, optional = true, features = ["client", "http1", "http2"] }
+hyper = { workspace = true, optional = true, features = [
+  "client",
+  "http1",
+  "http2",
+] }
 tokio-tungstenite = { workspace = true, optional = true }
 tower-service.workspace = true
 http-body-util.workspace = true
 pin-project-lite.workspace = true
 smallvec.workspace = true
-hyper-util = { workspace = true, optional = true, features = ["tokio", "client", "client-pool", "client-legacy", "http1", "http2"] }
+hyper-util = { workspace = true, optional = true, features = [
+  "tokio",
+  "client",
+  "client-pool",
+  "client-legacy",
+  "http1",
+  "http2",
+] }
 
 # Tracing
 tracing.workspace = true
