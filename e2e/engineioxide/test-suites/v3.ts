@@ -308,9 +308,11 @@ describe("Engine.IO protocol", () => {
       it.skip("closes the session upon duplicate poll requests", async () => {
         const sid = await initLongPollingSession();
 
+        // the first poll request must be registered server-side before the
+        // duplicate one is sent, otherwise their roles may be swapped
         const pollResponses = await Promise.all([
           fetch(`${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`),
-          sleep(5).then(() =>
+          sleep(100).then(() =>
             fetch(
               `${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}&t=burst`,
             ),
@@ -465,16 +467,23 @@ describe("Engine.IO protocol", () => {
       it("forcefully closes the session", async () => {
         const sid = await initLongPollingSession();
 
-        const [pollResponse] = await Promise.all([
-          fetch(`${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`),
-          fetch(
-            `${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`,
-            {
-              method: "post",
-              body: "1:1",
-            },
-          ),
-        ]);
+        // start the poll request and give it time to reach the server before
+        // sending the close packet, otherwise the session may be closed before
+        // the poll request is registered and it would get a 400 instead of a noop
+        const pollPromise = fetch(
+          `${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`,
+        );
+        await sleep(100);
+
+        await fetch(
+          `${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`,
+          {
+            method: "post",
+            body: "1:1",
+          },
+        );
+
+        const pollResponse = await pollPromise;
 
         assert.deepStrictEqual(pollResponse.status, 200);
 
