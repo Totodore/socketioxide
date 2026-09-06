@@ -11,7 +11,7 @@ use std::{
 use bytes::Bytes;
 use engineioxide_client::{
     Client,
-    transport::{WebSocket, ws::WsMessage},
+    flavors::{Flavor, WsMessage},
 };
 use engineioxide_core::{OpenPacket, Packet, ProtocolVersion, Sid, TransportType};
 use futures_core::{Stream, future::BoxFuture};
@@ -54,6 +54,10 @@ pub fn mock() -> (MockSvc, MockServer) {
 #[derive(Debug, Clone)]
 pub struct MockSvc {
     tx: mpsc::UnboundedSender<ServerCall>,
+}
+impl Flavor for MockSvc {
+    const SUPPORTED_TRANSPORTS: &'static [TransportType] =
+        &[TransportType::Polling, TransportType::Websocket];
 }
 
 /// HTTP (polling) side: satisfies `PollingSvc`.
@@ -120,10 +124,6 @@ pub struct MockWs {
     to_server: mpsc::UnboundedSender<WsMessage>,
     from_server: mpsc::UnboundedReceiver<Result<WsMessage, MockError>>,
     closed: bool,
-}
-
-impl WebSocket for MockWs {
-    type Error = MockError;
 }
 
 impl Stream for MockWs {

@@ -4,14 +4,25 @@ use engineioxide_core::Packet;
 use http::uri;
 use thiserror::Error;
 
-use crate::transport::{TransportSvc, polling::PollingError, ws::WsError};
+use crate::{
+    flavors::TransportSvc,
+    transport::{PollingError, WsError},
+};
 
 #[derive(Error)]
 pub enum ConnectError<S: TransportSvc> {
     #[error(transparent)]
     Client(ClientError<S>),
-    #[error("failed to build client, invalid uri: {0}")]
-    Config(#[from] uri::InvalidUri),
+    #[error("failed to build client: {0}")]
+    Config(#[from] ConfigError),
+}
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("unsupported transport: {0}")]
+    UnsupportedTransport(engineioxide_core::TransportType),
+    #[error("invalid uri: {0}")]
+    InvalidUri(#[from] uri::InvalidUri),
 }
 
 #[derive(Error)]

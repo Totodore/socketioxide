@@ -3,6 +3,8 @@ use std::str::FromStr;
 use engineioxide_core::TransportType;
 use http::{Uri, uri};
 
+use crate::errors::ConfigError;
+
 #[derive(Debug)]
 pub struct EngineIoClientConfig {
     /// A list of transports to try (in order). Engine.io always attempts to
@@ -41,25 +43,25 @@ impl EngineIoClientConfig {
 }
 
 pub trait IntoEngineIoClientConfig {
-    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri>;
+    fn into_config(self) -> Result<EngineIoClientConfig, ConfigError>;
 }
 impl IntoEngineIoClientConfig for EngineIoClientConfig {
-    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+    fn into_config(self) -> Result<EngineIoClientConfig, ConfigError> {
         Ok(self)
     }
 }
 impl IntoEngineIoClientConfig for &str {
-    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+    fn into_config(self) -> Result<EngineIoClientConfig, ConfigError> {
         EngineIoClientConfigBuilder::new().uri(self).build()
     }
 }
-impl IntoEngineIoClientConfig for Result<EngineIoClientConfig, uri::InvalidUri> {
-    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+impl IntoEngineIoClientConfig for Result<EngineIoClientConfig, ConfigError> {
+    fn into_config(self) -> Result<EngineIoClientConfig, ConfigError> {
         self
     }
 }
 impl<const N: usize> IntoEngineIoClientConfig for [TransportType; N] {
-    fn into_config(self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+    fn into_config(self) -> Result<EngineIoClientConfig, ConfigError> {
         EngineIoClientConfigBuilder::new().transports(self).build()
     }
 }
@@ -90,9 +92,9 @@ impl EngineIoClientConfigBuilder {
         self.config.transports = transports.to_vec();
         self
     }
-    pub fn build(mut self) -> Result<EngineIoClientConfig, uri::InvalidUri> {
+    pub fn build(mut self) -> Result<EngineIoClientConfig, ConfigError> {
         if let Some(uri) = self.uri {
-            self.config.uri = uri.parse()?; //TODO: err
+            self.config.uri = uri.parse()?;
         }
         Ok(self.config)
     }

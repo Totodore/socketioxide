@@ -6,9 +6,10 @@ use std::{
 
 use bytes::Bytes;
 use engineioxide_core::Str;
+use engineioxide_core::TransportType;
 use futures_core::{Stream, future::BoxFuture};
 use futures_util::{FutureExt, Sink};
-use http::Response;
+use http::{HeaderValue, Response};
 use http_body_util::combinators::BoxBody;
 use hyper::body::Incoming;
 use hyper_util::client::legacy::ResponseFuture;
@@ -16,14 +17,11 @@ use pin_project_lite::pin_project;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     MaybeTlsStream,
-    tungstenite::{self, Message, Utf8Bytes},
+    tungstenite::{self, Message, Utf8Bytes, handshake::client::generate_key},
 };
 use tower_service::Service;
 
-use crate::{
-    flavors::hyper::HyperFlavor,
-    transport::ws::{WebSocket, WsMessage},
-};
+use crate::flavors::{Flavor, WsMessage, hyper::HyperFlavor};
 
 impl From<WsMessage> for tungstenite::Message {
     fn from(value: WsMessage) -> Self {
@@ -55,6 +53,11 @@ impl Default for HyperTungsteniteFlavor {
     }
 }
 
+impl Flavor for HyperTungsteniteFlavor {
+    const SUPPORTED_TRANSPORTS: &'static [TransportType] =
+        &[TransportType::Polling, TransportType::Websocket];
+}
+
 /// HTTP Service implementation
 impl Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperTungsteniteFlavor {
     type Response = Response<Incoming>;
@@ -83,7 +86,16 @@ impl Service<http::Request<()>> for HyperTungsteniteFlavor {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: http::Request<()>) -> Self::Future {
+    fn call(&mut self, mut req: http::Request<()>) -> Self::Future {
+        req.headers_mut()
+            .insert("Connection", HeaderValue::from_static("Upgrade"));
+        req.headers_mut()
+            .insert("Upgrade", HeaderValue::from_static("websocket"));
+        req.headers_mut()
+            .insert("Sec-WebSocket-Version", HeaderValue::from_static("13"));
+        req.headers_mut()
+            .insert("Sec-WebSocket-Key", generate_key().parse().unwrap());
+
         async move {
             let (ws, _) = tokio_tungstenite::connect_async(req).await?;
             Ok(ws.into())
@@ -106,13 +118,6 @@ where
     fn from(inner: tokio_tungstenite::WebSocketStream<S>) -> Self {
         Self { inner }
     }
-}
-
-impl<S> WebSocket for TokioTungsteniteWS<S>
-where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    type Error = tungstenite::Error;
 }
 
 impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> Sink<WsMessage>

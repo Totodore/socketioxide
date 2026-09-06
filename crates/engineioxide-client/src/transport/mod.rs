@@ -6,7 +6,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use engineioxide_core::{Packet, ProtocolVersion, Sid, TransportType};
+use engineioxide_core::{OpenPacket, Packet, ProtocolVersion, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
 use http::{
@@ -15,22 +15,22 @@ use http::{
 };
 use http_body_util::{Empty, combinators::BoxBody};
 
-use crate::{EngineIoClientConfig, errors::ClientError};
+use crate::{
+    EngineIoClientConfig,
+    errors::ClientError,
+    flavors::TransportSvc,
+    transport::{polling::PollingTransport, ws::WsTransport},
+};
 
-pub use polling::{PollingSvc, PollingTransport};
+pub use polling::{PollingError, ProtocolError};
 pub use upgrading::{UpgradeError, UpgradingTransport};
-pub use ws::{WebSocket, WsSvc, WsTransport};
+pub use ws::WsError;
 
-pub mod polling;
+mod polling;
 mod upgrading;
-pub mod ws;
+mod ws;
 
-pub trait TransportSvc: PollingSvc + WsSvc {}
-impl<S: PollingSvc + WsSvc> TransportSvc for S {}
-
-/// The transports are [`Unpin`] so a variant switch (upgrade start,
-/// upgrade settlement) can move the live transports around.
-pub enum Transport<S: TransportSvc> {
+pub(crate) enum Transport<S: TransportSvc> {
     Polling {
         inner: PollingTransport<S>,
     },
@@ -46,6 +46,22 @@ pub enum Transport<S: TransportSvc> {
 }
 
 impl<S: TransportSvc> Transport<S> {
+    pub async fn connect_polling(
+        svc: S,
+        config: &EngineIoClientConfig,
+    ) -> Result<(Self, OpenPacket), ClientError<S>> {
+        let (inner, packet) = PollingTransport::connect(svc, config).await?;
+        Ok((Self::Polling { inner }, packet))
+    }
+
+    pub async fn connect_ws(
+        svc: S,
+        config: &EngineIoClientConfig,
+    ) -> Result<(Self, OpenPacket), ClientError<S>> {
+        let (inner, packet) = WsTransport::connect(svc, config).await?;
+        Ok((Self::Websocket { inner }, packet))
+    }
+
     pub fn transport_type(&self) -> TransportType {
         match self {
             Transport::Polling { .. } | Transport::Upgrading { .. } => TransportType::Polling,
@@ -175,16 +191,6 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     }
 }
 
-impl<S: TransportSvc> From<PollingTransport<S>> for Transport<S> {
-    fn from(inner: PollingTransport<S>) -> Self {
-        Self::Polling { inner }
-    }
-}
-impl<S: TransportSvc> From<WsTransport<S>> for Transport<S> {
-    fn from(inner: WsTransport<S>) -> Self {
-        Self::Websocket { inner }
-    }
-}
 impl<S: TransportSvc> fmt::Debug for Transport<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

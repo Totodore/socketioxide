@@ -4,8 +4,6 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use base64::Engine;
-use bytes::Bytes;
 use engineioxide_core::{
     OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, Str, TransportType,
 };
@@ -13,13 +11,15 @@ use futures_core::Stream;
 use futures_util::{Sink, StreamExt};
 use http::Request;
 use pin_project_lite::pin_project;
-use tower_service::Service;
 use tracing::Level;
 
-use crate::EngineIoClientConfig;
+use crate::{
+    EngineIoClientConfig,
+    flavors::{WsMessage, WsSvc},
+};
 
 pin_project! {
-    pub struct WsTransport<S: WsSvc> {
+    pub(crate) struct WsTransport<S: WsSvc> {
         svc: S,
 
         #[pin]
@@ -88,14 +88,7 @@ impl<S: WsSvc> WsTransport<S> {
     pub fn connect_with_upgrade(mut svc: S, config: &EngineIoClientConfig, sid: Sid) -> Self {
         tracing::trace!("websocket connection with upgrade");
         let uri = super::with_mandatory_query(&config.uri, TransportType::Websocket, Some(sid));
-        let req = Request::get(uri)
-            .header("Host", "127.0.0.1")
-            .header("Connection", "Upgrade")
-            .header("Upgrade", "websocket")
-            .header("Sec-WebSocket-Version", "13")
-            .header("Sec-WebSocket-Key", generate_key())
-            .body(())
-            .unwrap();
+        let req = Request::get(uri).body(()).unwrap();
 
         let fut = svc.call(req);
         Self {
@@ -112,13 +105,7 @@ impl<S: WsSvc> WsTransport<S> {
         tracing::trace!("websocket connection without upgrade");
         let uri = super::with_mandatory_query(&config.uri, TransportType::Websocket, None);
 
-        let req = Request::get(uri)
-            .header("Connection", "Upgrade")
-            .header("Upgrade", "websocket")
-            .header("Sec-WebSocket-Version", "13")
-            .header("Sec-WebSocket-Key", generate_key())
-            .body(())
-            .unwrap();
+        let req = Request::get(uri).body(()).unwrap();
 
         let mut stream = svc.call(req).await.map_err(WsError::Websocket)?;
 
@@ -139,43 +126,6 @@ impl<S: WsSvc> WsTransport<S> {
             _ => Err(WsError::Packet(PacketParseError::InvalidPacketType(None))),
         }
     }
-}
-
-pub trait WsSvc:
-    Service<
-        http::Request<()>,
-        Response = Self::WebSocket,
-        Error = <Self as WsSvc>::Error,
-        Future: Unpin, // Unpin bound so we can move transports around when upgrading
-    > + Clone
-{
-    type Error: fmt::Debug + std::error::Error;
-    type WebSocket: WebSocket<Error = <Self as WsSvc>::Error>;
-}
-
-impl<S, WS> WsSvc for S
-where
-    S: Service<http::Request<()>, Response = WS, Future: Unpin> + Clone,
-    WS: WebSocket<Error = <S as Service<http::Request<()>>>::Error>,
-    <S as Service<http::Request<()>>>::Error: fmt::Debug + std::error::Error,
-{
-    type Error = <S as Service<http::Request<()>>>::Error;
-    type WebSocket = WS;
-}
-
-pub trait WebSocket:
-    Stream<Item = Result<WsMessage, <Self as WebSocket>::Error>>
-    + Sink<WsMessage, Error = <Self as WebSocket>::Error>
-    + Sized
-    + Unpin
-{
-    type Error: fmt::Debug + std::error::Error;
-}
-
-pub enum WsMessage {
-    Text(Str),
-    Binary(Bytes),
-    Close,
 }
 
 fn parse_packet<S: WsSvc>(msg: WsMessage) -> Result<Packet, WsError<S>> {
@@ -329,16 +279,4 @@ impl<S: WsSvc> fmt::Debug for WsTransportState<S> {
             Self::Closed => f.write_str("Closed"),
         }
     }
-}
-
-/// Generate a random key for the `Sec-WebSocket-Key` header.
-fn generate_key() -> String {
-    // a base64-encoded (see Section 4 of [RFC4648]) value that,
-    // when decoded, is 16 bytes in length (RFC 6455)
-    let r: [u8; 16] = rand::random();
-
-    let mut out = String::new();
-    base64::prelude::BASE64_URL_SAFE_NO_PAD.encode_string(r, &mut out);
-
-    out
 }

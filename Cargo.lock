@@ -846,7 +846,6 @@ dependencies = [
 name = "engineioxide-client"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "bytes",
  "engineioxide",
  "engineioxide-core",
@@ -858,14 +857,12 @@ dependencies = [
  "hyper",
  "hyper-util",
  "pin-project-lite",
- "rand 0.10.2",
  "serde",
  "serde_json",
  "smallvec",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
- "tokio-util",
  "tower-service",
  "tracing",
  "tracing-subscriber",

@@ -16,7 +16,7 @@
 use std::{assert_matches, time::Duration};
 
 use engineioxide::{DisconnectReason, TransportType};
-use engineioxide_client::{Client, ClientError, EioEvent, transport::ws::WsError};
+use engineioxide_client::{Client, ClientError, EioEvent, transport::WsError};
 use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
 use tokio::time;
@@ -137,12 +137,12 @@ async fn client_close_ws_closes_the_connection() {
     // The server observes the websocket closing, with no engine.io close
     // packet beforehand.
     match ws.recv().timeout().await {
-        Some(engineioxide_client::transport::ws::WsMessage::Close) | None => (),
-        Some(engineioxide_client::transport::ws::WsMessage::Text(t)) => {
+        Some(engineioxide_client::flavors::WsMessage::Close) | None => (),
+        Some(engineioxide_client::flavors::WsMessage::Text(t)) => {
             assert_ne!(&*t, "1", "no close packet is sent over websocket");
             panic!("unexpected frame while closing: {t:?}");
         }
-        Some(engineioxide_client::transport::ws::WsMessage::Binary(_)) => {
+        Some(engineioxide_client::flavors::WsMessage::Binary(_)) => {
             panic!("unexpected binary frame while closing")
         }
     }

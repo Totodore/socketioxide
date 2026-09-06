@@ -11,11 +11,11 @@ use futures_util::Sink;
 use tracing::Level;
 
 use crate::{
-    EngineIoClientConfig,
+    EioEvent, EngineIoClientConfig,
     config::IntoEngineIoClientConfig,
-    errors::{ClientError, ConnectError},
-    event::EioEvent,
-    transport::{Transport, TransportSvc, WsTransport, polling::PollingTransport},
+    errors::{ClientError, ConfigError, ConnectError},
+    flavors::TransportSvc,
+    transport::Transport,
 };
 
 pin_project_lite::pin_project! {
@@ -62,6 +62,7 @@ impl Client<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
 }
 
 #[cfg(feature = "flavor-testing")]
+#[expect(private_bounds)] // EngineSvc is simply a trait alias
 impl<Svc: crate::flavors::testing::EngineSvc> Client<crate::flavors::testing::TestingFlavor<Svc>> {
     pub async fn connect_with_testbed(
         svc: Svc,
@@ -78,6 +79,14 @@ impl<S: TransportSvc> Client<S> {
         config: impl IntoEngineIoClientConfig,
     ) -> Result<Self, ConnectError<S>> {
         let config = config.into_config()?;
+        for transport in &config.transports {
+            if !S::SUPPORTED_TRANSPORTS.contains(transport) {
+                return Err(ConnectError::Config(ConfigError::UnsupportedTransport(
+                    *transport,
+                )));
+            }
+        }
+
         let (transport, open_packet) = Self::connect_inner(svc, &config).await?;
 
         let client = Client {
@@ -98,15 +107,9 @@ impl<S: TransportSvc> Client<S> {
         config: &EngineIoClientConfig,
     ) -> Result<(Transport<S>, OpenPacket), ClientError<S>> {
         let (transport, packet) = match config.initial_transport() {
-            TransportType::Polling => {
-                let (transport, open_packet) = PollingTransport::connect(svc, config).await?;
-                (transport.into(), open_packet)
-            }
-            TransportType::Websocket => {
-                let (transport, open_packet) = WsTransport::connect(svc, config).await?;
-                (transport.into(), open_packet)
-            }
-        };
+            TransportType::Polling => Transport::connect_polling(svc, config).await,
+            TransportType::Websocket => Transport::connect_ws(svc, config).await,
+        }?;
 
         Ok((transport, packet))
     }

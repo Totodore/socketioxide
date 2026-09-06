@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     fmt,
     pin::Pin,
     task::{Context, Poll, ready},
@@ -11,40 +10,12 @@ use engineioxide_core::{
 };
 use futures_core::Stream;
 use futures_util::{FutureExt, Sink, StreamExt};
-use http::{Request, Response, StatusCode, Uri, response};
+use http::{Request, StatusCode, Uri, response};
 use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
 use pin_project_lite::pin_project;
 use serde::Deserialize;
-use tower_service::Service;
 
-use crate::EngineIoClientConfig;
-
-pub trait PollingSvc:
-    Service<
-        Request<BoxBody<Bytes, Infallible>>,
-        Response = Response<Self::Body>,
-        Error = <Self as PollingSvc>::Error,
-        Future: Unpin, // Unpin bound so we can move transports around when upgrading
-    >
-{
-    type Body: http_body::Body<Error = Self::ResBodyError> + 'static;
-    type Error: fmt::Debug + std::error::Error;
-    type ResBodyError: fmt::Debug + std::error::Error + 'static;
-}
-
-impl<B, S> PollingSvc for S
-where
-    S: Service<Request<BoxBody<Bytes, Infallible>>, Response = Response<B>>,
-    <S as Service<Request<BoxBody<Bytes, Infallible>>>>::Future: Unpin,
-    <S as Service<Request<BoxBody<Bytes, Infallible>>>>::Error: fmt::Debug + std::error::Error,
-    B: http_body::Body + 'static,
-    <B as http_body::Body>::Error: fmt::Debug + std::error::Error + 'static,
-    <B as http_body::Body>::Data: Send + fmt::Debug + 'static,
-{
-    type Body = B;
-    type Error = <S as Service<Request<BoxBody<Bytes, Infallible>>>>::Error;
-    type ResBodyError = <B as http_body::Body>::Error;
-}
+use crate::{EngineIoClientConfig, flavors::PollingSvc};
 
 pin_project! {
     #[project = PollStateProj]
@@ -219,7 +190,7 @@ impl ProtocolError {
 }
 
 pin_project! {
-    pub struct PollingTransport<S: PollingSvc>
+    pub(crate) struct PollingTransport<S: PollingSvc>
     {
         pub(crate) svc: S,
 

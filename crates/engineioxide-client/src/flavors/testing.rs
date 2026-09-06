@@ -5,6 +5,7 @@ use std::{
 };
 
 use bytes::Bytes;
+use engineioxide_core::TransportType;
 use futures_core::{future::BoxFuture, ready};
 use futures_util::FutureExt;
 use http_body_util::combinators::BoxBody;
@@ -13,12 +14,12 @@ use tokio::io;
 use tokio_tungstenite::tungstenite::protocol::Role;
 use tower_service::Service;
 
-use crate::{flavors::hyper_tungstenite::TokioTungsteniteWS, transport::PollingSvc};
+use crate::flavors::{Flavor, PollingSvc, hyper_tungstenite::TokioTungsteniteWS};
 
 /// Trait alias for [`TestingFlavor`] inner service.
 ///
-/// Typically this wil be satisfied by the engineioxide service.
-pub trait EngineSvc:
+/// Typically this will be satisfied by the engineioxide service.
+pub(crate) trait EngineSvc:
     PollingSvc<Body: http_body::Body<Data: Send + std::fmt::Debug + 'static>>
     + Service<
         (DuplexStream, http::Request<()>),
@@ -57,6 +58,11 @@ impl<Svc> From<Svc> for TestingFlavor<Svc> {
     fn from(inner: Svc) -> Self {
         Self { inner }
     }
+}
+
+impl<Svc> Flavor for TestingFlavor<Svc> {
+    const SUPPORTED_TRANSPORTS: &'static [TransportType] =
+        &[TransportType::Polling, TransportType::Websocket];
 }
 
 /// HTTP Service implementation

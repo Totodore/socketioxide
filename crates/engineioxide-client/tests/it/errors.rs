@@ -15,10 +15,7 @@ use std::assert_matches;
 
 use engineioxide_client::{
     ClientError, EioEvent,
-    transport::{
-        polling::{PollingError, ProtocolError},
-        ws::WsError,
-    },
+    transport::{PollingError, ProtocolError, WsError},
 };
 use engineioxide_core::{Packet, TransportType};
 use futures_util::SinkExt;
