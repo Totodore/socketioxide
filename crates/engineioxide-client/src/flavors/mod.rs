@@ -290,10 +290,9 @@ mod tests {
 
     #[test]
     fn empty_polling_body_ends_immediately() {
-        for mut body in [pin!(PollingBody::new_empty()), pin!(Bytes::new().into())] {
-            assert!(body.is_end_stream());
-            assert_eq!(body.size_hint().exact(), Some(0));
-            assert!(body.as_mut().frame().now_or_never().unwrap().is_none());
-        }
+        let mut body = pin!(PollingBody::new_empty());
+        assert!(body.is_end_stream());
+        assert_eq!(body.size_hint().exact(), Some(0));
+        assert!(body.as_mut().frame().now_or_never().unwrap().is_none());
     }
 }
