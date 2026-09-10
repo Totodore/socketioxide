@@ -1,11 +1,9 @@
 use std::{
-    convert::Infallible,
     fmt,
     pin::Pin,
     task::{Context, Poll, ready},
 };
 
-use bytes::Bytes;
 use engineioxide_core::{OpenPacket, Packet, ProtocolVersion, Sid, TransportType};
 use futures_core::Stream;
 use futures_util::Sink;
@@ -13,12 +11,11 @@ use http::{
     Request, Uri,
     uri::{PathAndQuery, Scheme},
 };
-use http_body_util::{Empty, combinators::BoxBody};
 
 use crate::{
     EngineIoClientConfig,
     errors::ClientError,
-    flavors::TransportSvc,
+    flavors::{PollingBody, TransportSvc},
     transport::{polling::PollingTransport, ws::WsTransport},
 };
 
@@ -245,16 +242,13 @@ impl<S: TransportSvc> fmt::Debug for Transport<S> {
     }
 }
 
-fn build_connect_req(
-    base_uri: &Uri,
-    transport: TransportType,
-) -> Request<BoxBody<Bytes, Infallible>> {
+fn build_connect_req(base_uri: &Uri, transport: TransportType) -> Request<PollingBody> {
     let uri = with_mandatory_query(base_uri, transport, None);
 
     Request::builder()
         .method(http::Method::GET)
         .uri(uri)
-        .body(BoxBody::new(Empty::new()))
+        .body(PollingBody::new_empty())
         .unwrap()
 }
 

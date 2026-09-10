@@ -2,18 +2,15 @@
 //! [`tokio_tungstenite`].
 
 use std::{
-    convert::Infallible,
     pin::Pin,
     task::{Context, Poll, ready},
 };
 
-use bytes::Bytes;
 use engineioxide_core::Str;
 use engineioxide_core::TransportType;
 use futures_core::{Stream, future::BoxFuture};
 use futures_util::{FutureExt, Sink};
 use http::Response;
-use http_body_util::combinators::BoxBody;
 use hyper::body::Incoming;
 use hyper_util::client::legacy::ResponseFuture;
 use pin_project_lite::pin_project;
@@ -24,7 +21,7 @@ use tokio_tungstenite::{
 };
 use tower_service::Service;
 
-use crate::flavors::{Flavor, WsMessage, hyper::HyperFlavor};
+use crate::flavors::{Flavor, PollingBody, WsMessage, hyper::HyperFlavor};
 
 impl From<WsMessage> for tungstenite::Message {
     fn from(value: WsMessage) -> Self {
@@ -58,19 +55,16 @@ impl Flavor for HyperTungsteniteFlavor {
 }
 
 /// HTTP Service implementation
-impl Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperTungsteniteFlavor {
+impl Service<http::Request<PollingBody>> for HyperTungsteniteFlavor {
     type Response = Response<Incoming>;
     type Error = hyper_util::client::legacy::Error;
     type Future = ResponseFuture;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <HyperFlavor as Service<http::Request<BoxBody<Bytes, Infallible>>>>::poll_ready(
-            &mut self.hyper_svc,
-            cx,
-        )
+        <HyperFlavor as Service<http::Request<PollingBody>>>::poll_ready(&mut self.hyper_svc, cx)
     }
 
-    fn call(&mut self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn call(&mut self, req: http::Request<PollingBody>) -> Self::Future {
         self.hyper_svc.call(req)
     }
 }

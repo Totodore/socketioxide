@@ -1,7 +1,6 @@
 //! A scripted mock engine.io server.
 
 use std::{
-    convert::Infallible,
     fmt,
     pin::Pin,
     task::{Context, Poll},
@@ -11,13 +10,13 @@ use std::{
 use bytes::Bytes;
 use engineioxide_client::{
     Client,
-    flavors::{Flavor, WsMessage},
+    flavors::{Flavor, PollingBody, WsMessage},
 };
 use engineioxide_core::{OpenPacket, Packet, ProtocolVersion, Sid, TransportType};
 use futures_core::{Stream, future::BoxFuture};
 use futures_util::{FutureExt, Sink};
 use http::{Method, Request, Response, Uri};
-use http_body_util::{BodyExt, Full, combinators::BoxBody};
+use http_body_util::{BodyExt, Full};
 use tokio::sync::{mpsc, oneshot};
 use tower_service::Service;
 use tracing_subscriber::EnvFilter;
@@ -61,7 +60,7 @@ impl Flavor for MockSvc {
 }
 
 /// HTTP (polling) side: satisfies `PollingSvc`.
-impl Service<Request<BoxBody<Bytes, Infallible>>> for MockSvc {
+impl Service<Request<PollingBody>> for MockSvc {
     type Response = Response<Full<Bytes>>;
     type Error = MockError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
@@ -70,7 +69,7 @@ impl Service<Request<BoxBody<Bytes, Infallible>>> for MockSvc {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn call(&mut self, req: Request<PollingBody>) -> Self::Future {
         let calls = self.tx.clone();
         // The request is surfaced to the test only once the client actually
         // polls the future, mirroring "the request was sent on the wire".

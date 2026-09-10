@@ -1,27 +1,37 @@
 //! Buffer utilities.
-//! The Buf list is used to store the data from the body of the request in a zero-copy fashion.
-//! Each time a new chunk of data is received, it is pushed to the back of the list.
-//! It implements the `Buf` trait itself so that it can be used as a `Buf` in the `Payload` struct.
-//!
-//! This implementation is based on the private [`BufList`](https://github.com/hyperium/hyper/blob/d977f209bc6068d8f878b22803fc42d90c887fcc/src/common/buf.rs) mod from the [`hyper`](hyper) crate.
+
 use std::collections::VecDeque;
 use std::io::IoSlice;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-pub(crate) struct BufList<T> {
+/// The Buf list is used to store the data from the body of the request in a zero-copy fashion.
+/// Each time a new chunk of data is received, it is pushed to the back of the list.
+/// It implements the `Buf` trait itself so that it can be used as a
+/// `Buf` in the `Payload` struct.
+///
+/// This implementation is based on the private [`BufList`](https://github.com/hyperium/hyper/blob/d977f209bc6068d8f878b22803fc42d90c887fcc/src/common/buf.rs) mod from the [`hyper`](hyper) crate.
+#[derive(Debug)]
+pub struct BufList<T> {
     bufs: VecDeque<T>,
 }
-
-impl<T: Buf> BufList<T> {
-    pub(crate) fn new() -> BufList<T> {
-        BufList {
+impl<T> Default for BufList<T> {
+    fn default() -> Self {
+        Self {
             bufs: VecDeque::new(),
         }
     }
+}
 
+impl<T: Buf> BufList<T> {
+    /// Create a new empty [`BufList`]
+    pub fn new() -> BufList<T> {
+        BufList::default()
+    }
+
+    /// Push a new buf into the [`BufList`]
     #[inline]
-    pub(crate) fn push(&mut self, buf: T) {
+    pub fn push(&mut self, buf: T) {
         debug_assert!(buf.has_remaining());
         self.bufs.push_back(buf);
     }

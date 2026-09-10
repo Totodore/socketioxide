@@ -1,21 +1,18 @@
 //! A testing flavor that wraps an inner service and provides a [`Flavor`] implementation.
 use std::{
-    convert::Infallible,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use bytes::Bytes;
 use engineioxide_core::TransportType;
 use futures_core::{future::BoxFuture, ready};
 use futures_util::FutureExt;
-use http_body_util::combinators::BoxBody;
 use pin_project_lite::pin_project;
 use tokio::io;
 use tokio_tungstenite::tungstenite::protocol::Role;
 use tower_service::Service;
 
-use crate::flavors::{Flavor, PollingSvc, hyper_tungstenite::TokioTungsteniteWS};
+use crate::flavors::{Flavor, PollingBody, PollingSvc, hyper_tungstenite::TokioTungsteniteWS};
 
 /// Trait alias for [`TestingFlavor`] inner service.
 ///
@@ -69,9 +66,9 @@ impl<Svc> Flavor for TestingFlavor<Svc> {
 }
 
 /// HTTP Service implementation
-impl<Svc> Service<http::Request<BoxBody<Bytes, Infallible>>> for TestingFlavor<Svc>
+impl<Svc> Service<http::Request<PollingBody>> for TestingFlavor<Svc>
 where
-    Svc: Service<http::Request<BoxBody<Bytes, Infallible>>>,
+    Svc: Service<http::Request<PollingBody>>,
     Svc: Clone,
 {
     type Response = Svc::Response;
@@ -82,7 +79,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn call(&mut self, req: http::Request<PollingBody>) -> Self::Future {
         self.inner.clone().call(req)
     }
 }

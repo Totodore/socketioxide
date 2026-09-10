@@ -5,10 +5,8 @@
 
 use std::{convert::Infallible, future::Ready};
 
-use bytes::Bytes;
 use engineioxide_core::TransportType;
 use http::Response;
-use http_body_util::combinators::BoxBody;
 use hyper::body::Incoming;
 use hyper_util::client::legacy::{
     Client, ResponseFuture,
@@ -16,13 +14,12 @@ use hyper_util::client::legacy::{
 };
 use tower_service::Service;
 
-use crate::flavors::{Flavor, noop::NoopWebSocket};
+use crate::flavors::{Flavor, PollingBody, noop::NoopWebSocket};
 
-static CONN_POOL: std::sync::OnceLock<
-    Client<HttpConnector<GaiResolver>, BoxBody<Bytes, Infallible>>,
-> = std::sync::OnceLock::new();
+static CONN_POOL: std::sync::OnceLock<Client<HttpConnector<GaiResolver>, PollingBody>> =
+    std::sync::OnceLock::new();
 
-fn get_conn_pool() -> &'static Client<HttpConnector<GaiResolver>, BoxBody<Bytes, Infallible>> {
+fn get_conn_pool() -> &'static Client<HttpConnector<GaiResolver>, PollingBody> {
     CONN_POOL.get_or_init(|| Client::builder(hyper_util::rt::TokioExecutor::new()).build_http())
 }
 
@@ -43,7 +40,7 @@ impl Flavor for HyperFlavor {
 }
 
 /// HTTP Service implementation
-impl Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperFlavor {
+impl Service<http::Request<PollingBody>> for HyperFlavor {
     type Response = Response<Incoming>;
     type Error = hyper_util::client::legacy::Error;
     type Future = ResponseFuture;
@@ -55,7 +52,7 @@ impl Service<http::Request<BoxBody<Bytes, Infallible>>> for HyperFlavor {
         get_conn_pool().poll_ready(cx)
     }
 
-    fn call(&mut self, req: http::Request<BoxBody<Bytes, Infallible>>) -> Self::Future {
+    fn call(&mut self, req: http::Request<PollingBody>) -> Self::Future {
         get_conn_pool().request(req)
     }
 }

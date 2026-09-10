@@ -294,6 +294,72 @@ async fn overflow_while_a_post_is_in_flight_waits_for_it() {
     assert!(res.is_ok());
 }
 
+/// Memory is bounded to one queued batch plus one packet: once a packet is
+/// held back behind a full batch while a POST is in flight, the sink is not
+/// ready until that POST completes and the batch is sent.
+#[tokio::test]
+async fn sink_applies_backpressure_behind_a_full_batch() {
+    let open = OpenPacket {
+        max_payload: 100,
+        ..mock::open_packet_no_upgrade()
+    };
+    let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+
+    let event = |c: char| EioEvent::Message(c.to_string().repeat(30).into());
+    /// Poll the sink readiness exactly once.
+    async fn poll_ready(client: &mut Client<mock::MockSvc>) -> Poll<bool> {
+        std::future::poll_fn(|cx: &mut Context<'_>| {
+            Poll::Ready(Pin::new(&mut *client).poll_ready(cx).map(|r| r.is_ok()))
+        })
+        .await
+    }
+
+    // Put a POST in flight, then fill the queued batch and overflow it.
+    client.feed(event('a')).await.unwrap();
+    std::future::poll_fn(|cx: &mut Context<'_>| {
+        let _ = Pin::new(&mut client).poll_flush(cx);
+        Poll::Ready(())
+    })
+    .await;
+    for c in ['b', 'c', 'd', 'e'] {
+        client.feed(event(c)).await.unwrap();
+    }
+
+    // 'e' is held back: the sink must not accept more until the POST completes.
+    assert_eq!(poll_ready(&mut client).await, Poll::Pending);
+
+    let first = server.next_post_parking_get().await;
+    assert_eq!(first.body, format!("4{}", "a".repeat(30)));
+    assert_eq!(
+        poll_ready(&mut client).await,
+        Poll::Pending,
+        "still in flight"
+    );
+    first.respond_ok();
+
+    // Once the in-flight POST completes, the full batch goes out and the
+    // held packet opens the next one.
+    let (res, _) = tokio::join!(client.flush().timeout(), async {
+        let second = server.next_post_parking_get().await;
+        assert_eq!(
+            second.packets(),
+            ['b', 'c', 'd']
+                .map(|c| Packet::Message(c.to_string().repeat(30).into()))
+                .to_vec()
+        );
+        second.respond_ok();
+        let third = server.next_post_parking_get().await;
+        assert_eq!(third.body, format!("4{}", "e".repeat(30)));
+        third.respond_ok();
+    });
+    res.unwrap();
+    assert_eq!(poll_ready(&mut client).await, Poll::Ready(true));
+}
+
 /// A single packet over `maxPayload` cannot be split: the reference client
 /// sends it anyway, the server rejects it (413) and the failure surfaces as
 /// a transport error — never a panic.
