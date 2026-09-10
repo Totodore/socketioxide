@@ -7,10 +7,10 @@ use std::{
 use bytes::{Buf, Bytes};
 use engineioxide_core::{
     OpenPacket, Packet, PacketParseError, ProtocolVersion, Sid, TransportType,
-    payload::{self, BufList},
+    payload::{BufList, V4Decoder},
 };
 use futures_core::Stream;
-use futures_util::{FutureExt, Sink, StreamExt};
+use futures_util::{FutureExt, Sink};
 use http::{Request, StatusCode, Uri, response};
 use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
@@ -23,15 +23,14 @@ use crate::{
 
 pin_project! {
     #[project = PollStateProj]
-    enum PollState<F> {
+    enum PollState<S: PollingSvc> {
         Pending {
             #[pin]
-            fut: F
+            fut: S::Future
         },
         Decoding {
-            //TODO: switch to concrete type
             #[pin]
-            stream: Pin<Box<dyn Stream<Item = Result<Packet, PacketParseError>>>>
+            stream: V4Decoder<S::Body>
         },
         /// Polling is paused (upgrade in progress): the last poll completed
         /// and no new one is issued until [`PollingTransport::resume`].
@@ -140,8 +139,8 @@ fn is_batch_overflowed(batch: &impl Buf, packet_size: usize, max_payload: usize)
     batch.has_remaining() && batch.remaining() + PACKET_SEPARATOR_LEN + packet_size > max_payload
 }
 
-impl<F> PollState<F> {
-    fn new_request<S: PollingSvc<Future = F>>(svc: &mut S, base_uri: &Uri, sid: Sid) -> Self {
+impl<S: PollingSvc> PollState<S> {
+    fn new_request(svc: &mut S, base_uri: &Uri, sid: Sid) -> Self {
         let uri = super::with_mandatory_query(base_uri, TransportType::Polling, Some(sid));
 
         let req = Request::builder()
@@ -283,7 +282,7 @@ pin_project! {
         pub(crate) svc: S,
 
         #[pin]
-        poll_state: PollState<S::Future>,
+        poll_state: PollState<S>,
 
         #[pin]
         post_state: PostState<S::Future>,
@@ -452,7 +451,6 @@ impl<S: PollingSvc> PollingTransport<S> {
             PollStateProj::Pending { ref mut fut } => match ready!(fut.as_mut().poll(cx)) {
                 Ok(res) => {
                     let (parts, body) = res.into_parts();
-                    let body = Box::pin(body);
 
                     if !parts.status.is_success() {
                         // best effort collect without state machine
@@ -465,9 +463,7 @@ impl<S: PollingSvc> PollingTransport<S> {
                         return Poll::Ready(Some(Err(PollingError::Protocol(error))));
                     }
 
-                    let stream =
-                        payload::decoder(body, None, ProtocolVersion::V4, self.max_payload)
-                            .boxed_local();
+                    let stream = V4Decoder::new(body, self.max_payload);
 
                     self.project()
                         .poll_state
@@ -712,7 +708,7 @@ impl<F> PostState<F> {
     }
 }
 
-impl<F> fmt::Debug for PollState<F> {
+impl<S: PollingSvc> fmt::Debug for PollState<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Pending { .. } => f.debug_struct("Pending").finish_non_exhaustive(),

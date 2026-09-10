@@ -45,7 +45,7 @@ pub trait PollingSvc:
     >
 {
     /// Response body type for the polling service.
-    type Body: http_body::Body<Error = Self::ResBodyError> + 'static;
+    type Body: http_body::Body<Error = Self::ResBodyError> + Unpin + 'static;
     /// Error type for the polling service.
     type Error: fmt::Debug + std::error::Error;
     /// Response body error type for the polling service.
@@ -57,7 +57,7 @@ where
     S: Service<Request<PollingBody>, Response = Response<B>>,
     <S as Service<Request<PollingBody>>>::Future: Unpin,
     <S as Service<Request<PollingBody>>>::Error: fmt::Debug + std::error::Error,
-    B: http_body::Body + 'static,
+    B: http_body::Body + Unpin + 'static,
     <B as http_body::Body>::Error: fmt::Debug + std::error::Error + 'static,
     <B as http_body::Body>::Data: Send + fmt::Debug + 'static,
 {
@@ -123,8 +123,6 @@ pub enum WsMessage {
 pin_project! {
     /// The body of a polling request: the queued packets and their separators,
     /// sent as one frame straight from the [`BufList`] they were queued in.
-    /// hyper writes the list vectored, so nothing is copied into a single
-    /// buffer.
     #[derive(Debug, Default)]
     pub struct PollingBody {
         #[pin]
@@ -133,14 +131,12 @@ pin_project! {
 }
 
 impl PollingBody {
-    /// A body made of the given buffers.
     pub(crate) fn new(inner: BufList<Bytes>) -> Self {
         Self {
             inner: Full::new(inner),
         }
     }
 
-    /// An empty body (e.g. for polling GET requests).
     pub(crate) fn new_empty() -> Self {
         Self::default()
     }
