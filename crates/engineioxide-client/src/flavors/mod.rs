@@ -4,16 +4,14 @@
 //! [`Flavor`] subtraits directly.
 
 use core::fmt;
-use std::{
-    convert::Infallible,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::convert::Infallible;
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use futures_core::Stream;
 use futures_util::Sink;
 use http::{Request, Response};
+use http_body_util::Full;
+use pin_project_lite::pin_project;
 use tower_service::Service;
 
 use engineioxide_core::{Str, TransportType, payload::BufList};
@@ -122,64 +120,52 @@ pub enum WsMessage {
     Close,
 }
 
-/// Body of any polling request
-pub struct PollingBody {
-    /// Queued packets and their separators,
-    /// streamed as they were queued without copying them into a single buffer.
-    ///
-    /// Every frame is one buffer of the list (a packet or a separator), handed
-    /// out by reference count.
-    inner: BufList<Bytes>,
-    /// Bytes left to yield, kept aside so the size hint and end-of-stream
-    /// checks are O(1) instead of walking the list.
-    remaining: u64,
+pin_project! {
+    /// The body of a polling request: the queued packets and their separators,
+    /// sent as one frame straight from the [`BufList`] they were queued in.
+    /// hyper writes the list vectored, so nothing is copied into a single
+    /// buffer.
+    #[derive(Debug, Default)]
+    pub struct PollingBody {
+        #[pin]
+        inner: Full<BufList<Bytes>>,
+    }
 }
 
 impl PollingBody {
+    /// A body made of the given buffers.
     pub(crate) fn new(inner: BufList<Bytes>) -> Self {
-        let remaining = inner.remaining() as u64;
-        Self { inner, remaining }
+        Self {
+            inner: Full::new(inner),
+        }
     }
+
+    /// An empty body (e.g. for polling GET requests).
     pub(crate) fn new_empty() -> Self {
-        Self::new(BufList::default())
+        Self::default()
     }
 }
 
 impl http_body::Body for PollingBody {
-    type Data = Bytes;
+    type Data = BufList<Bytes>;
     type Error = Infallible;
 
+    #[inline]
     fn poll_frame(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        let this = self.get_mut();
-        // the chunk is the whole front buffer: taking exactly its length pops
-        // it from the list without copying (`Bytes::copy_to_bytes` splits).
-        let len = this.inner.chunk().len();
-        if len == 0 {
-            debug_assert_eq!(this.remaining, 0);
-            return Poll::Ready(None);
-        }
-        let chunk = this.inner.copy_to_bytes(len);
-        this.remaining -= len as u64;
-        Poll::Ready(Some(Ok(http_body::Frame::data(chunk))))
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        self.project().inner.poll_frame(cx)
     }
 
+    #[inline]
     fn is_end_stream(&self) -> bool {
-        self.remaining == 0
+        self.inner.is_end_stream()
     }
 
+    #[inline]
     fn size_hint(&self) -> http_body::SizeHint {
-        http_body::SizeHint::with_exact(self.remaining)
-    }
-}
-
-impl fmt::Debug for PollingBody {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PollingBody")
-            .field("remaining", &self.remaining)
-            .finish_non_exhaustive()
+        self.inner.size_hint()
     }
 }
 
@@ -240,8 +226,9 @@ pub mod noop {
 
 #[cfg(test)]
 mod tests {
-    use std::{pin::pin, ptr};
+    use std::{io::IoSlice, pin::pin, ptr};
 
+    use bytes::Buf;
     use futures_util::FutureExt;
     use http_body::Body;
     use http_body_util::BodyExt;
@@ -256,42 +243,42 @@ mod tests {
         payload
     }
 
-    /// Each queued buffer is yielded as one frame, in order, without copying.
+    /// The queued buffers are sent as a single frame that still points to
+    /// the original buffers: nothing is copied.
     #[test]
     fn polling_body_yields_queued_buffers_without_copy() {
-        let list = payload(&["4hello", "\x1e", "4world"]);
-        let ptrs: Vec<*const u8> = ["4hello", "\x1e", "4world"]
-            .iter()
-            .map(|c| c.as_ptr())
-            .collect();
-        let mut body = pin!(PollingBody::new(list));
+        let chunks = ["4hello", "\x1e", "4world"];
+        let mut body = pin!(PollingBody::new(payload(&chunks)));
         assert_eq!(body.size_hint().exact(), Some(13));
         assert!(!body.is_end_stream());
 
-        let mut yielded = Vec::new();
-        while let Some(frame) = body
+        let frame = body
             .as_mut()
             .frame()
             .now_or_never()
             .expect("the body is always ready")
-        {
-            let data = frame.unwrap().into_data().unwrap();
-            assert_eq!(
-                body.size_hint().exact(),
-                Some(13 - yielded.iter().map(Bytes::len).sum::<usize>() as u64 - data.len() as u64)
+            .expect("one frame")
+            .unwrap();
+        let data = frame.into_data().unwrap();
+        assert_eq!(data.remaining(), 13);
+
+        let mut slices = [IoSlice::new(&[]); 4];
+        assert_eq!(
+            data.chunks_vectored(&mut slices),
+            3,
+            "one slice per queued buffer"
+        );
+        for (slice, chunk) in slices.iter().zip(chunks) {
+            assert_eq!(&slice[..], chunk.as_bytes());
+            assert!(
+                ptr::eq(slice.as_ptr(), chunk.as_ptr()),
+                "the frame must reuse the queued buffer"
             );
-            yielded.push(data);
         }
+
         assert!(body.is_end_stream());
         assert_eq!(body.size_hint().exact(), Some(0));
-        assert_eq!(yielded.len(), 3, "one frame per queued buffer");
-        for (data, ptr) in yielded.iter().zip(ptrs) {
-            assert!(
-                ptr::eq(data.as_ptr(), ptr),
-                "frame must reuse the queued buffer"
-            );
-        }
-        assert_eq!(yielded.concat(), b"4hello\x1e4world");
+        assert!(body.as_mut().frame().now_or_never().unwrap().is_none());
     }
 
     #[test]
@@ -303,9 +290,10 @@ mod tests {
 
     #[test]
     fn empty_polling_body_ends_immediately() {
-        let mut body = pin!(PollingBody::new(BufList::new()));
-        assert!(body.is_end_stream());
-        assert_eq!(body.size_hint().exact(), Some(0));
-        assert!(body.as_mut().frame().now_or_never().unwrap().is_none());
+        for mut body in [pin!(PollingBody::new_empty()), pin!(Bytes::new().into())] {
+            assert!(body.is_end_stream());
+            assert_eq!(body.size_hint().exact(), Some(0));
+            assert!(body.as_mut().frame().now_or_never().unwrap().is_none());
+        }
     }
 }
