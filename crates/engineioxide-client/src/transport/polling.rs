@@ -96,7 +96,7 @@ impl<F> PostState<F> {
         uri: &Uri,
         sid: Sid,
         payload: BufList<Bytes>,
-        rem: Option<Bytes>,
+        next: BufList<Bytes>,
     ) -> Self {
         let uri = super::with_mandatory_query(uri, TransportType::Polling, Some(sid));
         let req = Request::builder()
@@ -106,15 +106,9 @@ impl<F> PostState<F> {
             .unwrap();
 
         let fut = svc.call(req);
-
-        // The remaining data is the new pending payload
-        let mut payload = BufList::new();
-        if let Some(rem) = rem {
-            payload.push(rem);
-        }
         PostState::Pending {
             fut,
-            payload,
+            payload: next,
             overflow: None,
         }
     }
@@ -130,6 +124,14 @@ impl<F> PostState<F> {
             }
         )
     }
+}
+
+/// Append an encoded packet to `payload`, separated from the previous one.
+fn push_packet(payload: &mut BufList<Bytes>, packet: impl Into<Bytes>) {
+    if payload.has_remaining() {
+        payload.push(PACKET_SEPARATOR_V4);
+    }
+    payload.push(packet.into());
 }
 
 /// An empty batch always accepts the packet: a single packet over the
@@ -290,6 +292,10 @@ pin_project! {
         // set while upgrading: the in-flight poll completes normally but
         // no new poll is issued afterwards.
         paused: bool,
+        // A heartbeat pong that did not fit the queued batch while a POST
+        // was in flight: it opens the next batch. The pong has its own slot
+        // so it never consumes the readiness the sink granted to its writer.
+        pending_pong: bool,
 
         base_uri: Uri,
         max_payload: u64,
@@ -327,6 +333,7 @@ impl<S: PollingSvc> PollingTransport<S> {
                     post_state: PostState::default(),
                     close_state: ClosingState::default(),
                     paused: false,
+                    pending_pong: false,
                     sid: open.sid,
                     max_payload: open.max_payload,
                     base_uri: config.uri.clone(),
@@ -369,6 +376,48 @@ impl<S: PollingSvc> PollingTransport<S> {
         if matches!(self.poll_state, PollState::Paused) {
             self.poll_state = PollState::new_request(&mut self.svc, &self.base_uri, self.sid);
         }
+    }
+
+    /// Queue the heartbeat pong, outside of the [`Sink`].
+    ///
+    /// The sink has a single writer whose `poll_ready` reserves the one
+    /// held back slot, so the pong cannot go through it: it is appended to
+    /// the current batch when it fits, and otherwise waits in its own slot
+    /// to open the next batch once the in-flight request completes.
+    pub(super) fn queue_pong(mut self: Pin<&mut Self>) -> Result<(), PollingError<S>> {
+        if self.close_state != ClosingState::Open {
+            return Err(PollingError::Closed);
+        }
+        let packet_size = Packet::Pong.get_size_hint(true);
+        let max_payload = self.max_payload as usize;
+
+        let mut proj = self.as_mut().project();
+        match proj.post_state.as_mut().project() {
+            PostStateProj::Queuing { payload }
+                if is_batch_overflowed(payload, packet_size, max_payload) =>
+            {
+                let body = std::mem::take(payload);
+                let post_state = PostState::new_request(
+                    proj.svc,
+                    proj.base_uri,
+                    *proj.sid,
+                    body,
+                    BufList::new(),
+                );
+                proj.post_state.set(post_state);
+                proj.post_state.encode(Packet::Pong);
+            }
+            PostStateProj::Pending { payload, .. }
+                if is_batch_overflowed(payload, packet_size, max_payload) =>
+            {
+                *proj.pending_pong = true;
+            }
+            PostStateProj::Queuing { .. } | PostStateProj::Pending { .. } => {
+                proj.post_state.encode(Packet::Pong);
+            }
+            PostStateProj::Closed => return Err(PollingError::Closed),
+        }
+        Ok(())
     }
 }
 
@@ -464,8 +513,13 @@ impl<S: PollingSvc> PollingTransport<S> {
             PostStateProj::Queuing { payload } => {
                 let body = std::mem::take(payload);
                 let mut proj = self.project();
-                let post_state =
-                    PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body, None);
+                let post_state = PostState::new_request(
+                    proj.svc,
+                    proj.base_uri,
+                    *proj.sid,
+                    body,
+                    BufList::new(),
+                );
                 proj.post_state.set(post_state);
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -494,24 +548,38 @@ impl<S: PollingSvc> PollingTransport<S> {
                         let payload = std::mem::take(payload);
                         let overflow = overflow.take();
                         let mut proj = self.project();
-                        if !payload.has_remaining() {
-                            debug_assert!(overflow.is_none(), "overflow behind an empty batch");
-                            proj.post_state.set(PostState::default());
-                            Poll::Ready(Ok(()))
-                        } else {
+
+                        // whatever was held back opens the next batch
+                        let mut next = BufList::new();
+                        if std::mem::take(proj.pending_pong) {
+                            push_packet(&mut next, Packet::Pong);
+                        }
+                        if let Some(packet) = overflow {
+                            push_packet(&mut next, packet);
+                        }
+
+                        if payload.has_remaining() {
                             // the buffer was filled while the previous request was
-                            // in flight: POST it right away. The packet held back
-                            // behind it opens the next batch.
+                            // in flight: POST it right away.
                             let post_state = PostState::new_request(
                                 proj.svc,
                                 proj.base_uri,
                                 *proj.sid,
                                 payload,
-                                overflow,
+                                next,
                             );
                             proj.post_state.set(post_state);
                             cx.waker().wake_by_ref();
                             Poll::Pending
+                        } else if next.has_remaining() {
+                            // only held back packets remain: the flush continues
+                            // with them as the queued batch.
+                            proj.post_state.set(PostState::Queuing { payload: next });
+                            cx.waker().wake_by_ref();
+                            Poll::Pending
+                        } else {
+                            proj.post_state.set(PostState::default());
+                            Poll::Ready(Ok(()))
                         }
                     }
                     Err(err) => Poll::Ready(Err(PollingError::Http(err))),
@@ -531,7 +599,7 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
         }
         // backpressure: a packet is already held back behind a full queued
         // batch, wait for the in-flight request so the batch can be sent.
-        while self.post_state.is_saturated() {
+        if self.post_state.is_saturated() {
             ready!(self.as_mut().poll_flush(cx))?;
         }
         Poll::Ready(Ok(()))
@@ -556,8 +624,13 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
                         sending the current payload, current packet is deferred to the next batch"
                 );
                 let body = std::mem::take(payload);
-                let post_state =
-                    PostState::new_request(proj.svc, proj.base_uri, *proj.sid, body, None);
+                let post_state = PostState::new_request(
+                    proj.svc,
+                    proj.base_uri,
+                    *proj.sid,
+                    body,
+                    BufList::new(),
+                );
                 proj.post_state.set(post_state);
                 // the current packet opens the next batch
                 proj.post_state.encode(item);
@@ -623,14 +696,9 @@ impl<S: PollingSvc> Sink<Packet> for PollingTransport<S> {
 impl<F> PostState<F> {
     /// Append `item` to the batch currently being filled.
     fn encode(self: Pin<&mut Self>, item: Packet) {
-        let packet: Bytes = item.into();
-        let Some(payload) = self.payload() else {
-            return;
-        };
-        if payload.has_remaining() {
-            payload.push(PACKET_SEPARATOR_V4);
+        if let Some(payload) = self.payload() {
+            push_packet(payload, item);
         }
-        payload.push(packet);
     }
 
     /// The batch new packets are appended to, `None` once closed.

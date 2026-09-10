@@ -283,9 +283,9 @@ impl<S: TransportSvc> Client<S> {
 
         let mut proj = self.project();
         if *proj.pending_pong {
-            ready!(proj.transport.as_mut().poll_ready(cx))?;
+            // never through the sink: its readiness belongs to the user
+            ready!(proj.transport.as_mut().poll_queue_pong(cx))?;
             *proj.pending_pong = false;
-            proj.transport.as_mut().start_send(Packet::Pong)?;
         }
 
         // idempotent: continues an in-flight flush, or Ready immediately if clean

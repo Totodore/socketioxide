@@ -192,6 +192,23 @@ impl<S: TransportSvc> UpgradingTransport<S> {
         this.inbound.clear();
     }
 
+    /// Queue the heartbeat pong over the transport writes currently go to,
+    /// outside of the [`Sink`] (see [`PollingTransport::queue_pong`]).
+    pub(super) fn poll_queue_pong(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), ClientError<S>>> {
+        let upgrade_sent = self.upgrade_sent();
+        let this = self.project();
+        if upgrade_sent {
+            let mut ws = this.websocket;
+            ready!(ws.as_mut().poll_ready(cx)).map_err(ClientError::Websocket)?;
+            Poll::Ready(ws.start_send(Packet::Pong).map_err(ClientError::Websocket))
+        } else {
+            Poll::Ready(this.polling.queue_pong().map_err(ClientError::Polling))
+        }
+    }
+
     /// Once the upgrade packet is handed to the websocket, every later
     /// write goes over the websocket, ordered after the upgrade packet, so
     /// nothing is left behind in the polling transport.

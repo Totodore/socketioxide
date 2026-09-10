@@ -108,6 +108,34 @@ impl<S: TransportSvc> Transport<S> {
         }
     }
 
+    /// Queue the heartbeat pong.
+    ///
+    /// The pong never goes through the [`Sink`]: the sink has a single
+    /// writer (the user), and the pong must not consume the readiness the
+    /// sink granted to it.
+    pub(crate) fn poll_queue_pong(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), ClientError<S>>> {
+        match self.get_mut() {
+            Transport::Polling { inner } => {
+                Poll::Ready(Pin::new(inner).queue_pong().map_err(ClientError::Polling))
+            }
+            Transport::Upgrading { inner } => Pin::new(inner).poll_queue_pong(cx),
+            Transport::Websocket { inner } => {
+                // the websocket sink has room for every packet once connected
+                let mut inner = Pin::new(inner);
+                ready!(inner.as_mut().poll_ready(cx)).map_err(ClientError::Websocket)?;
+                Poll::Ready(
+                    inner
+                        .start_send(Packet::Pong)
+                        .map_err(ClientError::Websocket),
+                )
+            }
+            Transport::Switching => Poll::Ready(Err(ClientError::TransportClosed)),
+        }
+    }
+
     /// Tear the transport down: the session is over, nothing must be sent
     /// or received anymore. Closing afterwards is a no-op.
     pub(crate) fn terminate(&mut self) {

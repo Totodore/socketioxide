@@ -8,7 +8,11 @@
 //! The pong is emitted transparently by `Client::poll_next`: a `Ping` is
 //! intercepted, a `Pong` is sent and the `Ping` is never surfaced to the user.
 
-use std::time::{Duration, Instant};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
 
 use engineioxide::{
     TransportType,
@@ -16,7 +20,7 @@ use engineioxide::{
 };
 use engineioxide_client::{Client, EioEvent, EngineIoClientConfig};
 use engineioxide_core::{OpenPacket, Packet};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, StreamExt};
 
 use crate::mock::{
     self,
@@ -308,4 +312,90 @@ async fn heartbeat_keeps_connection_alive_websocket() {
         Some(Err(e)) => panic!("client stream error: {e:?}"),
         None => panic!("client stream ended before echo"),
     }
+}
+
+/// The heartbeat pong must not consume the readiness the sink granted to the
+/// user. Interleaving: a POST is in flight and the queued batch is full to
+/// the last byte; `poll_ready` says ready; the user polls the stream first,
+/// a `Ping` arrives and the pong is written; the user's `start_send` must
+/// still be accepted, and both packets must reach the server.
+#[tokio::test]
+async fn pong_does_not_consume_the_sink_readiness() {
+    let open = OpenPacket {
+        max_payload: 100,
+        ..mock::open_packet_no_upgrade()
+    };
+    let (mut client, mut server) = mock::connect_polling(&open, [TransportType::Polling]).await;
+    assert_eq!(
+        client.next_ok().timeout().await,
+        EioEvent::Connect(open.sid)
+    );
+    let msg = |c: char, n: usize| EioEvent::Message(c.to_string().repeat(n).into());
+
+    // A POST in flight ("4" + 30 bytes), surfaced to the server.
+    client.feed(msg('a', 30)).await.unwrap();
+    for _ in 0..2 {
+        std::future::poll_fn(|cx: &mut Context<'_>| {
+            let _ = Pin::new(&mut client).poll_flush(cx);
+            Poll::Ready(())
+        })
+        .await;
+    }
+    // The queued batch is exactly full: 49 + 1 + 49 = 99, one byte of room.
+    client.feed(msg('b', 48)).await.unwrap();
+    client.feed(msg('c', 48)).await.unwrap();
+
+    // The sink grants readiness to the user.
+    let ready = std::future::poll_fn(|cx: &mut Context<'_>| {
+        Poll::Ready(Pin::new(&mut client).poll_ready(cx).map(|r| r.is_ok()))
+    })
+    .await;
+    assert_eq!(ready, Poll::Ready(true));
+
+    // Meanwhile the user polls the stream, and the server pings: the pong
+    // (2 bytes with its separator) does not fit the queued batch.
+    let mut post = None;
+    let drive = async {
+        for _ in 0..2 {
+            match server.next_call().await {
+                mock::ServerCall::Http(c) if c.method == http::Method::POST => post = Some(c),
+                mock::ServerCall::Http(c) => c.respond_packets([Packet::Ping]),
+                mock::ServerCall::Ws(c) => panic!("unexpected ws connect: {:?}", c.req),
+            }
+        }
+    };
+    let poll_stream = async {
+        // no event is produced: the ping is answered transparently
+        let event = tokio::time::timeout(Duration::from_millis(100), client.next()).await;
+        assert!(event.is_err(), "unexpected event: {event:?}");
+    };
+    tokio::join!(drive, poll_stream);
+    let post = post.expect("the in-flight POST must have been issued");
+    assert_eq!(post.body, format!("4{}", "a".repeat(30)));
+
+    // The user honours the readiness it was granted.
+    Pin::new(&mut client)
+        .start_send(msg('d', 48))
+        .expect("the granted readiness must still be honoured");
+
+    let (res, _) = tokio::join!(client.flush().timeout(), async {
+        post.respond_ok();
+        let second = server.next_post_parking_get().await;
+        assert_eq!(
+            second.packets(),
+            [
+                Packet::Message("b".repeat(48).into()),
+                Packet::Message("c".repeat(48).into())
+            ]
+        );
+        second.respond_ok();
+        let third = server.next_post_parking_get().await;
+        assert_eq!(
+            third.packets(),
+            [Packet::Pong, Packet::Message("d".repeat(48).into())],
+            "the pong and the user's packet both reach the server"
+        );
+        third.respond_ok();
+    });
+    res.unwrap();
 }
