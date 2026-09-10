@@ -3,29 +3,29 @@
 //! There are two versions of the decoder:
 //! - v4_decoder: Decodes the payload stream according to the [engine.io v4 protocol](https://socket.io/fr/docs/v4/engine-io-protocol/#http-long-polling-1)
 //! - v3_decoder: Decodes the payload stream according to the [engine.io v3 protocol](https://github.com/socketio/engine.io-protocol/tree/v3#payload)
-//!
 
 use crate::{Packet, PacketParseError, ProtocolVersion};
-use futures_util::{Stream, StreamExt};
+use futures_util::Stream;
 
 use bytes::Buf;
 use http_body::Body;
-use http_body_util::BodyStream;
 use std::io::BufRead;
 
 use super::buf::BufList;
 
+#[cfg(feature = "v3")]
 struct Payload<B: Body + Unpin> {
-    body: BodyStream<B>,
+    body: http_body_util::BodyStream<B>,
     buffer: BufList<B::Data>,
     end_of_stream: bool,
     current_payload_size: u64,
 }
 
+#[cfg(feature = "v3")]
 impl<B: Body + Unpin> Payload<B> {
     fn new(body: B) -> Self {
         Self {
-            body: BodyStream::new(body),
+            body: http_body_util::BodyStream::new(body),
             buffer: BufList::new(),
             end_of_stream: false,
             current_payload_size: 0,
@@ -35,11 +35,14 @@ impl<B: Body + Unpin> Payload<B> {
 
 /// Polls the body stream for data and adds it to the chunk list in the state
 /// Returns an error if the packet length exceeds the maximum allowed payload size
+#[cfg(feature = "v3")]
 async fn poll_body<B, E>(state: &mut Payload<B>, max_payload: u64) -> Result<(), PacketParseError>
 where
     B: Body<Error = E> + Unpin,
     E: std::fmt::Debug,
 {
+    use futures_util::StreamExt;
+
     let data = match state.body.next().await.transpose() {
         Ok(Some(frame)) if frame.is_data() => Ok(frame
             .into_data()
@@ -64,60 +67,152 @@ where
     }
 }
 
-pub fn v4_decoder<B, E>(
+/// Decodes an engine.io v4 polling payload into packets.
+///
+/// Packets are separated by [`PACKET_SEPARATOR_V4`](super::PACKET_SEPARATOR_V4).
+/// Body chunks are kept as they arrive (no copy) until a full packet is
+/// available; only the bytes of the packet being assembled are gathered.
+pub struct V4Decoder<B: Body> {
     body: B,
+    buffer: BufList<B::Data>,
+    /// The packet being assembled: the bytes read so far before its separator.
+    packet_buf: Vec<u8>,
+    current_payload_size: u64,
     max_payload: u64,
-) -> impl Stream<Item = Result<Packet, PacketParseError>>
+    end_of_stream: bool,
+    /// Fused after a fatal error or the end of the payload.
+    done: bool,
+}
+
+impl<B> V4Decoder<B>
 where
-    B: Body<Error = E> + Unpin,
-    E: std::fmt::Debug,
+    B: Body + Unpin,
+    B::Error: std::fmt::Debug,
 {
-    use super::PACKET_SEPARATOR_V4;
-    #[cfg(feature = "tracing")]
-    tracing::debug!("decoding payload with v4 decoder");
+    /// Decode `body` as a v4 payload of at most `max_payload` bytes.
+    pub fn new(body: B, max_payload: u64) -> Self {
+        #[cfg(feature = "tracing")]
+        tracing::debug!("decoding payload with v4 decoder");
+        Self {
+            body,
+            buffer: BufList::new(),
+            packet_buf: Vec::new(),
+            current_payload_size: 0,
+            max_payload,
+            end_of_stream: false,
+            done: false,
+        }
+    }
 
-    let state = Payload::new(body);
+    /// Move the next packet's bytes out of the buffer into `packet_buf`.
+    /// `Some` once a separator is reached: the packet is complete.
+    fn read_packet(&mut self) -> Option<Result<Packet, PacketParseError>> {
+        use super::PACKET_SEPARATOR_V4;
+        if let Err(_err) = (&mut self.buffer)
+            .reader()
+            .read_until(PACKET_SEPARATOR_V4, &mut self.packet_buf)
+        {
+            #[cfg(feature = "tracing")]
+            tracing::debug!("failed to read packet payload: {_err}");
+            return Some(Err(PacketParseError::InvalidPacketPayload));
+        }
+        if self.packet_buf.last() == Some(&PACKET_SEPARATOR_V4) {
+            self.packet_buf.pop();
+            Some(Self::parse(std::mem::take(&mut self.packet_buf)))
+        } else {
+            None
+        }
+    }
 
-    futures_util::stream::unfold(state, move |mut state| async move {
-        let mut packet_buf: Vec<u8> = Vec::new();
-        loop {
-            // Read data from the body stream into the buffer
-            if !state.end_of_stream
-                && let Err(e) = poll_body(&mut state, max_payload).await
-            {
-                break Some((Err(e), state));
+    fn parse(packet: Vec<u8>) -> Result<Packet, PacketParseError> {
+        String::from_utf8(packet)
+            .map_err(PacketParseError::from)
+            .and_then(|v| Packet::parse(ProtocolVersion::V4, v))
+    }
+
+    /// Buffer one body frame, or record the end of the payload.
+    fn push_frame(
+        &mut self,
+        frame: Option<Result<http_body::Frame<B::Data>, B::Error>>,
+    ) -> Result<(), PacketParseError> {
+        let data = match frame {
+            Some(Ok(frame)) => match frame.into_data() {
+                Ok(data) => data,
+                // trailers: nothing more to decode
+                Err(_) => {
+                    self.end_of_stream = true;
+                    return Ok(());
+                }
+            },
+            None => {
+                self.end_of_stream = true;
+                return Ok(());
             }
-
-            // Read from the buffer until the packet separator is found
-            if let Err(_err) = (&mut state.buffer)
-                .reader()
-                .read_until(PACKET_SEPARATOR_V4, &mut packet_buf)
-            {
+            Some(Err(_e)) => {
                 #[cfg(feature = "tracing")]
-                tracing::debug!("failed to read packet payload: {_err}");
-
-                break Some((Err(PacketParseError::InvalidPacketPayload), state));
+                tracing::debug!("error reading body stream: {:?}", _e);
+                return Err(PacketParseError::InvalidPacketPayload);
             }
+        };
+        let len = data.remaining() as u64;
+        if self.current_payload_size + len > self.max_payload {
+            return Err(PacketParseError::PayloadTooLarge {
+                max: self.max_payload,
+            });
+        }
+        self.current_payload_size += len;
+        self.buffer.push(data);
+        Ok(())
+    }
+}
 
-            let separator_found = packet_buf.ends_with(&[PACKET_SEPARATOR_V4]);
+// No field is pinned: the body is `Unpin` and everything else is owned data.
+impl<B: Body + Unpin> Unpin for V4Decoder<B> {}
 
-            if separator_found {
-                packet_buf.pop(); // Remove the separator from the packet buffer
+impl<B> Stream for V4Decoder<B>
+where
+    B: Body + Unpin,
+    B::Error: std::fmt::Debug,
+{
+    type Item = Result<Packet, PacketParseError>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use std::task::{Poll, ready};
+
+        let this = self.get_mut();
+        if this.done {
+            return Poll::Ready(None);
+        }
+        loop {
+            // a complete packet may already be buffered
+            if let Some(packet) = this.read_packet() {
+                return Poll::Ready(Some(packet));
             }
-
-            // Check if a complete packet is found or reached end of stream with remaining data
-            if separator_found
-                || (state.end_of_stream && state.buffer.remaining() == 0 && !packet_buf.is_empty())
-            {
-                let packet = String::from_utf8(packet_buf)
-                    .map_err(PacketParseError::from)
-                    .and_then(|v| Packet::parse(ProtocolVersion::V4, v)); // Convert the packet buffer to a Packet object
-                break Some((packet, state)); // Emit the packet and the updated state
-            } else if state.end_of_stream && state.buffer.remaining() == 0 {
-                break None; // Reached end of stream with no more data, end the stream
+            if this.end_of_stream {
+                this.done = true;
+                // the last packet has no trailing separator
+                let last = std::mem::take(&mut this.packet_buf);
+                return Poll::Ready((!last.is_empty()).then(|| Self::parse(last)));
+            }
+            let frame = ready!(std::pin::Pin::new(&mut this.body).poll_frame(cx));
+            if let Err(err) = this.push_frame(frame) {
+                this.done = true;
+                return Poll::Ready(Some(Err(err)));
             }
         }
-    })
+    }
+}
+
+/// Decode `body` as an engine.io v4 payload. See [`V4Decoder`].
+pub fn v4_decoder<B>(body: B, max_payload: u64) -> V4Decoder<B>
+where
+    B: Body + Unpin,
+    B::Error: std::fmt::Debug,
+{
+    V4Decoder::new(body, max_payload)
 }
 
 #[cfg(feature = "v3")]
@@ -398,6 +493,14 @@ mod tests {
     use super::*;
 
     const MAX_PAYLOAD: u64 = 100_000;
+
+    /// The v4 decoder is a concrete type: `Send` whenever its body is, so it
+    /// can cross task boundaries without boxing.
+    #[test]
+    fn v4_decoder_is_send_and_unpin() {
+        fn assert_send_unpin<T: Send + Unpin>() {}
+        assert_send_unpin::<V4Decoder<Full<Bytes>>>();
+    }
 
     #[tokio::test]
     async fn payload_iterator_v4() {

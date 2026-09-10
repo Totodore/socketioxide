@@ -1,0 +1,179 @@
+//! A testing flavor that wraps an inner service and provides a [`Flavor`] implementation.
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use engineioxide_core::TransportType;
+use futures_core::{future::BoxFuture, ready};
+use futures_util::FutureExt;
+use pin_project_lite::pin_project;
+use tokio::io;
+use tokio_tungstenite::tungstenite::protocol::Role;
+use tower_service::Service;
+
+use crate::flavors::{Flavor, PollingBody, PollingSvc, hyper_tungstenite::TokioTungsteniteWS};
+
+/// Trait alias for [`TestingFlavor`] inner service.
+///
+/// Typically this will be satisfied by the engineioxide service.
+pub(crate) trait EngineSvc:
+    PollingSvc<Body: http_body::Body<Data: Send + std::fmt::Debug + 'static>>
+    + Service<
+        (DuplexStream, http::Request<()>),
+        Response = (),
+        Error: std::error::Error + Send + 'static,
+        Future: Send,
+    > + Send
+    + Clone
+    + 'static
+{
+}
+
+impl<Svc> EngineSvc for Svc where
+    Svc: PollingSvc<Body: http_body::Body<Data: Send + std::fmt::Debug + 'static>>
+        + Service<
+            (DuplexStream, http::Request<()>),
+            Response = (),
+            Error: std::error::Error + Send + 'static,
+            Future: Send,
+        > + Send
+        + Clone
+        + 'static
+{
+}
+
+/// A testing flavor that wraps an inner service and provides a [`Flavor`] implementation.
+#[derive(Debug, Clone)]
+pub struct TestingFlavor<Svc> {
+    inner: Svc,
+}
+impl<Svc> TestingFlavor<Svc> {
+    /// Creates a new `TestingFlavor` with the given inner service.
+    pub fn new(inner: Svc) -> Self {
+        Self { inner }
+    }
+}
+impl<Svc> From<Svc> for TestingFlavor<Svc> {
+    fn from(inner: Svc) -> Self {
+        Self { inner }
+    }
+}
+
+impl<Svc> Flavor for TestingFlavor<Svc> {
+    const SUPPORTED_TRANSPORTS: &'static [TransportType] =
+        &[TransportType::Polling, TransportType::Websocket];
+}
+
+/// HTTP Service implementation
+impl<Svc> Service<http::Request<PollingBody>> for TestingFlavor<Svc>
+where
+    Svc: Service<http::Request<PollingBody>>,
+    Svc: Clone,
+{
+    type Response = Svc::Response;
+    type Error = Svc::Error;
+    type Future = Svc::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<PollingBody>) -> Self::Future {
+        self.inner.clone().call(req)
+    }
+}
+
+/// Websocket service implementation
+impl<Svc, E, Fut> Service<http::Request<()>> for TestingFlavor<Svc>
+where
+    Svc: Service<(DuplexStream, http::Request<()>), Response = (), Error = E, Future = Fut> + Clone,
+    Svc: Clone + Send + 'static,
+    E: std::error::Error + Send + 'static,
+    Fut: Future<Output = Result<Svc::Response, Svc::Error>> + Send,
+{
+    type Response = TokioTungsteniteWS<DuplexStream>;
+    type Error = tokio_tungstenite::tungstenite::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner
+            .poll_ready(cx)
+            .map_err(|e| tokio_tungstenite::tungstenite::Error::Io(io::Error::other(e.to_string())))
+    }
+
+    fn call(&mut self, req: http::Request<()>) -> Self::Future {
+        let mut svc = self.inner.clone();
+        let (client, server) = DuplexStream::new();
+        tracing::debug!("initializing duplex stream");
+
+        async move {
+            svc.call((server, req))
+                .await
+                .map_err(|e| io::Error::other(e.to_string()))?;
+
+            tracing::debug!("server connected, wiring websocket client");
+
+            let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+                client,
+                Role::Client,
+                Default::default(),
+            )
+            .await;
+
+            tracing::debug!("stub ws client wired up");
+
+            Ok(TokioTungsteniteWS::from(ws))
+        }
+        .boxed()
+    }
+}
+pin_project! {
+    /// A wrapper around [`io::DuplexStream`] to simulate a TCP stream
+    /// for websocket mocking.
+    pub struct DuplexStream {
+        #[pin]
+        inner: io::DuplexStream,
+    }
+}
+impl DuplexStream {
+    fn new() -> (DuplexStream, DuplexStream) {
+        let (st1, st2) = io::duplex(usize::MAX);
+        let st1 = DuplexStream { inner: st1 };
+        let st2 = DuplexStream { inner: st2 };
+        (st1, st2)
+    }
+}
+
+impl io::AsyncRead for DuplexStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        self.project().inner.poll_read(cx, buf)
+    }
+}
+
+impl io::AsyncWrite for DuplexStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        let len = buf.len();
+
+        // Drop the error to match a real TCP socket which won't
+        // immediately error on close.
+        let _ = ready!(self.project().inner.poll_write(cx, buf));
+        Poll::Ready(Ok(len))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}

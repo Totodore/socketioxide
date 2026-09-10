@@ -174,6 +174,11 @@ impl From<Packet> for Bytes {
         String::from(value).into()
     }
 }
+impl From<Packet> for Str {
+    fn from(value: Packet) -> Self {
+        Str::from(String::from(value))
+    }
+}
 
 /// Serialize a [Packet] to a [String] according to the Engine.IO protocol
 impl From<Packet> for String {
@@ -223,6 +228,7 @@ impl Packet {
             .ok_or(PacketParseError::InvalidPacketType(None))?;
         let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
         let res = match packet_type {
+            b'0' => Packet::Open(serde_json::from_slice(&value.as_bytes()[1..])?),
             b'1' => Packet::Close,
             b'2' if is_upgrade => Packet::PingUpgrade,
             b'2' => Packet::Ping,
