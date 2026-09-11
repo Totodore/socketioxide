@@ -30,6 +30,8 @@ pub mod heartbeat;
 #[cfg(feature = "remote-adapter")]
 pub mod remote_packet;
 #[cfg(feature = "remote-adapter")]
+pub mod request;
+#[cfg(feature = "remote-adapter")]
 pub mod stream;
 
 /// A room identifier
@@ -726,7 +728,7 @@ pub struct RemoteSocketData {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
 
     use smallvec::smallvec;
     use std::{
@@ -737,12 +739,12 @@ mod test {
 
     use super::*;
 
-    struct StubSockets {
+    pub(crate) struct StubSockets {
         sockets: HashSet<Sid>,
         path: Str,
     }
     impl StubSockets {
-        fn new(sockets: &[Sid]) -> Self {
+        pub(crate) fn new(sockets: &[Sid]) -> Self {
             let sockets = HashSet::from_iter(sockets.iter().copied());
             Self {
                 sockets,
@@ -751,7 +753,7 @@ mod test {
         }
     }
 
-    struct StubAckStream;
+    pub(crate) struct StubAckStream;
     impl Stream for StubAckStream {
         type Item = (Sid, Result<Value, StubError>);
         fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -764,7 +766,7 @@ mod test {
         }
     }
     #[derive(Debug, Serialize, Deserialize)]
-    struct StubError;
+    pub(crate) struct StubError;
     impl std::fmt::Display for StubError {
         fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             Ok(())
@@ -825,7 +827,9 @@ mod test {
         }
     }
 
-    fn create_adapter<const S: usize>(sockets: [Sid; S]) -> CoreLocalAdapter<StubSockets> {
+    pub(crate) fn create_adapter<const S: usize>(
+        sockets: [Sid; S],
+    ) -> CoreLocalAdapter<StubSockets> {
         CoreLocalAdapter::new(StubSockets::new(&sockets))
     }
 

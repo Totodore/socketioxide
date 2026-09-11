@@ -154,9 +154,12 @@ use futures_core::Stream;
 use futures_util::{StreamExt, future::Either};
 use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::adapter::remote_packet::{
-    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
+    RequestIn, RequestOut, RequestTypeOut, Response, ResponseTypeId,
 };
-use socketioxide_core::adapter::stream::{AckStream, DropStream, ResponseHandlers};
+use socketioxide_core::adapter::request::RemoteRequestHandler;
+use socketioxide_core::adapter::stream::{
+    AckStream, ResponseHandlers, insert_response_handler, wait_responses,
+};
 use socketioxide_core::{
     Sid, Uid,
     adapter::errors::{AdapterError, BroadcastError},
@@ -166,7 +169,7 @@ use socketioxide_core::{
     },
     packet::Packet,
 };
-use tokio::{sync::mpsc, time};
+use tokio::sync::mpsc;
 
 /// Drivers are an abstraction over the pub/sub backend used by the adapter.
 /// You can use the provided implementation or implement your own.
@@ -697,7 +700,7 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
     ) {
         while let Some((chan, item)) = stream.next().await {
             if chan.starts_with(&self.req_chan) {
-                if let Err(e) = self.recv_req(item) {
+                if let Err(e) = self.recv_item(item) {
                     let ns = self.local.path();
                     let uid = self.uid;
                     tracing::warn!(?uid, ?ns, "request handler error: {e}");
@@ -719,135 +722,11 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         }
     }
 
-    /// Handle a generic request received from the request channel.
-    fn recv_req(self: &Arc<Self>, item: Vec<u8>) -> Result<(), Error<R>> {
+    /// Decode a request received from the request channel and handle it.
+    fn recv_item(self: &Arc<Self>, item: Vec<u8>) -> Result<(), Error<R>> {
         let req: RequestIn = rmp_serde::from_slice(&item)?;
-        if req.node_id == self.uid {
-            return Ok(());
-        }
-
-        tracing::trace!(?req, "handling request");
-        let Some(opts) = req.opts else {
-            tracing::warn!(?req, "request is missing options");
-            return Ok(());
-        };
-
-        match req.r#type {
-            RequestTypeIn::Broadcast(p) => self.recv_broadcast(opts, p),
-            RequestTypeIn::BroadcastWithAck(p) => {
-                self.clone()
-                    .recv_broadcast_with_ack(req.node_id, req.id, p, opts)
-            }
-            RequestTypeIn::DisconnectSockets => self.recv_disconnect_sockets(opts),
-            RequestTypeIn::AllRooms => self.recv_rooms(req.node_id, req.id, opts),
-            RequestTypeIn::AddSockets(rooms) => self.recv_add_sockets(opts, rooms),
-            RequestTypeIn::DelSockets(rooms) => self.recv_del_sockets(opts, rooms),
-            RequestTypeIn::FetchSockets => self.recv_fetch_sockets(req.node_id, req.id, opts),
-            _ => (),
-        };
+        <Self as RemoteRequestHandler<E>>::recv_req(self, req);
         Ok(())
-    }
-
-    fn recv_broadcast(&self, opts: BroadcastOptions, packet: Packet) {
-        if let Err(e) = self.local.broadcast(packet, opts) {
-            let ns = self.local.path();
-            tracing::warn!(?self.uid, ?ns, "remote request broadcast handler: {:?}", e);
-        }
-    }
-
-    fn recv_disconnect_sockets(&self, opts: BroadcastOptions) {
-        if let Err(e) = self.local.disconnect_socket(opts) {
-            let ns = self.local.path();
-            tracing::warn!(
-                ?self.uid,
-                ?ns,
-                "remote request disconnect sockets handler: {:?}",
-                e
-            );
-        }
-    }
-
-    fn recv_broadcast_with_ack(
-        self: Arc<Self>,
-        origin: Uid,
-        req_id: Sid,
-        packet: Packet,
-        opts: BroadcastOptions,
-    ) {
-        let (stream, count) = self.local.broadcast_with_ack(packet, opts, None);
-        tokio::spawn(async move {
-            let on_err = |err| {
-                let ns = self.local.path();
-                tracing::warn!(
-                    ?origin,
-                    ?ns,
-                    "remote request broadcast with ack handler errors: {:?}",
-                    err
-                );
-            };
-            // First send the count of expected acks to the server that sent the request.
-            // This is used to keep track of the number of expected acks.
-            let res = Response {
-                r#type: ResponseType::<()>::BroadcastAckCount(count),
-                node_id: self.uid,
-            };
-            if let Err(err) = self.send_res(origin, req_id, res).await {
-                on_err(err);
-                return;
-            }
-
-            // Then send the acks as they are received.
-            futures_util::pin_mut!(stream);
-            while let Some(ack) = stream.next().await {
-                let res = Response {
-                    r#type: ResponseType::BroadcastAck(ack),
-                    node_id: self.uid,
-                };
-                if let Err(err) = self.send_res(origin, req_id, res).await {
-                    on_err(err);
-                    return;
-                }
-            }
-        });
-    }
-
-    fn recv_rooms(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
-        let rooms = self.local.rooms(opts);
-        let res = Response {
-            r#type: ResponseType::<()>::AllRooms(rooms),
-            node_id: self.uid,
-        };
-        let fut = self.send_res(origin, req_id, res);
-        let ns = self.local.path().clone();
-        let uid = self.uid;
-        tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                tracing::warn!(?uid, ?ns, "remote request rooms handler: {:?}", err);
-            }
-        });
-    }
-
-    fn recv_add_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
-        self.local.add_sockets(opts, rooms);
-    }
-
-    fn recv_del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
-        self.local.del_sockets(opts, rooms);
-    }
-    fn recv_fetch_sockets(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
-        let sockets = self.local.fetch_sockets(opts);
-        let res = Response {
-            node_id: self.uid,
-            r#type: ResponseType::FetchSockets(sockets),
-        };
-        let fut = self.send_res(origin, req_id, res);
-        let ns = self.local.path().clone();
-        let uid = self.uid;
-        tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                tracing::warn!(?uid, ?ns, "remote request fetch sockets handler: {:?}", err);
-            }
-        });
     }
 
     async fn send_req(&self, req: RequestOut<'_>, target_uid: Option<Uid>) -> Result<(), Error<R>> {
@@ -860,28 +739,6 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
             .map_err(Error::from_driver)?;
 
         Ok(())
-    }
-
-    fn send_res<D: Serialize + fmt::Debug>(
-        &self,
-        req_node_id: Uid,
-        req_id: Sid,
-        res: Response<D>,
-    ) -> impl Future<Output = Result<(), Error<R>>> + Send + 'static {
-        let chan = self.get_res_chan(req_node_id);
-        tracing::trace!(?res, "sending response to {}", &chan);
-        // We send the req_id separated from the response object.
-        // This allows to partially decode the response and route by the req_id
-        // before fully deserializing it.
-        let res = rmp_serde::to_vec(&(req_id, res));
-        let driver = self.driver.clone();
-        async move {
-            driver
-                .publish(chan, res?)
-                .await
-                .map_err(Error::from_driver)?;
-            Ok(())
-        }
     }
 
     /// Await for all the responses from the remote servers.
@@ -897,24 +754,25 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
         } else {
             1
         };
-        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
-        self.responses.lock().unwrap().insert(req_id, tx);
-        let stream = MessageStream::new(rx)
-            .filter_map(|item| {
-                let data = match rmp_serde::from_slice::<(Sid, Response<D>)>(&item) {
-                    Ok((_, data)) => Some(data),
-                    Err(e) => {
-                        tracing::warn!("error decoding response: {e}");
-                        None
-                    }
-                };
-                future::ready(data)
-            })
-            .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
-            .take(remote_serv_cnt)
-            .take_until(time::sleep(self.config.request_timeout));
-        let stream = DropStream::new(stream, self.responses.clone(), req_id);
-        Ok(stream)
+        let rx = insert_response_handler(&self.responses, req_id, remote_serv_cnt);
+        let stream = MessageStream::new(rx).filter_map(|item| {
+            let data = match rmp_serde::from_slice::<(Sid, Response<D>)>(&item) {
+                Ok((_, data)) => Some(data),
+                Err(e) => {
+                    tracing::warn!("error decoding response: {e}");
+                    None
+                }
+            };
+            future::ready(data)
+        });
+        Ok(wait_responses(
+            stream,
+            self.responses.clone(),
+            req_id,
+            response_type,
+            remote_serv_cnt,
+            self.config.request_timeout,
+        ))
     }
 
     /// Little wrapper to map the error type.
@@ -925,6 +783,36 @@ impl<E: SocketEmitter, R: Driver> CustomRedisAdapter<E, R> {
             .subscribe(pat, self.config.stream_buffer)
             .await
             .map_err(InitError::Driver)
+    }
+}
+
+impl<E: SocketEmitter, R: Driver> RemoteRequestHandler<E> for CustomRedisAdapter<E, R> {
+    type Error = Error<R>;
+
+    fn local(&self) -> &CoreLocalAdapter<E> {
+        &self.local
+    }
+
+    fn send_res<D: Serialize + fmt::Debug + Send + 'static>(
+        &self,
+        req_id: Sid,
+        req_origin: Uid,
+        res: Response<D>,
+    ) -> impl Future<Output = Result<(), Error<R>>> + Send + 'static {
+        let chan = self.get_res_chan(req_origin);
+        tracing::trace!(?res, "sending response to {}", &chan);
+        // We send the req_id separated from the response object.
+        // This allows to partially decode the response and route by the req_id
+        // before fully deserializing it.
+        let res = rmp_serde::to_vec(&(req_id, res));
+        let driver = self.driver.clone();
+        async move {
+            driver
+                .publish(chan, res?)
+                .await
+                .map_err(Error::from_driver)?;
+            Ok(())
+        }
     }
 }
 
