@@ -506,7 +506,13 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
         let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
         let req_id = req.id;
 
-        let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
+        // When the request targets a specific server, only this server will answer,
+        // otherwise all the other servers will.
+        let remote_serv_cnt = if opts.server_id.is_none() {
+            self.server_count().await?.saturating_sub(1)
+        } else {
+            1
+        };
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
