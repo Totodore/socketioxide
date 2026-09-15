@@ -270,16 +270,23 @@ describe("Engine.IO protocol", () => {
       it("should forcefully close the session", async () => {
         const sid = await initLongPollingSession();
 
-        const [pollResponse] = await Promise.all([
-          fetch(`${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`),
-          fetch(
-            `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
-            {
-              method: "post",
-              body: "1",
-            },
-          ),
-        ]);
+        // start the poll request and give it time to reach the server before
+        // sending the close packet, otherwise the session may be closed before
+        // the poll request is registered and it would get a 400 instead of a noop
+        const pollPromise = fetch(
+          `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
+        );
+        await sleep(100);
+
+        await fetch(
+          `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
+          {
+            method: "post",
+            body: "1",
+          },
+        );
+
+        const pollResponse = await pollPromise;
 
         assert.equal(pollResponse.status, 200);
 
