@@ -51,6 +51,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 # Testing
 engineioxide = { path = "../engineioxide", features = ["tracing"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 
 [features]

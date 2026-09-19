@@ -1,4 +1,53 @@
 //! A testing flavor that wraps an inner service and provides a [`Flavor`] implementation.
+//!
+//! You can typically use it with the engineioxide crate:
+//!
+//! ```
+//! # #[tokio::main]
+//! # async fn main() {
+//! # use std::sync::Arc;
+//! # use bytes::Bytes;
+//! # use engineioxide::{
+//! #     DisconnectReason, Socket, Str, TransportType, handler::EngineIoHandler,
+//! #     service::EngineIoService,
+//! # };
+//! # use engineioxide_client::{Client, EioEvent};
+//! # use futures_util::{SinkExt, StreamExt};
+//! #[derive(Debug, Clone)]
+//! struct MyHandler;
+//!
+//! impl EngineIoHandler for MyHandler {
+//!     type Data = ();
+//!
+//!     fn on_connect(self: Arc<Self>, socket: Arc<Socket<Self::Data>>) {
+//!         socket.emit("hi!").unwrap();
+//!     }
+//!
+//!     fn on_disconnect(&self, _socket: Arc<Socket<Self::Data>>, _reason: DisconnectReason) {}
+//!
+//!     fn on_message(self: &Arc<Self>, msg: Str, _socket: Arc<Socket<Self::Data>>) {
+//!         assert_eq!(msg, "Hello!");
+//!     }
+//!
+//!     fn on_binary(self: &Arc<Self>, _data: Bytes, _socket: Arc<Socket<Self::Data>>) {}
+//! }
+//!
+//! // create an engineio service with your handler
+//! let svc = EngineIoService::new(Arc::new(MyHandler));
+//!
+//! // give the service to the client conn with the options you want.
+//! let client = Client::connect_with_testbed(svc, [TransportType::Websocket])
+//!     .await
+//!     .unwrap();
+//!
+//! let (mut tx, mut rx) = client.split();
+//! assert!(matches!(rx.next().await, Some(Ok(EioEvent::Connect(_)))));
+//! assert!(matches!(rx.next().await, Some(Ok(EioEvent::Message(msg))) if msg == "hi!"));
+//! tx.send(EioEvent::Message("Hello!".into())).await.unwrap();
+//! tx.close().await.unwrap();
+//! # }
+//! ```
+
 use std::{
     pin::Pin,
     task::{Context, Poll},

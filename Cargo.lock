@@ -853,7 +853,6 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
- "http-body-util",
  "hyper",
  "hyper-util",
  "pin-project-lite",
