@@ -10,7 +10,8 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 /// It implements the `Buf` trait itself so that it can be used as a
 /// `Buf` in the `Payload` struct.
 ///
-/// This implementation is based on the private [`BufList`](https://github.com/hyperium/hyper/blob/d977f209bc6068d8f878b22803fc42d90c887fcc/src/common/buf.rs) mod from the [`hyper`](hyper) crate.
+/// This implementation is based on the private [`BufList`](https://github.com/hyperium/hyper/blob/d977f209bc6068d8f878b22803fc42d90c887fcc/src/common/buf.rs)
+/// mod from the hyper crate.
 #[derive(Debug)]
 pub struct BufList<T> {
     bufs: VecDeque<T>,

@@ -19,7 +19,7 @@ pub use crate::client::Client;
 pub use config::{EngineIoClientConfig, EngineIoClientConfigBuilder};
 pub use engineioxide_core::{Packet, Sid, Str, TransportType};
 pub use errors::{ClientError, ConnectError};
-pub use transport::{PollingError, ProtocolError, UpgradeError, WsError};
+pub use transport::{PollingError, ProtocolError, WsError};
 
 use bytes::Bytes;
 

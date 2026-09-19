@@ -69,7 +69,7 @@ where
 
 /// Decodes an engine.io v4 polling payload into packets.
 ///
-/// Packets are separated by [`PACKET_SEPARATOR_V4`](super::PACKET_SEPARATOR_V4).
+/// Packets are separated by a `\x1e` special char.
 /// Body chunks are kept as they arrive (no copy) until a full packet is
 /// available; only the bytes of the packet being assembled are gathered.
 pub struct V4Decoder<B: Body> {

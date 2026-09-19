@@ -21,7 +21,7 @@ use crate::{
 
 pub use polling::{PollingError, ProtocolError};
 use upgrading::Side;
-pub use upgrading::{UpgradeError, UpgradingTransport};
+use upgrading::{UpgradeError, UpgradingTransport};
 pub use ws::WsError;
 
 mod polling;

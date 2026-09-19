@@ -118,7 +118,7 @@ enum UpgradeHandshakeState {
     Failed,
 }
 
-/// Error emitted by the [`UpgradingTransport`] stream when the upgrade
+/// Error emitted when upgrading the transport when the upgrade
 /// cannot complete.
 #[derive(thiserror::Error)]
 pub enum UpgradeError<S: TransportSvc> {
