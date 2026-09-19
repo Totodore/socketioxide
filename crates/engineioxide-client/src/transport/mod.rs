@@ -323,7 +323,6 @@ fn with_mandatory_query(base_uri: &Uri, transport: TransportType, sid: Option<Si
     Uri::from_parts(parts).expect("base uri should produce a valid uri")
 }
 
-//TODO: invalid scheme err
 fn is_uri_secure(uri: &Uri) -> Option<bool> {
     match uri.scheme_str()? {
         "http" | "ws" => Some(false),

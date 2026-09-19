@@ -624,17 +624,14 @@ async fn split_halves_on_separate_tasks_complete_the_upgrade() {
     assert_eq!(rx.next_ok().timeout().await, Event::Connect(sid));
     let (mut tx, mut stream) = client.split::<EioEvent>();
 
-    // Distinct tasks (hence distinct wakers) on the same thread: the client
-    // is not `Send`.
-    let local = tokio::task::LocalSet::new();
-    let writer = local.spawn_local(async move {
+    let writer = tokio::spawn(async move {
         tx.send(EioEvent::Message("from-writer".into()))
             .timeout()
             .await
             .unwrap();
         tx
     });
-    let reader = local.spawn_local(async move {
+    let reader = tokio::spawn(async move {
         loop {
             match stream.next_ok().timeout().await {
                 EioEvent::Message(msg) if msg == "from-writer" => break stream,
@@ -642,12 +639,8 @@ async fn split_halves_on_separate_tasks_complete_the_upgrade() {
             }
         }
     });
-    local
-        .run_until(async {
-            let _tx = writer.await.unwrap();
-            let _stream = reader.await.unwrap();
-        })
-        .await;
+    let _tx = writer.await.unwrap();
+    let _stream = reader.await.unwrap();
     assert_eq!(
         rx.next_ok().timeout().await,
         Event::Message(sid, "from-writer".into())

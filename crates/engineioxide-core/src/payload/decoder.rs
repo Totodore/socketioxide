@@ -494,14 +494,6 @@ mod tests {
 
     const MAX_PAYLOAD: u64 = 100_000;
 
-    /// The v4 decoder is a concrete type: `Send` whenever its body is, so it
-    /// can cross task boundaries without boxing.
-    #[test]
-    fn v4_decoder_is_send_and_unpin() {
-        fn assert_send_unpin<T: Send + Unpin>() {}
-        assert_send_unpin::<V4Decoder<Full<Bytes>>>();
-    }
-
     #[tokio::test]
     async fn payload_iterator_v4() {
         let data = Full::new(Bytes::from("4foo\x1e4€f\x1e4f"));
