@@ -1,3 +1,6 @@
+# socketioxide-redis 0.4.3
+* fix: remote socket emit times out even when the remote node answered [#782](https://github.com/Totodore/socketioxide/pull/782)
+
 # socketioxide-redis 0.4.2
 * deps: bump `socketioxide-core` to 0.19
 
