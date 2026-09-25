@@ -11,14 +11,14 @@ use std::{
 };
 
 use futures_core::{FusedStream, Stream};
-use futures_util::{StreamExt, stream::TakeUntil};
+use futures_util::{StreamExt, future, stream::TakeUntil};
 use pin_project_lite::pin_project;
 use serde::de::DeserializeOwned;
 use tokio::{sync::mpsc, time};
 
 use crate::Sid;
 use crate::adapter::AckStreamItem;
-use crate::adapter::remote_packet::{Response, ResponseType};
+use crate::adapter::remote_packet::{Response, ResponseType, ResponseTypeId};
 
 use crate::adapter::SocketEmitter;
 
@@ -215,6 +215,42 @@ impl<E: SocketEmitter, R: Stream, T> fmt::Debug for AckStream<E, R, T> {
             .field("serv_cnt", &self.serv_cnt)
             .finish()
     }
+}
+
+/// Register the response channel of a request so responses can be routed to it.
+///
+/// The receiver is returned to be consumed by [`wait_responses`]. The channel is
+/// always big enough to hold at least one response.
+pub fn insert_response_handler<T>(
+    handlers: &Arc<Mutex<ResponseHandlers<T>>>,
+    req_id: Sid,
+    serv_cnt: usize,
+) -> mpsc::Receiver<T> {
+    let (tx, rx) = mpsc::channel(std::cmp::max(serv_cnt, 1));
+    handlers.lock().unwrap().insert(req_id, tx);
+    rx
+}
+
+/// Filter the responses of a request by type, wait for at most `serv_cnt` of them
+/// and stop after `timeout`.
+///
+/// The response handler is removed from the map when the returned stream is dropped.
+pub fn wait_responses<T, D, S>(
+    stream: S,
+    handlers: Arc<Mutex<ResponseHandlers<T>>>,
+    req_id: Sid,
+    response_type: ResponseTypeId,
+    serv_cnt: usize,
+    timeout: Duration,
+) -> impl Stream<Item = Response<D>>
+where
+    S: Stream<Item = Response<D>>,
+{
+    let stream = stream
+        .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
+        .take(serv_cnt)
+        .take_until(time::sleep(timeout));
+    DropStream::new(stream, handlers, req_id)
 }
 
 #[cfg(test)]

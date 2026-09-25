@@ -65,10 +65,12 @@ use socketioxide_core::{
         errors::{AdapterError, BroadcastError},
         heartbeat::{HeartbeatSender, HeartbeatTracker, heartbeat_loop},
         remote_packet::{
-            RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType,
-            ResponseTypeId,
+            RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseTypeId,
         },
-        stream::{AckStream, ChanStream, ResponseHandlers},
+        request::RemoteRequestHandler,
+        stream::{
+            AckStream, ChanStream, ResponseHandlers, insert_response_handler, wait_responses,
+        },
     },
     packet::Packet,
 };
@@ -755,184 +757,6 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
         }
     }
 
-    fn recv_req(self: &Arc<Self>, req: RequestIn) {
-        tracing::trace!(?req, "incoming request");
-        match (req.r#type, req.opts) {
-            (RequestTypeIn::Broadcast(p), Some(opts)) => self.recv_broadcast(opts, p),
-            (RequestTypeIn::BroadcastWithAck(p), Some(opts)) => self
-                .clone()
-                .recv_broadcast_with_ack(req.node_id, req.id, p, opts),
-            (RequestTypeIn::DisconnectSockets, Some(opts)) => self.recv_disconnect_sockets(opts),
-            (RequestTypeIn::AllRooms, Some(opts)) => self.recv_rooms(req.node_id, req.id, opts),
-            (RequestTypeIn::AddSockets(rooms), Some(opts)) => self.recv_add_sockets(opts, rooms),
-            (RequestTypeIn::DelSockets(rooms), Some(opts)) => self.recv_del_sockets(opts, rooms),
-            (RequestTypeIn::FetchSockets, Some(opts)) => {
-                self.recv_fetch_sockets(req.node_id, req.id, opts)
-            }
-            req_type @ (RequestTypeIn::Heartbeat | RequestTypeIn::InitHeartbeat, _) => {
-                self.recv_heartbeat(&self.heartbeat, req_type.0, req.node_id)
-            }
-            _ => (),
-        }
-    }
-
-    fn recv_broadcast(&self, opts: BroadcastOptions, packet: Packet) {
-        tracing::trace!(?opts, "incoming broadcast");
-        if let Err(e) = self.local.broadcast(packet, opts) {
-            let ns = self.local.path();
-            tracing::warn!(node_id = %self.local.server_id(), ?ns, "remote request broadcast handler: {:?}", e);
-        }
-    }
-
-    fn recv_disconnect_sockets(&self, opts: BroadcastOptions) {
-        if let Err(e) = self.local.disconnect_socket(opts) {
-            let ns = self.local.path();
-            tracing::warn!(
-                node_id = %self.local.server_id(),
-                %ns,
-                "remote request disconnect sockets handler: {:?}",
-                e
-            );
-        }
-    }
-
-    fn recv_broadcast_with_ack(
-        self: Arc<Self>,
-        origin: Uid,
-        req_id: Sid,
-        packet: Packet,
-        opts: BroadcastOptions,
-    ) {
-        let (stream, count) = self.local.broadcast_with_ack(packet, opts, None);
-        tokio::spawn(async move {
-            let on_err = |err| {
-                let ns = self.local.path();
-                tracing::warn!(
-                    node_id = %self.local.server_id(),
-                    %ns,
-                    "remote request broadcast with ack handler errors: {:?}",
-                    err
-                );
-            };
-            // First send the count of expected acks to the server that sent the request.
-            // This is used to keep track of the number of expected acks.
-            let res = Response {
-                r#type: ResponseType::<()>::BroadcastAckCount(count),
-                node_id: self.local.server_id(),
-            };
-            if let Err(err) = self.send_res(req_id, origin, res).await {
-                on_err(err);
-                return;
-            }
-
-            // Then send the acks as they are received.
-            futures_util::pin_mut!(stream);
-            while let Some(ack) = stream.next().await {
-                let res = Response {
-                    r#type: ResponseType::BroadcastAck(ack),
-                    node_id: self.local.server_id(),
-                };
-                if let Err(err) = self.send_res(req_id, origin, res).await {
-                    on_err(err);
-                    return;
-                }
-            }
-        });
-    }
-
-    fn recv_rooms(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
-        let rooms = self.local.rooms(opts);
-        let res = Response {
-            r#type: ResponseType::<()>::AllRooms(rooms),
-            node_id: self.local.server_id(),
-        };
-        let fut = self.send_res(req_id, origin, res);
-        let ns = self.local.path().clone();
-        let uid = self.local.server_id();
-        tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                tracing::warn!(?uid, ?ns, "remote request rooms handler: {:?}", err);
-            }
-        });
-    }
-
-    fn recv_add_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
-        self.local.add_sockets(opts, rooms);
-    }
-
-    fn recv_del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
-        self.local.del_sockets(opts, rooms);
-    }
-    fn recv_fetch_sockets(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
-        let sockets = self.local.fetch_sockets(opts);
-        let res = Response {
-            node_id: self.local.server_id(),
-            r#type: ResponseType::FetchSockets(sockets),
-        };
-        let fut = self.send_res(req_id, origin, res);
-        let ns = self.local.path().clone();
-        let uid = self.local.server_id();
-        tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                tracing::warn!(?uid, ?ns, "remote request fetch sockets handler: {:?}", err);
-            }
-        });
-    }
-
-    /// Send a response to the node that sent the request.
-    ///
-    /// When the serialized response exceeds [`PostgresAdapterConfig::payload_threshold`], it is
-    /// stored in the attachment table and only the row id travels over NOTIFY as a
-    /// [`ResponsePayload::Attachment`].
-    fn send_res<T: Serialize + fmt::Debug + Send + 'static>(
-        &self,
-        req_id: Sid,
-        req_origin: Uid,
-        res: Response<T>,
-    ) -> impl Future<Output = Result<(), Error<D>>> + 'static {
-        tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
-        let driver = self.driver.clone();
-        let chan = self.get_response_chan(req_origin);
-        let table = self.config.table_name.clone();
-        let threshold = self.config.payload_threshold;
-        let node_id = self.local.server_id();
-        let is_binary = res.is_binary();
-        async move {
-            let body = if is_binary {
-                rmp_serde::to_vec(&res)?
-            } else {
-                serde_json::to_vec(&res)?
-            };
-
-            let payload = if body.len() >= threshold || is_binary {
-                let id = driver
-                    .push_attachment(&table, &body)
-                    .await
-                    .map_err(Error::Driver)?;
-                ResponsePayload::Attachment { id, is_binary }
-            } else {
-                assert!(
-                    !is_binary,
-                    "binary packets should be stored in attachment table and serialized in msgpack"
-                );
-                let body = unsafe { String::from_utf8_unchecked(body) };
-                ResponsePayload::Data(RawValue::from_string(body)?)
-            };
-
-            let message = serde_json::to_string(&ResponsePacket {
-                req_id,
-                node_id,
-                payload,
-            })?;
-
-            driver
-                .notify(&chan, &message)
-                .await
-                .map_err(Error::Driver)?;
-            Ok(())
-        }
-    }
-
     /// Await for all the responses from the remote servers.
     /// If the target node is specified, only await for the response from that node.
     async fn get_res<T: DeserializeOwned + fmt::Debug>(
@@ -948,8 +772,7 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
             1
         };
 
-        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
-        self.responses.lock().unwrap().insert(req_id, tx);
+        let rx = insert_response_handler(&self.responses, req_id, remote_serv_cnt);
         let stream = ChanStream::new(rx);
 
         // Overlap attachment fetches across servers while preserving arrival order so that
@@ -968,12 +791,16 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
                 }
             })
             .buffered(concurrency)
-            .filter_map(future::ready)
-            .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
-            .take(remote_serv_cnt)
-            .take_until(tokio::time::sleep(self.config.request_timeout));
+            .filter_map(future::ready);
 
-        Ok(stream)
+        Ok(wait_responses(
+            stream,
+            self.responses.clone(),
+            req_id,
+            response_type,
+            remote_serv_cnt,
+            self.config.request_timeout,
+        ))
     }
 
     // == All channels are hashed to avoid thresspassing the 63 bytes limit on postgres channel ==
@@ -1056,6 +883,72 @@ impl<E: SocketEmitter, D: Driver> HeartbeatSender for CustomPostgresAdapter<E, D
             .await
             .map_err(Error::Driver)?;
         Ok(())
+    }
+}
+
+impl<E: SocketEmitter, D: Driver> RemoteRequestHandler<E> for CustomPostgresAdapter<E, D> {
+    type Error = Error<D>;
+
+    fn local(&self) -> &CoreLocalAdapter<E> {
+        &self.local
+    }
+
+    /// Send a response to the node that sent the request.
+    ///
+    /// When the serialized response exceeds [`PostgresAdapterConfig::payload_threshold`], it is
+    /// stored in the attachment table and only the row id travels over NOTIFY as a
+    /// [`ResponsePayload::Attachment`].
+    fn send_res<T: Serialize + fmt::Debug + Send + 'static>(
+        &self,
+        req_id: Sid,
+        req_origin: Uid,
+        res: Response<T>,
+    ) -> impl Future<Output = Result<(), Error<D>>> + Send + 'static {
+        tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
+        let driver = self.driver.clone();
+        let chan = self.get_response_chan(req_origin);
+        let table = self.config.table_name.clone();
+        let threshold = self.config.payload_threshold;
+        let node_id = self.local.server_id();
+        let is_binary = res.is_binary();
+        async move {
+            let body = if is_binary {
+                rmp_serde::to_vec(&res)?
+            } else {
+                serde_json::to_vec(&res)?
+            };
+
+            let payload = if body.len() >= threshold || is_binary {
+                let id = driver
+                    .push_attachment(&table, &body)
+                    .await
+                    .map_err(Error::Driver)?;
+                ResponsePayload::Attachment { id, is_binary }
+            } else {
+                assert!(
+                    !is_binary,
+                    "binary packets should be stored in attachment table and serialized in msgpack"
+                );
+                let body = unsafe { String::from_utf8_unchecked(body) };
+                ResponsePayload::Data(RawValue::from_string(body)?)
+            };
+
+            let message = serde_json::to_string(&ResponsePacket {
+                req_id,
+                node_id,
+                payload,
+            })?;
+
+            driver
+                .notify(&chan, &message)
+                .await
+                .map_err(Error::Driver)?;
+            Ok(())
+        }
+    }
+
+    fn recv_heartbeat(self: &Arc<Self>, req_type: RequestTypeIn, origin: Uid) {
+        HeartbeatSender::recv_heartbeat(self, &self.heartbeat, req_type, origin);
     }
 }
 
