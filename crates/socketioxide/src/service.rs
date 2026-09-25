@@ -56,11 +56,12 @@ where
 
     #[inline(always)]
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.engine_svc.poll_ready(cx)
+        TowerSvc::<Request<ReqBody>>::poll_ready(&mut self.engine_svc, cx)
     }
+
     #[inline(always)]
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        self.engine_svc.call(req)
+        TowerSvc::<Request<ReqBody>>::call(&mut self.engine_svc, req)
     }
 }
 
@@ -80,7 +81,7 @@ where
 
     #[inline(always)]
     fn call(&self, req: Request<ReqBody>) -> Self::Future {
-        self.engine_svc.call(req)
+        HyperSvc::<Request<ReqBody>>::call(&self.engine_svc, req)
     }
 }
 

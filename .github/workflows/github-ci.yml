@@ -115,7 +115,8 @@ jobs:
           -p socketioxide-mongodb \
           -p socketioxide-postgres \
           -p socketioxide-parser-common \
-          -p socketioxide-parser-msgpack
+          -p socketioxide-parser-msgpack \
+          -p engineioxide-client
 
   examples:
     runs-on: ubuntu-latest
