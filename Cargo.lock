@@ -2611,6 +2611,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "socketioxide-client"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "codspeed-criterion-compat",
+ "engineioxide-client",
+ "futures-core",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "pin-project-lite",
+ "rand 0.10.2",
+ "serde",
+ "serde_json",
+ "socketioxide",
+ "socketioxide-core",
+ "socketioxide-parser-common",
+ "socketioxide-parser-msgpack",
+ "state",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "socketioxide-core"
 version = "0.19.0"
 dependencies = [
@@ -2717,7 +2749,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-redis"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "bytes",
  "engineioxide",
