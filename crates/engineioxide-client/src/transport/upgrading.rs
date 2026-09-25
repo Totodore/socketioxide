@@ -16,7 +16,7 @@ use pin_project_lite::pin_project;
 use tracing::Level;
 
 use crate::{
-    ClientError,
+    errors::ClientError,
     transport::{PollingError, PollingTransport, TransportSvc, WsTransport, ws::WsError},
 };
 
@@ -49,7 +49,7 @@ pin_project! {
 
         // An upgrade error that must be yielded after
         // closing the websocket transport.
-        upgrade_error: Option<ClientError<S>>,
+        upgrade_error: Option<ClientError>,
 
         // Packets received from the last poll while pausing: yielded by the
         // stream before the upgrade is reported.
@@ -120,24 +120,15 @@ enum UpgradeHandshakeState {
 
 /// Error emitted when upgrading the transport when the upgrade
 /// cannot complete.
-#[derive(thiserror::Error)]
-pub enum UpgradeError<S: TransportSvc> {
+#[derive(Debug, thiserror::Error)]
+pub enum UpgradeError {
     /// The websocket probe failed: the session is unaffected and keeps
     /// running over the polling transport.
     #[error("recoverable upgrade error: {0}")]
-    Recoverable(ClientError<S>),
+    Recoverable(ClientError),
     /// The polling transport failed while probing: the session is over.
     #[error("unrecoverable upgrade error: {0}")]
-    Unrecoverable(ClientError<S>),
-}
-
-impl<S: TransportSvc> fmt::Debug for UpgradeError<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            UpgradeError::Recoverable(e) => f.debug_tuple("Recoverable").field(e).finish(),
-            UpgradeError::Unrecoverable(e) => f.debug_tuple("Unrecoverable").field(e).finish(),
-        }
-    }
+    Unrecoverable(ClientError),
 }
 
 impl<S: TransportSvc> UpgradingTransport<S> {
@@ -197,15 +188,15 @@ impl<S: TransportSvc> UpgradingTransport<S> {
     pub(super) fn poll_queue_pong(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<(), ClientError<S>>> {
+    ) -> Poll<Result<(), ClientError>> {
         let upgrade_sent = self.upgrade_sent();
         let this = self.project();
         if upgrade_sent {
             let mut ws = this.websocket;
-            ready!(ws.as_mut().poll_ready(cx)).map_err(ClientError::Websocket)?;
-            Poll::Ready(ws.start_send(Packet::Pong).map_err(ClientError::Websocket))
+            ready!(ws.as_mut().poll_ready(cx)).map_err(ClientError::websocket)?;
+            Poll::Ready(ws.start_send(Packet::Pong).map_err(ClientError::websocket))
         } else {
-            Poll::Ready(this.polling.queue_pong().map_err(ClientError::Polling))
+            Poll::Ready(this.polling.queue_pong().map_err(ClientError::polling))
         }
     }
 
@@ -233,7 +224,7 @@ impl<S: TransportSvc> UpgradingTransport<S> {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         side: Side,
-    ) -> Poll<Result<bool, ClientError<S>>> {
+    ) -> Poll<Result<bool, ClientError>> {
         self.wakers.register(side, cx.waker());
         let wakers = self.wakers.clone();
         let waker = waker_ref(&wakers);
@@ -277,11 +268,11 @@ impl<S: TransportSvc> UpgradingTransport<S> {
     fn poll_handshake(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<UpgradeHandshakeState, UpgradeError<S>>> {
-        fn recoverable<S: TransportSvc>(err: impl Into<ClientError<S>>) -> UpgradeError<S> {
+    ) -> Poll<Result<UpgradeHandshakeState, UpgradeError>> {
+        fn recoverable(err: impl Into<ClientError>) -> UpgradeError {
             UpgradeError::Recoverable(err.into())
         }
-        fn unrecoverable<S: TransportSvc>(err: impl Into<ClientError<S>>) -> UpgradeError<S> {
+        fn unrecoverable(err: impl Into<ClientError>) -> UpgradeError {
             UpgradeError::Unrecoverable(err.into())
         }
 
@@ -306,7 +297,7 @@ impl<S: TransportSvc> UpgradingTransport<S> {
                     p,
                 )))),
                 Some(Err(err)) => Poll::Ready(Err(recoverable(err))),
-                None => Poll::Ready(Err(recoverable(WsError::Closed))),
+                None => Poll::Ready(Err(recoverable(WsError::<S>::Closed))),
             },
             UpgradeHandshakeState::Pausing => {
                 // Reference `pause()`: the polling transport is dropped right
@@ -353,7 +344,7 @@ impl<S: TransportSvc> UpgradingTransport<S> {
 }
 
 impl<S: TransportSvc> Stream for UpgradingTransport<S> {
-    type Item = Result<Packet, UpgradeError<S>>;
+    type Item = Result<Packet, UpgradeError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // packets buffered from the last poll while pausing come first
@@ -404,17 +395,15 @@ impl<S: TransportSvc> Stream for UpgradingTransport<S> {
 /// until the upgrade packet is sent. From then on writes go over the
 /// websocket, right behind the upgrade packet.
 impl<S: TransportSvc> Sink<Packet> for UpgradingTransport<S> {
-    type Error = ClientError<S>;
+    type Error = ClientError;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let upgrade_sent = self.upgrade_sent();
         let this = self.project();
         if upgrade_sent {
-            this.websocket
-                .poll_ready(cx)
-                .map_err(ClientError::Websocket)
+            this.websocket.poll_ready(cx).map_err(ClientError::from)
         } else {
-            this.polling.poll_ready(cx).map_err(ClientError::Polling)
+            this.polling.poll_ready(cx).map_err(ClientError::polling)
         }
     }
 
@@ -422,11 +411,9 @@ impl<S: TransportSvc> Sink<Packet> for UpgradingTransport<S> {
         let upgrade_sent = self.upgrade_sent();
         let this = self.project();
         if upgrade_sent {
-            this.websocket
-                .start_send(item)
-                .map_err(ClientError::Websocket)
+            this.websocket.start_send(item).map_err(ClientError::from)
         } else {
-            this.polling.start_send(item).map_err(ClientError::Polling)
+            this.polling.start_send(item).map_err(ClientError::polling)
         }
     }
 
@@ -434,11 +421,9 @@ impl<S: TransportSvc> Sink<Packet> for UpgradingTransport<S> {
         let upgrade_sent = self.upgrade_sent();
         let this = self.project();
         if upgrade_sent {
-            this.websocket
-                .poll_flush(cx)
-                .map_err(ClientError::Websocket)
+            this.websocket.poll_flush(cx).map_err(ClientError::from)
         } else {
-            this.polling.poll_flush(cx).map_err(ClientError::Polling)
+            this.polling.poll_flush(cx).map_err(ClientError::polling)
         }
     }
 
@@ -451,7 +436,7 @@ impl<S: TransportSvc> Sink<Packet> for UpgradingTransport<S> {
         self.project()
             .polling
             .poll_close(cx)
-            .map_err(ClientError::Polling)
+            .map_err(ClientError::polling)
     }
 }
 

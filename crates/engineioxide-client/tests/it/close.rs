@@ -16,7 +16,7 @@
 use std::{assert_matches, time::Duration};
 
 use engineioxide::{DisconnectReason, TransportType};
-use engineioxide_client::{Client, ClientError, EioEvent, WsError};
+use engineioxide_client::{Client, EioEvent, errors::ClientErrorKind};
 use engineioxide_core::Packet;
 use futures_util::{SinkExt, StreamExt};
 use tokio::time;
@@ -263,7 +263,7 @@ async fn send_after_close_is_not_delivered() {
             .send(EioEvent::Message("late".into()))
             .timeout()
             .await,
-        Err(ClientError::TransportClosed)
+        Err(err) if err.kind() == ClientErrorKind::TransportClosed
     );
 
     if let Ok(Some(Event::Message(_, msg))) =
@@ -405,10 +405,9 @@ async fn ws_error_surfaces_then_stream_terminates() {
 
     ws.send_error("connection reset by peer");
 
-    assert_matches!(
-        client.next_err().await,
-        ClientError::Websocket(WsError::Websocket(_))
-    );
+    let err = client.next_err().await;
+    assert_eq!(err.kind(), ClientErrorKind::TransportWebsocket);
+    assert!(err.as_packet_error().is_none(), "{err:?}");
 
     // Keep `ws` alive: termination must come from the client closing itself
     // after the error, not from the mock dropping the connection.

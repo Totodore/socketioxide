@@ -10,16 +10,14 @@
 
 mod client;
 mod config;
-mod errors;
 mod transport;
 
+pub mod errors;
 pub mod flavors;
 
 pub use crate::client::Client;
-pub use config::{EngineIoClientConfig, EngineIoClientConfigBuilder};
+pub use config::{EngineIoClientConfig, EngineIoClientConfigBuilder, IntoEngineIoClientConfig};
 pub use engineioxide_core::{Packet, Sid, Str, TransportType};
-pub use errors::{ClientError, ConnectError};
-pub use transport::{PollingError, ProtocolError, WsError};
 
 use bytes::Bytes;
 

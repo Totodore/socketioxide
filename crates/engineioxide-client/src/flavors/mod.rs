@@ -30,7 +30,7 @@ pub trait TransportSvc: PollingSvc + WsSvc + Flavor {}
 impl<S> TransportSvc for S where S: PollingSvc + WsSvc + Flavor {}
 
 /// A trait that represents a flavor of the engineioxide client.
-pub trait Flavor {
+pub trait Flavor: Send + Sync + 'static {
     /// The list of supported transport types for this flavor.
     const SUPPORTED_TRANSPORTS: &'static [TransportType];
 }
@@ -41,24 +41,24 @@ pub trait PollingSvc:
         Request<PollingBody>,
         Response = Response<Self::Body>,
         Error = <Self as PollingSvc>::Error,
-        Future: Unpin, // Unpin bound so we can move transports around when upgrading
+        Future: Send + Unpin, // Unpin bound so we can move transports around when upgrading
     >
 {
     /// Response body type for the polling service.
-    type Body: http_body::Body<Error = Self::ResBodyError> + Unpin + 'static;
+    type Body: http_body::Body<Error = Self::ResBodyError, Data = Bytes> + Unpin + Send + 'static;
     /// Error type for the polling service.
-    type Error: fmt::Debug + std::error::Error;
+    type Error: fmt::Debug + std::error::Error + Send + Sync;
     /// Response body error type for the polling service.
-    type ResBodyError: fmt::Debug + std::error::Error + 'static;
+    type ResBodyError: fmt::Debug + std::error::Error + Send + Sync + 'static;
 }
 
 impl<B, S> PollingSvc for S
 where
     S: Service<Request<PollingBody>, Response = Response<B>>,
-    <S as Service<Request<PollingBody>>>::Future: Unpin,
-    <S as Service<Request<PollingBody>>>::Error: fmt::Debug + std::error::Error,
-    B: http_body::Body + Unpin + 'static,
-    <B as http_body::Body>::Error: fmt::Debug + std::error::Error + 'static,
+    <S as Service<Request<PollingBody>>>::Future: Send + Unpin,
+    <S as Service<Request<PollingBody>>>::Error: fmt::Debug + std::error::Error + Send + Sync,
+    B: http_body::Body<Data = Bytes> + Unpin + Send + 'static,
+    <B as http_body::Body>::Error: fmt::Debug + std::error::Error + Send + Sync + 'static,
     <B as http_body::Body>::Data: Send + fmt::Debug + 'static,
 {
     type Body = B;
@@ -72,20 +72,20 @@ pub trait WsSvc:
         http::Request<()>,
         Response = Self::WebSocket,
         Error = <Self as WsSvc>::Error,
-        Future: Unpin, // Unpin bound so we can move transports around when upgrading
+        Future: Send + Unpin, // Unpin bound so we can move transports around when upgrading
     > + Clone
 {
     /// Error type for the websocket service.
-    type Error: fmt::Debug + std::error::Error;
+    type Error: fmt::Debug + std::error::Error + Send + Sync;
     /// The WebSocket type that this service uses.
     type WebSocket: WebSocket<Error = <Self as WsSvc>::Error>;
 }
 
 impl<S, WS> WsSvc for S
 where
-    S: Service<http::Request<()>, Response = WS, Future: Unpin> + Clone,
+    S: Service<http::Request<()>, Response = WS, Future: Send + Unpin> + Clone,
     WS: WebSocket<Error = <S as Service<http::Request<()>>>::Error>,
-    <S as Service<http::Request<()>>>::Error: fmt::Debug + std::error::Error,
+    <S as Service<http::Request<()>>>::Error: fmt::Debug + std::error::Error + Send + Sync,
 {
     type Error = <S as Service<http::Request<()>>>::Error;
     type WebSocket = WS;
@@ -96,6 +96,7 @@ pub trait WebSocket:
     Stream<Item = Result<WsMessage, <Self as WebSocket>::Error>>
     + Sink<WsMessage, Error = <Self as WebSocket>::Error>
     + Sized
+    + Send
     + Unpin
 {
     /// Error type for the WebSocket.
@@ -104,7 +105,7 @@ pub trait WebSocket:
 
 impl<St, E> WebSocket for St
 where
-    St: Stream<Item = Result<WsMessage, E>> + Sink<WsMessage, Error = E> + Sized + Unpin,
+    St: Stream<Item = Result<WsMessage, E>> + Sink<WsMessage, Error = E> + Sized + Send + Unpin,
     E: fmt::Debug + std::error::Error,
 {
     type Error = E;

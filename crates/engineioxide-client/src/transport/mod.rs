@@ -47,7 +47,7 @@ impl<S: TransportSvc> Transport<S> {
     pub async fn connect_polling(
         svc: S,
         config: &EngineIoClientConfig,
-    ) -> Result<(Self, OpenPacket), ClientError<S>> {
+    ) -> Result<(Self, OpenPacket), ClientError> {
         let (inner, packet) = PollingTransport::connect(svc, config).await?;
         Ok((Self::Polling { inner }, packet))
     }
@@ -55,7 +55,7 @@ impl<S: TransportSvc> Transport<S> {
     pub async fn connect_ws(
         svc: S,
         config: &EngineIoClientConfig,
-    ) -> Result<(Self, OpenPacket), ClientError<S>> {
+    ) -> Result<(Self, OpenPacket), ClientError> {
         let (inner, packet) = WsTransport::connect(svc, config).await?;
         Ok((Self::Websocket { inner }, packet))
     }
@@ -116,23 +116,23 @@ impl<S: TransportSvc> Transport<S> {
     pub(crate) fn poll_queue_pong(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<(), ClientError<S>>> {
+    ) -> Poll<Result<(), ClientError>> {
         match self.get_mut() {
             Transport::Polling { inner } => {
-                Poll::Ready(Pin::new(inner).queue_pong().map_err(ClientError::Polling))
+                Poll::Ready(Pin::new(inner).queue_pong().map_err(ClientError::polling))
             }
             Transport::Upgrading { inner } => Pin::new(inner).poll_queue_pong(cx),
             Transport::Websocket { inner } => {
                 // the websocket sink has room for every packet once connected
                 let mut inner = Pin::new(inner);
-                ready!(inner.as_mut().poll_ready(cx)).map_err(ClientError::Websocket)?;
+                ready!(inner.as_mut().poll_ready(cx)).map_err(ClientError::websocket)?;
                 Poll::Ready(
                     inner
                         .start_send(Packet::Pong)
-                        .map_err(ClientError::Websocket),
+                        .map_err(ClientError::websocket),
                 )
             }
-            Transport::Switching => Poll::Ready(Err(ClientError::TransportClosed)),
+            Transport::Switching => Poll::Ready(Err(ClientError::transport_closed())),
         }
     }
 
@@ -149,13 +149,13 @@ impl<S: TransportSvc> Transport<S> {
 }
 
 impl<S: TransportSvc> Stream for Transport<S> {
-    type Item = Result<Packet, ClientError<S>>;
+    type Item = Result<Packet, ClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         match &mut *this {
             Transport::Polling { inner } => {
-                Pin::new(inner).poll_next(cx).map_err(ClientError::Polling)
+                Pin::new(inner).poll_next(cx).map_err(ClientError::polling)
             }
             Transport::Upgrading { inner } => match ready!(Pin::new(inner).poll_next(cx)) {
                 // the upgrade packet signals the completed handshake
@@ -176,20 +176,20 @@ impl<S: TransportSvc> Stream for Transport<S> {
             },
             Transport::Websocket { inner } => Pin::new(inner)
                 .poll_next(cx)
-                .map_err(ClientError::Websocket),
+                .map_err(ClientError::websocket),
             Transport::Switching => Poll::Ready(None),
         }
     }
 }
 impl<S: TransportSvc> Sink<Packet> for Transport<S> {
-    type Error = ClientError<S>;
+    type Error = ClientError;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
         loop {
             match this {
                 Transport::Polling { inner } => {
-                    return Pin::new(inner).poll_ready(cx).map_err(ClientError::Polling);
+                    return Pin::new(inner).poll_ready(cx).map_err(ClientError::polling);
                 }
                 Transport::Upgrading { inner } => {
                     // The sink drives the probe too: a write issued while
@@ -212,9 +212,9 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
                 Transport::Websocket { inner } => {
                     return Pin::new(inner)
                         .poll_ready(cx)
-                        .map_err(ClientError::Websocket);
+                        .map_err(ClientError::websocket);
                 }
-                Transport::Switching => return Poll::Ready(Err(ClientError::TransportClosed)),
+                Transport::Switching => return Poll::Ready(Err(ClientError::transport_closed())),
             }
         }
     }
@@ -223,24 +223,24 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
         match self.get_mut() {
             Transport::Polling { inner } => Pin::new(inner)
                 .start_send(item)
-                .map_err(ClientError::Polling),
+                .map_err(ClientError::polling),
             Transport::Upgrading { inner } => Pin::new(inner).start_send(item),
             Transport::Websocket { inner } => Pin::new(inner)
                 .start_send(item)
-                .map_err(ClientError::Websocket),
-            Transport::Switching => Err(ClientError::TransportClosed),
+                .map_err(ClientError::websocket),
+            Transport::Switching => Err(ClientError::transport_closed()),
         }
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.get_mut() {
             Transport::Polling { inner } => {
-                Pin::new(inner).poll_flush(cx).map_err(ClientError::Polling)
+                Pin::new(inner).poll_flush(cx).map_err(ClientError::polling)
             }
             Transport::Upgrading { inner } => Pin::new(inner).poll_flush(cx),
             Transport::Websocket { inner } => Pin::new(inner)
                 .poll_flush(cx)
-                .map_err(ClientError::Websocket),
+                .map_err(ClientError::websocket),
             Transport::Switching => Poll::Ready(Ok(())),
         }
     }
@@ -248,12 +248,12 @@ impl<S: TransportSvc> Sink<Packet> for Transport<S> {
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.get_mut() {
             Transport::Polling { inner } => {
-                Pin::new(inner).poll_close(cx).map_err(ClientError::Polling)
+                Pin::new(inner).poll_close(cx).map_err(ClientError::polling)
             }
             Transport::Upgrading { inner } => Pin::new(inner).poll_close(cx),
             Transport::Websocket { inner } => Pin::new(inner)
                 .poll_close(cx)
-                .map_err(ClientError::Websocket),
+                .map_err(ClientError::websocket),
             Transport::Switching => Poll::Ready(Ok(())),
         }
     }

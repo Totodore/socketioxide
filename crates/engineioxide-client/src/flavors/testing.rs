@@ -66,7 +66,7 @@ use crate::flavors::{Flavor, PollingBody, PollingSvc, hyper_tungstenite::TokioTu
 /// Trait alias for [`TestingFlavor`] inner service.
 ///
 /// Typically this will be satisfied by the engineioxide service.
-pub(crate) trait EngineSvc:
+pub trait EngineSvc:
     PollingSvc<Body: http_body::Body<Data: Send + std::fmt::Debug + 'static>>
     + Service<
         (DuplexStream, http::Request<()>),
@@ -74,6 +74,7 @@ pub(crate) trait EngineSvc:
         Error: std::error::Error + Send + 'static,
         Future: Send,
     > + Send
+    + Sync
     + Clone
     + 'static
 {
@@ -87,6 +88,7 @@ impl<Svc> EngineSvc for Svc where
             Error: std::error::Error + Send + 'static,
             Future: Send,
         > + Send
+        + Sync
         + Clone
         + 'static
 {
@@ -109,7 +111,7 @@ impl<Svc> From<Svc> for TestingFlavor<Svc> {
     }
 }
 
-impl<Svc> Flavor for TestingFlavor<Svc> {
+impl<Svc: Send + Sync + 'static> Flavor for TestingFlavor<Svc> {
     const SUPPORTED_TRANSPORTS: &'static [TransportType] =
         &[TransportType::Polling, TransportType::Websocket];
 }
