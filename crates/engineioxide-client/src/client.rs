@@ -47,7 +47,7 @@ impl Client<crate::flavors::hyper::HyperFlavor> {
     /// Connects to the engine.io server using the hyper polling transport.
     pub async fn connect_with_hyper_polling(
         config: impl IntoEngineIoClientConfig,
-    ) -> Result<Self, ConnectError<crate::flavors::hyper::HyperFlavor>> {
+    ) -> Result<Self, ConnectError> {
         let svc = crate::flavors::hyper::HyperFlavor::new();
 
         // override transports to only use polling, as websocket is not
@@ -63,20 +63,19 @@ impl Client<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor> {
     /// Connects to the engine.io server using the hyper tungstenite transport.
     pub async fn connect_with_hyper_ws(
         config: impl IntoEngineIoClientConfig,
-    ) -> Result<Self, ConnectError<crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor>> {
+    ) -> Result<Self, ConnectError> {
         let svc = crate::flavors::hyper_tungstenite::HyperTungsteniteFlavor::new();
         Self::connect(svc, config).await
     }
 }
 
 #[cfg(feature = "flavor-testing")]
-#[expect(private_bounds)] // EngineSvc is simply a trait alias
 impl<Svc: crate::flavors::testing::EngineSvc> Client<crate::flavors::testing::TestingFlavor<Svc>> {
     /// Connects to the engine.io server using the testing transport.
     pub async fn connect_with_testbed(
         svc: Svc,
         config: impl IntoEngineIoClientConfig,
-    ) -> Result<Self, ConnectError<crate::flavors::testing::TestingFlavor<Svc>>> {
+    ) -> Result<Self, ConnectError> {
         let svc = crate::flavors::testing::TestingFlavor::new(svc);
         Self::connect(svc, config).await
     }
@@ -87,7 +86,7 @@ impl<S: TransportSvc> Client<S> {
     pub async fn connect(
         svc: S,
         config: impl IntoEngineIoClientConfig,
-    ) -> Result<Self, ConnectError<S>> {
+    ) -> Result<Self, ConnectError> {
         let config = config.into_config()?;
         for transport in &config.transports {
             if !S::SUPPORTED_TRANSPORTS.contains(transport) {
@@ -114,7 +113,7 @@ impl<S: TransportSvc> Client<S> {
     async fn connect_inner(
         svc: S,
         config: &EngineIoClientConfig,
-    ) -> Result<(Transport<S>, OpenPacket), ClientError<S>> {
+    ) -> Result<(Transport<S>, OpenPacket), ClientError> {
         let (transport, packet) = match config.initial_transport() {
             TransportType::Polling => Transport::connect_polling(svc, config).await,
             TransportType::Websocket => Transport::connect_ws(svc, config).await,
@@ -146,7 +145,7 @@ impl<S: TransportSvc> Client<S> {
 }
 
 impl<S: TransportSvc> Stream for Client<S> {
-    type Item = Result<EioEvent, ClientError<S>>;
+    type Item = Result<EioEvent, ClientError>;
 
     #[tracing::instrument(skip(cx))]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -167,7 +166,7 @@ impl<S: TransportSvc> Client<S> {
     fn poll_next_inner(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
+    ) -> Poll<Option<Result<EioEvent, ClientError>>> {
         // The heartbeat drives the transport sink: it must not run once the
         // session is closing or closed, and its errors must surface.
         if matches!(
@@ -204,7 +203,7 @@ impl<S: TransportSvc> Client<S> {
     fn poll_upgrading(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
+    ) -> Poll<Option<Result<EioEvent, ClientError>>> {
         let settled = match self.transport {
             Transport::Websocket { .. } => Some(true),
             Transport::Polling { .. } => Some(false),
@@ -230,7 +229,7 @@ impl<S: TransportSvc> Client<S> {
     fn poll_transport(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<EioEvent, ClientError<S>>>> {
+    ) -> Poll<Option<Result<EioEvent, ClientError>>> {
         let mut proj = self.as_mut().project();
         match ready!(proj.transport.as_mut().poll_next(cx)) {
             Some(Ok(Packet::Ping)) => {
@@ -265,20 +264,17 @@ impl<S: TransportSvc> Client<S> {
     /// A fatal error surfaced by the transport sink means the session is
     /// over: mark the client closed so the stream terminates instead of
     /// driving a dead transport.
-    fn close_on_fatal(self: Pin<&mut Self>, err: &ClientError<S>) {
+    fn close_on_fatal(self: Pin<&mut Self>, err: &ClientError) {
         if err.should_close() {
             *self.project().state = ClientState::Closed;
         }
     }
 
-    fn poll_heartbeat(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), ClientError<S>>> {
+    fn poll_heartbeat(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), ClientError>> {
         if self.last_ping.elapsed()
             >= self.open_packet.ping_interval + self.open_packet.ping_timeout
         {
-            return Poll::Ready(Err(ClientError::HeartbeatTimeout));
+            return Poll::Ready(Err(ClientError::heartbeat_timeout()));
         }
 
         let mut proj = self.project();
@@ -295,7 +291,7 @@ impl<S: TransportSvc> Client<S> {
 }
 
 impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
-    type Error = ClientError<S>;
+    type Error = ClientError;
 
     #[tracing::instrument(level = Level::TRACE, skip(cx), ret)]
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -307,8 +303,8 @@ impl<S: TransportSvc> Sink<EioEvent> for Client<S> {
                     .inspect_err(|err| self.close_on_fatal(err));
                 Poll::Ready(res)
             }
-            ClientState::Closing => Poll::Ready(Err(ClientError::TransportClosed)),
-            ClientState::Closed => Poll::Ready(Err(ClientError::TransportClosed)),
+            ClientState::Closing => Poll::Ready(Err(ClientError::transport_closed())),
+            ClientState::Closed => Poll::Ready(Err(ClientError::transport_closed())),
         }
     }
 

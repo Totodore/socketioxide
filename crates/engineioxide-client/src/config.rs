@@ -48,7 +48,9 @@ impl EngineIoClientConfig {
     }
 }
 
+/// Converts various types into an [`EngineIoClientConfig`].
 pub trait IntoEngineIoClientConfig {
+    /// Converts the current type into an [`EngineIoClientConfig`].
     fn into_config(self) -> Result<EngineIoClientConfig, ConfigError>;
 }
 impl IntoEngineIoClientConfig for EngineIoClientConfig {

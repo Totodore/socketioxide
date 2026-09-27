@@ -58,3 +58,4 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 flavor-hyper = ["dep:hyper", "dep:hyper-util"]
 flavor-tungstenite = ["flavor-hyper", "dep:tokio-tungstenite", "tokio/io-std"]
 flavor-testing = ["flavor-tungstenite"]
+default = ["flavor-tungstenite", "flavor-testing"]

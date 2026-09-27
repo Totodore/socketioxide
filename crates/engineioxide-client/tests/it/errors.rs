@@ -13,7 +13,10 @@
 
 use std::assert_matches;
 
-use engineioxide_client::{ClientError, EioEvent, PollingError, ProtocolError, WsError};
+use engineioxide_client::{
+    EioEvent,
+    errors::{ClientErrorKind, ProtocolError},
+};
 use engineioxide_core::{Packet, TransportType};
 use futures_util::SinkExt;
 use http::StatusCode;
@@ -36,10 +39,10 @@ async fn polling_get_http_error_surfaces_and_closes() {
     tokio::join!(async { server.next_http().await.respond(500, "") }, async {
         let err = client.next_err().timeout().await;
         assert_matches!(
-            err,
-            ClientError::Polling(PollingError::Protocol(ProtocolError::ServerError {
+            err.as_protocol_error(),
+            Some(ProtocolError::ServerError {
                 status: StatusCode::INTERNAL_SERVER_ERROR
-            }))
+            })
         );
         client.next_close().timeout().await;
     });
@@ -67,8 +70,8 @@ async fn polling_get_session_unknown_surfaces_and_closes() {
         async {
             let err = client.next_err().timeout().await;
             assert_matches!(
-                err,
-                ClientError::Polling(PollingError::Protocol(ProtocolError::UnknownSessionID))
+                err.as_protocol_error(),
+                Some(ProtocolError::UnknownSessionID)
             );
             client.next_close().timeout().await;
         }
@@ -90,7 +93,9 @@ async fn polling_get_network_error_surfaces_and_closes() {
         async { server.next_http().await.fail("connection reset") },
         async {
             let err = client.next_err().timeout().await;
-            assert_matches!(err, ClientError::Polling(PollingError::Http(_)));
+            assert_eq!(err.kind(), ClientErrorKind::TransportPolling);
+            assert!(err.as_protocol_error().is_none(), "{err:?}");
+            assert!(err.as_packet_error().is_none(), "{err:?}");
             client.next_close().timeout().await;
         }
     );
@@ -116,13 +121,12 @@ async fn polling_post_http_error_surfaces() {
                 .await
         },
     );
+    let err = res.expect_err("a 413 on POST must surface as a sink error");
     assert_matches!(
-        res,
-        Err(ClientError::Polling(PollingError::Protocol(
-            ProtocolError::InvalidRequest {
-                status: StatusCode::PAYLOAD_TOO_LARGE
-            }
-        )))
+        err.as_protocol_error(),
+        Some(ProtocolError::InvalidRequest {
+            status: StatusCode::PAYLOAD_TOO_LARGE
+        })
     );
 
     client.next_close().timeout().await;
@@ -143,7 +147,8 @@ async fn polling_parse_error_surfaces_and_closes() {
         async { server.next_http().await.respond(200, "garbage!") },
         async {
             let err = client.next_err().timeout().await;
-            assert_matches!(err, ClientError::Polling(PollingError::Packet(_)));
+            assert_eq!(err.kind(), ClientErrorKind::TransportPolling);
+            assert_matches!(err.as_packet_error(), Some(_));
             client.next_close().timeout().await;
         }
     );
@@ -163,7 +168,8 @@ async fn ws_parse_error_surfaces_and_closes() {
     ws.send_text("garbage!");
 
     let err = client.next_err().timeout().await;
-    assert_matches!(err, ClientError::Websocket(WsError::Packet(_)));
+    assert_eq!(err.kind(), ClientErrorKind::TransportWebsocket);
+    assert_matches!(err.as_packet_error(), Some(_));
 
     client.next_close().timeout().await;
 }
