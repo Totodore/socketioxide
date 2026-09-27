@@ -102,8 +102,9 @@ use futures_core::{Stream, future::Future};
 use futures_util::{StreamExt, future::Either};
 use serde::{Serialize, de::DeserializeOwned};
 use socketioxide_core::adapter::remote_packet::{
-    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseType, ResponseTypeId,
+    RequestIn, RequestOut, RequestTypeIn, RequestTypeOut, Response, ResponseTypeId,
 };
+use socketioxide_core::adapter::request::RemoteRequestHandler;
 use socketioxide_core::{
     Sid, Uid,
     adapter::errors::{AdapterError, BroadcastError},
@@ -111,7 +112,9 @@ use socketioxide_core::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
         RoomParam, SocketEmitter, Spawnable,
         heartbeat::{HeartbeatSender, HeartbeatTracker, heartbeat_loop},
-        stream::{AckStream, ChanStream, DropStream, ResponseHandlers},
+        stream::{
+            AckStream, ChanStream, ResponseHandlers, insert_response_handler, wait_responses,
+        },
     },
     packet::Packet,
 };
@@ -561,7 +564,7 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
                     ..
                 }) if target.is_none_or(|id| id == self.uid) => {
                     tracing::debug!(?target, "request header");
-                    if let Err(e) = self.recv_req(data).await {
+                    if let Err(e) = self.recv_item(data) {
                         tracing::warn!("error receiving request from driver: {e}");
                     }
                 }
@@ -597,151 +600,11 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         }
     }
 
-    async fn recv_req(self: &Arc<Self>, req: Vec<u8>) -> Result<(), Error<D>> {
+    /// Decode a request received from the driver and handle it.
+    fn recv_item(self: &Arc<Self>, req: Vec<u8>) -> Result<(), Error<D>> {
         let req = rmp_serde::from_slice::<RequestIn>(&req)?;
-        tracing::trace!(?req, "incoming request");
-        match (req.r#type, req.opts) {
-            (RequestTypeIn::Broadcast(p), Some(opts)) => self.recv_broadcast(opts, p),
-            (RequestTypeIn::BroadcastWithAck(p), Some(opts)) => self
-                .clone()
-                .recv_broadcast_with_ack(req.node_id, req.id, p, opts),
-            (RequestTypeIn::DisconnectSockets, Some(opts)) => self.recv_disconnect_sockets(opts),
-            (RequestTypeIn::AllRooms, Some(opts)) => self.recv_rooms(req.node_id, req.id, opts),
-            (RequestTypeIn::AddSockets(rooms), Some(opts)) => self.recv_add_sockets(opts, rooms),
-            (RequestTypeIn::DelSockets(rooms), Some(opts)) => self.recv_del_sockets(opts, rooms),
-            (RequestTypeIn::FetchSockets, Some(opts)) => {
-                self.recv_fetch_sockets(req.node_id, req.id, opts)
-            }
-            req_type @ (RequestTypeIn::Heartbeat | RequestTypeIn::InitHeartbeat, _) => {
-                self.recv_heartbeat(&self.heartbeat, req_type.0, req.node_id)
-            }
-            _ => (),
-        }
+        <Self as RemoteRequestHandler<E>>::recv_req(self, req);
         Ok(())
-    }
-
-    fn recv_broadcast(&self, opts: BroadcastOptions, packet: Packet) {
-        tracing::trace!(?opts, "incoming broadcast");
-        if let Err(e) = self.local.broadcast(packet, opts) {
-            let ns = self.local.path();
-            tracing::warn!(?self.uid, ?ns, "remote request broadcast handler: {:?}", e);
-        }
-    }
-
-    fn recv_disconnect_sockets(&self, opts: BroadcastOptions) {
-        if let Err(e) = self.local.disconnect_socket(opts) {
-            let ns = self.local.path();
-            tracing::warn!(
-                ?self.uid,
-                ?ns,
-                "remote request disconnect sockets handler: {:?}",
-                e
-            );
-        }
-    }
-
-    fn recv_broadcast_with_ack(
-        self: Arc<Self>,
-        origin: Uid,
-        req_id: Sid,
-        packet: Packet,
-        opts: BroadcastOptions,
-    ) {
-        let (stream, count) = self.local.broadcast_with_ack(packet, opts, None);
-        tokio::spawn(async move {
-            let on_err = |err| {
-                let ns = self.local.path();
-                tracing::warn!(
-                    ?self.uid,
-                    ?ns,
-                    "remote request broadcast with ack handler errors: {:?}",
-                    err
-                );
-            };
-            // First send the count of expected acks to the server that sent the request.
-            // This is used to keep track of the number of expected acks.
-            let res = Response {
-                r#type: ResponseType::<()>::BroadcastAckCount(count),
-                node_id: self.uid,
-            };
-            if let Err(err) = self.send_res(req_id, origin, res).await {
-                on_err(err);
-                return;
-            }
-
-            // Then send the acks as they are received.
-            futures_util::pin_mut!(stream);
-            while let Some(ack) = stream.next().await {
-                let res = Response {
-                    r#type: ResponseType::BroadcastAck(ack),
-                    node_id: self.uid,
-                };
-                if let Err(err) = self.send_res(req_id, origin, res).await {
-                    on_err(err);
-                    return;
-                }
-            }
-        });
-    }
-
-    fn recv_rooms(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
-        let rooms = self.local.rooms(opts);
-        let res = Response {
-            r#type: ResponseType::<()>::AllRooms(rooms),
-            node_id: self.uid,
-        };
-        let fut = self.send_res(req_id, origin, res);
-        let ns = self.local.path().clone();
-        let uid = self.uid;
-        tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                tracing::warn!(?uid, ?ns, "remote request rooms handler: {:?}", err);
-            }
-        });
-    }
-
-    fn recv_add_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
-        self.local.add_sockets(opts, rooms);
-    }
-
-    fn recv_del_sockets(&self, opts: BroadcastOptions, rooms: Vec<Room>) {
-        self.local.del_sockets(opts, rooms);
-    }
-    fn recv_fetch_sockets(&self, origin: Uid, req_id: Sid, opts: BroadcastOptions) {
-        let sockets = self.local.fetch_sockets(opts);
-        let res = Response {
-            node_id: self.uid,
-            r#type: ResponseType::FetchSockets(sockets),
-        };
-        let fut = self.send_res(req_id, origin, res);
-        let ns = self.local.path().clone();
-        let uid = self.uid;
-        tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                tracing::warn!(?uid, ?ns, "remote request fetch sockets handler: {:?}", err);
-            }
-        });
-    }
-
-    /// Send a response to the node that sent the request.
-    fn send_res<T: Serialize + fmt::Debug>(
-        &self,
-        req_id: Sid,
-        req_origin: Uid,
-        res: Response<T>,
-    ) -> impl Future<Output = Result<(), Error<D>>> + Send + 'static {
-        tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
-        let driver = self.driver.clone();
-        let head = ItemHeader::Res {
-            request: req_id,
-            target: req_origin,
-        };
-        let res = self.new_packet(head, &res);
-
-        async move {
-            driver.emit(&res?).await.map_err(Error::from_driver)?;
-            Ok(())
-        }
     }
 
     /// Await for all the responses from the remote servers.
@@ -758,24 +621,25 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         } else {
             1
         };
-        let (tx, rx) = mpsc::channel(std::cmp::max(remote_serv_cnt, 1));
-        self.responses.lock().unwrap().insert(req_id, tx);
-        let stream = ChanStream::new(rx)
-            .filter_map(|Item { header, data, .. }| {
-                let data = match rmp_serde::from_slice::<Response<T>>(&data) {
-                    Ok(data) => Some(data),
-                    Err(e) => {
-                        tracing::warn!(header = ?header, "error decoding response: {e}");
-                        None
-                    }
-                };
-                future::ready(data)
-            })
-            .filter(move |item| future::ready(ResponseTypeId::from(&item.r#type) == response_type))
-            .take(remote_serv_cnt)
-            .take_until(tokio::time::sleep(self.config.request_timeout));
-        let stream = DropStream::new(stream, self.responses.clone(), req_id);
-        Ok(stream)
+        let rx = insert_response_handler(&self.responses, req_id, remote_serv_cnt);
+        let stream = ChanStream::new(rx).filter_map(|Item { header, data, .. }| {
+            let data = match rmp_serde::from_slice::<Response<T>>(&data) {
+                Ok(data) => Some(data),
+                Err(e) => {
+                    tracing::warn!(header = ?header, "error decoding response: {e}");
+                    None
+                }
+            };
+            future::ready(data)
+        });
+        Ok(wait_responses(
+            stream,
+            self.responses.clone(),
+            req_id,
+            response_type,
+            remote_serv_cnt,
+            self.config.request_timeout,
+        ))
     }
 
     fn new_packet(&self, head: ItemHeader, data: &impl Serialize) -> Result<Item, Error<D>> {
@@ -803,6 +667,39 @@ impl<E: SocketEmitter, D: Driver> HeartbeatSender for CustomMongoDbAdapter<E, D>
         let req = self.new_packet(head, &req)?;
         self.driver.emit(&req).await.map_err(Error::from_driver)?;
         Ok(())
+    }
+}
+
+impl<E: SocketEmitter, D: Driver> RemoteRequestHandler<E> for CustomMongoDbAdapter<E, D> {
+    type Error = Error<D>;
+
+    fn local(&self) -> &CoreLocalAdapter<E> {
+        &self.local
+    }
+
+    /// Send a response to the node that sent the request.
+    fn send_res<T: Serialize + fmt::Debug + Send + 'static>(
+        &self,
+        req_id: Sid,
+        req_origin: Uid,
+        res: Response<T>,
+    ) -> impl Future<Output = Result<(), Error<D>>> + Send + 'static {
+        tracing::trace!(?res, "sending response for {req_id} req to {req_origin}");
+        let driver = self.driver.clone();
+        let head = ItemHeader::Res {
+            request: req_id,
+            target: req_origin,
+        };
+        let res = self.new_packet(head, &res);
+
+        async move {
+            driver.emit(&res?).await.map_err(Error::from_driver)?;
+            Ok(())
+        }
+    }
+
+    fn recv_heartbeat(self: &Arc<Self>, req_type: RequestTypeIn, origin: Uid) {
+        HeartbeatSender::recv_heartbeat(self, &self.heartbeat, req_type, origin);
     }
 }
 
