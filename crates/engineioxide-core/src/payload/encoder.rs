@@ -257,6 +257,7 @@ mod tests {
     use futures_util::stream;
 
     use super::*;
+    use crate::Packet;
     const MAX_PAYLOAD: u64 = 100_000;
 
     #[tokio::test]

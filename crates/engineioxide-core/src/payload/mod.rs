@@ -10,6 +10,9 @@ mod buf;
 mod decoder;
 mod encoder;
 
+pub use buf::BufList;
+pub use decoder::V4Decoder;
+
 const PACKET_SEPARATOR_V4: u8 = b'\x1e';
 #[cfg(feature = "v3")]
 const STRING_PACKET_SEPARATOR_V3: u8 = b':';
