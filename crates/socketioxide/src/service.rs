@@ -54,14 +54,34 @@ where
     type Error = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Error;
     type Future = <EngineIoService<Client<A>, S> as TowerSvc<Request<ReqBody>>>::Future;
 
-    #[inline(always)]
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         TowerSvc::<Request<ReqBody>>::poll_ready(&mut self.engine_svc, cx)
     }
 
-    #[inline(always)]
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         TowerSvc::<Request<ReqBody>>::call(&mut self.engine_svc, req)
+    }
+}
+
+type WsReq<St> = (St, http::Request<()>);
+
+/// Service to create a websocket connection
+impl<St, A, S> TowerSvc<(St, http::Request<()>)> for SocketIoService<S, A>
+where
+    A: Adapter,
+    S: Clone,
+    St: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    type Response = <EngineIoService<Client<A>, S> as HyperSvc<WsReq<St>>>::Response;
+    type Error = <EngineIoService<Client<A>, S> as HyperSvc<WsReq<St>>>::Error;
+    type Future = <EngineIoService<Client<A>, S> as HyperSvc<WsReq<St>>>::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        TowerSvc::<WsReq<St>>::poll_ready(&mut self.engine_svc, cx)
+    }
+
+    fn call(&mut self, req: WsReq<St>) -> Self::Future {
+        TowerSvc::<WsReq<St>>::call(&mut self.engine_svc, req)
     }
 }
 
@@ -82,6 +102,22 @@ where
     #[inline(always)]
     fn call(&self, req: Request<ReqBody>) -> Self::Future {
         HyperSvc::<Request<ReqBody>>::call(&self.engine_svc, req)
+    }
+}
+
+/// Service to create a websocket connection
+impl<St, A, S> HyperSvc<WsReq<St>> for SocketIoService<S, A>
+where
+    S: Clone,
+    A: Adapter,
+    St: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    type Response = <EngineIoService<Client<A>, S> as HyperSvc<WsReq<St>>>::Response;
+    type Error = <EngineIoService<Client<A>, S> as HyperSvc<WsReq<St>>>::Error;
+    type Future = <EngineIoService<Client<A>, S> as HyperSvc<WsReq<St>>>::Future;
+
+    fn call(&self, req: WsReq<St>) -> Self::Future {
+        HyperSvc::<WsReq<St>>::call(&self.engine_svc, req)
     }
 }
 
