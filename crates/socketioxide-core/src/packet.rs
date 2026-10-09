@@ -58,6 +58,20 @@ impl Packet {
         }
     }
 
+    /// Create an event packet with an ack id for the given namespace.
+    /// If the there is adjacent binary data, it will be a binary packet.
+    pub fn event_with_ack(ns: impl Into<Str>, data: Value, ack_id: i64) -> Self {
+        Self {
+            inner: match data {
+                Value::Str(_, Some(ref bins)) if !bins.is_empty() => {
+                    PacketData::BinaryEvent(data, None)
+                }
+                _ => PacketData::Event(data, Some(ack_id)),
+            },
+            ns: ns.into(),
+        }
+    }
+
     /// Create an ack packet for the given namespace.
     /// If the there is adjacent binary data, it will be a binary packet.
     pub fn ack(ns: impl Into<Str>, data: Value, ack: i64) -> Self {

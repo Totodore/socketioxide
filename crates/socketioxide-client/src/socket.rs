@@ -1,19 +1,28 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
+    marker::PhantomData,
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{self, AtomicI64},
+    },
+    time::Duration,
 };
 
-use serde::Serialize;
+use pin_project_lite::pin_project;
+use serde::{Serialize, de};
 use socketioxide_core::{
     Sid, Str, Value,
     packet::{Packet, PacketData},
     parser::Parse,
 };
-use tokio::sync::mpsc;
+use tokio::{
+    sync::{mpsc, oneshot},
+    time,
+};
 
 use crate::{
-    errors::SendError,
+    errors::{AckError, SendError},
     handler::{
         BoxedDisconnectHandler, BoxedMessageHandler, MakeErasedHandler,
         disconnect::DisconnectHandler, message::MessageHandler,
@@ -33,36 +42,122 @@ pub enum DisconnectReason {
     TransportError,
 }
 
+type AckResult<T> = Result<T, AckError>;
+
+pin_project! {
+    /// A [`Future`] of ack data received from the server.
+    ///
+    /// It will yield the ack response received from the client.
+    ///
+    /// If the client didn't respond before the timeout, the [`AckStream`] will yield
+    /// an [`AckError::Timeout`]. If the data sent by the client is not deserializable as `T`,
+    /// an [`AckError::Decode`] will be yielded.
+    ///
+    /// An [`AckStream`] can be created from:
+    /// * The [`SocketRef::emit_with_ack`] method, in this case there will be only one ack response.
+    /// * The [`Operator::emit_with_ack`] method, in this case there will be as many ack response
+    /// as there are selected sockets.
+    ///
+    /// [`SocketRef::emit_with_ack`]: crate::extract::SocketRef#method.emit_with_ack
+    /// [`Operator::emit_with_ack`]: crate::operators::Operators#method.emit_with_ack
+    ///
+    /// # Example
+    /// ```rust
+    /// # use socketioxide::extract::SocketRef;
+    /// # use socketioxide::ack::AckStream;
+    /// # use futures_util::StreamExt;
+    /// # use socketioxide::SocketIo;
+    /// let (svc, io) = SocketIo::new_svc();
+    /// io.ns("/test", async |socket: SocketRef| {
+    ///     // We wait for the acknowledgement of the first emit (only one in this case)
+    ///     let ack = socket.emit_with_ack::<_, String>("test", "test").unwrap().await;
+    ///     println!("Ack: {:?}", ack);
+    ///
+    ///     // We apply the `for_each` StreamExt fn to the AckStream
+    ///     let res = socket.emit_with_ack::<_, String>("test", "test").await.unwrap().await;
+    /// });
+    /// ```
+    #[must_use = "futures and streams do nothing unless you `.await` or poll them"]
+    pub struct AckFuture<T> {
+        #[pin]
+        inner: time::Timeout<oneshot::Receiver<AckResult<Value>>>,
+        parser: Parser,
+        _phantom: PhantomData<fn() -> T>,
+    }
+}
+
+impl<T> AckFuture<T> {
+    fn new(parser: Parser, timeout: Duration) -> (Self, oneshot::Sender<AckResult<Value>>) {
+        let (tx, rx) = oneshot::channel();
+
+        let ack_fut = Self {
+            inner: time::timeout(timeout, rx),
+            parser,
+            _phantom: PhantomData,
+        };
+
+        (ack_fut, tx)
+    }
+}
+
+impl<T: de::DeserializeOwned> Future for AckFuture<T> {
+    type Output = Result<T, AckError>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let mut v = std::task::ready!(self.as_mut().project().inner.poll(cx))???;
+        let v = self.parser.decode_value(&mut v, false)?;
+        std::task::Poll::Ready(Ok(v))
+    }
+}
+
 pub struct Socket {
     tx: mpsc::Sender<Packet>,
 
     message_handlers: RwLock<HashMap<Cow<'static, str>, BoxedMessageHandler>>,
     fallback_message_handler: RwLock<Option<BoxedMessageHandler>>,
+    // shared so it can be called outside of the lock: unlike the other ones it
+    // is called again after every reconnection.
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler>>,
-    // ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
 
-    // ack_counter: AtomicI64,
+    ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
+    ack_counter: AtomicI64,
+
     pub(crate) parser: Parser,
     pub ns: Str,
-    /// The socket id
-    pub id: Sid,
+    /// The id the server gave to this socket on its namespace, `None` until it
+    /// is connected. A new one is assigned on every reconnection.
+    id: RwLock<Option<Sid>>,
 }
 
 impl Socket {
     /// Create a new [`Socket`] instance from an already connected transport.
     ///
     /// The transport should already have received a `CONNECT` packet.
-    pub(crate) fn new(tx: mpsc::Sender<Packet>) -> Self {
+    pub(crate) fn new(tx: mpsc::Sender<Packet>, ns: Str) -> Self {
         Self {
             tx,
             message_handlers: RwLock::new(HashMap::new()),
             fallback_message_handler: RwLock::new(None),
             disconnect_handler: Mutex::new(None),
 
-            id: Sid::new(),
-            ns: "/".into(),
+            ack_message: Mutex::new(HashMap::new()),
+            ack_counter: AtomicI64::default(),
+
+            id: RwLock::new(None),
+            ns,
             parser: Parser::default(),
         }
+    }
+
+    /// The id the server gave to this socket on its namespace.
+    ///
+    /// It is `None` while the socket is not connected, and it changes on every
+    /// reconnection: it is not the id of the underlying engine.io connection.
+    pub fn id(&self) -> Option<Sid> {
+        *self.id.read().unwrap()
     }
 
     /// # Registers a [`MessageHandler`] for the given event.
@@ -208,7 +303,7 @@ impl Socket {
     ///         socket.disconnect().ok();
     ///     });
     ///     socket.on_disconnect(async |socket: SocketRef, reason: DisconnectReason| {
-    ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.id, socket.ns(), reason);
+    ///         println!("Socket {} on ns {} disconnected, reason: {:?}", socket.id(), socket.ns(), reason);
     ///     });
     /// });
     pub fn on_disconnect<C, T>(&self, callback: C)
@@ -236,6 +331,45 @@ impl Socket {
 
         Ok(())
     }
+
+    pub async fn emit_with_ack<T: ?Sized + Serialize, V>(
+        &self,
+        event: impl AsRef<str>,
+        data: &T,
+    ) -> Result<AckFuture<V>, SendError> {
+        let permit = self
+            .tx
+            .reserve()
+            .await
+            .map_err(|_| SendError::SocketClosed)?;
+
+        let data = self.parser.encode_value(data, Some(event.as_ref()))?;
+        let ack_id = self.ack_counter.fetch_add(1, atomic::Ordering::Relaxed);
+        //TODO: dyn duration
+        let (ack_fut, tx) = AckFuture::new(self.parser, Duration::from_secs(30));
+
+        let packet = Packet::event_with_ack(self.ns.clone(), data, ack_id);
+        self.ack_message.lock().unwrap().insert(ack_id, tx);
+
+        permit.send(packet);
+        Ok(ack_fut)
+    }
+
+    /// Disconnect this socket from its namespace.
+    ///
+    /// The socket cannot be used anymore afterwards, and the underlying
+    /// engine.io connection is closed if it was the last one using it.
+    pub async fn disconnect(&self) -> Result<(), SendError> {
+        let permit = self
+            .tx
+            .reserve()
+            .await
+            .map_err(|_| SendError::SocketClosed)?;
+
+        permit.send(Packet::disconnect(self.ns.clone()));
+
+        Ok(())
+    }
 }
 
 impl Socket {
@@ -246,11 +380,11 @@ impl Socket {
                 self.recv_event(data, ack)
             }
             PacketData::Disconnect => self.close(DisconnectReason::IoServerDisconnect),
-            //TODO: acks and namespace connection handshake.
-            PacketData::EventAck(..)
-            | PacketData::BinaryAck(..)
-            | PacketData::Connect(_)
-            | PacketData::ConnectError(_) => (),
+            PacketData::EventAck(v, ack_id) | PacketData::BinaryAck(v, ack_id) => {
+                self.recv_ack(v, ack_id)
+            }
+            //TODO: namespace connection handshake.
+            PacketData::Connect(_) | PacketData::ConnectError(_) => (),
         }
     }
 
@@ -271,11 +405,32 @@ impl Socket {
         }
     }
 
+    fn recv_ack(&self, data: Value, ack: i64) {
+        if let Some(tx) = self.ack_message.lock().unwrap().remove(&ack) {
+            tx.send(Ok(data)).ok();
+        } else {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = ?self.id(), "ack not found: {ack}");
+        }
+    }
+
+    /// The server accepted this socket on its namespace and gave it this id.
+    pub(crate) fn set_connected(&self, id: Sid) {
+        *self.id.write().unwrap() = Some(id);
+    }
+
     /// Notify the socket that it is disconnected, calling its disconnect handler.
+    ///
+    /// The socket may be connected again afterwards, on a new connection: the
+    /// handler is cloned out rather than taken, so that it is called every time.
     pub(crate) fn close(self: &Arc<Self>, reason: DisconnectReason) {
-        // the handler is taken so it is called once, and so the lock is not
-        // held while the extractors run.
-        let handler = self.disconnect_handler.lock().unwrap().take();
+        *self.id.write().unwrap() = None;
+        // the acks of a connection that is over will never be answered, and
+        // their ids mean nothing on the next one.
+        self.ack_message.lock().unwrap().clear();
+
+        // cloned so the lock is not held while the extractors run.
+        let handler = self.disconnect_handler.lock().unwrap().clone();
         if let Some(handler) = handler {
             handler.call(self.clone(), reason);
         }

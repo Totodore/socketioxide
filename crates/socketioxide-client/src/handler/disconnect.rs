@@ -46,7 +46,7 @@ use crate::socket::{DisconnectReason, Socket};
 use super::MakeErasedHandler;
 
 /// A Type Erased [`DisconnectHandler`] so it can be stored in a HashMap
-pub(crate) type BoxedDisconnectHandler = Box<dyn ErasedDisconnectHandler>;
+pub(crate) type BoxedDisconnectHandler = Arc<dyn ErasedDisconnectHandler>;
 pub(crate) trait ErasedDisconnectHandler: Send + Sync + 'static {
     fn call(&self, s: Arc<Socket>, reason: DisconnectReason);
 }
@@ -56,8 +56,8 @@ where
     T: Send + Sync + 'static,
     H: DisconnectHandler<T> + Send + Sync + 'static,
 {
-    pub fn new_disconnect_boxed(inner: H) -> Box<dyn ErasedDisconnectHandler> {
-        Box::new(MakeErasedHandler::new(inner))
+    pub fn new_disconnect_boxed(inner: H) -> Arc<dyn ErasedDisconnectHandler> {
+        Arc::new(MakeErasedHandler::new(inner))
     }
 }
 
@@ -66,7 +66,7 @@ where
     H: DisconnectHandler<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id())))]
     #[inline(always)]
     fn call(&self, s: Arc<Socket>, reason: DisconnectReason) {
         self.handler.call(s, reason);

@@ -4,4 +4,4 @@ mod manager;
 mod parser;
 mod socket;
 
-pub use manager::io;
+pub use manager::{IoManager, io};

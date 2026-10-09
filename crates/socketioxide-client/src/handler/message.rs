@@ -95,7 +95,7 @@ where
     T: Send + Sync + 'static,
     H: MessageHandler<T>,
 {
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self, s), fields(id = ?s.id())))]
     #[inline(always)]
     fn call(&self, s: Arc<Socket>, v: Value, ack_id: Option<i64>) {
         self.handler.call(s, v, ack_id);

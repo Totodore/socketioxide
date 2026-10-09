@@ -1,13 +1,14 @@
 use std::time::Duration;
 
-use engineioxide_client::EngineIoClientConfig;
 use socketioxide::{
-    SocketIo, TransportType,
+    SocketIo,
     extract::{Data, SocketRef},
-    service::SocketIoService,
 };
 use socketioxide_client::io;
 use tracing_subscriber::EnvFilter;
+
+mod disconnect;
+mod lifecycle;
 
 const fn main() {}
 
@@ -20,7 +21,6 @@ async fn int() {
     let (svc, server_io) = SocketIo::new_svc();
 
     server_io.ns("/", async |sock: SocketRef| {
-        dbg!(&sock);
         sock.on("event", async |Data(event): Data<String>| {
             assert_eq!(event, "yolo");
         });

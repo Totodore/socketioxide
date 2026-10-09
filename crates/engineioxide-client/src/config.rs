@@ -6,7 +6,7 @@ use http::Uri;
 use crate::errors::ConfigError;
 
 /// Configuration for the Engine.io client.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EngineIoClientConfig {
     /// A list of transports to try (in order). Engine.io always attempts to
     /// connect directly with the first one, provided the feature detection test
