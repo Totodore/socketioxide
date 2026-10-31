@@ -2588,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.18.7"
+version = "0.18.8"
 dependencies = [
  "axum",
  "bytes",
@@ -2622,7 +2622,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-core"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "arbitrary",
  "bytes",
@@ -2703,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-postgres"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytes",
  "engineioxide",

@@ -1,3 +1,7 @@
+# socketioxide 0.18.8
+* fix: rooms joined from a connect middleware were left in the adapter when the middleware rejected
+the connection. The socket never enters the namespace on that path, so nothing ever cleaned them up.
+
 # socketioxide 0.18.7
 * fix(security): bump `socketioxide-parser-commong` to 0.17.2, fixing unlimited binary data attachments which could lead
 to denial of service. See [Github Advisory](https://github.com/Totodore/socketioxide/security/advisories/GHSA-55mf-67qm-4wpg).
