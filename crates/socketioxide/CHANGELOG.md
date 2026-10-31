@@ -1,4 +1,6 @@
 # socketioxide 0.18.8
+* feat: `SocketIoService` now implements the `tower`/`hyper` `Service` traits for `(stream, request)` pairs,
+to create a websocket connection from an already upgraded IO stream [#786](https://github.com/Totodore/socketioxide/pull/786).
 * fix: rooms joined from a connect middleware were left in the adapter when the middleware rejected
 the connection. The socket never enters the namespace on that path, so nothing ever cleaned them up.
 
