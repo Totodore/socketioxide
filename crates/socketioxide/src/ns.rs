@@ -138,7 +138,9 @@ impl<A: Adapter> Namespace<A> {
             #[cfg(feature = "tracing")]
             tracing::debug!(%sid, "error sending connect packet: {_e}, closing conn");
 
-            self.remove_socket(sid);
+            // Through `Socket::close` rather than `remove_socket`, so a disconnect handler
+            // registered by a middleware still runs for a client that dropped mid-connect.
+            socket.close(DisconnectReason::TransportError);
             esocket.close(engineioxide::DisconnectReason::TransportError);
             return Err(ConnectFail);
         }

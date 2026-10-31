@@ -607,6 +607,17 @@ impl<A: Adapter> Socket<A> {
         self.connected.load(Ordering::SeqCst)
     }
 
+    /// # Return true if the underlying engine.io connection is closed.
+    ///
+    /// Unlike [`connected`](Self::connected), this is meaningful inside a
+    /// [connect middleware](crate::handler::connect#middlewares): it tells whether the client
+    /// dropped the connection while the middleware was running, for example during an
+    /// authentication lookup, so the middleware can stop early instead of accepting a socket
+    /// that can no longer be reached.
+    pub fn is_closed(&self) -> bool {
+        self.esocket.is_closed()
+    }
+
     // Socket operators
 
     #[doc = include_str!("../docs/operators/to.md")]
