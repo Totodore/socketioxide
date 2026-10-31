@@ -1,3 +1,6 @@
+# socketioxide-core 0.19.1
+* feat: add a new request module to share logic request handling logic between all adapters. 
+
 # socketioxide-core 0.19.0
 * feat(*breaking*): Add a new `ParseConfig` arg to parser `decode_{str/bin}` methods. 
 
