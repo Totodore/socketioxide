@@ -93,7 +93,7 @@ use std::{
     collections::HashMap,
     fmt, future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     task::{Context, Poll},
     time::Duration,
 };
@@ -118,7 +118,7 @@ use socketioxide_core::{
     },
     packet::Packet,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::AbortHandle};
 
 use drivers::{Driver, Item, ItemHeader};
 
@@ -327,6 +327,9 @@ pub struct CustomMongoDbAdapter<E, D> {
     heartbeat: HeartbeatTracker,
     /// A map of response handlers used to await for responses from the remote servers.
     responses: Arc<Mutex<ResponseHandlers<Item>>>,
+
+    ev_stream_task: OnceLock<AbortHandle>,
+    hb_task: OnceLock<AbortHandle>,
 }
 
 impl<E, D> DefinedAdapter for CustomMongoDbAdapter<E, D> {}
@@ -345,14 +348,25 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             config: state.config.clone(),
             heartbeat: HeartbeatTracker::new(state.config.hb_timeout),
             responses: Arc::new(Mutex::new(HashMap::new())),
+            ev_stream_task: OnceLock::new(),
+            hb_task: OnceLock::new(),
         }
     }
 
     fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
         let fut = async move {
             let stream = self.driver.watch(self.uid, self.local.path()).await?;
-            tokio::spawn(self.clone().handle_ev_stream(stream));
-            tokio::spawn(heartbeat_loop(self.clone(), self.config.hb_interval));
+            let ev_stream_task = tokio::spawn(self.clone().handle_ev_stream(stream)).abort_handle();
+            assert!(
+                self.ev_stream_task.set(ev_stream_task).is_ok(),
+                "Adapter::init should be called only once"
+            );
+            let hb_task =
+                tokio::spawn(heartbeat_loop(self.clone(), self.config.hb_interval)).abort_handle();
+            assert!(
+                self.hb_task.set(hb_task).is_ok(),
+                "Adapter::init should be called only once"
+            );
 
             // Send initial heartbeat when starting.
             self.emit_init_heartbeat().await.map_err(|e| match e {
@@ -367,6 +381,12 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
+        if let Some(hb_task) = self.hb_task.get() {
+            hb_task.abort();
+        }
+        if let Some(ev_stream_task) = self.ev_stream_task.get() {
+            ev_stream_task.abort();
+        }
         Ok(())
     }
 
