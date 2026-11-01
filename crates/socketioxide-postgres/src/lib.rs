@@ -867,28 +867,17 @@ impl<E: SocketEmitter, D: Driver> HeartbeatSender for CustomPostgresAdapter<E, D
             serde_json::to_vec(&req)?
         };
 
-        // The threshold applies to what is really sent in the notification, wrapper included.
-        // The body is moved into the message: it is only needed if the message is too big.
-        let inline = if is_binary || body.len() >= self.config.payload_threshold {
-            Err(body)
+        let inline = if is_binary {
+            None
         } else {
-            let body =
-                String::from_utf8(body).expect("this should be serde_json output and valid UTF8");
-            let payload = RawValue::from_string(body)?;
-            let message = serde_json::to_string(&RequestPacket::Request {
-                node_id,
-                payload: &*payload,
-            })?;
-            if message.len() < self.config.payload_threshold {
-                Ok(message)
-            } else {
-                Err(payload.get().as_bytes().to_vec())
-            }
+            inline_message(&body, self.config.payload_threshold, |payload| {
+                serde_json::to_string(&RequestPacket::Request { node_id, payload })
+            })?
         };
 
         let payload = match inline {
-            Ok(message) => message,
-            Err(body) => {
+            Some(message) => message,
+            None => {
                 let id = self
                     .driver
                     .push_attachment(&self.config.table_name, &body)
@@ -945,27 +934,21 @@ impl<E: SocketEmitter, D: Driver> RemoteRequestHandler<E> for CustomPostgresAdap
                 serde_json::to_vec(&res)?
             };
 
-            // The threshold applies to what is really sent in the notification, wrapper included.
-            let inline = if is_binary || body.len() >= threshold {
-                Err(body)
+            let inline = if is_binary {
+                None
             } else {
-                let body = String::from_utf8(body)
-                    .expect("this should be serde_json output and valid UTF8");
-                let message = serde_json::to_string(&ResponsePacket {
-                    req_id,
-                    node_id,
-                    payload: ResponsePayload::Data(RawValue::from_string(body.clone())?),
-                })?;
-                if message.len() < threshold {
-                    Ok(message)
-                } else {
-                    Err(body.into_bytes())
-                }
+                inline_message(&body, threshold, |payload| {
+                    serde_json::to_string(&ResponsePacket {
+                        req_id,
+                        node_id,
+                        payload: ResponsePayload::Data(payload.to_owned()),
+                    })
+                })?
             };
 
             let message = match inline {
-                Ok(message) => message,
-                Err(body) => {
+                Some(message) => message,
+                None => {
                     let id = driver
                         .push_attachment(&table, &body)
                         .await
@@ -1091,6 +1074,23 @@ impl<T> RequestPacket<T> {
             RequestPacket::RequestWithAttachment { node_id: id, .. } => *id == node_id,
         }
     }
+}
+
+/// Build the notification carrying a JSON body inline.
+///
+/// Returns `None` if it doesn't fit in `threshold`, which applies to the whole message and
+/// not only to the body: the message is what is limited by Postgres. The body should then be
+/// stored as an attachment.
+fn inline_message(
+    body: &[u8],
+    threshold: usize,
+    to_message: impl FnOnce(&RawValue) -> Result<String, serde_json::Error>,
+) -> Result<Option<String>, serde_json::Error> {
+    if body.len() >= threshold {
+        return Ok(None);
+    }
+    let message = to_message(serde_json::from_slice(body)?)?;
+    Ok((message.len() < threshold).then_some(message))
 }
 
 #[derive(Deserialize, Serialize)]
