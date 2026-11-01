@@ -1348,7 +1348,7 @@ mod tests {
         async fn cleanup_attachments(&self, _: &str, _: Duration) -> Result<(), Self::Error> {
             Ok(())
         }
-        async fn close(&self) -> Result<(), Self::Error> {
+        async fn close(&self, _: &[&str]) -> Result<(), Self::Error> {
             Ok(())
         }
     }
