@@ -195,9 +195,13 @@ fn move_to_next_element(reader: &mut Cursor<Bytes>, depth: usize) -> Result<(), 
         rmp::Marker::U16 | rmp::Marker::I16 => 2,
         rmp::Marker::F32 | rmp::Marker::U32 | rmp::Marker::I32 => 4,
         rmp::Marker::F64 | rmp::Marker::U64 | rmp::Marker::I64 => 8,
-        rmp::Marker::Str8 | rmp::Marker::Bin8 | rmp::Marker::Ext8 => read_u8(reader)? as usize,
-        rmp::Marker::Str16 | rmp::Marker::Bin16 | rmp::Marker::Ext16 => read_u16(reader)? as usize,
-        rmp::Marker::Str32 | rmp::Marker::Bin32 | rmp::Marker::Ext32 => read_u32(reader)? as usize,
+        rmp::Marker::Str8 | rmp::Marker::Bin8 => read_u8(reader)? as usize,
+        rmp::Marker::Str16 | rmp::Marker::Bin16 => read_u16(reader)? as usize,
+        rmp::Marker::Str32 | rmp::Marker::Bin32 => read_u32(reader)? as usize,
+        // The ext length does not include its type byte.
+        rmp::Marker::Ext8 => (read_u8(reader)? as usize).saturating_add(1),
+        rmp::Marker::Ext16 => (read_u16(reader)? as usize).saturating_add(1),
+        rmp::Marker::Ext32 => (read_u32(reader)? as usize).saturating_add(1),
         rmp::Marker::Array16 => {
             let arrlen = read_u16(reader)? as usize;
             for _ in 0..arrlen {
@@ -723,6 +727,73 @@ mod tests {
         move_to_next_element(&mut reader, 0).unwrap();
         let bytelen = reader.position() as usize;
         assert_eq!(bytelen, len);
+    }
+
+    fn assert_bytelen(data: Vec<u8>) {
+        let len = data.len();
+        let mut reader = Cursor::new(data.into());
+        move_to_next_element(&mut reader, 0).unwrap();
+        assert_eq!(reader.position() as usize, len);
+    }
+
+    #[test]
+    pub fn data_bytelen_ext8() {
+        // marker, length, type, data
+        assert_bytelen(vec![Marker::Ext8.to_u8(), 0x02, 0x05, 0xaa, 0xbb]);
+    }
+
+    #[test]
+    pub fn data_bytelen_ext16() {
+        assert_bytelen(vec![Marker::Ext16.to_u8(), 0x00, 0x02, 0x05, 0xaa, 0xbb]);
+    }
+
+    #[test]
+    pub fn data_bytelen_ext32() {
+        assert_bytelen(vec![
+            Marker::Ext32.to_u8(),
+            0x00,
+            0x00,
+            0x00,
+            0x02,
+            0x05,
+            0xaa,
+            0xbb,
+        ]);
+    }
+
+    #[test]
+    pub fn data_bytelen_empty_ext() {
+        assert_bytelen(vec![Marker::Ext8.to_u8(), 0x00, 0x05]);
+    }
+
+    #[test]
+    pub fn data_bytelen_truncated_ext_type() {
+        let data = vec![Marker::Ext8.to_u8(), 0x00];
+        let mut reader = Cursor::new(data.into());
+        move_to_next_element(&mut reader, 0).unwrap_err();
+    }
+
+    /// The bytes following an ext value must not be read as a part of it.
+    #[test]
+    pub fn ext_data_followed_by_id() {
+        let mut data = vec![];
+        rmp::encode::write_map_len(&mut data, 4).unwrap();
+        rmp::encode::write_str(&mut data, "type").unwrap();
+        rmp::encode::write_uint(&mut data, 2).unwrap();
+        rmp::encode::write_str(&mut data, "nsp").unwrap();
+        rmp::encode::write_str(&mut data, "/").unwrap();
+        rmp::encode::write_str(&mut data, "data").unwrap();
+        data.extend_from_slice(&[Marker::Ext8.to_u8(), 0x01, 0x05, 0xaa]);
+        rmp::encode::write_str(&mut data, "id").unwrap();
+        rmp::encode::write_uint(&mut data, 7).unwrap();
+
+        let packet = deserialize_packet(data.into()).unwrap();
+        match packet.inner {
+            PacketData::Event(Value::Bytes(data), Some(7)) => {
+                assert_eq!(*data, [Marker::Ext8.to_u8(), 0x01, 0x05, 0xaa]);
+            }
+            inner => panic!("invalid packet: {inner:?}"),
+        }
     }
 
     /// `n` nested `FixArray(1)` with a nil innermost element: `[[[...nil...]]]`
