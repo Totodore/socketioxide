@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use base64::Engine;
 use rand::RngExt;
 
-/// A 128 bit session id type representing a base64 16 char string
+/// A session id made of 96 random bits, represented as a 16 char url-safe base64 string
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Sid([u8; 16]);
 
@@ -117,6 +117,17 @@ impl fmt::Debug for Sid {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sid_is_96_bits_encoded_as_16_chars() {
+        use base64::Engine;
+        let sid = super::Sid::new();
+        assert_eq!(sid.as_str().len(), 16);
+        let decoded = base64::prelude::BASE64_URL_SAFE_NO_PAD
+            .decode(sid.as_str())
+            .unwrap();
+        assert_eq!(decoded.len() * 8, 96);
+    }
+
     use std::str::FromStr;
 
     use crate::sid::Sid;
