@@ -107,11 +107,12 @@ fn parse_key_value(
                 .get(reader.position() as usize)
                 .map(|b| Marker::from_u8(*b))       //TODO: use remaining_slice when stabilized (issue #86369)
             {
-                Some(Marker::Null) | None => {
+                Some(Marker::Null) => {
                     reader.advance(1);
                     None
                 }
-                Some(_) => Some(decode::read_int::<i64, _>(reader)?),
+                // If there is nothing left to read, this returns an error.
+                _ => Some(decode::read_int::<i64, _>(reader)?),
             }
         }
         _ => move_to_next_element(reader, 0)?, // Skip the data corresponding to the key
