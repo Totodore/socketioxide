@@ -13,7 +13,7 @@ use matchit::{Match, Router};
 use socketioxide_core::packet::{Packet, PacketData};
 use socketioxide_core::parser::{Parse, ParserState};
 use socketioxide_core::{Sid, Value};
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, task::AbortHandle};
 
 use crate::{
     ProtocolVersion, SocketIo, SocketIoConfig,
@@ -141,6 +141,30 @@ impl<A: Adapter> Client<A> {
         );
     }
 
+    /// Close the socket if the attachments of its binary packet are not received in time.
+    ///
+    /// The parser only checks this timeout when receiving an attachment.
+    /// Without this, a client that never sends them would never reach it.
+    fn spawn_bin_packet_timeout(&self, socket: Arc<EIoSocket<SocketData<A>>>) {
+        let timeout = self.config.parse_config.packet_completion_timeout;
+        let data_socket = socket.clone();
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(timeout).await;
+            #[cfg(feature = "tracing")]
+            tracing::debug!(sid = %socket.id, "timeout while waiting for binary attachments");
+            socket.close(EIoDisconnectReason::PacketParsingError);
+        });
+        let prev = data_socket
+            .data
+            .bin_packet_timeout
+            .lock()
+            .unwrap()
+            .replace(task.abort_handle());
+        if let Some(prev) = prev {
+            prev.abort();
+        }
+    }
+
     /// Adds a new namespace handler
     pub fn add_ns<C, T>(self: Arc<Self>, path: Cow<'static, str>, callback: C) -> A::InitRes
     where
@@ -216,15 +240,25 @@ pub struct SocketData<A: Adapter> {
     pub parser_state: ParserState,
     /// Channel used to notify the socket that it has been connected to a namespace for v5
     pub connect_recv_tx: Mutex<Option<oneshot::Sender<()>>>,
+    /// The timer closing the socket if the current binary packet is not completed in time.
+    pub bin_packet_timeout: Mutex<Option<AbortHandle>>,
 
     /// Used to store the [`SocketIo`] instance so it can be accessed by any sockets
     pub io: OnceLock<SocketIo<A>>,
+}
+impl<A: Adapter> SocketData<A> {
+    fn stop_bin_packet_timeout(&self) {
+        if let Some(task) = self.bin_packet_timeout.lock().unwrap().take() {
+            task.abort();
+        }
+    }
 }
 impl<A: Adapter> Default for SocketData<A> {
     fn default() -> Self {
         Self {
             parser_state: ParserState::default(),
             connect_recv_tx: Mutex::new(None),
+            bin_packet_timeout: Mutex::new(None),
             io: OnceLock::new(),
         }
     }
@@ -266,6 +300,7 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
     fn on_disconnect(&self, socket: Arc<EIoSocket<SocketData<A>>>, reason: EIoDisconnectReason) {
         #[cfg(feature = "tracing")]
         tracing::debug!("eio socket disconnected");
+        socket.data.stop_bin_packet_timeout();
         let socks: Vec<_> = self
             .nsps
             .read()
@@ -292,7 +327,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             msg,
         ) {
             Ok(packet) => packet,
-            Err(ParseError::NeedsMoreBinaryData) => return,
+            Err(ParseError::NeedsMoreBinaryData) => {
+                self.spawn_bin_packet_timeout(socket);
+                return;
+            }
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("socket deserialization error: {}", _e);
@@ -334,7 +372,10 @@ impl<A: Adapter> EngineIoHandler for Client<A> {
             &socket.data.parser_state,
             data,
         ) {
-            Ok(packet) => packet,
+            Ok(packet) => {
+                socket.data.stop_bin_packet_timeout();
+                packet
+            }
             Err(ParseError::NeedsMoreBinaryData) => return,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
@@ -497,5 +538,92 @@ mod test {
         tokio::time::timeout(CONNECT_TIMEOUT * 2, close_rx.recv())
             .await
             .unwrap_err();
+    }
+
+    const PARTIAL_HEADER: &str = "51-[\"event\",{\"_placeholder\":true,\"num\":0}]";
+    const COMPLETION_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(150);
+
+    /// A client with a connected socket, and the channel receiving the close reason of this socket.
+    async fn connected_socket() -> (
+        Arc<super::Client<LocalAdapter>>,
+        Arc<EIoSocket<SocketData<LocalAdapter>>>,
+        mpsc::Receiver<EIoDisconnectReason>,
+    ) {
+        let config = crate::SocketIoConfig {
+            parse_config: socketioxide_core::parser::ParseConfig {
+                packet_completion_timeout: COMPLETION_TIMEOUT,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let client = Arc::new(Client::new(
+            config,
+            (),
+            #[cfg(feature = "state")]
+            Default::default(),
+        ));
+        client.clone().add_ns("/".into(), async || ());
+
+        let (close_tx, close_rx) = mpsc::channel(4);
+        let close_fn = Box::new(move |_, reason| close_tx.try_send(reason).unwrap());
+        let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
+        client.clone().on_connect(sock.clone());
+        client.on_message("0".into(), sock.clone());
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        (client, sock, close_rx)
+    }
+
+    #[tokio::test]
+    async fn string_packet_during_a_binary_packet_closes_the_socket() {
+        let (client, sock, mut close_rx) = connected_socket().await;
+        client.on_message(PARTIAL_HEADER.into(), sock.clone());
+        client.on_message("2[\"other\"]".into(), sock.clone());
+
+        let res = tokio::time::timeout(COMPLETION_TIMEOUT / 3, close_rx.recv())
+            .await
+            .expect("the socket should be closed");
+        assert_eq!(res, Some(EIoDisconnectReason::PacketParsingError));
+    }
+
+    #[tokio::test]
+    async fn incomplete_binary_packet_closes_the_socket_after_the_timeout() {
+        let (client, sock, mut close_rx) = connected_socket().await;
+        client.on_message(PARTIAL_HEADER.into(), sock.clone());
+
+        let res = tokio::time::timeout(COMPLETION_TIMEOUT * 3, close_rx.recv())
+            .await
+            .expect("the socket should be closed");
+        assert_eq!(res, Some(EIoDisconnectReason::PacketParsingError));
+    }
+
+    #[tokio::test]
+    async fn completed_binary_packet_does_not_close_the_socket() {
+        let (client, sock, mut close_rx) = connected_socket().await;
+        client.on_message(PARTIAL_HEADER.into(), sock.clone());
+        client.on_binary(Bytes::from_static(&[1, 2, 3]), sock.clone());
+
+        tokio::time::timeout(COMPLETION_TIMEOUT * 3, close_rx.recv())
+            .await
+            .unwrap_err();
+    }
+
+    /// The timer of a packet must not apply to the next one.
+    #[tokio::test]
+    async fn timeout_only_applies_to_the_current_binary_packet() {
+        let (client, sock, mut close_rx) = connected_socket().await;
+        client.on_message(PARTIAL_HEADER.into(), sock.clone());
+        tokio::time::sleep(COMPLETION_TIMEOUT * 2 / 3).await;
+        client.on_binary(Bytes::from_static(&[1, 2, 3]), sock.clone());
+
+        // Sent just before the end of the timer of the first packet.
+        client.on_message(PARTIAL_HEADER.into(), sock.clone());
+        tokio::time::timeout(COMPLETION_TIMEOUT * 2 / 3, close_rx.recv())
+            .await
+            .unwrap_err();
+
+        let res = tokio::time::timeout(COMPLETION_TIMEOUT, close_rx.recv())
+            .await
+            .expect("the socket should be closed");
+        assert_eq!(res, Some(EIoDisconnectReason::PacketParsingError));
     }
 }
