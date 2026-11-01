@@ -256,7 +256,16 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let mut internal_rx = socket.internal_rx.try_lock().unwrap();
+    // A polling request that was in progress during the upgrade may still hold the lock.
+    let lock = socket.internal_rx.lock();
+    let Some(mut internal_rx) = lock
+        .with_cancellation_token(&socket.cancellation_token)
+        .await
+    else {
+        #[cfg(feature = "tracing")]
+        tracing::debug!(sid = %socket.id, "session closed before starting the ws writer");
+        return;
+    };
     let InternalRx {
         buffered_rx,
         volatile_rx,
@@ -451,4 +460,86 @@ where
 fn ws_bytes_to_str(bytes: tungstenite::Utf8Bytes) -> Str {
     // SAFETY: the bytes are guaranteed to be valid UTF-8 by the tungstenite parser
     unsafe { Str::from_bytes_unchecked(bytes.into()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bytes::Bytes;
+    use futures_util::StreamExt;
+    use http::Request;
+    use tokio::io::DuplexStream;
+
+    use super::*;
+
+    const TIMEOUT: Duration = Duration::from_secs(1);
+
+    #[derive(Debug)]
+    struct StubHandler;
+    impl EngineIoHandler for StubHandler {
+        type Data = ();
+        fn on_connect(self: Arc<Self>, _: Arc<Socket<()>>) {}
+        fn on_disconnect(&self, _: Arc<Socket<()>>, _: DisconnectReason) {}
+        fn on_message(self: &Arc<Self>, _: Str, _: Arc<Socket<()>>) {}
+        fn on_binary(self: &Arc<Self>, _: Bytes, _: Arc<Socket<()>>) {}
+    }
+
+    fn socket() -> Arc<Socket<()>> {
+        Arc::new(Socket::new(
+            ProtocolVersion::V4,
+            TransportType::Websocket,
+            &EngineIoConfig::default(),
+            Request::<()>::default().into_parts().0,
+            Box::new(|_, _| ()),
+            false,
+        ))
+    }
+
+    async fn ws_pair() -> (WebSocketStream<DuplexStream>, WebSocketStream<DuplexStream>) {
+        let (server, client) = tokio::io::duplex(1024);
+        (
+            WebSocketStream::from_raw_socket(server, Role::Server, None).await,
+            WebSocketStream::from_raw_socket(client, Role::Client, None).await,
+        )
+    }
+
+    /// A polling request can still hold the lock at the end of an upgrade.
+    #[tokio::test]
+    async fn writer_waits_for_the_lock_of_a_polling_request() {
+        let socket = socket();
+        let (server, mut client) = ws_pair().await;
+        let (tx, _rx) = server.split();
+
+        let polling = socket.internal_rx.lock().await;
+        let writer = tokio::spawn(forward_to_socket::<StubHandler, _>(socket.clone(), tx));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!writer.is_finished(), "the writer should wait for the lock");
+
+        drop(polling);
+        socket.emit(Str::from("hello")).unwrap();
+        let msg = tokio::time::timeout(TIMEOUT, client.next())
+            .await
+            .expect("the writer should send the packet")
+            .unwrap()
+            .unwrap();
+        assert_eq!(msg, Message::text("4hello"));
+    }
+
+    #[tokio::test]
+    async fn writer_waiting_for_the_lock_stops_with_the_session() {
+        let socket = socket();
+        let (server, _client) = ws_pair().await;
+        let (tx, _rx) = server.split();
+
+        let _polling = socket.internal_rx.lock().await;
+        let writer = tokio::spawn(forward_to_socket::<StubHandler, _>(socket.clone(), tx));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        socket.cancellation_token.cancel();
+        tokio::time::timeout(TIMEOUT, writer)
+            .await
+            .expect("the writer should stop")
+            .unwrap();
+    }
 }
