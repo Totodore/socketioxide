@@ -1,12 +1,18 @@
+mod fixture;
 mod utils;
 
 use bytes::Bytes;
 use engineioxide::Packet::*;
 use serde::Serialize;
-use socketioxide::{SendError, SocketError, SocketIo, extract::SocketRef, handler::ConnectHandler};
+use socketioxide::{
+    SendError, SocketError, SocketIo, extract::SocketRef, handler::ConnectHandler,
+    socket::DisconnectReason,
+};
 use socketioxide_core::{Value, packet::Packet, parser::Parse};
 use socketioxide_parser_common::CommonParser;
 use tokio::sync::mpsc;
+
+use fixture::{create_server, create_ws_connection};
 
 fn create_msg(ns: &'static str, event: &str, data: impl Serialize) -> engineioxide::Packet {
     let packet = Packet::event(ns, CommonParser.encode_value(&data, Some(event)).unwrap());
@@ -229,4 +235,59 @@ async fn remove_ns_from_disconnect_handler() {
     let (_stx, mut _srx) = io.new_dummy_sock("/test2", ()).await;
     let elapsed = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
     assert!(elapsed.is_err() || elapsed.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn is_closed_reports_a_client_dropped_during_the_middleware() {
+    let (svc, io) = create_server().await;
+    let (tx, mut rx) = mpsc::channel::<bool>(2);
+    let client_dropped = std::sync::Arc::new(tokio::sync::Notify::new());
+
+    io.ns(
+        "/",
+        { async || () }.with({
+            let client_dropped = client_dropped.clone();
+            async move |s: SocketRef| {
+                tx.try_send(s.is_closed()).unwrap();
+                // The test drops the client while the middleware is still running.
+                client_dropped.notified().await;
+                tx.try_send(s.is_closed()).unwrap();
+                Ok::<_, std::convert::Infallible>(())
+            }
+        }),
+    );
+
+    let ws = create_ws_connection(&svc).await;
+    assert!(!timeout_rcv(&mut rx).await);
+    drop(ws);
+    // Let the engine notice the closed transport and close the session.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    client_dropped.notify_one();
+    assert!(timeout_rcv(&mut rx).await);
+}
+
+#[tokio::test]
+async fn disconnect_handler_runs_when_the_client_drops_before_the_connect_packet() {
+    let (svc, io) = create_server().await;
+    let (tx, mut rx) = mpsc::channel::<DisconnectReason>(1);
+    let client_dropped = std::sync::Arc::new(tokio::sync::Notify::new());
+
+    io.ns(
+        "/",
+        { async || () }.with({
+            let client_dropped = client_dropped.clone();
+            async move |s: SocketRef| {
+                let tx = tx.clone();
+                s.on_disconnect(async move |reason: DisconnectReason| tx.try_send(reason).unwrap());
+                client_dropped.notified().await;
+                Ok::<_, std::convert::Infallible>(())
+            }
+        }),
+    );
+
+    let ws = create_ws_connection(&svc).await;
+    drop(ws);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    client_dropped.notify_one();
+    assert_eq!(timeout_rcv(&mut rx).await, DisconnectReason::TransportError);
 }
