@@ -1,6 +1,6 @@
 //! Custom request and response types for remote adapters.
 //! With custom serialization/deserialization to reduce the size of the messages.
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use crate::{
     Sid, Uid, Value,
@@ -83,6 +83,9 @@ pub struct RequestOut<'a> {
     pub r#type: RequestTypeOut<'a>,
     /// The corresponding broadcast options.
     pub opts: Option<&'a BroadcastOptions>,
+    /// The timeout given by the caller for the acknowledgements of a broadcast.
+    /// If `None`, the remote node uses its own default.
+    pub ack_timeout: Option<Duration>,
 }
 
 impl<'a> RequestOut<'a> {
@@ -93,6 +96,7 @@ impl<'a> RequestOut<'a> {
             id: Sid::new(),
             r#type,
             opts: Some(opts),
+            ack_timeout: None,
         }
     }
     /// Create a new empty request from a node sending the request a type.
@@ -102,7 +106,14 @@ impl<'a> RequestOut<'a> {
             id: Sid::new(),
             r#type,
             opts: None,
+            ack_timeout: None,
         }
+    }
+
+    /// Set the timeout of the acknowledgements of this request.
+    pub fn with_ack_timeout(mut self, ack_timeout: Option<Duration>) -> Self {
+        self.ack_timeout = ack_timeout;
+        self
     }
 
     /// The request is binary if it is a [`RequestTypeOut::Broadcast`] or [`RequestTypeOut::BroadcastWithAck`]
@@ -128,6 +139,10 @@ impl<'a> Serialize for RequestOut<'a> {
             packet: Option<&'a Packet>,
             rooms: Option<&'a Vec<Room>>,
             opts: Option<&'a BroadcastOptions>,
+            // Last field and omitted when not set: requests
+            // without custom timeout stay readable by older nodes.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            ack_timeout_ms: Option<u64>,
         }
         let raw = RawRequest::<'a> {
             node_id: self.node_id,
@@ -142,6 +157,9 @@ impl<'a> Serialize for RequestOut<'a> {
                 _ => None,
             },
             opts: self.opts,
+            ack_timeout_ms: self
+                .ack_timeout
+                .map(|t| u64::try_from(t.as_millis()).unwrap_or(u64::MAX)),
         };
         raw.serialize(serializer)
     }
@@ -158,6 +176,8 @@ pub struct RequestIn {
     pub r#type: RequestTypeIn,
     /// The corresponding broadcast options.
     pub opts: Option<BroadcastOptions>,
+    /// The timeout given by the caller for the acknowledgements of a broadcast.
+    pub ack_timeout: Option<Duration>,
 }
 impl<'de> Deserialize<'de> for RequestIn {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -169,6 +189,8 @@ impl<'de> Deserialize<'de> for RequestIn {
             packet: Option<Packet>,
             rooms: Option<Vec<Room>>,
             opts: Option<BroadcastOptions>,
+            #[serde(default)]
+            ack_timeout_ms: Option<u64>,
         }
         let raw = RawRequest::deserialize(deserializer)?;
         let err = |field| serde::de::Error::custom(format!("missing field: {field}"));
@@ -189,6 +211,7 @@ impl<'de> Deserialize<'de> for RequestIn {
             id: raw.id,
             r#type,
             opts: raw.opts,
+            ack_timeout: raw.ack_timeout_ms.map(Duration::from_millis),
         })
     }
 }
@@ -314,6 +337,7 @@ mod tests {
                 node_id: req.node_id,
                 id: req.id,
                 opts: req.opts.as_ref(),
+                ack_timeout: req.ack_timeout,
                 r#type: match &req.r#type {
                     RequestTypeIn::Broadcast(p) => RequestTypeOut::Broadcast(p),
                     RequestTypeIn::BroadcastWithAck(p) => RequestTypeOut::BroadcastWithAck(p),
@@ -333,6 +357,71 @@ mod tests {
         let serialized = rmp_serde::to_vec(&value).unwrap();
         let deserialized: RequestIn = rmp_serde::from_slice(&serialized).unwrap();
         assert_eq!(value, (&deserialized).into())
+    }
+
+    /// The request of a node without the `ack_timeout_ms` field.
+    #[derive(Debug, Serialize, Deserialize)]
+    struct OldRawRequest {
+        node_id: Uid,
+        id: Sid,
+        r#type: u8,
+        packet: Option<Packet>,
+        rooms: Option<Vec<Room>>,
+        opts: Option<BroadcastOptions>,
+    }
+
+    fn broadcast_with_ack_packet() -> Packet {
+        Packet::event("foo", Value::Str("bar".into(), None))
+    }
+
+    #[test]
+    fn request_ack_timeout_serde() {
+        let packet = broadcast_with_ack_packet();
+        let opts = BroadcastOptions::new(Sid::new());
+        let timeout = Duration::from_millis(1500);
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::BroadcastWithAck(&packet), &opts)
+            .with_ack_timeout(Some(timeout));
+
+        let msgpack = rmp_serde::to_vec(&req).unwrap();
+        let de: RequestIn = rmp_serde::from_slice(&msgpack).unwrap();
+        assert_eq!(de.ack_timeout, Some(timeout));
+
+        let json = serde_json::to_vec(&req).unwrap();
+        let de: RequestIn = serde_json::from_slice(&json).unwrap();
+        assert_eq!(de.ack_timeout, Some(timeout));
+    }
+
+    #[test]
+    fn request_from_an_old_node_has_no_ack_timeout() {
+        let old = OldRawRequest {
+            node_id: Uid::new(),
+            id: Sid::new(),
+            r#type: 1,
+            packet: Some(broadcast_with_ack_packet()),
+            rooms: None,
+            opts: Some(BroadcastOptions::new(Sid::new())),
+        };
+        let msgpack = rmp_serde::to_vec(&old).unwrap();
+        let de: RequestIn = rmp_serde::from_slice(&msgpack).unwrap();
+        assert_eq!(de.ack_timeout, None);
+
+        let json = serde_json::to_vec(&old).unwrap();
+        let de: RequestIn = serde_json::from_slice(&json).unwrap();
+        assert_eq!(de.ack_timeout, None);
+    }
+
+    /// Without custom timeout, the bytes are the same as before: old nodes can read them.
+    #[test]
+    fn request_without_ack_timeout_is_readable_by_an_old_node() {
+        let packet = broadcast_with_ack_packet();
+        let opts = BroadcastOptions::new(Sid::new());
+        let req = RequestOut::new(Uid::new(), RequestTypeOut::BroadcastWithAck(&packet), &opts);
+
+        let msgpack = rmp_serde::to_vec(&req).unwrap();
+        rmp_serde::from_slice::<OldRawRequest>(&msgpack).unwrap();
+
+        let json = serde_json::to_vec(&req).unwrap();
+        serde_json::from_slice::<OldRawRequest>(&json).unwrap();
     }
 
     #[test]
