@@ -113,7 +113,8 @@ use socketioxide_core::{
         RoomParam, SocketEmitter, Spawnable,
         heartbeat::{HeartbeatSender, HeartbeatTracker, heartbeat_loop},
         stream::{
-            AckStream, ChanStream, ResponseHandlers, insert_response_handler, wait_responses,
+            AckStream, ChanStream, DropStream, ResponseHandlers, insert_response_handler,
+            wait_responses,
         },
     },
     packet::Packet,
@@ -333,7 +334,7 @@ impl<E, D> DefinedAdapter for CustomMongoDbAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> {
     type Error = Error<D>;
     type State = MongoDbAdapterCtr<D>;
-    type AckStream = Either<E::AckStream, AckStream<E, ChanStream<Item>, Item>>;
+    type AckStream = Either<E::AckStream, AckStream<E, DropStream<ChanStream<Item>, Item>, Item>>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -436,6 +437,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
+        // Built before sending the request, to remove the handler if the send fails or is cancelled.
+        let remote = DropStream::new(ChanStream::new(rx), self.responses.clone(), req_id);
+
         self.send_req(req, None).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
@@ -447,7 +451,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
         Ok(Either::Right(AckStream::new(
             local,
-            ChanStream::new(rx),
+            remote,
             decode_mongodb_ack,
             timeout,
             remote_serv_cnt,
@@ -730,3 +734,6 @@ fn decode_mongodb_ack<E: DeserializeOwned + fmt::Debug>(
     rmp_serde::from_slice::<Response<E>>(&item.data)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
 }
+
+#[cfg(test)]
+mod ack_handler_tests;

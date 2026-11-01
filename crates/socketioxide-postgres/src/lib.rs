@@ -69,7 +69,8 @@ use socketioxide_core::{
         },
         request::RemoteRequestHandler,
         stream::{
-            AckStream, ChanStream, ResponseHandlers, insert_response_handler, wait_responses,
+            AckStream, ChanStream, DropStream, ResponseHandlers, insert_response_handler,
+            wait_responses,
         },
     },
     packet::Packet,
@@ -506,6 +507,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
+        // Built before sending the request, to remove the handler if the send fails or is cancelled.
+        let rx = DropStream::new(ChanStream::new(rx), self.responses.clone(), req_id);
 
         self.send_req(req, None).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
@@ -523,7 +526,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         // arrived in the channel. `buffered` keeps wire order, which is required so that each
         // server's `BroadcastAckCount` is observed before its individual acks.
         let concurrency = std::cmp::max(self.config.ack_response_buffer, 1);
-        let remote: BoxStream<'static, AckPayload> = ChanStream::new(rx)
+        let remote: BoxStream<'static, AckPayload> = rx
             .map(move |payload| resolve_ack_payload(payload, driver.clone(), table_name.clone()))
             .buffered(concurrency)
             .filter_map(future::ready)
@@ -1086,3 +1089,6 @@ fn decode_postgres_ack<E: serde::de::DeserializeOwned + fmt::Debug>(
 ) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
     item.deserialize()
 }
+
+#[cfg(test)]
+mod ack_handler_tests;

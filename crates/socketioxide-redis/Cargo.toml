@@ -46,6 +46,7 @@ redis = { version = "1", features = [
 ], default-features = false, optional = true }
 
 [dev-dependencies]
+socketioxide-parser-common = { path = "../parser-common" }
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",

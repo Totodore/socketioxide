@@ -158,7 +158,7 @@ use socketioxide_core::adapter::remote_packet::{
 };
 use socketioxide_core::adapter::request::RemoteRequestHandler;
 use socketioxide_core::adapter::stream::{
-    AckStream, ResponseHandlers, insert_response_handler, wait_responses,
+    AckStream, DropStream, ResponseHandlers, insert_response_handler, wait_responses,
 };
 use socketioxide_core::{
     Sid, Uid,
@@ -384,7 +384,8 @@ impl<E, R> DefinedAdapter for CustomRedisAdapter<E, R> {}
 impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     type Error = Error<R>;
     type State = RedisAdapterCtr<R>;
-    type AckStream = Either<E::AckStream, AckStream<E, MessageStream<Vec<u8>>, Vec<u8>>>;
+    type AckStream =
+        Either<E::AckStream, AckStream<E, DropStream<MessageStream<Vec<u8>>, Vec<u8>>, Vec<u8>>>;
     type InitRes = InitRes<R>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -519,7 +520,8 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
-        let remote = MessageStream::new(rx);
+        // Built before sending the request, to remove the handler if the send fails or is cancelled.
+        let remote = DropStream::new(MessageStream::new(rx), self.responses.clone(), req_id);
 
         self.send_req(req, opts.server_id).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
@@ -898,3 +900,6 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod ack_handler_tests;
