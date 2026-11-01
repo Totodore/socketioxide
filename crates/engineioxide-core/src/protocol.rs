@@ -11,12 +11,14 @@ pub enum TransportType {
     Websocket = 0x02,
 }
 
-impl From<u8> for TransportType {
-    fn from(t: u8) -> Self {
+impl TryFrom<u8> for TransportType {
+    type Error = UnknownTransportError;
+
+    fn try_from(t: u8) -> Result<Self, Self::Error> {
         match t {
-            0x01 => TransportType::Polling,
-            0x02 => TransportType::Websocket,
-            _ => panic!("unknown transport type"),
+            0x01 => Ok(TransportType::Polling),
+            0x02 => Ok(TransportType::Websocket),
+            _ => Err(UnknownTransportError),
         }
     }
 }
@@ -120,6 +122,26 @@ impl FromStr for ProtocolVersion {
         match s {
             "4" => Ok(ProtocolVersion::V4),
             _ => Err(UnknownProtocolVersionError),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transport_type_try_from_u8() {
+        assert!(matches!(
+            TransportType::try_from(0x01),
+            Ok(TransportType::Polling)
+        ));
+        assert!(matches!(
+            TransportType::try_from(0x02),
+            Ok(TransportType::Websocket)
+        ));
+        for invalid in [0x00, 0x03, 0xff] {
+            assert!(TransportType::try_from(invalid).is_err());
         }
     }
 }

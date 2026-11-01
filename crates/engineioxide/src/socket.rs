@@ -432,7 +432,11 @@ where
 
     /// Returns the current [`TransportType`] of the [`Socket`]
     pub fn transport_type(&self) -> TransportType {
-        TransportType::from(self.transport.load(Ordering::Relaxed))
+        if self.is_ws() {
+            TransportType::Websocket
+        } else {
+            TransportType::Polling
+        }
     }
 
     /// Reserve `n` permits to emit multiple messages and ensure that there is enough
