@@ -221,7 +221,8 @@ impl Packet {
             .as_bytes()
             .first()
             .ok_or(PacketParseError::InvalidPacketType(None))?;
-        let is_upgrade = value.len() == 6 && &value[1..6] == "probe";
+        // Compare raw bytes to avoid slicing into a char boundary.
+        let is_upgrade = value.as_bytes().get(1..) == Some(b"probe");
         let res = match packet_type {
             b'1' => Packet::Close,
             b'2' if is_upgrade => Packet::PingUpgrade,
@@ -231,16 +232,12 @@ impl Packet {
             b'4' => Packet::Message(value.slice(1..)),
             b'5' => Packet::Upgrade,
             b'6' => Packet::Noop,
-            b'b' if protocol == ProtocolVersion::V3 => Packet::BinaryV3(
-                general_purpose::STANDARD
-                    .decode(value.slice(2..).as_bytes())?
-                    .into(),
-            ),
-            b'b' => Packet::Binary(
-                general_purpose::STANDARD
-                    .decode(value.slice(1..).as_bytes())?
-                    .into(),
-            ),
+            b'b' if protocol == ProtocolVersion::V3 && value.as_bytes().get(1) == Some(&b'4') => {
+                Packet::BinaryV3(general_purpose::STANDARD.decode(&value[2..])?.into())
+            }
+            b'b' if protocol == ProtocolVersion::V4 => {
+                Packet::Binary(general_purpose::STANDARD.decode(&value[1..])?.into())
+            }
             c => Err(PacketParseError::InvalidPacketType(Some(*c as char)))?,
         };
         Ok(res)
@@ -319,6 +316,81 @@ mod tests {
 
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn test_parse_multibyte_6_bytes_does_not_panic() {
+        // 6 bytes long with a first char of 2 bytes: `1..6` is not on a char boundary.
+        let value = "éabcd";
+        assert_eq!(value.len(), 6);
+        for protocol in [ProtocolVersion::V3, ProtocolVersion::V4] {
+            assert!(matches!(
+                Packet::parse(protocol, value),
+                Err(PacketParseError::InvalidPacketType(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn test_parse_multibyte_after_packet_type() {
+        // 6 bytes long with a valid packet type, but the remaining bytes are not "probe".
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V4, "2éabc").unwrap(),
+            Packet::Ping
+        );
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V4, "3éabc").unwrap(),
+            Packet::Pong
+        );
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V4, "4éabc").unwrap(),
+            Packet::Message("éabc".into())
+        );
+    }
+
+    #[test]
+    fn test_parse_probe_packets() {
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V4, "2probe").unwrap(),
+            Packet::PingUpgrade
+        );
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V4, "3probe").unwrap(),
+            Packet::PongUpgrade
+        );
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V4, "4probe").unwrap(),
+            Packet::Message("probe".into())
+        );
+    }
+
+    #[test]
+    fn test_parse_v3_binary_without_type_does_not_panic() {
+        assert!(matches!(
+            Packet::parse(ProtocolVersion::V3, "b"),
+            Err(PacketParseError::InvalidPacketType(Some('b')))
+        ));
+    }
+
+    #[test]
+    fn test_parse_v3_binary_multibyte_is_rejected() {
+        // the second char is multibyte: the base64 decoder gets the bytes after the type byte
+        assert!(matches!(
+            Packet::parse(ProtocolVersion::V3, "bé"),
+            Err(PacketParseError::InvalidPacketType(Some('b')))
+        ));
+    }
+
+    #[test]
+    fn test_parse_v3_binary() {
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V3, "b4AQID").unwrap(),
+            Packet::BinaryV3(Bytes::from_static(&[1, 2, 3]))
+        );
+        assert_eq!(
+            Packet::parse(ProtocolVersion::V3, "b4").unwrap(),
+            Packet::BinaryV3(Bytes::new())
+        );
+    }
 
     #[test]
     fn test_open_packet() {
