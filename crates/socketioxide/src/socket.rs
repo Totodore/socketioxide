@@ -774,8 +774,7 @@ impl<A: Adapter> Socket<A> {
         packet.inner.set_ack_id(ack);
         // insert ack channel before to avoid race condition
         let mut ack_message = self.ack_message.lock().unwrap();
-        // The receiver is dropped on timeout and the client may never answer. The threshold
-        // follows the number of pending acks, to not walk through the map for each packet.
+        // retain acks receiver that are now closed if the ack receiver map is above `ack_sweep_at`
         if ack_message.len() >= self.ack_sweep_at.load(Ordering::Relaxed) {
             ack_message.retain(|_, tx| !tx.is_closed());
             let threshold = (ack_message.len() * 2).max(ACK_SWEEP_MIN);
