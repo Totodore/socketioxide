@@ -37,7 +37,11 @@ pub fn read_event(data: &[u8]) -> Result<&str, rmp_serde::decode::Error> {
         return Err(rmp_serde::decode::Error::OutOfRange);
     }
     let strlen = rmp::decode::read_str_len(rd)? as usize;
-    str::from_utf8(&rd[..strlen]).map_err(rmp_serde::decode::Error::Utf8Error)
+    // `strlen` is declared by the client.
+    let event = rd
+        .get(..strlen)
+        .ok_or(rmp_serde::decode::Error::OutOfRange)?;
+    str::from_utf8(event).map_err(rmp_serde::decode::Error::Utf8Error)
 }
 
 struct Deserializer<D> {

@@ -7,8 +7,29 @@ use std::borrow::{Borrow, Cow};
 pub struct Str(Bytes);
 impl Str {
     /// Efficiently slice string by calling [`Bytes::slice`] on the inner bytes
+    ///
+    /// # Panics
+    /// Panics if the start or the end of the range is out of bounds or
+    /// is not on a char boundary, like the [`str`] slicing operators.
     pub fn slice(&self, range: impl std::ops::RangeBounds<usize>) -> Self {
-        Str(self.0.slice(range))
+        use std::ops::Bound;
+        let start = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&n) => n + 1,
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => self.0.len(),
+        };
+        // `as_str` relies on the utf8 validity of the inner bytes.
+        assert!(
+            self.is_char_boundary(start) && self.is_char_boundary(end),
+            "range {start}..{end} of a Str of len {} is out of bounds or not on a char boundary",
+            self.0.len()
+        );
+        Str(self.0.slice(start..end))
     }
     /// Return a `&str` representation of the string
     pub fn as_str(&self) -> &str {
@@ -151,5 +172,39 @@ impl std::cmp::PartialEq<&str> for Str {
 impl std::cmp::PartialEq<Str> for &str {
     fn eq(&self, other: &Str) -> bool {
         *self == other.as_str()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Str;
+
+    #[test]
+    fn slice_on_char_boundary() {
+        let s = Str::from("aé€");
+        assert_eq!(s.slice(..), "aé€");
+        assert_eq!(s.slice(1..), "é€");
+        assert_eq!(s.slice(1..3), "é");
+        assert_eq!(s.slice(1..=2), "é");
+        assert_eq!(s.slice(3..), "€");
+        assert_eq!(s.slice(6..), "");
+    }
+
+    #[test]
+    #[should_panic(expected = "not on a char boundary")]
+    fn slice_start_inside_char() {
+        Str::from("aé").slice(2..);
+    }
+
+    #[test]
+    #[should_panic(expected = "not on a char boundary")]
+    fn slice_end_inside_char() {
+        Str::from("aé").slice(..2);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn slice_out_of_bounds() {
+        Str::from("a").slice(2..);
     }
 }
