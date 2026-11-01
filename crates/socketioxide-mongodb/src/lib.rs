@@ -449,7 +449,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
             return Ok(Either::Left(local));
         }
-        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
+        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts)
+            .with_ack_timeout(timeout);
         let req_id = req.id;
 
         let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
