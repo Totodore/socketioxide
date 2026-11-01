@@ -48,8 +48,6 @@ async fn msg_handler(mut rx: broadcast::Receiver<Message>, handlers: Arc<RwLock<
             Ok(msg) => {
                 if let Some((chan, data)) = read_msg(msg) {
                     if let Some(tx) = handlers.read().unwrap().get(&chan) {
-                        // This task is shared between all the namespaces: it must not stop
-                        // because one of them does not keep up, or was closed.
                         if let Err(e) = tx.try_send((chan, data)) {
                             tracing::warn!("fred driver dropped a message: {e}");
                         }
