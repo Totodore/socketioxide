@@ -55,6 +55,17 @@ async fn dispatch_notifs(
     Ok(listeners)
 }
 
+fn remove_listeners(listeners: &mut Listeners, channels: &[&str]) {
+    listeners.retain(|(chan, _)| !channels.contains(&chan.as_str()));
+}
+
+fn unlisten_query(channels: &[&str]) -> String {
+    channels
+        .iter()
+        .map(|chan| format!(r#"UNLISTEN "{chan}";"#))
+        .collect()
+}
+
 impl TokioPostgresDriver {
     /// Connects to the PostgreSQL server using the provided configuration and TLS settings
     /// with [`Config::connect`].
@@ -159,9 +170,11 @@ impl Driver for TokioPostgresDriver {
         Ok(())
     }
 
-    async fn close(&self) -> Result<(), Self::Error> {
-        self.client.execute("UNLISTEN *", &[]).await?;
-        Ok(())
+    async fn close(&self, channels: &[&str]) -> Result<(), Self::Error> {
+        remove_listeners(&mut self.listeners.write().unwrap(), channels);
+        // The connection is shared between all the adapters: `UNLISTEN *` would also
+        // stop the notifications of the other namespaces.
+        self.client.batch_execute(&unlisten_query(channels)).await
     }
 }
 
@@ -172,5 +185,29 @@ impl super::Notification for tokio_postgres::Notification {
 
     fn payload(&self) -> &str {
         tokio_postgres::Notification::payload(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unlisten_query_only_targets_the_channels() {
+        assert_eq!(unlisten_query(&["a", "b"]), r#"UNLISTEN "a";UNLISTEN "b";"#);
+    }
+
+    #[test]
+    fn remove_listeners_only_removes_the_channels() {
+        let (tx, _rx) = mpsc::channel(1);
+        let mut listeners: Listeners = ["a", "b", "c"]
+            .into_iter()
+            .map(|chan| (chan.to_string(), tx.clone()))
+            .collect();
+
+        remove_listeners(&mut listeners, &["a", "c"]);
+
+        assert_eq!(listeners.len(), 1);
+        assert_eq!(listeners[0].0, "b");
     }
 }

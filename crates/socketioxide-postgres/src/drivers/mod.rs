@@ -67,8 +67,11 @@ pub trait Driver: Clone + Send + Sync + 'static {
         interval: Duration,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// UNLISTEN from every channel.
-    fn close(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    /// Stop listening to the given channels.
+    ///
+    /// A driver can be shared between several adapters: this
+    /// must not affect the channels listened to by the other ones.
+    fn close(&self, channels: &[&str]) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 /// A trait representing a PostgreSQL NOTIFY notification.

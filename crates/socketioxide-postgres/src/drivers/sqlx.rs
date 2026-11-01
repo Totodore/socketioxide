@@ -122,7 +122,7 @@ impl Driver for SqlxDriver {
         Ok(())
     }
 
-    async fn close(&self) -> Result<(), Self::Error> {
+    async fn close(&self, _channels: &[&str]) -> Result<(), Self::Error> {
         // PgListener will automatically unlisten channel when being dropped
         Ok(())
     }
