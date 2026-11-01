@@ -7,7 +7,7 @@ use std::{
     future::Future,
     sync::{
         Arc, Mutex, RwLock,
-        atomic::{AtomicBool, AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -278,6 +278,9 @@ impl From<BroadcastError> for RemoteActionError {
     }
 }
 
+/// The minimal number of pending acks before looking for the abandoned ones.
+const ACK_SWEEP_MIN: usize = 64;
+
 /// A Socket represents a client connected to a namespace.
 /// It is used to send and receive messages from the client, join and leave rooms, etc.
 /// The socket struct itself should not be used directly, but through a [`SocketRef`](crate::extract::SocketRef).
@@ -287,6 +290,8 @@ pub struct Socket<A: Adapter = LocalAdapter> {
     fallback_message_handler: RwLock<Option<BoxedMessageHandler<A>>>,
     disconnect_handler: Mutex<Option<BoxedDisconnectHandler<A>>>,
     ack_message: Mutex<HashMap<i64, oneshot::Sender<AckResult<Value>>>>,
+    /// The number of entries in `ack_message` at which its abandoned entries are removed.
+    ack_sweep_at: AtomicUsize,
     ack_counter: AtomicI64,
     connected: AtomicBool,
     pub(crate) parser: Parser,
@@ -316,6 +321,7 @@ impl<A: Adapter> Socket<A> {
             fallback_message_handler: RwLock::new(None),
             disconnect_handler: Mutex::new(None),
             ack_message: Mutex::new(HashMap::new()),
+            ack_sweep_at: AtomicUsize::new(ACK_SWEEP_MIN),
             ack_counter: AtomicI64::new(0),
             connected: AtomicBool::new(false),
             parser,
@@ -767,7 +773,16 @@ impl<A: Adapter> Socket<A> {
         let ack = self.ack_counter.fetch_add(1, Ordering::SeqCst) + 1;
         packet.inner.set_ack_id(ack);
         // insert ack channel before to avoid race condition
-        self.ack_message.lock().unwrap().insert(ack, tx);
+        let mut ack_message = self.ack_message.lock().unwrap();
+        // The receiver is dropped on timeout and the client may never answer. The threshold
+        // follows the number of pending acks, to not walk through the map for each packet.
+        if ack_message.len() >= self.ack_sweep_at.load(Ordering::Relaxed) {
+            ack_message.retain(|_, tx| !tx.is_closed());
+            let threshold = (ack_message.len() * 2).max(ACK_SWEEP_MIN);
+            self.ack_sweep_at.store(threshold, Ordering::Relaxed);
+        }
+        ack_message.insert(ack, tx);
+        drop(ack_message);
         permit.send(packet, self.parser);
         rx
     }
@@ -910,5 +925,82 @@ mod test {
             ack,
             Err(SendError::Socket(SocketError::InternalChannelFull))
         ));
+    }
+
+    fn ack_socket() -> Arc<Socket> {
+        let sid = Sid::new();
+        let ns = Namespace::<LocalAdapter>::new_dummy([sid]);
+        Socket::new_dummy(sid, ns).into()
+    }
+
+    fn ack_packet() -> Packet {
+        let value = Parser::default().encode_value(&(), Some("test")).unwrap();
+        Packet::event("test", value)
+    }
+
+    /// Send a packet expecting an ack, and let the task of the dummy socket read it.
+    async fn send_with_ack(socket: &Socket) -> Receiver<AckResult<Value>> {
+        let rx = socket.send_with_ack(ack_packet());
+        tokio::task::yield_now().await;
+        rx
+    }
+
+    /// An ack stream dropped before the answer of the client has nothing to notify anymore.
+    #[tokio::test]
+    async fn abandoned_acks_do_not_accumulate() {
+        let socket = ack_socket();
+        for _ in 0..2000 {
+            drop(send_with_ack(&socket).await);
+        }
+        let len = socket.ack_message.lock().unwrap().len();
+        assert!(len <= ACK_SWEEP_MIN, "{len} abandoned acks");
+    }
+
+    #[tokio::test]
+    async fn timed_out_acks_do_not_accumulate() {
+        let socket = ack_socket();
+        for _ in 0..(ACK_SWEEP_MIN * 3) {
+            let rx = send_with_ack(&socket).await;
+            let timeout = std::time::Duration::from_micros(1);
+            tokio::time::timeout(timeout, rx).await.unwrap_err();
+        }
+        let len = socket.ack_message.lock().unwrap().len();
+        assert!(len <= ACK_SWEEP_MIN, "{len} timed out acks");
+    }
+
+    /// The acks still waited for must survive the removal of the abandoned ones.
+    #[tokio::test]
+    async fn pending_acks_are_kept() {
+        let socket = ack_socket();
+        let mut pending = Vec::new();
+        for _ in 0..(ACK_SWEEP_MIN * 2) {
+            pending.push(send_with_ack(&socket).await);
+            for _ in 0..10 {
+                drop(send_with_ack(&socket).await);
+            }
+        }
+
+        // The ack ids are the 1-based position of the packets: a pending one every 11 packets.
+        for (i, rx) in pending.into_iter().enumerate() {
+            let id = (i * 11 + 1) as i64;
+            socket
+                .clone()
+                .recv_ack(Value::Str("ok".into(), None), id)
+                .unwrap();
+            let value = rx.await.expect("the ack should be kept").unwrap();
+            assert!(matches!(value, Value::Str(s, None) if s == "ok"));
+        }
+    }
+
+    /// The cost of the removal must stay proportional to the number of sent packets.
+    #[tokio::test]
+    async fn many_pending_acks_do_not_trigger_a_sweep_per_packet() {
+        let socket = ack_socket();
+        let mut pending = Vec::new();
+        for _ in 0..(ACK_SWEEP_MIN * 8) {
+            pending.push(send_with_ack(&socket).await);
+        }
+        let threshold = socket.ack_sweep_at.load(Ordering::Relaxed);
+        assert!(threshold >= pending.len(), "threshold: {threshold}");
     }
 }
