@@ -138,95 +138,95 @@ fn read_u32(rd: &mut Cursor<Bytes>) -> Result<u32, DecodeError> {
 fn read_str(reader: &mut Cursor<Bytes>) -> Result<&str, DecodeError> {
     let len = decode::read_str_len(reader)? as usize;
     let start = reader.position() as usize;
-    let end = start + len;
-    reader.advance(len);
+    skip(reader, len)?;
+    let end = reader.position() as usize;
     Ok(str::from_utf8(&reader.get_ref()[start..end])?)
 }
 
+/// Move the reader `len` bytes forward. `len` is declared by the client and
+/// [`Buf::advance`] panics when going past the end of the buffer, so it must be checked first.
+fn skip(reader: &mut Cursor<Bytes>, len: usize) -> Result<(), DecodeError> {
+    if len > reader.remaining() {
+        return Err(DecodeError::InvalidDataRead(
+            std::io::ErrorKind::UnexpectedEof.into(),
+        ));
+    }
+    reader.advance(len);
+    Ok(())
+}
+
 /// Iterate over the next element.
+///
+/// This function is recursive: the bounds check is done once at the end, because an
+/// additional fallible call per marker noticeably grows the stack frame of each recursion level.
 fn move_to_next_element(reader: &mut Cursor<Bytes>, depth: usize) -> Result<(), DecodeError> {
     if depth >= DEPTH_LIMIT {
         return Err(DecodeError::DepthLimitExceeded);
     }
 
     let marker = decode::read_marker(reader)?;
-    match marker {
+    let len = match marker {
         rmp::Marker::FixPos(_)
         | rmp::Marker::FixNeg(_)
         | rmp::Marker::Null
         | rmp::Marker::Reserved
         | rmp::Marker::False
-        | rmp::Marker::True => (),
+        | rmp::Marker::True => 0,
         rmp::Marker::FixMap(n) => {
             for _ in 0..n * 2 {
                 move_to_next_element(reader, depth + 1)?
             }
+            0
         }
         rmp::Marker::FixArray(n) => {
             for _ in 0..n {
                 move_to_next_element(reader, depth + 1)?
             }
+            0
         }
-        rmp::Marker::FixStr(n) => reader.advance(n as usize),
-        rmp::Marker::FixExt1 => reader.advance(2),
-        rmp::Marker::FixExt2 => reader.advance(3),
-        rmp::Marker::FixExt4 => reader.advance(5),
-        rmp::Marker::FixExt8 => reader.advance(9),
-        rmp::Marker::FixExt16 => reader.advance(17),
-        rmp::Marker::U8 | rmp::Marker::I8 => reader.advance(1),
-        rmp::Marker::U16 | rmp::Marker::I16 => reader.advance(2),
-        rmp::Marker::F32 | rmp::Marker::U32 | rmp::Marker::I32 => reader.advance(4),
-        rmp::Marker::F64 | rmp::Marker::U64 | rmp::Marker::I64 => reader.advance(8),
-        rmp::Marker::Str8 | rmp::Marker::Bin8 => {
-            let len = read_u8(reader)?;
-            reader.advance(len as usize)
-        }
-        rmp::Marker::Str16 | rmp::Marker::Bin16 => {
-            let len = read_u16(reader)?;
-            reader.advance(len as usize)
-        }
-        rmp::Marker::Str32 | rmp::Marker::Bin32 => {
-            let len = read_u32(reader)?;
-            reader.advance(len as usize)
-        }
-        rmp::Marker::Ext8 => {
-            let len = read_u8(reader)?;
-            reader.advance(len as usize)
-        }
-        rmp::Marker::Ext16 => {
-            let len = read_u16(reader)?;
-            reader.advance(len as usize)
-        }
-        rmp::Marker::Ext32 => {
-            let len = read_u32(reader)?;
-            reader.advance(len as usize)
-        }
+        rmp::Marker::FixStr(n) => n as usize,
+        rmp::Marker::FixExt1 => 2,
+        rmp::Marker::FixExt2 => 3,
+        rmp::Marker::FixExt4 => 5,
+        rmp::Marker::FixExt8 => 9,
+        rmp::Marker::FixExt16 => 17,
+        rmp::Marker::U8 | rmp::Marker::I8 => 1,
+        rmp::Marker::U16 | rmp::Marker::I16 => 2,
+        rmp::Marker::F32 | rmp::Marker::U32 | rmp::Marker::I32 => 4,
+        rmp::Marker::F64 | rmp::Marker::U64 | rmp::Marker::I64 => 8,
+        rmp::Marker::Str8 | rmp::Marker::Bin8 | rmp::Marker::Ext8 => read_u8(reader)? as usize,
+        rmp::Marker::Str16 | rmp::Marker::Bin16 | rmp::Marker::Ext16 => read_u16(reader)? as usize,
+        rmp::Marker::Str32 | rmp::Marker::Bin32 | rmp::Marker::Ext32 => read_u32(reader)? as usize,
         rmp::Marker::Array16 => {
             let arrlen = read_u16(reader)? as usize;
             for _ in 0..arrlen {
                 move_to_next_element(reader, depth + 1)?;
             }
+            0
         }
         rmp::Marker::Array32 => {
             let arrlen = read_u32(reader)? as usize;
             for _ in 0..arrlen {
                 move_to_next_element(reader, depth + 1)?;
             }
+            0
         }
         rmp::Marker::Map16 => {
             let maplen = read_u16(reader)? as usize;
             for _ in 0..maplen * 2 {
                 move_to_next_element(reader, depth + 1)?;
             }
+            0
         }
         rmp::Marker::Map32 => {
             let len = read_u32(reader)? as usize;
             for _ in 0..len * 2 {
                 move_to_next_element(reader, depth + 1)?;
             }
+            0
         }
-    }
-    Ok(())
+    };
+    skip(reader, len)
 }
 #[cfg(test)]
 mod tests {
