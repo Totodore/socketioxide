@@ -299,8 +299,13 @@ where
     pub(crate) fn is_upgrading(&self) -> bool {
         self.upgrading.load(Ordering::Relaxed)
     }
-    pub(crate) fn start_upgrade(&self) {
-        self.upgrading.store(true, Ordering::Relaxed);
+    /// Mark the socket as upgrading. Returns `false` if an upgrade is already in progress.
+    pub(crate) fn start_upgrade(&self) -> bool {
+        !self.upgrading.swap(true, Ordering::Relaxed)
+    }
+    /// Go back to the current transport after a failed upgrade.
+    pub(crate) fn abort_upgrade(&self) {
+        self.upgrading.store(false, Ordering::Relaxed);
     }
 
     /// Spawn the heartbeat job
