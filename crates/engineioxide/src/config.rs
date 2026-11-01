@@ -71,23 +71,31 @@ pub struct EngineIoConfig {
     /// but will consume more memory.
     pub ws_read_buffer_size: usize,
 
-    /// The maximum size of an incoming message
+    /// The maximum size of an incoming websocket message.
     ///
-    /// The default value is 64 MiB which should be reasonably big for all normal use-cases but small enough
-    /// to prevent memory eating by a malicious user.
+    /// Defaults to 100KB, like [`max_payload`](Self::max_payload).
+    /// The [`EngineIoConfigBuilder`] sets it to the configured `max_payload` unless
+    /// [`EngineIoConfigBuilder::ws_max_message_size`] is called.
+    /// If you build this struct by hand, you should keep the two values in sync.
     pub ws_max_message_size: usize,
 
-    /// The maximum size of a single incoming message frame.
+    /// The maximum size of a single incoming websocket frame.
     /// The limit is for frame payload NOT including the frame header.
     ///
-    /// The default value is 16 MiB which should be reasonably big for all normal use-cases but small enough
-    /// to prevent memory eating by a malicious user.
+    /// A frame is fully buffered before its size is added to the size of the current message,
+    /// so this limit should not be greater than [`ws_max_message_size`](Self::ws_max_message_size).
+    ///
+    /// Defaults to 100KB. The [`EngineIoConfigBuilder`] sets it to the configured
+    /// `ws_max_message_size` unless [`EngineIoConfigBuilder::ws_max_frame_size`] is called.
     pub ws_max_frame_size: usize,
 
     /// Allowed transports on this server
     /// It is represented as a bitfield to allow to combine any number of transports easily
     pub transports: u8,
 }
+
+/// 100KB
+const DEFAULT_MAX_PAYLOAD: u64 = 100_000;
 
 impl Default for EngineIoConfig {
     fn default() -> Self {
@@ -97,10 +105,10 @@ impl Default for EngineIoConfig {
             ping_timeout: Duration::from_millis(20000),
             upgrade_timeout: Duration::from_millis(10000),
             max_buffer_size: 128,
-            max_payload: 1e5 as u64, // 100kb
+            max_payload: DEFAULT_MAX_PAYLOAD,
             ws_read_buffer_size: 4096,
-            ws_max_message_size: 64 << 20,
-            ws_max_frame_size: 16 << 20,
+            ws_max_message_size: DEFAULT_MAX_PAYLOAD as usize,
+            ws_max_frame_size: DEFAULT_MAX_PAYLOAD as usize,
             transports: TransportType::Polling as u8 | TransportType::Websocket as u8,
         }
     }
@@ -122,6 +130,8 @@ impl EngineIoConfig {
 /// Builder for [`EngineIoConfig`]
 pub struct EngineIoConfigBuilder {
     config: EngineIoConfig,
+    ws_max_message_size_set: bool,
+    ws_max_frame_size_set: bool,
 }
 
 impl EngineIoConfigBuilder {
@@ -129,6 +139,8 @@ impl EngineIoConfigBuilder {
     pub fn new() -> Self {
         Self {
             config: EngineIoConfig::default(),
+            ws_max_message_size_set: false,
+            ws_max_frame_size_set: false,
         }
     }
 
@@ -205,6 +217,9 @@ impl EngineIoConfigBuilder {
 
     /// The maximum number of bytes that can be received per http request.
     /// Defaults to 100kb.
+    ///
+    /// It also applies to incoming websocket messages unless
+    /// [`ws_max_message_size`](Self::ws_max_message_size) is set.
     pub fn max_payload(mut self, max_payload: u64) -> Self {
         self.config.max_payload = max_payload;
         self
@@ -220,22 +235,25 @@ impl EngineIoConfigBuilder {
         self
     }
 
-    /// The maximum size of an incoming message
+    /// The maximum size of an incoming websocket message.
     ///
-    /// The default value is 64 MiB which should be reasonably big for all normal use-cases but small enough
-    /// to prevent memory eating by a malicious user.
+    /// Defaults to [`max_payload`](Self::max_payload). Setting a higher value allows a client
+    /// to make the server buffer and parse this amount of data per message.
     pub fn ws_max_message_size(mut self, ws_max_message_size: usize) -> Self {
         self.config.ws_max_message_size = ws_max_message_size;
+        self.ws_max_message_size_set = true;
         self
     }
 
-    /// The maximum size of a single incoming message frame.
+    /// The maximum size of a single incoming websocket frame.
     /// The limit is for frame payload NOT including the frame header.
     ///
-    /// The default value is 16 MiB which should be reasonably big for all normal use-cases but small enough
-    /// to prevent memory eating by a malicious user.
+    /// Defaults to [`ws_max_message_size`](Self::ws_max_message_size). A frame is fully buffered
+    /// before its size is added to the size of the current message, so this limit should not be
+    /// greater than `ws_max_message_size`.
     pub fn ws_max_frame_size(mut self, ws_max_frame_size: usize) -> Self {
         self.config.ws_max_frame_size = ws_max_frame_size;
+        self.ws_max_frame_size_set = true;
         self
     }
 
@@ -255,7 +273,14 @@ impl EngineIoConfigBuilder {
     }
 
     /// Build the config
-    pub fn build(self) -> EngineIoConfig {
+    pub fn build(mut self) -> EngineIoConfig {
+        if !self.ws_max_message_size_set {
+            self.config.ws_max_message_size =
+                usize::try_from(self.config.max_payload).unwrap_or(usize::MAX);
+        }
+        if !self.ws_max_frame_size_set {
+            self.config.ws_max_frame_size = self.config.ws_max_message_size;
+        }
         self.config
     }
 }
@@ -287,5 +312,44 @@ mod tests {
             .build();
         assert!(conf.allowed_transport(TransportType::Polling));
         assert!(conf.allowed_transport(TransportType::Websocket));
+    }
+
+    #[test]
+    fn default_ws_limits_match_max_payload() {
+        let config = EngineIoConfig::default();
+        assert_eq!(config.ws_max_message_size as u64, config.max_payload);
+        assert_eq!(config.ws_max_frame_size as u64, config.max_payload);
+
+        let config = EngineIoConfig::builder().build();
+        assert_eq!(config.ws_max_message_size as u64, config.max_payload);
+        assert_eq!(config.ws_max_frame_size as u64, config.max_payload);
+    }
+
+    #[test]
+    fn ws_limits_follow_max_payload() {
+        let config = EngineIoConfig::builder().max_payload(1_000_000).build();
+        assert_eq!(config.ws_max_message_size, 1_000_000);
+        assert_eq!(config.ws_max_frame_size, 1_000_000);
+    }
+
+    #[test]
+    fn ws_frame_limit_follows_ws_message_limit() {
+        let config = EngineIoConfig::builder()
+            .ws_max_message_size(5_000)
+            .max_payload(1_000)
+            .build();
+        assert_eq!(config.max_payload, 1_000);
+        assert_eq!(config.ws_max_message_size, 5_000);
+        assert_eq!(config.ws_max_frame_size, 5_000);
+    }
+
+    #[test]
+    fn explicit_ws_frame_limit_is_kept() {
+        let config = EngineIoConfig::builder()
+            .ws_max_frame_size(2_000)
+            .max_payload(1_000)
+            .build();
+        assert_eq!(config.ws_max_message_size, 1_000);
+        assert_eq!(config.ws_max_frame_size, 2_000);
     }
 }
