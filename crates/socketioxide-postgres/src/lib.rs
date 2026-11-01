@@ -382,10 +382,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         let fut = async move {
             self.driver.init(&self.config.table_name).await?;
 
-            let global_chan = self.get_global_chan();
-            let node_chan = self.get_node_chan(self.local.server_id());
-            let response_chan = self.get_response_chan(self.local.server_id());
-
+            let [global_chan, node_chan, response_chan] = self.channels();
             let channels = [
                 global_chan.as_str(),
                 node_chan.as_str(),
@@ -433,7 +430,13 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             cleanup_task.abort();
         }
 
-        self.driver.close().await.map_err(Error::Driver)
+        let [global_chan, node_chan, response_chan] = self.channels();
+        let channels = [
+            global_chan.as_str(),
+            node_chan.as_str(),
+            response_chan.as_str(),
+        ];
+        self.driver.close(&channels).await.map_err(Error::Driver)
     }
 
     /// Get the number of servers by iterating over the node liveness heartbeats.
@@ -809,6 +812,15 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     // == All channels are hashed to avoid thresspassing the 63 bytes limit on postgres channel ==
     // We cannot constraint the length of the channel name because it is generated dynamically.
 
+    /// The channels this adapter listens to.
+    fn channels(&self) -> [String; 3] {
+        let uid = self.local.server_id();
+        [
+            self.get_global_chan(),
+            self.get_node_chan(uid),
+            self.get_response_chan(uid),
+        ]
+    }
     fn get_global_chan(&self) -> String {
         let chan = format!("{}#{}", self.config.prefix, self.local.path());
         hash_chan(&chan)
@@ -1251,7 +1263,7 @@ mod tests {
         async fn cleanup_attachments(&self, _: &str, _: Duration) -> Result<(), Self::Error> {
             Ok(())
         }
-        async fn close(&self) -> Result<(), Self::Error> {
+        async fn close(&self, _: &[&str]) -> Result<(), Self::Error> {
             Ok(())
         }
     }
