@@ -111,14 +111,16 @@ impl<A: Adapter> Namespace<A> {
             #[cfg(feature = "tracing")]
             tracing::trace!(ns = self.path.as_str(), ?socket.id, "emitting connect_error packet");
 
+            // user middleware code might have made the socket join some
+            // room in the local/remote adapter. The socket never enters `self.sockets`,
+            // so nothing else will ever clean it up.
+            self.remove_socket(sid);
+
             let data = e.to_string();
             if let Err(_e) = socket.send(Packet::connect_error(self.path.clone(), data)) {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(%sid, "error sending connect_error packet: {_e}, closing conn");
 
-                // user middleware code might have made the socket join some
-                // room in the local/remote adapter.
-                self.remove_socket(sid);
                 esocket.close(engineioxide::DisconnectReason::PacketParsingError);
             }
             return Err(ConnectFail);
@@ -434,5 +436,31 @@ impl<A: Adapter> Drop for Namespace<A> {
     fn drop(&mut self) {
         #[cfg(feature = "tracing")]
         tracing::debug!("dropping namespace {}", self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{adapter::LocalAdapter, extract::SocketRef, handler::ConnectHandler};
+    use engineioxide::Socket as EIoSocket;
+    use socketioxide_core::adapter::CoreAdapter;
+
+    #[tokio::test]
+    async fn rejected_middleware_cleans_up_joined_rooms() {
+        let sid = Sid::new();
+        let ns = Namespace::<LocalAdapter>::new(
+            Str::from("/"),
+            { async || () }.with(async |s: SocketRef| {
+                s.join("room1");
+                Err::<(), _>(std::io::Error::other("rejected"))
+            }),
+            &(),
+            &SocketIoConfig::default(),
+        );
+        let esocket = EIoSocket::new_dummy(sid, Box::new(|_, _| ()));
+
+        assert!(ns.clone().connect(sid, esocket, None).await.is_err());
+        assert!(ns.adapter.get_local().socket_rooms(sid).is_empty());
     }
 }
