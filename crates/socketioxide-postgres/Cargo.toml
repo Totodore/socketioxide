@@ -44,6 +44,7 @@ sqlx = { version = "0.9", default-features = false, optional = true, features = 
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [dev-dependencies]
+socketioxide-parser-common = { path = "../parser-common" }
 tokio = { workspace = true, features = [
     "macros",
     "parking_lot",
