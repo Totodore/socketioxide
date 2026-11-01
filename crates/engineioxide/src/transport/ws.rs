@@ -213,10 +213,11 @@ where
                     engine.close_session(socket.id, DisconnectReason::TransportClose);
                     break;
                 }
-                Packet::Pong | Packet::Ping => socket
-                    .heartbeat_tx
-                    .try_send(())
-                    .map_err(|_| Error::HeartbeatTimeout),
+                Packet::Pong | Packet::Ping => {
+                    // A full channel means that the client is already known to be alive.
+                    socket.heartbeat_tx.try_send(()).ok();
+                    Ok::<(), Error>(())
+                }
                 Packet::Message(msg) => {
                     engine.handler.on_message(msg, socket.clone());
                     Ok(())
