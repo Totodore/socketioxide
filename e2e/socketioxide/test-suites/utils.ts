@@ -3,13 +3,25 @@ import { WebSocket, createWebSocketStream } from "ws";
 
 type WsPacket = ArrayBuffer | Blob | Buffer | Buffer[] | string;
 
+// Run the suite against a server built with the `ws-deflate` feature.
+// The packets of the suite are small, so the threshold must be 0 for them to be compressed.
+const WS_DEFLATE = process.env.E2E_WS_DEFLATE === "true";
+
 // Wrap WebSocket to provide a async iterator to yield messages
 // This is a workaround for the lack of support for async iterators in ws
 // It avoids the need to spawn a new event handler + promise for each message
 export class WebSocketStream extends WebSocket {
   private stream: internal.Duplex;
   constructor(address: string | URL) {
-    super(address);
+    super(address, WS_DEFLATE ? { perMessageDeflate: { threshold: 0 } } : {});
+    if (WS_DEFLATE) {
+      // Without this check the suite would still pass if the extension was not negotiated.
+      this.once("open", () => {
+        if (!this.extensions.includes("permessage-deflate")) {
+          throw new Error("permessage-deflate was not negotiated");
+        }
+      });
+    }
     this.stream = createWebSocketStream(this, {
       objectMode: true,
       readableObjectMode: true,
@@ -36,6 +48,14 @@ export const PING_TIMEOUT = 200;
 
 export function sleep(delay: number) {
   return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+// Wait for the packet to be written to the socket. With compression `send()` returns before that,
+// so a request made right after it could reach the server first.
+export function sendFlushed(socket: WebSocketStream, data: string) {
+  return new Promise<void>((resolve, reject) => {
+    socket.send(data, (err) => (err ? reject(err) : resolve()));
+  });
 }
 
 export async function waitForEvent(socket: WebSocketStream, event: string) {
