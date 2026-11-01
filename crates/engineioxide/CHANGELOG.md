@@ -1,3 +1,7 @@
+# engineioxide 0.17.8
+* feat: `EngineIoService` now implements the `tower`/`hyper` `Service` traits for `(stream, request)` pairs,
+to create a websocket connection from an already upgraded IO stream [#786](https://github.com/Totodore/socketioxide/pull/786).
+
 # engineioxide 0.17.7
 * feat(security): add `ws_max_message_size`/`ws_max_frame_size` config options to bound the size of incoming
 websocket messages and frames, preventing memory exhaustion by malicious clients. Defaults to 64 MiB/16 MiB.
