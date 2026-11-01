@@ -1,6 +1,6 @@
 use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock, Weak},
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex, RwLock, Weak},
     time::Duration,
 };
 
@@ -33,6 +33,32 @@ pub struct Namespace<A: Adapter> {
     parser: Parser,
     handler: BoxedConnectHandler<A>,
     sockets: RwLock<HashMap<Sid, Arc<Socket<A>>>>,
+    /// The ids of the sockets that are connecting to this namespace, but which are not yet
+    /// in [`Self::sockets`] because their middlewares are still running.
+    connecting: Mutex<HashSet<Sid>>,
+}
+
+/// Marks a socket as connecting to a namespace until dropped.
+struct ConnectingGuard<'a, A: Adapter> {
+    ns: &'a Namespace<A>,
+    sid: Sid,
+}
+impl<'a, A: Adapter> ConnectingGuard<'a, A> {
+    /// Returns `None` if the socket is already connected or connecting to this namespace.
+    fn new(ns: &'a Namespace<A>, sid: Sid) -> Option<Self> {
+        let mut connecting = ns.connecting.lock().unwrap();
+        // A socket is inserted in `sockets` before its guard is dropped, so it is
+        // always found in at least one of them when the connection is in progress or done.
+        if ns.sockets.read().unwrap().contains_key(&sid) || !connecting.insert(sid) {
+            return None;
+        }
+        Some(Self { ns, sid })
+    }
+}
+impl<A: Adapter> Drop for ConnectingGuard<'_, A> {
+    fn drop(&mut self) {
+        self.ns.connecting.lock().unwrap().remove(&self.sid);
+    }
 }
 
 /// ===== impl NamespaceCtr =====
@@ -86,6 +112,7 @@ impl<A: Adapter> Namespace<A> {
             handler,
             parser,
             sockets: HashMap::new().into(),
+            connecting: HashSet::new().into(),
             adapter: Arc::new(A::new(
                 adapter_state,
                 CoreLocalAdapter::new(Emitter::new(ns.clone(), parser, path, ack_timeout, uid)),
@@ -98,12 +125,22 @@ impl<A: Adapter> Namespace<A> {
     /// Middlewares are first called to check if the connection is allowed.
     /// * If the handler returns an error, a connect_error packet is sent to the client.
     /// * If the handler returns Ok, a connect packet is sent to the client and the handler `is` called.
+    ///
+    /// A connect packet for a socket already connected or connecting to this namespace is ignored.
+    /// Otherwise it would run the handlers twice and replace (or remove, if the middlewares reject
+    /// it) the socket with the same id, without calling its disconnect handler.
     pub(crate) async fn connect(
         self: Arc<Self>,
         sid: Sid,
         esocket: Arc<engineioxide::Socket<SocketData<A>>>,
         auth: Option<Value>,
     ) -> Result<(), ConnectFail> {
+        let Some(_guard) = ConnectingGuard::new(&self, sid) else {
+            #[cfg(feature = "tracing")]
+            tracing::debug!(%sid, ?self.path, "ignoring duplicate connect packet");
+            return Err(ConnectFail);
+        };
+
         let socket: Arc<Socket<A>> =
             Socket::new(sid, self.clone(), esocket.clone(), self.parser).into();
 
@@ -445,6 +482,8 @@ mod tests {
     use crate::{adapter::LocalAdapter, extract::SocketRef, handler::ConnectHandler};
     use engineioxide::Socket as EIoSocket;
     use socketioxide_core::adapter::CoreAdapter;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::Notify;
 
     #[tokio::test]
     async fn rejected_middleware_cleans_up_joined_rooms() {
@@ -462,5 +501,138 @@ mod tests {
 
         assert!(ns.clone().connect(sid, esocket, None).await.is_err());
         assert!(ns.adapter.get_local().socket_rooms(sid).is_empty());
+    }
+
+    /// Create a namespace counting the calls of its middleware.
+    /// The middleware joins `room1` on its first call, then rejects the following ones.
+    fn counting_ns(calls: Arc<AtomicUsize>) -> Arc<Namespace<LocalAdapter>> {
+        Namespace::<LocalAdapter>::new(
+            Str::from("/"),
+            { async || () }.with(async move |s: SocketRef| {
+                if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    s.join("room1");
+                    Ok(())
+                } else {
+                    Err(std::io::Error::other("rejected"))
+                }
+            }),
+            &(),
+            &SocketIoConfig::default(),
+        )
+    }
+
+    #[tokio::test]
+    async fn duplicate_connect_keeps_the_first_socket() {
+        let sid = Sid::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let ns = counting_ns(calls.clone());
+        let esocket = EIoSocket::new_dummy(sid, Box::new(|_, _| ()));
+
+        assert!(ns.clone().connect(sid, esocket.clone(), None).await.is_ok());
+        let socket = ns.get_socket(sid).unwrap();
+
+        assert!(ns.clone().connect(sid, esocket, None).await.is_err());
+
+        // The middleware would have rejected the second connection and removed the socket rooms.
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(Arc::ptr_eq(&socket, &ns.get_socket(sid).unwrap()));
+        assert_eq!(ns.adapter.get_local().socket_rooms(sid).len(), 1);
+    }
+
+    /// The socket only enters the namespace after its middleware:
+    /// a duplicate can be received while the first connection is still pending.
+    #[tokio::test]
+    async fn duplicate_connect_during_pending_middleware_is_ignored() {
+        let sid = Sid::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let ns = Namespace::<LocalAdapter>::new(
+            Str::from("/"),
+            { async || () }.with({
+                let (calls, started, release) = (calls.clone(), started.clone(), release.clone());
+                async move || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    started.notify_one();
+                    release.notified().await;
+                    Ok::<_, std::io::Error>(())
+                }
+            }),
+            &(),
+            &SocketIoConfig::default(),
+        );
+        let esocket = EIoSocket::new_dummy(sid, Box::new(|_, _| ()));
+
+        let first = tokio::spawn(ns.clone().connect(sid, esocket.clone(), None));
+        started.notified().await;
+
+        // Without a timeout, a duplicate waiting on the pending middleware would block this test.
+        let duplicate = ns.clone().connect(sid, esocket, None);
+        let duplicate = tokio::time::timeout(Duration::from_millis(100), duplicate);
+        assert!(duplicate.await.expect("should not wait").is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(ns.get_socket(sid).is_err());
+
+        release.notify_one();
+        assert!(first.await.unwrap().is_ok());
+        assert!(ns.get_socket(sid).is_ok());
+    }
+
+    #[tokio::test]
+    async fn connect_again_after_socket_removal() {
+        let sid = Sid::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let ns = Namespace::<LocalAdapter>::new(
+            Str::from("/"),
+            { async || () }.with({
+                let calls = calls.clone();
+                async move || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, std::io::Error>(())
+                }
+            }),
+            &(),
+            &SocketIoConfig::default(),
+        );
+        let esocket = EIoSocket::new_dummy(sid, Box::new(|_, _| ()));
+
+        assert!(ns.clone().connect(sid, esocket.clone(), None).await.is_ok());
+        let first = ns.get_socket(sid).unwrap();
+        ns.remove_socket(sid);
+
+        assert!(ns.clone().connect(sid, esocket, None).await.is_ok());
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(!Arc::ptr_eq(&first, &ns.get_socket(sid).unwrap()));
+    }
+
+    #[tokio::test]
+    async fn connect_again_after_rejected_middleware() {
+        let sid = Sid::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let ns = Namespace::<LocalAdapter>::new(
+            Str::from("/"),
+            { async || () }.with({
+                let calls = calls.clone();
+                async move || {
+                    if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                        Err(std::io::Error::other("rejected"))
+                    } else {
+                        Ok(())
+                    }
+                }
+            }),
+            &(),
+            &SocketIoConfig::default(),
+        );
+        let esocket = EIoSocket::new_dummy(sid, Box::new(|_, _| ()));
+
+        assert!(
+            ns.clone()
+                .connect(sid, esocket.clone(), None)
+                .await
+                .is_err()
+        );
+        assert!(ns.clone().connect(sid, esocket, None).await.is_ok());
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 }
