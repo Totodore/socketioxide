@@ -1,3 +1,9 @@
+# socketioxide-redis 0.4.4
+* fix: the fred driver stopped the delivery of cluster messages for every namespace when a handler channel was full or closed [#799](https://github.com/Totodore/socketioxide/pull/799).
+* fix: leak of a response handler when `broadcast_with_ack` failed or was cancelled [#802](https://github.com/Totodore/socketioxide/pull/802).
+* fix: apply the ack timeout of the caller on the remote nodes [#822](https://github.com/Totodore/socketioxide/pull/822).
+* deps: bump `socketioxide-core` to 0.20
+
 # socketioxide-redis 0.4.3
 * fix: remote socket emit times out even when the remote node answered [#782](https://github.com/Totodore/socketioxide/pull/782)
 
