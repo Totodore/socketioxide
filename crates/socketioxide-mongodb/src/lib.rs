@@ -92,9 +92,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt, future,
-    pin::Pin,
     sync::{Arc, Mutex, OnceLock},
-    task::{Context, Poll},
     time::Duration,
 };
 
@@ -110,8 +108,10 @@ use socketioxide_core::{
     adapter::errors::{AdapterError, BroadcastError},
     adapter::{
         BroadcastOptions, CoreAdapter, CoreLocalAdapter, DefinedAdapter, RemoteSocketData, Room,
-        RoomParam, SocketEmitter, Spawnable,
+        RoomParam, SocketEmitter,
         heartbeat::{HeartbeatSender, HeartbeatTracker, heartbeat_loop},
+        init::InitRes as CoreInitRes,
+        operations::RemoteOperations,
         stream::{
             AckStream, ChanStream, DropStream, ResponseHandlers, insert_response_handler,
             wait_responses,
@@ -378,7 +378,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             on_success();
             Ok(())
         };
-        InitRes(Box::pin(fut))
+        InitRes::<D>::new(Box::pin(fut))
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -393,7 +393,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
     /// Get the number of servers by iterating over the node liveness heartbeats.
     async fn server_count(&self) -> Result<u16, Self::Error> {
-        Ok(self.heartbeat.server_count())
+        <Self as RemoteOperations<E>>::server_count(self).await
     }
 
     /// Broadcast a packet to all the servers to send them through their sockets.
@@ -402,13 +402,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         packet: Packet,
         opts: BroadcastOptions,
     ) -> Result<(), BroadcastError> {
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::Broadcast(&packet), &opts);
-            self.send_req(req, None).await.map_err(AdapterError::from)?;
-        }
-
-        self.local.broadcast(packet, opts)?;
-        Ok(())
+        <Self as RemoteOperations<E>>::broadcast(self, packet, opts).await
     }
 
     /// Broadcast a packet to all the servers to send them through their sockets.
@@ -453,7 +447,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             .with_ack_timeout(timeout);
         let req_id = req.id;
 
-        let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
+        let remote_serv_cnt = <Self as RemoteOperations<E>>::server_count(self)
+            .await?
+            .saturating_sub(1);
         tracing::trace!(?remote_serv_cnt, "expecting acks from remote servers");
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
@@ -461,7 +457,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         // Built before sending the request, to remove the handler if the send fails or is cancelled.
         let remote = DropStream::new(ChanStream::new(rx), self.responses.clone(), req_id);
 
-        self.send_req(req, None).await?;
+        HeartbeatSender::send_req(self, req, None).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
         // we wait for the configured ack timeout + the adapter request timeout
@@ -482,39 +478,11 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     }
 
     async fn disconnect_socket(&self, opts: BroadcastOptions) -> Result<(), BroadcastError> {
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::DisconnectSockets, &opts);
-            self.send_req(req, None).await.map_err(AdapterError::from)?;
-        }
-        self.local
-            .disconnect_socket(opts)
-            .map_err(BroadcastError::Socket)?;
-
-        Ok(())
+        <Self as RemoteOperations<E>>::disconnect_socket(self, opts).await
     }
 
     async fn rooms(&self, opts: BroadcastOptions) -> Result<Vec<Room>, Self::Error> {
-        if opts.is_local(self.uid) {
-            return Ok(self.local.rooms(opts).into_iter().collect());
-        }
-        let req = RequestOut::new(self.uid, RequestTypeOut::AllRooms, &opts);
-        let req_id = req.id;
-
-        // First get the remote stream because mongodb might send
-        // the responses before subscription is done.
-        let stream = self
-            .get_res::<()>(req_id, ResponseTypeId::AllRooms, opts.server_id)
-            .await?;
-        self.send_req(req, opts.server_id).await?;
-        let local = self.local.rooms(opts);
-        let rooms = stream
-            .filter_map(|item| future::ready(item.into_rooms()))
-            .fold(local, |mut acc, item| async move {
-                acc.extend(item);
-                acc
-            })
-            .await;
-        Ok(Vec::from_iter(rooms))
+        <Self as RemoteOperations<E>>::rooms(self, opts).await
     }
 
     async fn add_sockets(
@@ -522,13 +490,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         opts: BroadcastOptions,
         rooms: impl RoomParam,
     ) -> Result<(), Self::Error> {
-        let rooms: Vec<Room> = rooms.into_room_iter().collect();
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::AddSockets(&rooms), &opts);
-            self.send_req(req, opts.server_id).await?;
-        }
-        self.local.add_sockets(opts, rooms);
-        Ok(())
+        <Self as RemoteOperations<E>>::add_sockets(self, opts, rooms).await
     }
 
     async fn del_sockets(
@@ -536,39 +498,14 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
         opts: BroadcastOptions,
         rooms: impl RoomParam,
     ) -> Result<(), Self::Error> {
-        let rooms: Vec<Room> = rooms.into_room_iter().collect();
-        if !opts.is_local(self.uid) {
-            let req = RequestOut::new(self.uid, RequestTypeOut::DelSockets(&rooms), &opts);
-            self.send_req(req, opts.server_id).await?;
-        }
-        self.local.del_sockets(opts, rooms);
-        Ok(())
+        <Self as RemoteOperations<E>>::del_sockets(self, opts, rooms).await
     }
 
     async fn fetch_sockets(
         &self,
         opts: BroadcastOptions,
     ) -> Result<Vec<RemoteSocketData>, Self::Error> {
-        if opts.is_local(self.uid) {
-            return Ok(self.local.fetch_sockets(opts));
-        }
-        let req = RequestOut::new(self.uid, RequestTypeOut::FetchSockets, &opts);
-        // First get the remote stream because mongodb might send
-        // the responses before subscription is done.
-        let remote = self
-            .get_res::<RemoteSocketData>(req.id, ResponseTypeId::FetchSockets, opts.server_id)
-            .await?;
-
-        self.send_req(req, opts.server_id).await?;
-        let local = self.local.fetch_sockets(opts);
-        let sockets = remote
-            .filter_map(|item| future::ready(item.into_fetch_sockets()))
-            .fold(local, |mut acc, item| async move {
-                acc.extend(item);
-                acc
-            })
-            .await;
-        Ok(sockets)
+        <Self as RemoteOperations<E>>::fetch_sockets(self, opts).await
     }
 
     fn get_local(&self) -> &CoreLocalAdapter<E> {
@@ -632,17 +569,49 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
         Ok(())
     }
 
+    fn new_packet(&self, head: ItemHeader, data: &impl Serialize) -> Result<Item, Error<D>> {
+        let ns = &self.local.path();
+        let uid = self.uid;
+        match self.config.expiration_strategy {
+            #[cfg(feature = "ttl-index")]
+            MessageExpirationStrategy::TtlIndex(_) => Ok(Item::new_ttl(head, data, uid, ns)?),
+            MessageExpirationStrategy::CappedCollection(_) => Ok(Item::new(head, data, uid, ns)?),
+        }
+    }
+}
+
+impl<E: SocketEmitter, D: Driver> RemoteOperations<E> for CustomMongoDbAdapter<E, D> {
+    type Error = Error<D>;
+
+    fn local(&self) -> &CoreLocalAdapter<E> {
+        &self.local
+    }
+
+    fn uid(&self) -> Uid {
+        self.uid
+    }
+
+    async fn server_count(&self) -> Result<u16, Self::Error> {
+        Ok(self.heartbeat.server_count())
+    }
+
+    async fn send_req(&self, req: RequestOut<'_>, target: Option<Uid>) -> Result<(), Error<D>> {
+        HeartbeatSender::send_req(self, req, target).await
+    }
+
     /// Await for all the responses from the remote servers.
     /// If the target node is specified, only await for the response from that node.
-    async fn get_res<T: DeserializeOwned + fmt::Debug>(
+    async fn get_res<T: DeserializeOwned + fmt::Debug + Send + 'static>(
         &self,
         req_id: Sid,
         response_type: ResponseTypeId,
         target: Option<Uid>,
-    ) -> Result<impl Stream<Item = Response<T>>, Error<D>> {
+    ) -> Result<impl Stream<Item = Response<T>> + Send, Error<D>> {
         // Check for specific target node
         let remote_serv_cnt = if target.is_none() {
-            self.server_count().await?.saturating_sub(1) as usize
+            <Self as RemoteOperations<E>>::server_count(self)
+                .await?
+                .saturating_sub(1) as usize
         } else {
             1
         };
@@ -665,16 +634,6 @@ impl<E: SocketEmitter, D: Driver> CustomMongoDbAdapter<E, D> {
             remote_serv_cnt,
             self.config.request_timeout,
         ))
-    }
-
-    fn new_packet(&self, head: ItemHeader, data: &impl Serialize) -> Result<Item, Error<D>> {
-        let ns = &self.local.path();
-        let uid = self.uid;
-        match self.config.expiration_strategy {
-            #[cfg(feature = "ttl-index")]
-            MessageExpirationStrategy::TtlIndex(_) => Ok(Item::new_ttl(head, data, uid, ns)?),
-            MessageExpirationStrategy::CappedCollection(_) => Ok(Item::new(head, data, uid, ns)?),
-        }
     }
 }
 
@@ -729,25 +688,8 @@ impl<E: SocketEmitter, D: Driver> RemoteRequestHandler<E> for CustomMongoDbAdapt
 }
 
 /// The result of the init future.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct InitRes<D: Driver>(futures_core::future::BoxFuture<'static, Result<(), D::Error>>);
-
-impl<D: Driver> Future for InitRes<D> {
-    type Output = Result<(), D::Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.0.as_mut().poll(cx)
-    }
-}
-impl<D: Driver> Spawnable for InitRes<D> {
-    fn spawn(self) {
-        tokio::spawn(async move {
-            if let Err(e) = self.0.await {
-                tracing::error!("error initializing adapter: {e}");
-            }
-        });
-    }
-}
+#[allow(type_alias_bounds)]
+pub type InitRes<D: Driver> = CoreInitRes<D::Error>;
 
 fn decode_mongodb_ack<E: DeserializeOwned + fmt::Debug>(
     item: Item,
