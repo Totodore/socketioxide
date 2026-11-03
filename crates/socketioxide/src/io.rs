@@ -207,6 +207,9 @@ impl<A: Adapter> SocketIoBuilder<A> {
     /// The maximum size of a payload in bytes.
     /// If a payload is bigger than this value the `emit()` method will return an error.
     ///
+    /// It also applies to incoming websocket messages unless
+    /// [`ws_max_message_size`](Self::ws_max_message_size) is set.
+    ///
     /// Defaults to 100 kb.
     #[inline]
     pub fn max_payload(mut self, max_payload: u64) -> Self {
@@ -227,10 +230,10 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
-    /// The maximum size of an incoming message
+    /// The maximum size of an incoming websocket message.
     ///
-    /// The default value is 64 MiB which should be reasonably big for all normal use-cases but small enough
-    /// to prevent memory eating by a malicious user.
+    /// Defaults to [`max_payload`](Self::max_payload). Setting a higher value allows a client
+    /// to make the server buffer and parse this amount of data per message.
     pub fn ws_max_message_size(mut self, ws_max_message_size: usize) -> Self {
         self.engine_config_builder = self
             .engine_config_builder
@@ -238,11 +241,12 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
-    /// The maximum size of a single incoming message frame.
+    /// The maximum size of a single incoming websocket frame.
     /// The limit is for frame payload NOT including the frame header.
     ///
-    /// The default value is 16 MiB which should be reasonably big for all normal use-cases but small enough
-    /// to prevent memory eating by a malicious user.
+    /// Defaults to [`ws_max_message_size`](Self::ws_max_message_size). A frame is fully buffered
+    /// before its size is added to the size of the current message, so this limit should not be
+    /// greater than `ws_max_message_size`.
     pub fn ws_max_frame_size(mut self, ws_max_frame_size: usize) -> Self {
         self.engine_config_builder = self
             .engine_config_builder
