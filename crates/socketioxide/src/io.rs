@@ -250,6 +250,17 @@ impl<A: Adapter> SocketIoBuilder<A> {
         self
     }
 
+    /// Enable the `permessage-deflate` websocket extension for the clients that offer it.
+    ///
+    /// It is disabled by default. See [`PerMessageDeflateConfig`](crate::PerMessageDeflateConfig)
+    /// for its costs.
+    #[cfg(feature = "ws-deflate")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ws-deflate")))]
+    pub fn ws_per_message_deflate(mut self, config: crate::PerMessageDeflateConfig) -> Self {
+        self.engine_config_builder = self.engine_config_builder.ws_per_message_deflate(config);
+        self
+    }
+
     /// Allowed transports on this server
     ///
     /// The `transports` array should have a size of 1 or 2

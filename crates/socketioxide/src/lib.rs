@@ -316,6 +316,8 @@
 //! * `extensions`: enable per-socket state with the [`extensions`] module
 //! * `state`: enable global state management
 //! * `msgpack`: enable msgpack custom parser
+//! * `ws-deflate`: enable the `permessage-deflate` websocket extension with the
+//!   [`ws_per_message_deflate`](SocketIoBuilder#method.ws_per_message_deflate) option
 //!
 //! [`Adapter`]: adapter::Adapter
 //! [`LocalAdapter`]: adapter::LocalAdapter
@@ -348,6 +350,9 @@ pub mod service;
 pub mod socket;
 
 pub use engineioxide::TransportType;
+#[cfg(feature = "ws-deflate")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ws-deflate")))]
+pub use engineioxide::config::PerMessageDeflateConfig;
 pub use errors::{
     AckError, AdapterError, BroadcastError, EmitWithAckError, NsInsertError, ParserError,
     SendError, SocketError,

@@ -4,7 +4,7 @@
 //! Other functions are used internally to handle the websocket connection through tasks and channels
 //! and to handle upgrade from polling to ws
 
-use std::sync::Arc;
+use std::{io, sync::Arc};
 
 use futures_util::{
     SinkExt, StreamExt, TryStreamExt,
@@ -30,20 +30,42 @@ use crate::{
     errors::Error, handler::EngineIoHandler, socket::InternalRx, transport::make_open_packet,
 };
 
+#[cfg(feature = "ws-deflate")]
+use super::ws_deflate;
+
+/// Transforms a message right before it is written to the websocket.
+pub(super) trait MessageEncoder: Send + 'static {
+    /// An error means that the encoder is in an invalid state and that the connection must be closed.
+    fn encode(&mut self, msg: Message) -> io::Result<Message>;
+}
+
+/// Messages are sent as they are.
+impl MessageEncoder for () {
+    #[inline(always)]
+    fn encode(&mut self, msg: Message) -> io::Result<Message> {
+        Ok(msg)
+    }
+}
+
 /// Create a response for websocket upgrade
-fn ws_response<B>(ws_key: &HeaderValue) -> Response<ResponseBody<B>> {
+fn ws_response<B>(
+    ws_key: &HeaderValue,
+    extensions: Option<HeaderValue>,
+) -> Response<ResponseBody<B>> {
     let derived = derive_accept_key(ws_key.as_bytes());
     let sec = derived.parse::<HeaderValue>().unwrap();
-    Response::builder()
+    let mut response = Response::builder()
         .status(StatusCode::SWITCHING_PROTOCOLS)
         .header(http::header::UPGRADE, HeaderValue::from_static("websocket"))
         .header(
             http::header::CONNECTION,
             HeaderValue::from_static("Upgrade"),
         )
-        .header(http::header::SEC_WEBSOCKET_ACCEPT, sec)
-        .body(ResponseBody::empty_response())
-        .unwrap() // we are only using constants
+        .header(http::header::SEC_WEBSOCKET_ACCEPT, sec);
+    if let Some(extensions) = extensions {
+        response = response.header(http::header::SEC_WEBSOCKET_EXTENSIONS, extensions);
+    }
+    response.body(ResponseBody::empty_response()).unwrap() // we are only using constants
 }
 
 /// Upgrade a websocket request to create a websocket connection.
@@ -64,6 +86,16 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         .get("Sec-WebSocket-Key")
         .ok_or(Error::InvalidWebSocketKey)?
         .clone();
+
+    #[cfg(feature = "ws-deflate")]
+    let extensions = engine
+        .config
+        .ws_per_message_deflate
+        .as_ref()
+        .and_then(|config| ws_deflate::negotiate(config, &parts.headers))
+        .map(|negotiated| negotiated.response);
+    #[cfg(not(feature = "ws-deflate"))]
+    let extensions = None;
 
     tokio::spawn(async move {
         let conn = hyper::upgrade::on(req)
@@ -95,7 +127,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
         }
     });
 
-    Ok(ws_response(&ws_key))
+    Ok(ws_response(&ws_key, extensions))
 }
 
 /// Handle a websocket connection upgrade
@@ -113,6 +145,30 @@ pub async fn on_init<H: EngineIoHandler, S>(
     protocol: ProtocolVersion,
     sid: Option<Sid>,
     req_data: Parts,
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    #[cfg(feature = "ws-deflate")]
+    if let Some(config) = &engine.config.ws_per_message_deflate
+        && let Some(negotiated) = ws_deflate::negotiate(config, &req_data.headers)
+    {
+        let encoder = ws_deflate::Deflater::new(config, &negotiated);
+        let conn = ws_deflate::InflateStream::new(conn, &engine.config, &negotiated);
+        return serve(engine, conn, protocol, sid, req_data, encoder).await;
+    }
+
+    serve(engine, conn, protocol, sid, req_data, ()).await
+}
+
+/// Runs a websocket connection until it is closed.
+async fn serve<H: EngineIoHandler, S, E: MessageEncoder>(
+    engine: Arc<EngineIo<H>>,
+    conn: S,
+    protocol: ProtocolVersion,
+    sid: Option<Sid>,
+    req_data: Parts,
+    encoder: E,
 ) -> Result<(), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -167,7 +223,7 @@ where
     let (tx, rx) = ws.split();
 
     // Pipe between websocket and internal socket channel.
-    tokio::spawn(forward_to_socket::<H, S>(socket.clone(), tx));
+    tokio::spawn(forward_to_socket::<H, S, E>(socket.clone(), tx, encoder));
 
     // pipe between internal socket channel and websocket
     match forward_to_handler(&engine, rx, &socket)
@@ -251,9 +307,10 @@ where
 /// Forwards all packets waiting to be sent to the websocket
 ///
 /// The websocket stream is flushed only when the internal channel is drained
-async fn forward_to_socket<H: EngineIoHandler, S>(
+async fn forward_to_socket<H: EngineIoHandler, S, E: MessageEncoder>(
     socket: Arc<Socket<H::Data>>,
     mut tx: SplitSink<WebSocketStream<S>, Message>,
+    mut encoder: E,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -273,6 +330,21 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
         ..
     } = &mut *internal_rx;
 
+    // encode a message and write it to the websocket
+    macro_rules! feed {
+        ($msg:expr) => {
+            match encoder.encode($msg) {
+                Ok(msg) => tx.feed(msg).await,
+                Err(_e) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("[sid={}] error encoding packet: {}", socket.id, _e);
+                    socket.close(DisconnectReason::TransportError);
+                    Ok(())
+                }
+            }
+        };
+    }
+
     // map a packet to a websocket message
     // It is declared as a macro rather than a closure to avoid ownership issues
     macro_rules! map_fn {
@@ -285,9 +357,9 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
                             let mut buff = Vec::with_capacity(bin.len() + 1);
                             buff.push(0x04);
                             buff.extend(bin);
-                            tx.feed(Message::Binary(buff.into())).await
+                            feed!(Message::Binary(buff.into()))
                         } else {
-                            tx.feed(Message::Binary(bin)).await
+                            feed!(Message::Binary(bin))
                         }
                     }
                     // A Noop Packet maybe sent by the server to upgrade from a polling connection
@@ -296,7 +368,7 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
                     Packet::Noop => Ok(()),
                     _ => {
                         let packet: String = $item.try_into().unwrap();
-                        tx.feed(Message::Text(packet.into())).await
+                        feed!(Message::Text(packet.into()))
                     }
                 };
                 if let Err(_e) = res {
@@ -513,7 +585,11 @@ mod tests {
         let (tx, _rx) = server.split();
 
         let polling = socket.internal_rx.lock().await;
-        let writer = tokio::spawn(forward_to_socket::<StubHandler, _>(socket.clone(), tx));
+        let writer = tokio::spawn(forward_to_socket::<StubHandler, _, ()>(
+            socket.clone(),
+            tx,
+            (),
+        ));
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert!(!writer.is_finished(), "the writer should wait for the lock");
 
@@ -534,7 +610,11 @@ mod tests {
         let (tx, _rx) = server.split();
 
         let _polling = socket.internal_rx.lock().await;
-        let writer = tokio::spawn(forward_to_socket::<StubHandler, _>(socket.clone(), tx));
+        let writer = tokio::spawn(forward_to_socket::<StubHandler, _, ()>(
+            socket.clone(),
+            tx,
+            (),
+        ));
         tokio::time::sleep(Duration::from_millis(20)).await;
 
         socket.cancellation_token.cancel();

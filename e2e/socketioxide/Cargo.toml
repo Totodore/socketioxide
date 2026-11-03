@@ -31,3 +31,4 @@ path = "socketioxide.rs"
 v4 = ["socketioxide/v4"]
 v5 = []
 msgpack = ["socketioxide/msgpack"]
+ws-deflate = ["socketioxide/ws-deflate"]

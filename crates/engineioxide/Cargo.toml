@@ -14,7 +14,7 @@ readme = "README.md"
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-features = ["v3"]
+features = ["v3", "ws-deflate"]
 # Special configuration for docs.rs build
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -39,11 +39,14 @@ pin-project-lite.workspace = true
 smallvec.workspace = true
 hyper-util = { workspace = true, features = ["tokio"] }
 
+# Compression
+flate2 = { workspace = true, optional = true }
+
 # Tracing
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "parking_lot"] }
+tokio = { workspace = true, features = ["macros", "parking_lot", "net"] }
 tracing-subscriber.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }
 criterion.workspace = true
@@ -54,6 +57,7 @@ tokio-util.workspace = true
 [features]
 v3 = ["engineioxide-core/v3"]
 tracing = ["dep:tracing", "engineioxide-core/tracing"]
+ws-deflate = ["dep:flate2"]
 __test_harness = []
 
 [[bench]]
