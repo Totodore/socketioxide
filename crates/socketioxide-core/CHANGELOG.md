@@ -1,3 +1,9 @@
+# socketioxide-core 0.20.0
+* feat(*breaking*): add an `ack_timeout` field to `RequestOut` and `RequestIn` and a parameter to
+`RemoteRequestHandler::recv_broadcast_with_ack`, to apply the ack timeout of the caller on the remote nodes [#822](https://github.com/Totodore/socketioxide/pull/822).
+During a rolling upgrade, a node on a previous version rejects msgpack requests with a custom timeout.
+* fix: a socket in several of the targeted rooms was selected several times when broadcasting [#813](https://github.com/Totodore/socketioxide/pull/813).
+
 # socketioxide-core 0.19.1
 * feat: add a new request module to share logic request handling logic between all adapters. 
 
