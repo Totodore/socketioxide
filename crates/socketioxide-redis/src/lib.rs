@@ -507,7 +507,8 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
             let stream = Either::Left(local);
             return Ok(stream);
         }
-        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
+        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts)
+            .with_ack_timeout(timeout);
         let req_id = req.id;
 
         // When the request targets a specific server, only this server will answer,

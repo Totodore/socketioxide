@@ -1,3 +1,12 @@
+# engineioxide 0.17.9
+* fix(security): bump `engineioxide-core` to 0.2.3, fixing a remote panic when parsing multibyte or truncated packets [#794](https://github.com/Totodore/socketioxide/pull/794).
+* fix: the websocket writer panicked if a polling request still held the socket lock at the end of an upgrade [#809](https://github.com/Totodore/socketioxide/pull/809).
+* fix: a malformed `sid` opened a new session. It now returns the `Session ID unknown` error of the protocol [#815](https://github.com/Totodore/socketioxide/pull/815).
+* fix: a request whose path only shares a prefix with `req_path` (e.g. `/engine.io-admin`) was captured by the
+service. It now goes to the inner service [#816](https://github.com/Totodore/socketioxide/pull/816).
+* fix: an extra pong received before the heartbeat job consumed the previous one was reported as a heartbeat
+timeout [#817](https://github.com/Totodore/socketioxide/pull/817).
+
 # engineioxide 0.17.8
 * feat: `EngineIoService` now implements the `tower`/`hyper` `Service` traits for `(stream, request)` pairs,
 to create a websocket connection from an already upgraded IO stream [#786](https://github.com/Totodore/socketioxide/pull/786).

@@ -39,6 +39,12 @@ impl Parse for CommonParser {
         state: &ParserState,
         value: Str,
     ) -> Result<Packet, ParseError> {
+        // The attachments of a binary packet must directly follow it. Otherwise, the
+        // next binary frames would complete a stale packet.
+        if state.partial_bin_packet.lock().unwrap().is_some() {
+            return Err(ParseError::UnexpectedStringPacket);
+        }
+
         let (packet, incoming_binary_cnt) = de::deserialize_packet(value)?;
         if packet.inner.is_binary() {
             let incoming_binary_cnt = incoming_binary_cnt.ok_or(ParseError::InvalidAttachments)?;
@@ -170,6 +176,55 @@ mod test {
     use super::*;
     use serde_json::json;
     use socketioxide_core::{Sid, packet::ConnectPacket};
+
+    const PARTIAL_HEADER: &str = "51-[\"event\",{\"_placeholder\":true,\"num\":0}]";
+
+    fn decode_str(state: &ParserState, value: &str) -> Result<Packet, ParseError> {
+        CommonParser.decode_str(&ParseConfig::default(), state, Str::from(value.to_string()))
+    }
+
+    #[test]
+    fn string_packet_while_waiting_for_attachments_is_rejected() {
+        let state = ParserState::default();
+        assert!(matches!(
+            decode_str(&state, PARTIAL_HEADER),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
+        assert!(matches!(
+            decode_str(&state, "2[\"other\"]"),
+            Err(ParseError::UnexpectedStringPacket)
+        ));
+    }
+
+    #[test]
+    fn binary_header_while_waiting_for_attachments_is_rejected() {
+        let state = ParserState::default();
+        assert!(matches!(
+            decode_str(&state, PARTIAL_HEADER),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
+        assert!(matches!(
+            decode_str(&state, PARTIAL_HEADER),
+            Err(ParseError::UnexpectedStringPacket)
+        ));
+    }
+
+    #[test]
+    fn string_packet_is_accepted_once_the_attachments_are_received() {
+        let state = ParserState::default();
+        assert!(matches!(
+            decode_str(&state, PARTIAL_HEADER),
+            Err(ParseError::NeedsMoreBinaryData)
+        ));
+        CommonParser
+            .decode_bin(
+                &ParseConfig::default(),
+                &state,
+                Bytes::from_static(&[1, 2, 3]),
+            )
+            .unwrap();
+        decode_str(&state, "2[\"other\"]").unwrap();
+    }
 
     fn to_event_value(data: &impl serde::Serialize, event: &str) -> Value {
         CommonParser.encode_value(data, Some(event)).unwrap()
