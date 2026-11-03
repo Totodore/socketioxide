@@ -145,13 +145,47 @@ pub async fn broadcast_with_ack_timeout() {
     timeout_rcv!(&mut rx2); // Connect "/" packet
 
     assert_eq!(timeout_rcv!(&mut rx2), r#"421["test","bar"]"#); // emit with ack message
-    // We do not answer
+    // We do not answer: the remote node applies the timeout of the caller and reports it
+    assert_eq!(
+        timeout_rcv!(&mut rx1, TIMEOUT.as_millis() as u64 + 100),
+        r#"42["ack_res",{"Err":"Timeout"}]"#
+    );
     assert_eq!(
         timeout_rcv!(&mut rx1, TIMEOUT.as_millis() as u64 + 100),
         r#"42["ack_res","timeout"]"#
     );
-    assert!(now.elapsed() >= TIMEOUT);
+    // At least the ack timeout: the stream can end sooner than `TIMEOUT` now that
+    // the remote node reports its timeout, if no other node is expected.
+    assert!(now.elapsed() >= ACK_TIMEOUT);
 
     timeout_rcv_err!(&mut rx1);
     timeout_rcv_err!(&mut rx2);
+}
+
+/// The timeout given by the caller applies to the sockets of every node.
+#[tokio::test]
+pub async fn emit_with_ack_timeout_applies_to_remote_sockets() {
+    use futures_util::StreamExt;
+
+    let [io1, io2] = fixture::spawn_servers();
+    io1.ns("/", async || ()).await.unwrap();
+    io2.ns("/", async || ()).await.unwrap();
+    let ((_tx1, _rx1), (_tx2, _rx2)) =
+        tokio::join!(io1.new_dummy_sock("/", ()), io2.new_dummy_sock("/", ()));
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    // None of the clients answer. The default ack timeout of a node is 5 seconds.
+    let stream = io1
+        .timeout(Duration::from_millis(50))
+        .emit_with_ack::<_, String>("test", &1)
+        .await
+        .unwrap();
+    let results: Vec<_> = tokio::time::timeout(Duration::from_secs(1), stream.collect())
+        .await
+        .expect("the remote node should apply the timeout of the caller");
+
+    assert_eq!(results.len(), 2);
+    for (_, res) in results {
+        assert!(res.is_err());
+    }
 }

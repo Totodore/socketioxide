@@ -1,3 +1,8 @@
+# socketioxide-parser-common 0.17.3
+* fix: a string packet received during a binary packet was processed normally and the next binary frames completed
+the stale packet. It is now rejected, which closes the connection [#811](https://github.com/Totodore/socketioxide/pull/811).
+* deps: bump `socketioxide-core` to 0.20
+
 # socketioxide-parser-common 0.17.2
 * fix(security): implement `ParseConfig` rules to fix unlimited binary data attachments which could lead
 to denial of service. See [Github Advisory](https://github.com/Totodore/socketioxide/security/advisories/GHSA-55mf-67qm-4wpg).
