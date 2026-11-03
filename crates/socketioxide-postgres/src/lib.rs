@@ -868,30 +868,31 @@ impl<E: SocketEmitter, D: Driver> HeartbeatSender for CustomPostgresAdapter<E, D
             serde_json::to_vec(&req)?
         };
 
-        let payload = if body.len() >= self.config.payload_threshold || is_binary {
-            let id = self
-                .driver
-                .push_attachment(&self.config.table_name, &body)
-                .await
-                .map_err(Error::Driver)?;
-
-            tracing::debug!("pushed attachment {id} for req {}", req.id);
-
-            serde_json::to_string(&RequestPacket::<()>::RequestWithAttachment {
-                node_id,
-                is_binary,
-                id,
-            })?
+        let inline = if is_binary {
+            None
         } else {
-            assert!(
-                !is_binary,
-                "binary packets should be stored in attachment table and serialized in msgpack"
-            );
+            inline_message(&body, self.config.payload_threshold, |payload| {
+                serde_json::to_string(&RequestPacket::Request { node_id, payload })
+            })?
+        };
 
-            let body =
-                String::from_utf8(body).expect("this should be serde_json output and valid UTF8");
-            let payload = RawValue::from_string(body)?;
-            serde_json::to_string(&RequestPacket::Request { node_id, payload })?
+        let payload = match inline {
+            Some(message) => message,
+            None => {
+                let id = self
+                    .driver
+                    .push_attachment(&self.config.table_name, &body)
+                    .await
+                    .map_err(Error::Driver)?;
+
+                tracing::debug!("pushed attachment {id} for req {}", req.id);
+
+                serde_json::to_string(&RequestPacket::<()>::RequestWithAttachment {
+                    node_id,
+                    is_binary,
+                    id,
+                })?
+            }
         };
 
         self.driver
@@ -934,26 +935,32 @@ impl<E: SocketEmitter, D: Driver> RemoteRequestHandler<E> for CustomPostgresAdap
                 serde_json::to_vec(&res)?
             };
 
-            let payload = if body.len() >= threshold || is_binary {
-                let id = driver
-                    .push_attachment(&table, &body)
-                    .await
-                    .map_err(Error::Driver)?;
-                ResponsePayload::Attachment { id, is_binary }
+            let inline = if is_binary {
+                None
             } else {
-                assert!(
-                    !is_binary,
-                    "binary packets should be stored in attachment table and serialized in msgpack"
-                );
-                let body = unsafe { String::from_utf8_unchecked(body) };
-                ResponsePayload::Data(RawValue::from_string(body)?)
+                inline_message(&body, threshold, |payload| {
+                    serde_json::to_string(&ResponsePacket {
+                        req_id,
+                        node_id,
+                        payload: ResponsePayload::Data(payload.to_owned()),
+                    })
+                })?
             };
 
-            let message = serde_json::to_string(&ResponsePacket {
-                req_id,
-                node_id,
-                payload,
-            })?;
+            let message = match inline {
+                Some(message) => message,
+                None => {
+                    let id = driver
+                        .push_attachment(&table, &body)
+                        .await
+                        .map_err(Error::Driver)?;
+                    serde_json::to_string(&ResponsePacket {
+                        req_id,
+                        node_id,
+                        payload: ResponsePayload::Attachment { id, is_binary },
+                    })?
+                }
+            };
 
             driver
                 .notify(&chan, &message)
@@ -1068,6 +1075,23 @@ impl<T> RequestPacket<T> {
             RequestPacket::RequestWithAttachment { node_id: id, .. } => *id == node_id,
         }
     }
+}
+
+/// Build the notification carrying a JSON body inline.
+///
+/// Returns `None` if it doesn't fit in `threshold`, which applies to the whole message and
+/// not only to the body: the message is what is limited by Postgres. The body should then be
+/// stored as an attachment.
+fn inline_message(
+    body: &[u8],
+    threshold: usize,
+    to_message: impl FnOnce(&RawValue) -> Result<String, serde_json::Error>,
+) -> Result<Option<String>, serde_json::Error> {
+    if body.len() >= threshold {
+        return Ok(None);
+    }
+    let message = to_message(serde_json::from_slice(body)?)?;
+    Ok((message.len() < threshold).then_some(message))
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1292,5 +1316,92 @@ mod tests {
         assert_eq!(adapter.responses.lock().unwrap().len(), 1);
         drop(stream);
         assert!(adapter.responses.lock().unwrap().is_empty());
+    }
+
+    /// A driver recording the size of the sent notifications.
+    #[derive(Clone, Default)]
+    struct RecordingDriver {
+        notified: Arc<Mutex<Vec<usize>>>,
+        attachments: Arc<Mutex<usize>>,
+    }
+    impl Driver for RecordingDriver {
+        type Error = std::io::Error;
+        type Notification = StubNotification;
+        type NotificationStream = futures_util::stream::Empty<StubNotification>;
+
+        async fn init(&self, _: &str) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        async fn listen(&self, _: &[&str]) -> Result<Self::NotificationStream, Self::Error> {
+            Ok(futures_util::stream::empty())
+        }
+        async fn notify(&self, _: &str, message: &str) -> Result<(), Self::Error> {
+            self.notified.lock().unwrap().push(message.len());
+            Ok(())
+        }
+        async fn push_attachment(&self, _: &str, _: &[u8]) -> Result<i64, Self::Error> {
+            *self.attachments.lock().unwrap() += 1;
+            Ok(0)
+        }
+        async fn get_attachment(&self, _: &str, _: i64) -> Result<Vec<u8>, Self::Error> {
+            Ok(vec![])
+        }
+        async fn cleanup_attachments(&self, _: &str, _: Duration) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        async fn close(&self, _: &[&str]) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    const THRESHOLD: usize = 600;
+
+    fn recording_adapter(
+        driver: RecordingDriver,
+    ) -> CustomPostgresAdapter<StubEmitter, RecordingDriver> {
+        let config = PostgresAdapterConfig::default().with_payload_threshold(THRESHOLD);
+        let state = PostgresAdapterCtr::new_with_driver(driver, config);
+        CoreAdapter::new(&state, CoreLocalAdapter::new(StubEmitter(Str::from("/"))))
+    }
+
+    /// Assert that some of the messages were sent inline, some as
+    /// attachments, and that no inline message reached the limit of a notification.
+    fn assert_within_threshold(driver: &RecordingDriver) {
+        let notified = driver.notified.lock().unwrap();
+        let too_big: Vec<_> = notified.iter().filter(|len| **len >= THRESHOLD).collect();
+        assert!(too_big.is_empty(), "messages over the limit: {too_big:?}");
+        assert!(notified.iter().any(|len| *len > THRESHOLD / 2));
+        assert!(*driver.attachments.lock().unwrap() > 0);
+    }
+
+    /// The size of the body is close to the threshold for at least one
+    /// of these sizes, with the wrapper of the message reaching it.
+    #[tokio::test]
+    async fn request_notification_stays_within_the_threshold() {
+        let driver = RecordingDriver::default();
+        let adapter = recording_adapter(driver.clone());
+        for len in 0..THRESHOLD {
+            let data = "x".repeat(len);
+            let packet = Packet::event(Str::from("/"), Value::Str(Str::from(data), None));
+            adapter.broadcast(packet, opts()).await.unwrap();
+        }
+        assert_within_threshold(&driver);
+    }
+
+    #[tokio::test]
+    async fn response_notification_stays_within_the_threshold() {
+        let driver = RecordingDriver::default();
+        let adapter = recording_adapter(driver.clone());
+        for len in 0..THRESHOLD {
+            let res = Response::<()> {
+                node_id: Uid::ZERO,
+                r#type: socketioxide_core::adapter::remote_packet::ResponseType::AllRooms(
+                    std::collections::HashSet::from([Room::from("x".repeat(len))]),
+                ),
+            };
+            let fut = RemoteRequestHandler::send_res(&adapter, Sid::new(), Uid::ZERO, res);
+            fut.await.unwrap();
+        }
+        assert_within_threshold(&driver);
     }
 }
