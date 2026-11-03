@@ -129,7 +129,7 @@ where
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         let path = self.engine.config.req_path.as_ref();
-        if req.uri().path().starts_with(path) {
+        if is_req_path(req.uri().path(), path) {
             dispatch_req(req, self.engine.clone())
         } else {
             ResponseFuture::new(self.inner.call(req))
@@ -171,7 +171,7 @@ where
 
     fn call(&self, req: Request<ReqBody>) -> Self::Future {
         let path = self.engine.config.req_path.as_ref();
-        if req.uri().path().starts_with(path) {
+        if is_req_path(req.uri().path(), path) {
             dispatch_req(req, self.engine.clone())
         } else {
             ResponseFuture::new(self.inner.call(req))
@@ -191,6 +191,13 @@ where
     fn call(&self, (conn, req): (St, http::Request<()>)) -> Self::Future {
         std::future::ready(ws_conn_inner(self.engine.clone(), conn, req))
     }
+}
+
+/// Check if a request path is the configured path or one of its sub paths.
+/// `/engine.io` must not match `/engine.io-admin`, which belongs to the inner service.
+fn is_req_path(path: &str, req_path: &str) -> bool {
+    path.strip_prefix(req_path)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/') || req_path.ends_with('/'))
 }
 
 fn ws_conn_inner<St, H>(
