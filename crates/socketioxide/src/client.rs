@@ -25,14 +25,71 @@ use crate::{
     socket::DisconnectReason,
 };
 
+/// A socket waiting to connect to a namespace, with its auth data.
+type PendingConnect<A> = (Arc<EIoSocket<SocketData<A>>>, Option<Value>);
+
 pub struct Client<A: Adapter> {
     pub(crate) config: SocketIoConfig,
     pub(crate) nsps: RwLock<HashMap<Str, Arc<Namespace<A>>>>,
     router: RwLock<Router<NamespaceCtr<A>>>,
+    /// The sockets waiting for the initialization of the adapter of a dynamic namespace.
+    /// A namespace is in this map from the start of the initialization until it is in `nsps`.
+    pending_nsps: Mutex<HashMap<Str, Vec<PendingConnect<A>>>>,
     adapter_state: A::State,
 
     #[cfg(feature = "state")]
     pub(crate) state: state::TypeMap![Send + Sync],
+}
+
+/// Connect a socket to a namespace.
+async fn connect_socket<A: Adapter>(
+    ns: Arc<Namespace<A>>,
+    esocket: Arc<EIoSocket<SocketData<A>>>,
+    auth: Option<Value>,
+) {
+    if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
+        // cancel the connect timeout task for v5
+        if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
+            tx.send(()).ok();
+        }
+    }
+}
+
+/// A dynamic namespace waiting for the initialization of its adapter.
+///
+/// It is dropped without being completed if the initialization fails. This allows a
+/// next socket to try again, and the sockets waiting for it are closed by their connect timeout.
+struct PendingNs<A: Adapter> {
+    client: Arc<Client<A>>,
+    path: Str,
+    ns: Option<Arc<Namespace<A>>>,
+}
+
+impl<A: Adapter> PendingNs<A> {
+    /// Add the namespace to the client and connect the waiting sockets.
+    fn complete(mut self) {
+        let Some(ns) = self.ns.take() else { return };
+        let sockets = {
+            let mut pending_nsps = self.client.pending_nsps.lock().unwrap();
+            self.client
+                .nsps
+                .write()
+                .unwrap()
+                .insert(self.path.clone(), ns.clone());
+            pending_nsps.remove(&self.path).unwrap_or_default()
+        };
+        for (esocket, auth) in sockets {
+            tokio::spawn(connect_socket(ns.clone(), esocket, auth));
+        }
+    }
+}
+
+impl<A: Adapter> Drop for PendingNs<A> {
+    fn drop(&mut self) {
+        if self.ns.is_some() {
+            self.client.pending_nsps.lock().unwrap().remove(&self.path);
+        }
+    }
 }
 
 // ==== impl Client ====
@@ -50,6 +107,7 @@ impl<A: Adapter> Client<A> {
             config,
             nsps: RwLock::new(HashMap::new()),
             router: RwLock::new(Router::new()),
+            pending_nsps: Mutex::new(HashMap::new()),
             adapter_state,
             #[cfg(feature = "state")]
             state,
@@ -66,29 +124,39 @@ impl<A: Adapter> Client<A> {
         #[cfg(feature = "tracing")]
         tracing::debug!("auth: {:?}", auth);
         let protocol: ProtocolVersion = esocket.protocol.into();
-        let connect = async move |ns: Arc<Namespace<A>>, esocket: Arc<EIoSocket<SocketData<A>>>| {
-            if ns.connect(esocket.id, esocket.clone(), auth).await.is_ok() {
-                // cancel the connect timeout task for v5
-                if let Some(tx) = esocket.data.connect_recv_tx.lock().unwrap().take() {
-                    tx.send(()).ok();
-                }
-            }
-        };
 
         if let Some(ns) = self.get_ns(ns_path) {
-            tokio::spawn(connect(ns, esocket.clone()));
+            tokio::spawn(connect_socket(ns, esocket.clone(), auth));
         } else if let Ok(Match { value: ns_ctr, .. }) = self.router.read().unwrap().at(ns_path) {
             let path = Str::copy_from_slice(ns_path);
+            {
+                let mut pending_nsps = self.pending_nsps.lock().unwrap();
+                // The initialization may have finished since the previous check.
+                if let Some(ns) = self.get_ns(ns_path) {
+                    tokio::spawn(connect_socket(ns, esocket.clone(), auth));
+                    return;
+                }
+                // There must be a single adapter per namespace. The adapters of a server
+                // share their connection and a second one would replace the subscriptions
+                // of the first one, so only the first socket starts the initialization.
+                if let Some(pending) = pending_nsps.get_mut(ns_path) {
+                    pending.push((esocket.clone(), auth));
+                    return;
+                }
+                pending_nsps.insert(path.clone(), vec![(esocket.clone(), auth)]);
+            }
+
             let ns = ns_ctr.get_new_ns(path.clone(), &self.adapter_state, &self.config);
-            let this = self.clone();
-            let esocket = esocket.clone();
             let adapter = ns.adapter.clone();
-            let on_success = move || {
-                this.nsps.write().unwrap().insert(path, ns.clone());
-                tokio::spawn(connect(ns, esocket));
+            let pending_ns = PendingNs {
+                client: self.clone(),
+                path,
+                ns: Some(ns),
             };
             // We "ask" the adapter implementation to manage the init response itself
-            socketioxide_core::adapter::Spawnable::spawn(adapter.init(on_success));
+            socketioxide_core::adapter::Spawnable::spawn(
+                adapter.init(move || pending_ns.complete()),
+            );
         } else if protocol == ProtocolVersion::V4 && ns_path == "/" {
             #[cfg(feature = "tracing")]
             tracing::error!(
