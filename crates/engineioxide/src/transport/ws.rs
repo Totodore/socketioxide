@@ -4,7 +4,7 @@
 //! Other functions are used internally to handle the websocket connection through tasks and channels
 //! and to handle upgrade from polling to ws
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use futures_util::{
     SinkExt, StreamExt, TryStreamExt,
@@ -29,6 +29,9 @@ use crate::{
     DisconnectReason, Socket, body::ResponseBody, config::EngineIoConfig, engine::EngineIo,
     errors::Error, handler::EngineIoHandler, socket::InternalRx, transport::make_open_packet,
 };
+
+/// The time given to a client to read the last packets and the close frame of its connection.
+const WS_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Create a response for websocket upgrade
 fn ws_response<B>(ws_key: &HeaderValue) -> Response<ResponseBody<B>> {
@@ -307,47 +310,61 @@ async fn forward_to_socket<H: EngineIoHandler, S>(
         }
 
     // Forward buffered packets until the channel is closed or the session is cancelled.
-    loop {
-        tokio::select! {
-            biased;
-            items = buffered_rx.recv() => {
-                match items {
-                    Some(packets) => {
-                        for item in packets {
-                            map_fn!(item);
-                        }
-                        while let Ok(packets) = buffered_rx.try_recv() {
+    // A write stays pending as long as the client doesn't read. So the whole loop must be
+    // cancellable to not depend on the client to release the `internal_rx` lock.
+    let forward = async {
+        loop {
+            tokio::select! {
+                biased;
+                items = buffered_rx.recv() => {
+                    match items {
+                        Some(packets) => {
                             for item in packets {
                                 map_fn!(item);
                             }
+                            while let Ok(packets) = buffered_rx.try_recv() {
+                                for item in packets {
+                                    map_fn!(item);
+                                }
+                            }
+                        }
+                        None => break
+                    }
+                }
+                _ = socket.cancellation_token.cancelled() => break,
+                Ok(()) = volatile_rx.changed() => {
+                    let val = volatile_rx.borrow_and_update().clone();
+                    if let Some(packets) = val {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(sid = ?socket.id, "ws volatile flush: {} packets", packets.len());
+                        for item in packets {
+                            map_fn!(item);
                         }
                     }
-                    None => break
-                }
+                },
             }
-            _ = socket.cancellation_token.cancelled() => break,
-            Ok(()) = volatile_rx.changed() => {
-                let val = volatile_rx.borrow_and_update().clone();
-                if let Some(packets) = val {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!(sid = ?socket.id, "ws volatile flush: {} packets", packets.len());
-                    for item in packets {
-                        map_fn!(item);
-                    }
-                }
-            },
-        }
 
-        #[cfg(feature = "tracing")]
-        tracing::trace!(sid = %socket.id, "ws flush");
-        tx.flush().await.ok();
-    }
+            #[cfg(feature = "tracing")]
+            tracing::trace!(sid = %socket.id, "ws flush");
+            tx.flush().await.ok();
+        }
+    };
+    forward
+        .with_cancellation_token(&socket.cancellation_token)
+        .await;
+
+    // The end of the session waits for this lock.
+    drop(internal_rx);
 
     #[cfg(feature = "tracing")]
     tracing::trace!(sid = %socket.id, "ws closing flush");
 
-    tx.flush().await.ok();
-    tx.close().await.ok();
+    // Same here, the client may not read anything anymore.
+    let close = async {
+        tx.flush().await.ok();
+        tx.close().await.ok();
+    };
+    tokio::time::timeout(WS_CLOSE_TIMEOUT, close).await.ok();
 }
 /// Send a Engine.IO [`OpenPacket`] to initiate a websocket connection
 async fn init_handshake<S>(
