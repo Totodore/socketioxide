@@ -158,7 +158,7 @@ use socketioxide_core::adapter::remote_packet::{
 };
 use socketioxide_core::adapter::request::RemoteRequestHandler;
 use socketioxide_core::adapter::stream::{
-    AckStream, ResponseHandlers, insert_response_handler, wait_responses,
+    AckStream, DropStream, ResponseHandlers, insert_response_handler, wait_responses,
 };
 use socketioxide_core::{
     Sid, Uid,
@@ -384,7 +384,8 @@ impl<E, R> DefinedAdapter for CustomRedisAdapter<E, R> {}
 impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
     type Error = Error<R>;
     type State = RedisAdapterCtr<R>;
-    type AckStream = Either<E::AckStream, AckStream<E, MessageStream<Vec<u8>>, Vec<u8>>>;
+    type AckStream =
+        Either<E::AckStream, AckStream<E, DropStream<MessageStream<Vec<u8>>, Vec<u8>>, Vec<u8>>>;
     type InitRes = InitRes<R>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -506,7 +507,8 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
             let stream = Either::Left(local);
             return Ok(stream);
         }
-        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
+        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts)
+            .with_ack_timeout(timeout);
         let req_id = req.id;
 
         // When the request targets a specific server, only this server will answer,
@@ -519,7 +521,8 @@ impl<E: SocketEmitter, R: Driver> CoreAdapter<E> for CustomRedisAdapter<E, R> {
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
-        let remote = MessageStream::new(rx);
+        // Built before sending the request, to remove the handler if the send fails or is cancelled.
+        let remote = DropStream::new(MessageStream::new(rx), self.responses.clone(), req_id);
 
         self.send_req(req, opts.server_id).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
@@ -857,18 +860,114 @@ fn decode_redis_ack<E: DeserializeOwned + fmt::Debug>(
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+        time::Duration,
+    };
+
+    use futures_core::{FusedStream, Stream};
+    use serde::{Deserialize, Serialize};
+    use socketioxide_core::{
+        Sid, Str, Uid, Value,
+        adapter::errors::SocketError,
+        adapter::{
+            BroadcastFlags, BroadcastIter, BroadcastOptions, CoreAdapter, CoreLocalAdapter,
+            RemoteSocketData, SocketEmitter,
+        },
+        packet::Packet,
+        parser::Parse,
+    };
+    use socketioxide_parser_common::CommonParser;
+
     use super::*;
-    use std::convert::Infallible;
 
-    #[derive(Clone)]
-    struct StubDriver;
-    impl Driver for StubDriver {
-        type Error = Infallible;
-
-        async fn publish(&self, _: String, _: Vec<u8>) -> Result<(), Self::Error> {
+    struct StubEmitter(Str);
+    struct StubAckStream;
+    impl Stream for StubAckStream {
+        type Item = (Sid, Result<Value, StubAckError>);
+        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            Poll::Ready(None)
+        }
+    }
+    impl FusedStream for StubAckStream {
+        fn is_terminated(&self) -> bool {
+            true
+        }
+    }
+    #[derive(Debug, Serialize, Deserialize)]
+    struct StubAckError;
+    impl fmt::Display for StubAckError {
+        fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
             Ok(())
         }
+    }
+    impl std::error::Error for StubAckError {}
 
+    impl SocketEmitter for StubEmitter {
+        type AckError = StubAckError;
+        type AckStream = StubAckStream;
+        fn get_all_sids(&self, _: impl Fn(&Sid) -> bool) -> Vec<Sid> {
+            vec![]
+        }
+        fn get_remote_sockets(&self, _: BroadcastIter<'_>) -> Vec<RemoteSocketData> {
+            vec![]
+        }
+        fn send_many(&self, _: BroadcastIter<'_>, _: Value) -> Result<(), Vec<SocketError>> {
+            Ok(())
+        }
+        fn send_many_volatile(&self, _: BroadcastIter<'_>, _: Value) {}
+        fn send_many_with_ack(
+            &self,
+            _: BroadcastIter<'_>,
+            _: Packet,
+            _: Option<Duration>,
+        ) -> (Self::AckStream, u32) {
+            (StubAckStream, 0)
+        }
+        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<SocketError>> {
+            Ok(())
+        }
+        fn path(&self) -> &Str {
+            &self.0
+        }
+        fn parser(&self) -> impl Parse {
+            CommonParser
+        }
+        fn server_id(&self) -> Uid {
+            Uid::ZERO
+        }
+        fn ack_timeout(&self) -> Duration {
+            Duration::from_secs(5)
+        }
+    }
+
+    /// What the driver does when the adapter sends a request.
+    #[derive(Debug, Clone, Copy)]
+    enum Mode {
+        Success,
+        Fail,
+        Hang,
+    }
+
+    impl Mode {
+        async fn run(self) -> Result<(), std::io::Error> {
+            match self {
+                Mode::Success => Ok(()),
+                Mode::Fail => Err(std::io::Error::other("backend is down")),
+                Mode::Hang => std::future::pending().await,
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct StubDriver(Mode);
+    impl Driver for StubDriver {
+        type Error = std::io::Error;
+
+        async fn publish(&self, _: String, _: Vec<u8>) -> Result<(), Self::Error> {
+            self.0.run().await
+        }
         async fn subscribe(
             &self,
             _: String,
@@ -876,14 +975,61 @@ mod tests {
         ) -> Result<MessageStream<ChanItem>, Self::Error> {
             Ok(MessageStream::new_empty())
         }
-
         async fn unsubscribe(&self, _: String) -> Result<(), Self::Error> {
             Ok(())
         }
-
         async fn num_serv(&self, _: &str) -> Result<u16, Self::Error> {
-            Ok(0)
+            Ok(2)
         }
+    }
+
+    fn adapter(mode: Mode) -> CustomRedisAdapter<StubEmitter, StubDriver> {
+        let state =
+            RedisAdapterCtr::new_with_driver(StubDriver(mode), RedisAdapterConfig::default());
+        CoreAdapter::new(&state, CoreLocalAdapter::new(StubEmitter(Str::from("/"))))
+    }
+
+    // `broadcast_with_ack` registers a response handler before publishing its request.
+    // The handler must be removed when the request can't be sent, otherwise each failed
+    // publish (e.g. during a backend outage) leaks one entry for the lifetime of the namespace.
+    fn packet() -> Packet {
+        Packet::event(Str::from("/"), Value::Str(Str::from("[\"event\"]"), None))
+    }
+
+    fn opts() -> BroadcastOptions {
+        let mut opts = BroadcastOptions::default();
+        opts.add_flag(BroadcastFlags::Broadcast);
+        opts
+    }
+
+    #[tokio::test]
+    async fn failed_request_removes_the_response_handler() {
+        let adapter = adapter(Mode::Fail);
+        let res = adapter.broadcast_with_ack(packet(), opts(), None).await;
+        assert!(matches!(res, Err(Error::Driver(_))));
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_request_removes_the_response_handler() {
+        let adapter = adapter(Mode::Hang);
+        let fut = adapter.broadcast_with_ack(packet(), opts(), None);
+        let res = tokio::time::timeout(Duration::from_millis(10), fut).await;
+        assert!(res.is_err());
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn response_handler_lives_as_long_as_the_stream() {
+        let adapter = adapter(Mode::Success);
+        let stream = adapter
+            .broadcast_with_ack(packet(), opts(), None)
+            .await
+            .map_err(|_| "broadcast should succeed")
+            .unwrap();
+        assert_eq!(adapter.responses.lock().unwrap().len(), 1);
+        drop(stream);
+        assert!(adapter.responses.lock().unwrap().is_empty());
     }
 
     #[test]

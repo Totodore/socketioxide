@@ -1082,7 +1082,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide"
-version = "0.17.7"
+version = "0.17.9"
 dependencies = [
  "bytes",
  "engineioxide-core",
@@ -1108,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "engineioxide-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "base64",
  "bytes",
@@ -3764,7 +3764,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide"
-version = "0.18.7"
+version = "0.18.9"
 dependencies = [
  "bytes",
  "engineioxide",
@@ -3789,7 +3789,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-core"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "arbitrary",
  "bytes",
@@ -3806,7 +3806,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-mongodb"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bson 3.1.0",
  "futures-core",
@@ -3824,7 +3824,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-common"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "bytes",
  "itoa",
@@ -3835,7 +3835,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-parser-msgpack"
-version = "0.17.3"
+version = "0.17.4"
 dependencies = [
  "bytes",
  "rmp",
@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-postgres"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -3866,7 +3866,7 @@ dependencies = [
 
 [[package]]
 name = "socketioxide-redis"
-version = "0.4.2"
+version = "0.4.4"
 dependencies = [
  "bytes",
  "fred",

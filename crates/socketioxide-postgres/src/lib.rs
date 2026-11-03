@@ -69,7 +69,8 @@ use socketioxide_core::{
         },
         request::RemoteRequestHandler,
         stream::{
-            AckStream, ChanStream, ResponseHandlers, insert_response_handler, wait_responses,
+            AckStream, ChanStream, DropStream, ResponseHandlers, insert_response_handler,
+            wait_responses,
         },
     },
     packet::Packet,
@@ -381,10 +382,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         let fut = async move {
             self.driver.init(&self.config.table_name).await?;
 
-            let global_chan = self.get_global_chan();
-            let node_chan = self.get_node_chan(self.local.server_id());
-            let response_chan = self.get_response_chan(self.local.server_id());
-
+            let [global_chan, node_chan, response_chan] = self.channels();
             let channels = [
                 global_chan.as_str(),
                 node_chan.as_str(),
@@ -432,7 +430,13 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             cleanup_task.abort();
         }
 
-        self.driver.close().await.map_err(Error::Driver)
+        let [global_chan, node_chan, response_chan] = self.channels();
+        let channels = [
+            global_chan.as_str(),
+            node_chan.as_str(),
+            response_chan.as_str(),
+        ];
+        self.driver.close(&channels).await.map_err(Error::Driver)
     }
 
     /// Get the number of servers by iterating over the node liveness heartbeats.
@@ -498,7 +502,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             self.local.server_id(),
             RequestTypeOut::BroadcastWithAck(&packet),
             &opts,
-        );
+        )
+        .with_ack_timeout(timeout);
         let req_id = req.id;
 
         let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
@@ -506,6 +511,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
+        // Built before sending the request, to remove the handler if the send fails or is cancelled.
+        let rx = DropStream::new(ChanStream::new(rx), self.responses.clone(), req_id);
 
         self.send_req(req, None).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
@@ -523,7 +530,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
         // arrived in the channel. `buffered` keeps wire order, which is required so that each
         // server's `BroadcastAckCount` is observed before its individual acks.
         let concurrency = std::cmp::max(self.config.ack_response_buffer, 1);
-        let remote: BoxStream<'static, AckPayload> = ChanStream::new(rx)
+        let remote: BoxStream<'static, AckPayload> = rx
             .map(move |payload| resolve_ack_payload(payload, driver.clone(), table_name.clone()))
             .buffered(concurrency)
             .filter_map(future::ready)
@@ -806,6 +813,15 @@ impl<E: SocketEmitter, D: Driver> CustomPostgresAdapter<E, D> {
     // == All channels are hashed to avoid thresspassing the 63 bytes limit on postgres channel ==
     // We cannot constraint the length of the channel name because it is generated dynamically.
 
+    /// The channels this adapter listens to.
+    fn channels(&self) -> [String; 3] {
+        let uid = self.local.server_id();
+        [
+            self.get_global_chan(),
+            self.get_node_chan(uid),
+            self.get_response_chan(uid),
+        ]
+    }
     fn get_global_chan(&self) -> String {
         let chan = format!("{}#{}", self.config.prefix, self.local.path());
         hash_chan(&chan)
@@ -1085,4 +1101,196 @@ fn decode_postgres_ack<E: serde::de::DeserializeOwned + fmt::Debug>(
     item: AckPayload,
 ) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
     item.deserialize()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+        time::Duration,
+    };
+
+    use futures_core::{FusedStream, Stream};
+    use serde::{Deserialize, Serialize};
+    use socketioxide_core::{
+        Sid, Str, Uid, Value,
+        adapter::errors::SocketError,
+        adapter::{
+            BroadcastFlags, BroadcastIter, BroadcastOptions, CoreAdapter, CoreLocalAdapter,
+            RemoteSocketData, SocketEmitter,
+        },
+        packet::Packet,
+        parser::Parse,
+    };
+    use socketioxide_parser_common::CommonParser;
+
+    use super::*;
+
+    struct StubEmitter(Str);
+    struct StubAckStream;
+    impl Stream for StubAckStream {
+        type Item = (Sid, Result<Value, StubAckError>);
+        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            Poll::Ready(None)
+        }
+    }
+    impl FusedStream for StubAckStream {
+        fn is_terminated(&self) -> bool {
+            true
+        }
+    }
+    #[derive(Debug, Serialize, Deserialize)]
+    struct StubAckError;
+    impl fmt::Display for StubAckError {
+        fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+            Ok(())
+        }
+    }
+    impl std::error::Error for StubAckError {}
+
+    impl SocketEmitter for StubEmitter {
+        type AckError = StubAckError;
+        type AckStream = StubAckStream;
+        fn get_all_sids(&self, _: impl Fn(&Sid) -> bool) -> Vec<Sid> {
+            vec![]
+        }
+        fn get_remote_sockets(&self, _: BroadcastIter<'_>) -> Vec<RemoteSocketData> {
+            vec![]
+        }
+        fn send_many(&self, _: BroadcastIter<'_>, _: Value) -> Result<(), Vec<SocketError>> {
+            Ok(())
+        }
+        fn send_many_volatile(&self, _: BroadcastIter<'_>, _: Value) {}
+        fn send_many_with_ack(
+            &self,
+            _: BroadcastIter<'_>,
+            _: Packet,
+            _: Option<Duration>,
+        ) -> (Self::AckStream, u32) {
+            (StubAckStream, 0)
+        }
+        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<SocketError>> {
+            Ok(())
+        }
+        fn path(&self) -> &Str {
+            &self.0
+        }
+        fn parser(&self) -> impl Parse {
+            CommonParser
+        }
+        fn server_id(&self) -> Uid {
+            Uid::ZERO
+        }
+        fn ack_timeout(&self) -> Duration {
+            Duration::from_secs(5)
+        }
+    }
+
+    /// What the driver does when the adapter sends a request.
+    #[derive(Debug, Clone, Copy)]
+    enum Mode {
+        Success,
+        Fail,
+        Hang,
+    }
+
+    impl Mode {
+        async fn run(self) -> Result<(), std::io::Error> {
+            match self {
+                Mode::Success => Ok(()),
+                Mode::Fail => Err(std::io::Error::other("backend is down")),
+                Mode::Hang => std::future::pending().await,
+            }
+        }
+    }
+
+    struct StubNotification;
+    impl Notification for StubNotification {
+        fn channel(&self) -> &str {
+            ""
+        }
+        fn payload(&self) -> &str {
+            ""
+        }
+    }
+
+    #[derive(Clone)]
+    struct StubDriver(Mode);
+    impl Driver for StubDriver {
+        type Error = std::io::Error;
+        type Notification = StubNotification;
+        type NotificationStream = futures_util::stream::Empty<StubNotification>;
+
+        async fn init(&self, _: &str) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        async fn listen(&self, _: &[&str]) -> Result<Self::NotificationStream, Self::Error> {
+            Ok(futures_util::stream::empty())
+        }
+        async fn notify(&self, _: &str, _: &str) -> Result<(), Self::Error> {
+            self.0.run().await
+        }
+        async fn push_attachment(&self, _: &str, _: &[u8]) -> Result<i64, Self::Error> {
+            Ok(0)
+        }
+        async fn get_attachment(&self, _: &str, _: i64) -> Result<Vec<u8>, Self::Error> {
+            Ok(vec![])
+        }
+        async fn cleanup_attachments(&self, _: &str, _: Duration) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        async fn close(&self, _: &[&str]) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    fn adapter(mode: Mode) -> CustomPostgresAdapter<StubEmitter, StubDriver> {
+        let state =
+            PostgresAdapterCtr::new_with_driver(StubDriver(mode), PostgresAdapterConfig::default());
+        CoreAdapter::new(&state, CoreLocalAdapter::new(StubEmitter(Str::from("/"))))
+    }
+
+    // `broadcast_with_ack` registers a response handler before publishing its request.
+    // The handler must be removed when the request can't be sent, otherwise each failed
+    // publish (e.g. during a backend outage) leaks one entry for the lifetime of the namespace.
+    fn packet() -> Packet {
+        Packet::event(Str::from("/"), Value::Str(Str::from("[\"event\"]"), None))
+    }
+
+    fn opts() -> BroadcastOptions {
+        let mut opts = BroadcastOptions::default();
+        opts.add_flag(BroadcastFlags::Broadcast);
+        opts
+    }
+
+    #[tokio::test]
+    async fn failed_request_removes_the_response_handler() {
+        let adapter = adapter(Mode::Fail);
+        let res = adapter.broadcast_with_ack(packet(), opts(), None).await;
+        assert!(matches!(res, Err(Error::Driver(_))));
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_request_removes_the_response_handler() {
+        let adapter = adapter(Mode::Hang);
+        let fut = adapter.broadcast_with_ack(packet(), opts(), None);
+        let res = tokio::time::timeout(Duration::from_millis(10), fut).await;
+        assert!(res.is_err());
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn response_handler_lives_as_long_as_the_stream() {
+        let adapter = adapter(Mode::Success);
+        let stream = adapter
+            .broadcast_with_ack(packet(), opts(), None)
+            .await
+            .map_err(|_| "broadcast should succeed")
+            .unwrap();
+        assert_eq!(adapter.responses.lock().unwrap().len(), 1);
+        drop(stream);
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
 }

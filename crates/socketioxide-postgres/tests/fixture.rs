@@ -380,7 +380,7 @@ impl Driver for StubDriver {
         Ok(())
     }
 
-    async fn close(&self) -> Result<(), Self::Error> {
+    async fn close(&self, _channels: &[&str]) -> Result<(), Self::Error> {
         Ok(())
     }
 }

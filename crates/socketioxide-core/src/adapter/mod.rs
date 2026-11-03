@@ -570,7 +570,11 @@ impl<E: SocketEmitter> CoreLocalAdapter<E> {
 struct BroadcastRooms<'a> {
     rooms: slice::Iter<'a, Room>,
     rooms_map: &'a HashMap<Room, HashSet<Sid>>,
+    /// The sockets to skip: the excluded ones, and the
+    /// already returned ones when there are several rooms.
     except: HashSet<Sid>,
+    /// A socket can be in several rooms. With a single room there is nothing to track.
+    dedupe: bool,
     flatten_iter: Option<hash_set::Iter<'a, Sid>>,
 }
 impl<'a> BroadcastRooms<'a> {
@@ -583,6 +587,7 @@ impl<'a> BroadcastRooms<'a> {
             rooms: rooms.iter(),
             rooms_map,
             except,
+            dedupe: rooms.len() > 1,
             flatten_iter: None,
         }
     }
@@ -592,6 +597,12 @@ impl Iterator for BroadcastRooms<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.flatten_iter.as_mut().and_then(Iterator::next) {
+                Some(sid) if self.dedupe => {
+                    if self.except.insert(*sid) {
+                        return Some(*sid);
+                    }
+                    continue;
+                }
                 Some(sid) if !self.except.contains(sid) => return Some(*sid),
                 Some(_) => continue,
                 None => self.flatten_iter = None,
@@ -831,6 +842,77 @@ pub(crate) mod test {
         sockets: [Sid; S],
     ) -> CoreLocalAdapter<StubSockets> {
         CoreLocalAdapter::new(StubSockets::new(&sockets))
+    }
+
+    #[test]
+    fn multiple_rooms_yield_each_socket_once() {
+        let [both, first, second] = [Sid::new(), Sid::new(), Sid::new()];
+        let adapter = create_adapter([both, first, second]);
+        adapter.add_all(both, ["room1", "room2"]);
+        adapter.add_all(first, ["room1"]);
+        adapter.add_all(second, ["room2"]);
+
+        let opts = BroadcastOptions {
+            rooms: smallvec::smallvec!["room1".into(), "room2".into()],
+            ..Default::default()
+        };
+        let mut sockets: Vec<Sid> = adapter
+            .fetch_sockets(opts)
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        sockets.sort_by_key(|s| s.to_string());
+
+        let mut expected = vec![both, first, second];
+        expected.sort_by_key(|s| s.to_string());
+        assert_eq!(sockets, expected);
+    }
+
+    /// A duplicate must not end the iteration of the current room.
+    #[test]
+    fn multiple_rooms_with_many_overlapping_sockets() {
+        let shared: Vec<Sid> = (0..20).map(|_| Sid::new()).collect();
+        let only_second: Vec<Sid> = (0..20).map(|_| Sid::new()).collect();
+        let all: Vec<Sid> = shared.iter().chain(&only_second).copied().collect();
+        let adapter = CoreLocalAdapter::new(StubSockets::new(&all));
+        for sid in &shared {
+            adapter.add_all(*sid, ["room1", "room2"]);
+        }
+        for sid in &only_second {
+            adapter.add_all(*sid, ["room2"]);
+        }
+
+        let opts = BroadcastOptions {
+            rooms: smallvec::smallvec!["room1".into(), "room2".into()],
+            ..Default::default()
+        };
+        let ids: Vec<Sid> = adapter
+            .fetch_sockets(opts)
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+
+        assert_eq!(ids.len(), all.len());
+        let ids: HashSet<Sid> = ids.into_iter().collect();
+        assert_eq!(ids, all.into_iter().collect());
+    }
+
+    #[test]
+    fn multiple_rooms_still_apply_except() {
+        let [both, first] = [Sid::new(), Sid::new()];
+        let adapter = create_adapter([both, first]);
+        adapter.add_all(both, ["room1", "room2", "excluded"]);
+        adapter.add_all(first, ["room1", "room2"]);
+
+        let opts = BroadcastOptions {
+            rooms: smallvec::smallvec!["room1".into(), "room2".into()],
+            except: smallvec::smallvec!["excluded".into()],
+            ..Default::default()
+        };
+        let sockets = adapter.fetch_sockets(opts);
+
+        assert_eq!(sockets.len(), 1);
+        assert_eq!(sockets[0].id, first);
     }
 
     #[test]

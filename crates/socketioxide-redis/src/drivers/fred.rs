@@ -48,7 +48,9 @@ async fn msg_handler(mut rx: broadcast::Receiver<Message>, handlers: Arc<RwLock<
             Ok(msg) => {
                 if let Some((chan, data)) = read_msg(msg) {
                     if let Some(tx) = handlers.read().unwrap().get(&chan) {
-                        tx.try_send((chan, data)).unwrap();
+                        if let Err(e) = tx.try_send((chan, data)) {
+                            tracing::warn!("fred driver dropped a message: {e}");
+                        }
                     } else {
                         tracing::warn!(chan, "no handler for channel");
                     }
@@ -146,6 +148,71 @@ mod tests {
         let (chan, data) = time::timeout(TIMEOUT, rx.recv()).await.unwrap().unwrap();
         assert_eq!(chan, "test");
         assert_eq!(data, "foo".as_bytes());
+    }
+
+    fn message(chan: &str, value: &'static [u8]) -> Message {
+        Message {
+            channel: chan.into(),
+            kind: MessageKind::Message,
+            value: Value::from_static(value),
+            server: Server::new("0.0.0.0", 0),
+        }
+    }
+
+    /// The dispatcher task is shared between all the namespaces: a slow namespace
+    /// must not stop the delivery of the messages to the other ones.
+    #[tokio::test]
+    async fn full_handler_does_not_stop_dispatcher() {
+        let (slow_tx, mut slow_rx) = mpsc::channel(1);
+        let (other_tx, mut other_rx) = mpsc::channel(1);
+        let handlers = HashMap::from([
+            ("slow".to_string(), slow_tx),
+            ("other".to_string(), other_tx),
+        ]);
+        let (tx, rx) = broadcast::channel(8);
+        let task = tokio::spawn(msg_handler(rx, Arc::new(RwLock::new(handlers))));
+
+        // The second message does not fit in the handler channel.
+        tx.send(message("slow", b"first")).unwrap();
+        tx.send(message("slow", b"second")).unwrap();
+        tx.send(message("other", b"third")).unwrap();
+
+        let (chan, data) = time::timeout(TIMEOUT, other_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(chan, "other");
+        assert_eq!(data, b"third");
+        assert!(!task.is_finished());
+
+        // Only the message that did not fit is lost.
+        let (_, data) = slow_rx.try_recv().unwrap();
+        assert_eq!(data, b"first");
+        assert!(slow_rx.try_recv().is_err());
+    }
+
+    /// A handler can be dropped while it is still in the map.
+    #[tokio::test]
+    async fn closed_handler_does_not_stop_dispatcher() {
+        let (closed_tx, closed_rx) = mpsc::channel(1);
+        drop(closed_rx);
+        let (other_tx, mut other_rx) = mpsc::channel(1);
+        let handlers = HashMap::from([
+            ("closed".to_string(), closed_tx),
+            ("other".to_string(), other_tx),
+        ]);
+        let (tx, rx) = broadcast::channel(8);
+        let task = tokio::spawn(msg_handler(rx, Arc::new(RwLock::new(handlers))));
+
+        tx.send(message("closed", b"first")).unwrap();
+        tx.send(message("other", b"second")).unwrap();
+
+        let (chan, _) = time::timeout(TIMEOUT, other_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(chan, "other");
+        assert!(!task.is_finished());
     }
 
     #[tokio::test]

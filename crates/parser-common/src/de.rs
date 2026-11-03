@@ -106,6 +106,26 @@ mod tests {
 
     use crate::de::deserialize_packet;
 
+    /// Every `Str` slice done by the parser must land on a char boundary.
+    #[test]
+    fn multibyte_packets_do_not_panic() {
+        for packet in [
+            "2/é,[\"é\"]",
+            "2/é",
+            "2/é,",
+            "2é",
+            "21é",
+            "2/é,1é",
+            "2/é,1[\"é\"]",
+            "0/é,{\"é\":\"é\"}",
+            "51-/é,1[\"é\"]",
+            "51é",
+            "é",
+        ] {
+            let _ = deserialize_packet(packet.into());
+        }
+    }
+
     #[test]
     fn data_is_empty() {
         let err = deserialize_packet("".into());

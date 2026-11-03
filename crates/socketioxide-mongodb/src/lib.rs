@@ -93,7 +93,7 @@ use std::{
     collections::HashMap,
     fmt, future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     task::{Context, Poll},
     time::Duration,
 };
@@ -113,12 +113,13 @@ use socketioxide_core::{
         RoomParam, SocketEmitter, Spawnable,
         heartbeat::{HeartbeatSender, HeartbeatTracker, heartbeat_loop},
         stream::{
-            AckStream, ChanStream, ResponseHandlers, insert_response_handler, wait_responses,
+            AckStream, ChanStream, DropStream, ResponseHandlers, insert_response_handler,
+            wait_responses,
         },
     },
     packet::Packet,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::AbortHandle};
 
 use drivers::{Driver, Item, ItemHeader};
 
@@ -327,13 +328,16 @@ pub struct CustomMongoDbAdapter<E, D> {
     heartbeat: HeartbeatTracker,
     /// A map of response handlers used to await for responses from the remote servers.
     responses: Arc<Mutex<ResponseHandlers<Item>>>,
+
+    ev_stream_task: OnceLock<AbortHandle>,
+    hb_task: OnceLock<AbortHandle>,
 }
 
 impl<E, D> DefinedAdapter for CustomMongoDbAdapter<E, D> {}
 impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> {
     type Error = Error<D>;
     type State = MongoDbAdapterCtr<D>;
-    type AckStream = Either<E::AckStream, AckStream<E, ChanStream<Item>, Item>>;
+    type AckStream = Either<E::AckStream, AckStream<E, DropStream<ChanStream<Item>, Item>, Item>>;
     type InitRes = InitRes<D>;
 
     fn new(state: &Self::State, local: CoreLocalAdapter<E>) -> Self {
@@ -345,14 +349,25 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             config: state.config.clone(),
             heartbeat: HeartbeatTracker::new(state.config.hb_timeout),
             responses: Arc::new(Mutex::new(HashMap::new())),
+            ev_stream_task: OnceLock::new(),
+            hb_task: OnceLock::new(),
         }
     }
 
     fn init(self: Arc<Self>, on_success: impl FnOnce() + Send + 'static) -> Self::InitRes {
         let fut = async move {
             let stream = self.driver.watch(self.uid, self.local.path()).await?;
-            tokio::spawn(self.clone().handle_ev_stream(stream));
-            tokio::spawn(heartbeat_loop(self.clone(), self.config.hb_interval));
+            let ev_stream_task = tokio::spawn(self.clone().handle_ev_stream(stream)).abort_handle();
+            assert!(
+                self.ev_stream_task.set(ev_stream_task).is_ok(),
+                "Adapter::init should be called only once"
+            );
+            let hb_task =
+                tokio::spawn(heartbeat_loop(self.clone(), self.config.hb_interval)).abort_handle();
+            assert!(
+                self.hb_task.set(hb_task).is_ok(),
+                "Adapter::init should be called only once"
+            );
 
             // Send initial heartbeat when starting.
             self.emit_init_heartbeat().await.map_err(|e| match e {
@@ -367,6 +382,12 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
+        if let Some(hb_task) = self.hb_task.get() {
+            hb_task.abort();
+        }
+        if let Some(ev_stream_task) = self.ev_stream_task.get() {
+            ev_stream_task.abort();
+        }
         Ok(())
     }
 
@@ -428,7 +449,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
             let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
             return Ok(Either::Left(local));
         }
-        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts);
+        let req = RequestOut::new(self.uid, RequestTypeOut::BroadcastWithAck(&packet), &opts)
+            .with_ack_timeout(timeout);
         let req_id = req.id;
 
         let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
@@ -436,6 +458,9 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
         let (tx, rx) = mpsc::channel(self.config.ack_response_buffer + remote_serv_cnt as usize);
         self.responses.lock().unwrap().insert(req_id, tx);
+        // Built before sending the request, to remove the handler if the send fails or is cancelled.
+        let remote = DropStream::new(ChanStream::new(rx), self.responses.clone(), req_id);
+
         self.send_req(req, None).await?;
         let (local, _) = self.local.broadcast_with_ack(packet, opts, timeout);
 
@@ -447,7 +472,7 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomMongoDbAdapter<E, D> 
 
         Ok(Either::Right(AckStream::new(
             local,
-            ChanStream::new(rx),
+            remote,
             decode_mongodb_ack,
             timeout,
             remote_serv_cnt,
@@ -729,4 +754,170 @@ fn decode_mongodb_ack<E: DeserializeOwned + fmt::Debug>(
 ) -> Result<Response<E>, Box<dyn std::error::Error + Send>> {
     rmp_serde::from_slice::<Response<E>>(&item.data)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+        time::Duration,
+    };
+
+    use futures_core::{FusedStream, Stream};
+    use serde::{Deserialize, Serialize};
+    use socketioxide_core::{
+        Sid, Str, Uid, Value,
+        adapter::errors::SocketError,
+        adapter::{
+            BroadcastFlags, BroadcastIter, BroadcastOptions, CoreAdapter, CoreLocalAdapter,
+            RemoteSocketData, SocketEmitter,
+        },
+        packet::Packet,
+        parser::Parse,
+    };
+    use socketioxide_parser_common::CommonParser;
+
+    use super::*;
+
+    struct StubEmitter(Str);
+    struct StubAckStream;
+    impl Stream for StubAckStream {
+        type Item = (Sid, Result<Value, StubAckError>);
+        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            Poll::Ready(None)
+        }
+    }
+    impl FusedStream for StubAckStream {
+        fn is_terminated(&self) -> bool {
+            true
+        }
+    }
+    #[derive(Debug, Serialize, Deserialize)]
+    struct StubAckError;
+    impl fmt::Display for StubAckError {
+        fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+            Ok(())
+        }
+    }
+    impl std::error::Error for StubAckError {}
+
+    impl SocketEmitter for StubEmitter {
+        type AckError = StubAckError;
+        type AckStream = StubAckStream;
+        fn get_all_sids(&self, _: impl Fn(&Sid) -> bool) -> Vec<Sid> {
+            vec![]
+        }
+        fn get_remote_sockets(&self, _: BroadcastIter<'_>) -> Vec<RemoteSocketData> {
+            vec![]
+        }
+        fn send_many(&self, _: BroadcastIter<'_>, _: Value) -> Result<(), Vec<SocketError>> {
+            Ok(())
+        }
+        fn send_many_volatile(&self, _: BroadcastIter<'_>, _: Value) {}
+        fn send_many_with_ack(
+            &self,
+            _: BroadcastIter<'_>,
+            _: Packet,
+            _: Option<Duration>,
+        ) -> (Self::AckStream, u32) {
+            (StubAckStream, 0)
+        }
+        fn disconnect_many(&self, _: Vec<Sid>) -> Result<(), Vec<SocketError>> {
+            Ok(())
+        }
+        fn path(&self) -> &Str {
+            &self.0
+        }
+        fn parser(&self) -> impl Parse {
+            CommonParser
+        }
+        fn server_id(&self) -> Uid {
+            Uid::ZERO
+        }
+        fn ack_timeout(&self) -> Duration {
+            Duration::from_secs(5)
+        }
+    }
+
+    /// What the driver does when the adapter sends a request.
+    #[derive(Debug, Clone, Copy)]
+    enum Mode {
+        Success,
+        Fail,
+        Hang,
+    }
+
+    impl Mode {
+        async fn run(self) -> Result<(), std::io::Error> {
+            match self {
+                Mode::Success => Ok(()),
+                Mode::Fail => Err(std::io::Error::other("backend is down")),
+                Mode::Hang => std::future::pending().await,
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct StubDriver(Mode);
+    impl Driver for StubDriver {
+        type Error = std::io::Error;
+        type EvStream = futures_util::stream::Empty<Result<Item, Self::Error>>;
+
+        async fn watch(&self, _: Uid, _: &str) -> Result<Self::EvStream, Self::Error> {
+            Ok(futures_util::stream::empty())
+        }
+        async fn emit(&self, _: &Item) -> Result<(), Self::Error> {
+            self.0.run().await
+        }
+    }
+
+    fn adapter(mode: Mode) -> CustomMongoDbAdapter<StubEmitter, StubDriver> {
+        let state =
+            MongoDbAdapterCtr::new_with_driver(StubDriver(mode), MongoDbAdapterConfig::default());
+        CoreAdapter::new(&state, CoreLocalAdapter::new(StubEmitter(Str::from("/"))))
+    }
+
+    // `broadcast_with_ack` registers a response handler before publishing its request.
+    // The handler must be removed when the request can't be sent, otherwise each failed
+    // publish (e.g. during a backend outage) leaks one entry for the lifetime of the namespace.
+    fn packet() -> Packet {
+        Packet::event(Str::from("/"), Value::Str(Str::from("[\"event\"]"), None))
+    }
+
+    fn opts() -> BroadcastOptions {
+        let mut opts = BroadcastOptions::default();
+        opts.add_flag(BroadcastFlags::Broadcast);
+        opts
+    }
+
+    #[tokio::test]
+    async fn failed_request_removes_the_response_handler() {
+        let adapter = adapter(Mode::Fail);
+        let res = adapter.broadcast_with_ack(packet(), opts(), None).await;
+        assert!(matches!(res, Err(Error::Driver(_))));
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_request_removes_the_response_handler() {
+        let adapter = adapter(Mode::Hang);
+        let fut = adapter.broadcast_with_ack(packet(), opts(), None);
+        let res = tokio::time::timeout(Duration::from_millis(10), fut).await;
+        assert!(res.is_err());
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn response_handler_lives_as_long_as_the_stream() {
+        let adapter = adapter(Mode::Success);
+        let stream = adapter
+            .broadcast_with_ack(packet(), opts(), None)
+            .await
+            .map_err(|_| "broadcast should succeed")
+            .unwrap();
+        assert_eq!(adapter.responses.lock().unwrap().len(), 1);
+        drop(stream);
+        assert!(adapter.responses.lock().unwrap().is_empty());
+    }
 }

@@ -22,6 +22,12 @@ async fn timeout_rcv<T: std::fmt::Debug>(srx: &mut tokio::sync::mpsc::Receiver<T
         .unwrap()
 }
 
+async fn timeout_rcv_opt<T>(
+    srx: &mut tokio::sync::mpsc::Receiver<T>,
+) -> Result<Option<T>, tokio::time::error::Elapsed> {
+    tokio::time::timeout(std::time::Duration::from_millis(10), srx.recv()).await
+}
+
 #[tokio::test]
 pub async fn connect_middleware() {
     let (_svc, io) = SocketIo::new_svc();
@@ -229,4 +235,44 @@ async fn remove_ns_from_disconnect_handler() {
     let (_stx, mut _srx) = io.new_dummy_sock("/test2", ()).await;
     let elapsed = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
     assert!(elapsed.is_err() || elapsed.unwrap().is_none());
+}
+
+/// A client sending the same CONNECT packet twice must not get a second socket.
+#[tokio::test]
+async fn duplicate_connect_packet() {
+    let (_svc, io) = SocketIo::new_svc();
+    let (connect_tx, mut connect_rx) = mpsc::channel::<socketioxide::socket::Sid>(10);
+    let (disconnect_tx, mut disconnect_rx) = mpsc::channel::<()>(10);
+
+    io.ns("/", async move |s: SocketRef| {
+        connect_tx.try_send(s.id).unwrap();
+        s.join("room1");
+        let disconnect_tx = disconnect_tx.clone();
+        s.on_disconnect(async move || {
+            disconnect_tx.try_send(()).unwrap();
+        });
+    });
+
+    let (stx, mut srx) = io.new_dummy_sock("/", ()).await;
+    let sid = timeout_rcv(&mut connect_rx).await;
+    let connect_ack = timeout_rcv(&mut srx).await;
+    assert!(matches!(connect_ack, Message(ref msg) if msg.starts_with('0')));
+
+    stx.try_send(Message("0".into())).unwrap();
+    stx.try_send(Message("0{}".into())).unwrap();
+
+    // No second connect handler call, no second ack and the first socket is still alive.
+    assert_err!(timeout_rcv_opt(&mut connect_rx).await);
+    assert_err!(timeout_rcv_opt(&mut srx).await);
+    assert_err!(disconnect_rx.try_recv());
+    assert!(io.get_socket(sid).is_some());
+    assert_eq!(io.to("room1").sockets().len(), 1);
+
+    // The socket still receives events.
+    let (tx, mut rx) = mpsc::channel::<()>(1);
+    io.get_socket(sid).unwrap().on("test", async move || {
+        tx.try_send(()).unwrap();
+    });
+    stx.try_send(create_msg("/", "test", ())).unwrap();
+    timeout_rcv(&mut rx).await;
 }

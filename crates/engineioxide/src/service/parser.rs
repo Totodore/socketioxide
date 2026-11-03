@@ -82,6 +82,8 @@ pub enum ParseError {
     TransportMismatch,
     #[error("unsupported protocol version")]
     UnsupportedProtocolVersion,
+    #[error("unknown session id")]
+    UnknownSessionId,
 }
 
 /// Convert an error into an http response
@@ -105,6 +107,9 @@ impl<B> From<ParseError> for Response<ResponseBody<B>> {
             TransportMismatch => conn_err_resp("{\"code\":\"3\",\"message\":\"Bad request\"}"),
             UnsupportedProtocolVersion => {
                 conn_err_resp("{\"code\":\"5\",\"message\":\"Unsupported protocol version\"}")
+            }
+            UnknownSessionId => {
+                conn_err_resp("{\"code\":\"1\",\"message\":\"Session ID unknown\"}")
             }
         }
     }
@@ -138,11 +143,13 @@ impl RequestInfo {
             .and_then(|t| t.parse().ok())
             .ok_or(UnsupportedProtocolVersion)?;
 
+        // A sid that can't be parsed can't match any session. It must
+        // not be handled like a request without sid, which opens a new session.
         let sid = query
             .split('&')
-            .find(|s| s.starts_with("sid="))
-            .and_then(|s| s.split('=').nth(1).map(|s1| s1.parse().ok()))
-            .flatten();
+            .find_map(|s| s.strip_prefix("sid="))
+            .map(|s| s.parse().map_err(|_| UnknownSessionId))
+            .transpose()?;
 
         let transport: TransportType = query
             .split('&')
@@ -186,6 +193,36 @@ mod tests {
 
     fn build_request(path: &str) -> Request<()> {
         Request::get(path).body(()).unwrap()
+    }
+
+    #[test]
+    fn request_info_invalid_sid() {
+        for sid in [
+            "garbage",
+            "",
+            "AAAAAAAAAAAAAAAAAAAAAA",
+            "AAAAAAAAAAAAAAA!",
+            "é",
+        ] {
+            let req = build_request(&format!(
+                "http://localhost:3000/socket.io/?EIO=4&transport=polling&sid={sid}"
+            ));
+            let err = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap_err();
+            assert!(
+                matches!(err, ParseError::UnknownSessionId),
+                "{sid}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn request_info_valid_sid() {
+        let sid = Sid::new();
+        let req = build_request(&format!(
+            "http://localhost:3000/socket.io/?EIO=4&transport=polling&sid={sid}"
+        ));
+        let info = RequestInfo::parse(&req, &EngineIoConfig::default()).unwrap();
+        assert_eq!(info.sid, Some(sid));
     }
 
     #[test]
