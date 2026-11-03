@@ -4,6 +4,7 @@
 //! requests a node can receive from another node. Adapters only have to provide
 //! access to their local adapter and a way to send responses back.
 
+use std::time::Duration;
 use std::{fmt, future::Future, sync::Arc};
 
 use futures_util::StreamExt;
@@ -53,6 +54,7 @@ pub trait RemoteRequestHandler<E: SocketEmitter>: Send + Sync + 'static {
             id,
             r#type,
             opts,
+            ack_timeout,
         } = req;
 
         // Ignore loopback requests.
@@ -68,7 +70,8 @@ pub trait RemoteRequestHandler<E: SocketEmitter>: Send + Sync + 'static {
             (r#type, Some(opts)) => match r#type {
                 RequestTypeIn::Broadcast(p) => self.recv_broadcast(opts, p),
                 RequestTypeIn::BroadcastWithAck(p) => {
-                    self.clone().recv_broadcast_with_ack(node_id, id, p, opts)
+                    self.clone()
+                        .recv_broadcast_with_ack(node_id, id, p, opts, ack_timeout)
                 }
                 RequestTypeIn::DisconnectSockets => self.recv_disconnect_sockets(opts),
                 RequestTypeIn::AllRooms => self.recv_rooms(node_id, id, opts),
@@ -119,9 +122,10 @@ pub trait RemoteRequestHandler<E: SocketEmitter>: Send + Sync + 'static {
         req_id: Sid,
         packet: Packet,
         opts: BroadcastOptions,
+        ack_timeout: Option<Duration>,
     ) {
         let node_id = self.local().server_id();
-        let (stream, count) = self.local().broadcast_with_ack(packet, opts, None);
+        let (stream, count) = self.local().broadcast_with_ack(packet, opts, ack_timeout);
         tokio::spawn(async move {
             let on_err = |err| {
                 let ns = self.local().path();
@@ -272,6 +276,7 @@ mod tests {
             id: Sid::new(),
             r#type,
             opts,
+            ack_timeout: None,
         }
     }
 

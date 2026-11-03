@@ -498,4 +498,25 @@ mod test {
             .await
             .unwrap_err();
     }
+
+    /// The parser rejects a string packet during a binary packet: the socket must be closed.
+    #[tokio::test]
+    async fn string_packet_during_a_binary_packet_closes_the_socket() {
+        let client = create_client();
+        let (close_tx, mut close_rx) = mpsc::channel(4);
+        let close_fn = Box::new(move |_, reason| close_tx.try_send(reason).unwrap());
+        let sock = EIoSocket::new_dummy(Sid::new(), close_fn);
+        client.clone().on_connect(sock.clone());
+        client.on_message("0".into(), sock.clone());
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        let header = "51-[\"event\",{\"_placeholder\":true,\"num\":0}]";
+        client.on_message(header.into(), sock.clone());
+        client.on_message("2[\"other\"]".into(), sock.clone());
+
+        let res = tokio::time::timeout(CONNECT_TIMEOUT, close_rx.recv())
+            .await
+            .expect("the socket should be closed");
+        assert_eq!(res, Some(EIoDisconnectReason::PacketParsingError));
+    }
 }

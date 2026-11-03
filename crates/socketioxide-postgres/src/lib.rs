@@ -502,7 +502,8 @@ impl<E: SocketEmitter, D: Driver> CoreAdapter<E> for CustomPostgresAdapter<E, D>
             self.local.server_id(),
             RequestTypeOut::BroadcastWithAck(&packet),
             &opts,
-        );
+        )
+        .with_ack_timeout(timeout);
         let req_id = req.id;
 
         let remote_serv_cnt = self.server_count().await?.saturating_sub(1);
