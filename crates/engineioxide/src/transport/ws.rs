@@ -71,7 +71,7 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
             .map(hyper_util::rt::TokioIo::new);
 
         let res = match conn {
-            Ok(conn) => on_init(engine.clone(), conn, protocol, sid, parts).await,
+            Ok(conn) => on_init(engine, conn, protocol, sid, parts).await,
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!("ws upgrade error: {}", _e);
@@ -84,13 +84,11 @@ pub fn new_req<R: Send + 'static, B, H: EngineIoHandler>(
                 #[cfg(feature = "tracing")]
                 tracing::debug!(?sid, "ws closed")
             }
-            Err(Error::MultipleWebsocketRequests) => {}
+            // Only the websocket is closed here: if it was a failed upgrade,
+            // the polling transport of the session is still valid.
             Err(_e) => {
                 #[cfg(feature = "tracing")]
                 tracing::debug!(?sid, "ws closed with error: {_e}");
-                if let Some(sid) = sid {
-                    engine.close_session(sid, DisconnectReason::TransportError);
-                }
             }
         }
     });
@@ -403,8 +401,25 @@ where
 
     // The socket is upgrading, from now on all polling
     // request will return a `Packet::Noop`
-    socket.start_upgrade();
+    if !socket.start_upgrade() {
+        return Err(Error::MultipleWebsocketRequests);
+    }
 
+    let res = upgrade_probe::<H, S>(socket, ws).await;
+    if res.is_err() {
+        socket.abort_upgrade();
+    }
+    res
+}
+
+/// Run the [`upgrade_handshake`] of a socket marked as upgrading.
+async fn upgrade_probe<H: EngineIoHandler, S>(
+    socket: &Arc<Socket<H::Data>>,
+    ws: &mut WebSocketStream<S>,
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     // We send a last Noop request to close a potential waiting polling request.
     socket
         .internal_tx
