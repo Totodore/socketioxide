@@ -11,6 +11,7 @@ use engineioxide::Packet;
 use socketioxide::{adapter::Adapter, extract::SocketRef};
 use socketioxide_postgres::PostgresAdapterConfig;
 
+use adapter_test_suite::{timeout_rcv, timeout_rcv_err};
 mod fixture;
 
 const LOW_THRESHOLD: usize = 128;

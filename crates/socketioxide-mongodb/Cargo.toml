@@ -44,6 +44,7 @@ mongodb = { version = "3", default-features = false, optional = true, features =
 ] }
 
 [dev-dependencies]
+adapter-test-suite = { path = "../adapter-test-suite" }
 socketioxide-parser-common = { path = "../parser-common" }
 tokio = { workspace = true, features = [
     "macros",

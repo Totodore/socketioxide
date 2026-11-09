@@ -167,33 +167,25 @@ impl Driver for StubDriver {
     }
 }
 
-#[macro_export]
-macro_rules! timeout_rcv_err {
-    ($srx:expr) => {
-        tokio::time::timeout(std::time::Duration::from_millis(10), $srx.recv())
-            .await
-            .unwrap_err();
-    };
-}
+/// The adapter used by the shared test suite.
+pub struct Fixture;
 
-#[macro_export]
-macro_rules! timeout_rcv {
-    ($srx:expr) => {
-        TryInto::<String>::try_into(
-            tokio::time::timeout(std::time::Duration::from_millis(10), $srx.recv())
-                .await
-                .unwrap()
-                .unwrap(),
-        )
-        .unwrap()
-    };
-    ($srx:expr, $t:expr) => {
-        TryInto::<String>::try_into(
-            tokio::time::timeout(std::time::Duration::from_millis($t), $srx.recv())
-                .await
-                .unwrap()
-                .unwrap(),
-        )
-        .unwrap()
-    };
+impl adapter_test_suite::Fixture for Fixture {
+    type Adapter = CustomMongoDbAdapter<Emitter, StubDriver>;
+
+    fn spawn_servers<const N: usize>() -> [SocketIo<Self::Adapter>; N] {
+        spawn_servers()
+    }
+
+    fn spawn_buggy_servers<const N: usize>(timeout: Duration) -> [SocketIo<Self::Adapter>; N] {
+        spawn_buggy_servers(timeout)
+    }
+
+    async fn add_ns<C, T>(io: &SocketIo<Self::Adapter>, handler: C)
+    where
+        C: socketioxide::handler::ConnectHandler<Self::Adapter, T>,
+        T: Send + Sync + 'static,
+    {
+        io.ns("/", handler).await.unwrap();
+    }
 }

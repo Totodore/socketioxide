@@ -1,0 +1,26 @@
+[package]
+name = "adapter-test-suite"
+description = "Shared test suite for the socketioxide remote adapters."
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+socketioxide = { path = "../socketioxide", default-features = false, features = [
+    "tracing",
+    "__test_harness",
+] }
+socketioxide-core = { path = "../socketioxide-core" }
+engineioxide = { path = "../engineioxide" }
+futures-util.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
+[lints]
+workspace = true
