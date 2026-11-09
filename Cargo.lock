@@ -19,6 +19,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapter-test-suite"
+version = "0.0.0"
+dependencies = [
+ "engineioxide",
+ "futures-util",
+ "socketioxide",
+ "socketioxide-core",
+ "tokio",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2657,6 +2668,7 @@ dependencies = [
 name = "socketioxide-mongodb"
 version = "0.1.5"
 dependencies = [
+ "adapter-test-suite",
  "bson 3.1.0",
  "bytes",
  "engineioxide",
@@ -2706,6 +2718,7 @@ dependencies = [
 name = "socketioxide-postgres"
 version = "0.2.0"
 dependencies = [
+ "adapter-test-suite",
  "bytes",
  "engineioxide",
  "futures-core",
@@ -2731,6 +2744,7 @@ dependencies = [
 name = "socketioxide-redis"
 version = "0.4.4"
 dependencies = [
+ "adapter-test-suite",
  "bytes",
  "engineioxide",
  "fred",
