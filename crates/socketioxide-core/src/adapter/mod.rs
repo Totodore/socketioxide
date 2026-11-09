@@ -28,6 +28,10 @@ pub mod errors;
 #[cfg(feature = "remote-adapter")]
 pub mod heartbeat;
 #[cfg(feature = "remote-adapter")]
+pub mod init;
+#[cfg(feature = "remote-adapter")]
+pub mod operations;
+#[cfg(feature = "remote-adapter")]
 pub mod remote_packet;
 #[cfg(feature = "remote-adapter")]
 pub mod request;
