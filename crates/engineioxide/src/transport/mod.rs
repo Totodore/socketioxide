@@ -6,6 +6,8 @@ use crate::config::EngineIoConfig;
 
 pub mod polling;
 pub mod ws;
+#[cfg(feature = "ws-deflate")]
+mod ws_deflate;
 
 fn make_open_packet(transport: TransportType, id: Sid, config: &EngineIoConfig) -> OpenPacket {
     let upgrades = if transport == TransportType::Polling {

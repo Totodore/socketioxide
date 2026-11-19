@@ -30,3 +30,4 @@ path = "engineioxide.rs"
 [features]
 v3 = ["engineioxide/v3"]
 v4 = []
+ws-deflate = ["engineioxide/ws-deflate"]

@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import {
   PING_INTERVAL,
   PING_TIMEOUT,
+  sendFlushed,
   WebSocketStream,
   WS_URL,
   waitForMessage,
@@ -568,7 +569,7 @@ describe("Engine.IO protocol", () => {
 
       await waitForEvent(socket, "open");
       socket.send("2probe");
-      socket.send("5");
+      await sendFlushed(socket, "5");
 
       const pollResponse = await fetch(
         `${POLLING_URL}/engine.io/?EIO=4&transport=polling&sid=${sid}`,
@@ -593,7 +594,7 @@ describe("Engine.IO protocol", () => {
 
       await waitForEvent(socket, "open");
       socket.send("2probe");
-      socket.send("5");
+      await sendFlushed(socket, "5");
 
       const socket2 = new WebSocketStream(
         `${WS_URL}/engine.io/?EIO=4&transport=websocket&sid=${sid}`,

@@ -46,6 +46,7 @@ msgpack = ["dep:socketioxide-parser-msgpack"]
 tracing = ["dep:tracing", "engineioxide/tracing"]
 extensions = []
 state = ["dep:state"]
+ws-deflate = ["engineioxide/ws-deflate"]
 __test_harness = ["engineioxide/__test_harness"]
 
 [dev-dependencies]
@@ -67,7 +68,7 @@ rand = { version = "0.10", default-features = false }
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]
-features = ["v4", "extensions", "tracing", "state", "msgpack"]
+features = ["v4", "extensions", "tracing", "state", "msgpack", "ws-deflate"]
 # Special configuration for docs.rs build
 rustdoc-args = ["--cfg", "docsrs"]
 

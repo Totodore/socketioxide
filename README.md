@@ -34,6 +34,7 @@ A [***`socket.io`***](https://socket.io) server implementation in Rust that inte
 * Ack and emit with ack
 * Binary packets
 * Polling & Websocket transports
+* Optional websocket compression with `permessage-deflate`, under the feature flag `ws-deflate`
 * Common (default) & Msgpack parsers
 * Extensions to add custom data to sockets
 * Memory efficient http payload parsing with streams

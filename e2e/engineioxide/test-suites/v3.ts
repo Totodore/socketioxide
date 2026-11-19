@@ -7,6 +7,7 @@ import {
   waitForMessage,
   waitForEvent,
   sleep,
+  sendFlushed,
   WebSocketStream,
 } from "./utils.ts";
 import assert from "assert";
@@ -598,7 +599,7 @@ describe("Engine.IO protocol", () => {
       const res = await waitForMessage(socket);
       assert.deepStrictEqual(res, "3probe");
 
-      socket.send("5");
+      await sendFlushed(socket, "5");
 
       const pollResponse = await fetch(
         `${POLLING_URL}/engine.io/?EIO=3&transport=polling&sid=${sid}`,
@@ -626,7 +627,7 @@ describe("Engine.IO protocol", () => {
       const res = await waitForMessage(socket);
       assert.deepStrictEqual(res, "3probe");
 
-      socket.send("5");
+      await sendFlushed(socket, "5");
 
       const socket2 = new WebSocketStream(
         `${WS_URL}/engine.io/?EIO=3&transport=websocket&sid=${sid}`,

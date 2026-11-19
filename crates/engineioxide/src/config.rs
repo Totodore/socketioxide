@@ -87,6 +87,142 @@ pub struct EngineIoConfig {
     /// Allowed transports on this server
     /// It is represented as a bitfield to allow to combine any number of transports easily
     pub transports: u8,
+
+    /// The configuration of the `permessage-deflate` websocket extension.
+    /// The extension is not offered to the clients if this is `None`.
+    ///
+    /// Defaults to `None`.
+    #[cfg(feature = "ws-deflate")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ws-deflate")))]
+    pub ws_per_message_deflate: Option<PerMessageDeflateConfig>,
+}
+
+/// Configuration of the `permessage-deflate` websocket extension ([RFC 7692]).
+///
+/// Compression trades bandwidth for CPU and memory: with the default settings, each connection
+/// that compresses messages holds around 370 KiB for its compression context, and each one that
+/// receives compressed messages holds around 45 KiB for its decompression context. This is allocated
+/// on the first compressed message of each direction, so a connection that doesn't need it
+/// doesn't pay for it.
+///
+/// To reduce this memory usage, the `no_context_takeover` options free these contexts between
+/// two messages, and [`server_max_window_bits`](Self::server_max_window_bits) shrinks the
+/// compression context.
+///
+/// A message is compressed per connection, so broadcasting a message to `n` sockets
+/// compresses it `n` times.
+///
+/// # Example
+/// ```
+/// # use engineioxide::config::{EngineIoConfig, PerMessageDeflateConfig};
+/// let config = EngineIoConfig::builder()
+///     .ws_per_message_deflate(
+///         PerMessageDeflateConfig::default()
+///             .threshold(2048)
+///             .level(3)
+///             .server_no_context_takeover(true)
+///             .client_no_context_takeover(true)
+///             .server_max_window_bits(12)
+///             .client_max_window_bits(12),
+///     )
+///     .build();
+/// ```
+///
+/// [RFC 7692]: https://www.rfc-editor.org/rfc/rfc7692
+#[cfg(feature = "ws-deflate")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ws-deflate")))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerMessageDeflateConfig {
+    pub(crate) threshold: usize,
+    pub(crate) level: u32,
+    pub(crate) server_no_context_takeover: bool,
+    pub(crate) client_no_context_takeover: bool,
+    pub(crate) server_max_window_bits: u8,
+    pub(crate) client_max_window_bits: u8,
+}
+
+#[cfg(feature = "ws-deflate")]
+impl Default for PerMessageDeflateConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 1024,
+            level: 6,
+            server_no_context_takeover: false,
+            client_no_context_takeover: false,
+            server_max_window_bits: 15,
+            client_max_window_bits: 15,
+        }
+    }
+}
+
+#[cfg(feature = "ws-deflate")]
+impl PerMessageDeflateConfig {
+    /// The minimum size in bytes of an outgoing message to compress it.
+    /// Compressing a small message is often not worth the CPU time and can even make it larger.
+    ///
+    /// Defaults to 1 KiB.
+    pub fn threshold(mut self, threshold: usize) -> Self {
+        self.threshold = threshold;
+        self
+    }
+
+    /// The compression level of the outgoing messages, from 0 (no compression) to 9
+    /// (best compression but slowest). A higher value is treated as 9.
+    ///
+    /// Defaults to 6.
+    pub fn level(mut self, level: u32) -> Self {
+        self.level = level.min(9);
+        self
+    }
+
+    /// Don't reuse the compression context between two outgoing messages. This frees the memory
+    /// of the context between two messages, but compresses less and costs an allocation per message.
+    /// This is enforced if the client asks for it.
+    ///
+    /// Defaults to `false`.
+    pub fn server_no_context_takeover(mut self, server_no_context_takeover: bool) -> Self {
+        self.server_no_context_takeover = server_no_context_takeover;
+        self
+    }
+
+    /// Require the client to not reuse its compression context between two messages. This frees the
+    /// memory of the decompression context between two messages, but the client compresses less
+    /// and this costs an allocation per message.
+    ///
+    /// Defaults to `false`.
+    pub fn client_no_context_takeover(mut self, client_no_context_takeover: bool) -> Self {
+        self.client_no_context_takeover = client_no_context_takeover;
+        self
+    }
+
+    /// The base-2 logarithm of the size of the window used to compress the outgoing messages,
+    /// from 9 (512 bytes) to 15 (32 KiB). A value out of this range is brought back to it.
+    /// A smaller window uses less memory but compresses less: the compression context takes
+    /// around 370 KiB with a value of 15 and 260 KiB with a value of 12. A lower value than this
+    /// doesn't save much more.
+    ///
+    /// A client can ask for a smaller window than this one, except for a window of 8 bits
+    /// which isn't supported: its offer is then declined and the connection isn't compressed.
+    ///
+    /// Defaults to 15.
+    pub fn server_max_window_bits(mut self, server_max_window_bits: u8) -> Self {
+        self.server_max_window_bits = server_max_window_bits.clamp(9, 15);
+        self
+    }
+
+    /// The base-2 logarithm of the maximum size of the window that a client can use to compress
+    /// its messages, from 9 (512 bytes) to 15 (32 KiB). A value out of this range is brought back
+    /// to it. A smaller window uses less memory on the client, but its messages are less
+    /// compressed. This doesn't reduce the memory used by the server to decompress them.
+    ///
+    /// This has no effect on a client that doesn't declare to support it in its offer.
+    /// A client that asks for a smaller window than this one will use its own.
+    ///
+    /// Defaults to 15.
+    pub fn client_max_window_bits(mut self, client_max_window_bits: u8) -> Self {
+        self.client_max_window_bits = client_max_window_bits.clamp(9, 15);
+        self
+    }
 }
 
 impl Default for EngineIoConfig {
@@ -102,6 +238,8 @@ impl Default for EngineIoConfig {
             ws_max_message_size: 64 << 20,
             ws_max_frame_size: 16 << 20,
             transports: TransportType::Polling as u8 | TransportType::Websocket as u8,
+            #[cfg(feature = "ws-deflate")]
+            ws_per_message_deflate: None,
         }
     }
 }
@@ -251,6 +389,16 @@ impl EngineIoConfigBuilder {
         for transport in transports {
             self.config.transports |= transport as u8;
         }
+        self
+    }
+
+    /// Enable the `permessage-deflate` websocket extension for the clients that offer it.
+    ///
+    /// It is disabled by default. See [`PerMessageDeflateConfig`] for its costs.
+    #[cfg(feature = "ws-deflate")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "ws-deflate")))]
+    pub fn ws_per_message_deflate(mut self, config: PerMessageDeflateConfig) -> Self {
+        self.config.ws_per_message_deflate = Some(config);
         self
     }
 

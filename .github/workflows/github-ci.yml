@@ -159,6 +159,10 @@ jobs:
     strategy:
       matrix:
         engineio-version: [v3, v4]
+        ws-deflate: [false, true]
+    env:
+      E2E_WS_DEFLATE: ${{ matrix.ws-deflate }}
+      FEATURES: ${{ matrix.engineio-version }}${{ matrix.ws-deflate && ',ws-deflate' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -178,8 +182,8 @@ jobs:
       - name: Install deps & run tests
         run: |
           cd e2e/engineioxide/test-suites && npm install && cd ../../..
-          cargo build -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r
-          cargo run -p engineioxide-e2e --bin engineioxide-e2e -F ${{ matrix.engineio-version }} -r > server.txt && sleep 1 & \
+          cargo build -p engineioxide-e2e --bin engineioxide-e2e -F $FEATURES -r
+          cargo run -p engineioxide-e2e --bin engineioxide-e2e -F $FEATURES -r > server.txt && sleep 1 & \
           node --test --test-reporter=spec --experimental-strip-types e2e/engineioxide/test-suites/${{ matrix.engineio-version }}.ts > client.txt
       - name: Server output
         if: always()
@@ -194,6 +198,10 @@ jobs:
     strategy:
       matrix:
         socketio-version: [v4, v5, v5-msgpack]
+        ws-deflate: [false, true]
+    env:
+      E2E_WS_DEFLATE: ${{ matrix.ws-deflate }}
+      DEFLATE_FEATURE: ${{ matrix.ws-deflate && 'ws-deflate' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -214,8 +222,8 @@ jobs:
           PARSER=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f2 -s)
           VERSION=$(echo ${{ matrix.socketio-version }} | cut -d'-' -f1)
           cd e2e/socketioxide/test-suites && npm install && cd ../../..
-          cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r
-          cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER -r > server.txt && sleep 1 & \
+          cargo build -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER,$DEFLATE_FEATURE -r
+          cargo run -p socketioxide-e2e --bin socketioxide-e2e -F $VERSION,$PARSER,$DEFLATE_FEATURE -r > server.txt && sleep 1 & \
           node --test --test-reporter=spec --experimental-strip-types e2e/socketioxide/test-suites/${{ matrix.socketio-version }}.ts > client.txt
       - name: Server output
         if: always()

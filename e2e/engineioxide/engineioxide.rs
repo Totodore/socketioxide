@@ -49,13 +49,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = EngineIoConfig::builder()
+    #[allow(unused_mut)]
+    let mut builder = EngineIoConfig::builder()
         .ping_interval(Duration::from_millis(300))
         .ping_timeout(Duration::from_millis(200))
-        .max_payload(1e6 as u64)
-        .build();
+        .max_payload(1e6 as u64);
 
-    let svc = EngineIoService::with_config(Arc::new(MyHandler), config);
+    // The packets of the test suite are small, so the threshold must be 0 to compress them.
+    #[cfg(feature = "ws-deflate")]
+    {
+        builder = builder.ws_per_message_deflate(
+            engineioxide::config::PerMessageDeflateConfig::default().threshold(0),
+        );
+    };
+
+    let svc = EngineIoService::with_config(Arc::new(MyHandler), builder.build());
 
     let listener = TcpListener::bind("127.0.0.1:3000").await?;
 

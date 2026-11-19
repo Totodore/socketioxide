@@ -69,6 +69,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.with_parser(socketioxide::ParserConfig::msgpack());
     };
 
+    // The packets of the test suite are small, so the threshold must be 0 to compress them.
+    #[cfg(feature = "ws-deflate")]
+    {
+        builder = builder
+            .ws_per_message_deflate(socketioxide::PerMessageDeflateConfig::default().threshold(0));
+    };
+
     let (svc, io) = builder.build_svc();
 
     io.ns("/", on_connect);

@@ -7,6 +7,7 @@ import {
   sleep,
   waitForEvent,
   waitForMessage,
+  sendFlushed,
   WebSocketStream,
   WS_URL,
   POLLING_URL,
@@ -347,7 +348,7 @@ describe("Engine.IO protocol", () => {
 
       await waitForEvent(socket, "open");
       socket.send("2probe");
-      socket.send("5");
+      await sendFlushed(socket, "5");
 
       const pollResponse = await fetch(
         `${POLLING_URL}/socket.io/?EIO=4&transport=polling&sid=${sid}`,
@@ -387,7 +388,7 @@ describe("Engine.IO protocol", () => {
 
       await waitForEvent(socket, "open");
       socket.send("2probe");
-      socket.send("5");
+      await sendFlushed(socket, "5");
 
       const socket2 = new WebSocketStream(
         `${WS_URL}/socket.io/?EIO=4&transport=websocket&sid=${sid}`,
